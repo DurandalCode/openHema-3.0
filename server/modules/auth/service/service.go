@@ -22,35 +22,26 @@ func New(repo domain.Repository, tokens *jwt.Manager) *Service {
 	return &Service{repo: repo, tokens: tokens}
 }
 
-// Register создаёт пользователя, хеширует пароль и выпускает токены.
+// Register создаёт пользователя (роль user), хеширует пароль и выпускает токены.
 func (s *Service) Register(ctx context.Context, email, password, displayName string) (domain.User, jwt.Pair, error) {
 	email = normalizeEmail(email)
 	if email == "" || password == "" {
 		return domain.User{}, jwt.Pair{}, domain.ErrInvalidCredentials
 	}
 
-	hash, err := crypto.HashPassword(password)
-	if err != nil {
-		return domain.User{}, jwt.Pair{}, fmt.Errorf("hash password: %w", err)
-	}
-
-	user, err := s.repo.CreateUser(ctx, domain.NewUser{
-		Email:        email,
-		PasswordHash: hash,
-		DisplayName:  displayName,
-	})
+	user, err := s.createUser(ctx, email, password, displayName, domain.RoleUser)
 	if err != nil {
 		return domain.User{}, jwt.Pair{}, err
 	}
 
-	pair, err := s.tokens.Issue(user.ID)
+	pair, err := s.tokens.Issue(user.ID, string(user.Role))
 	if err != nil {
 		return domain.User{}, jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
 	}
 	return user, pair, nil
 }
 
-// Login проверяет учётные данные и выпускает токены.
+// Login проверяет учётные данные и выпускает токены с актуальной ролью из БД.
 func (s *Service) Login(ctx context.Context, email, password string) (domain.User, jwt.Pair, error) {
 	email = normalizeEmail(email)
 
@@ -65,7 +56,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (domain.Use
 		return domain.User{}, jwt.Pair{}, domain.ErrInvalidCredentials
 	}
 
-	pair, err := s.tokens.Issue(user.ID)
+	pair, err := s.tokens.Issue(user.ID, string(user.Role))
 	if err != nil {
 		return domain.User{}, jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
 	}
@@ -73,16 +64,17 @@ func (s *Service) Login(ctx context.Context, email, password string) (domain.Use
 }
 
 // Refresh обменивает валидный refresh-токен на новую пару токенов.
+// Роль берётся из БД (а не из refresh-клейма), чтобы учесть её изменение.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (jwt.Pair, error) {
 	claims, err := s.tokens.ParseRefresh(refreshToken)
 	if err != nil {
 		return jwt.Pair{}, domain.ErrInvalidCredentials
 	}
-	// Убеждаемся, что пользователь ещё существует.
-	if _, err := s.repo.GetUserByID(ctx, claims.UserID); err != nil {
+	user, err := s.repo.GetUserByID(ctx, claims.UserID)
+	if err != nil {
 		return jwt.Pair{}, domain.ErrInvalidCredentials
 	}
-	pair, err := s.tokens.Issue(claims.UserID)
+	pair, err := s.tokens.Issue(user.ID, string(user.Role))
 	if err != nil {
 		return jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
 	}
@@ -96,6 +88,24 @@ func (s *Service) Me(ctx context.Context, accessToken string) (domain.User, erro
 		return domain.User{}, domain.ErrInvalidCredentials
 	}
 	return s.repo.GetUserByID(ctx, claims.UserID)
+}
+
+// createUser хеширует пароль и делегирует вставку репозиторию.
+func (s *Service) createUser(ctx context.Context, email, password, displayName string, role domain.Role) (domain.User, error) {
+	hash, err := crypto.HashPassword(password)
+	if err != nil {
+		return domain.User{}, fmt.Errorf("hash password: %w", err)
+	}
+	user, err := s.repo.CreateUser(ctx, domain.NewUser{
+		Email:        email,
+		PasswordHash: hash,
+		DisplayName:  displayName,
+		Role:         role,
+	})
+	if err != nil {
+		return domain.User{}, err
+	}
+	return user, nil
 }
 
 func normalizeEmail(email string) string {

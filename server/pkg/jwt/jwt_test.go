@@ -11,7 +11,7 @@ func testManager() *Manager {
 
 func TestIssue_BothTokens(t *testing.T) {
 	m := testManager()
-	pair, err := m.Issue("user-123")
+	pair, err := m.Issue("user-123", "admin")
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestIssue_BothTokens(t *testing.T) {
 
 func TestParseAccess_Valid(t *testing.T) {
 	m := testManager()
-	pair, _ := m.Issue("user-123")
+	pair, _ := m.Issue("user-123", "admin")
 
 	claims, err := m.ParseAccess(pair.Access)
 	if err != nil {
@@ -37,6 +37,9 @@ func TestParseAccess_Valid(t *testing.T) {
 	if claims.UserID != "user-123" {
 		t.Errorf("UserID = %q, want %q", claims.UserID, "user-123")
 	}
+	if claims.Role != "admin" {
+		t.Errorf("Role = %q, want %q", claims.Role, "admin")
+	}
 	if claims.Type != AccessToken {
 		t.Errorf("Type = %q, want %q", claims.Type, AccessToken)
 	}
@@ -44,7 +47,7 @@ func TestParseAccess_Valid(t *testing.T) {
 
 func TestParseRefresh_Valid(t *testing.T) {
 	m := testManager()
-	pair, _ := m.Issue("user-123")
+	pair, _ := m.Issue("user-123", "admin")
 
 	claims, err := m.ParseRefresh(pair.Refresh)
 	if err != nil {
@@ -53,6 +56,9 @@ func TestParseRefresh_Valid(t *testing.T) {
 	if claims.UserID != "user-123" {
 		t.Errorf("UserID = %q, want %q", claims.UserID, "user-123")
 	}
+	if claims.Role != "" {
+		t.Errorf("refresh token should not carry role, got %q", claims.Role)
+	}
 	if claims.Type != RefreshToken {
 		t.Errorf("Type = %q, want %q", claims.Type, RefreshToken)
 	}
@@ -60,7 +66,7 @@ func TestParseRefresh_Valid(t *testing.T) {
 
 func TestParseAccess_RefreshTokenRejected(t *testing.T) {
 	m := testManager()
-	pair, _ := m.Issue("user-123")
+	pair, _ := m.Issue("user-123", "admin")
 
 	_, err := m.ParseAccess(pair.Refresh)
 	if err == nil {
@@ -70,7 +76,7 @@ func TestParseAccess_RefreshTokenRejected(t *testing.T) {
 
 func TestParseRefresh_AccessTokenRejected(t *testing.T) {
 	m := testManager()
-	pair, _ := m.Issue("user-123")
+	pair, _ := m.Issue("user-123", "admin")
 
 	_, err := m.ParseRefresh(pair.Access)
 	if err == nil {
@@ -82,7 +88,7 @@ func TestParseAccess_WrongSecret(t *testing.T) {
 	m1 := NewManager("secret-a", "secret-a", 15*time.Minute, 720*time.Hour)
 	m2 := NewManager("secret-b", "secret-b", 15*time.Minute, 720*time.Hour)
 
-	pair, _ := m1.Issue("user-123")
+	pair, _ := m1.Issue("user-123", "admin")
 	if _, err := m2.ParseAccess(pair.Access); err == nil {
 		t.Error("token signed with secret-a should not validate with secret-b")
 	}
@@ -90,7 +96,7 @@ func TestParseAccess_WrongSecret(t *testing.T) {
 
 func TestParseAccess_Expired(t *testing.T) {
 	m := NewManager("s", "s", -1*time.Second, -1*time.Second)
-	pair, _ := m.Issue("user-123")
+	pair, _ := m.Issue("user-123", "admin")
 
 	if _, err := m.ParseAccess(pair.Access); err == nil {
 		t.Error("expired token should not validate")

@@ -24,6 +24,7 @@ type App struct {
 }
 
 // New строит приложение: пул БД, менеджер токенов, регистрация модулей.
+// Также запускает бутстрап первого админа из env-кредов (идемпотентен).
 func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error) {
 	pool, err := pgxutil.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -37,10 +38,16 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		cfg.JWTRefreshTTL,
 	)
 
-	interceptors := connect.WithInterceptors(
-		connectutil.Recovery(log),
-		connectutil.Logging(log),
-	)
+	baseOpts := []connect.HandlerOption{
+		connect.WithInterceptors(
+			connectutil.Recovery(log),
+			connectutil.Logging(log),
+			connectutil.Auth(tokens),
+		),
+	}
+	adminOpts := []connect.HandlerOption{
+		connect.WithInterceptors(connectutil.RequireAdmin()),
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +56,15 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	})
 
 	// ── Регистрация модулей монолита ─────────────────────────────
-	auth.Register(mux, auth.Deps{Pool: pool, Tokens: tokens}, interceptors)
+	deps := auth.Deps{Pool: pool, Tokens: tokens}
+	auth.Register(mux, deps, baseOpts, adminOpts)
+
+	// ── Бутстрап первого админа (до начала приёма запросов) ───────
+	auth.Bootstrap(ctx, deps, log,
+		cfg.BootstrapAdminEmail,
+		cfg.BootstrapAdminPassword,
+		cfg.BootstrapAdminDisplayName,
+	)
 
 	return &App{Handler: mux, pool: pool}, nil
 }

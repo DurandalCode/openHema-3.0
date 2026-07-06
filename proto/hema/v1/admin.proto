@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "hema/v1/common.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// AdminService — управление пользователями. Все RPC требуют роль ADMIN
+// (проверяется серверным интерсептором RequireAdmin).
+service AdminService {
+  // CreateAdmin создаёт нового пользователя с ролью ADMIN.
+  // Созданный админ самостоятельно логинится через AuthService.Login.
+  rpc CreateAdmin(CreateAdminRequest) returns (CreateAdminResponse);
+  // ListAdmins возвращает всех пользователей с ролью ADMIN.
+  rpc ListAdmins(ListAdminsRequest) returns (ListAdminsResponse);
+  // ListUsers возвращает всех пользователей (с постраничной навигацией).
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // PromoteUser повышает роль пользователя до ADMIN.
+  rpc PromoteUser(PromoteUserRequest) returns (PromoteUserResponse);
+  // DemoteUser понижает роль ADMIN до USER. Нельзя понизить себя и
+  // нельзя понизить последнего оставшегося админа.
+  rpc DemoteUser(DemoteUserRequest) returns (DemoteUserResponse);
+}
+
+message CreateAdminRequest {
+  string email = 1;
+  string password = 2;
+  string display_name = 3;
+}
+
+message CreateAdminResponse {
+  User user = 1;
+}
+
+message ListAdminsRequest {}
+
+message ListAdminsResponse {
+  repeated User admins = 1;
+}
+
+message ListUsersRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message PromoteUserRequest {
+  string user_id = 1;
+}
+
+message PromoteUserResponse {
+  User user = 1;
+}
+
+message DemoteUserRequest {
+  string user_id = 1;
+}
+
+message DemoteUserResponse {
+  User user = 1;
+}

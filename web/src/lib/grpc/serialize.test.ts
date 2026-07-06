@@ -7,6 +7,7 @@ type UserJson = {
   id: string;
   email: string;
   displayName: string;
+  role: string;
   createdAt: string;
 };
 
@@ -16,6 +17,7 @@ describe("userToJson", () => {
       id: "user-123",
       email: "knight@hema.test",
       displayName: "Sir Test",
+      role: "ROLE_ADMIN",
       createdAt: "2026-01-01T00:00:00Z",
     });
 
@@ -25,6 +27,7 @@ describe("userToJson", () => {
     expect(json.id).toBe("user-123");
     expect(json.email).toBe("knight@hema.test");
     expect(json.displayName).toBe("Sir Test");
+    expect(json.role).toBe("ROLE_ADMIN");
     expect(json.createdAt).toBe("2026-01-01T00:00:00Z");
   });
 

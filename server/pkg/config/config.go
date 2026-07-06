@@ -18,17 +18,28 @@ type Config struct {
 	JWTRefreshSecret string
 	JWTAccessTTL     time.Duration
 	JWTRefreshTTL    time.Duration
+
+	// BootstrapAdmin — креды для создания первого админа при старте сервера.
+	// Все поля необязательны: если email или password пусты, бутстрап пропускается.
+	// После первого входа админа рекомендуется ротировать пароль и убрать
+	// эти переменные из окружения.
+	BootstrapAdminEmail       string
+	BootstrapAdminPassword    string
+	BootstrapAdminDisplayName string
 }
 
 // Load собирает Config из окружения, применяя разумные значения по умолчанию
 // для необязательных полей. Возвращает ошибку, если обязательное поле пусто.
 func Load() (Config, error) {
 	cfg := Config{
-		ServerHost:       env("SERVER_HOST", "0.0.0.0"),
-		ServerPort:       env("SERVER_PORT", "8080"),
-		DatabaseURL:      env("DATABASE_URL", ""),
-		JWTAccessSecret:  env("JWT_ACCESS_SECRET", ""),
-		JWTRefreshSecret: env("JWT_REFRESH_SECRET", ""),
+		ServerHost:                env("SERVER_HOST", "0.0.0.0"),
+		ServerPort:                env("SERVER_PORT", "8080"),
+		DatabaseURL:               env("DATABASE_URL", ""),
+		JWTAccessSecret:           env("JWT_ACCESS_SECRET", ""),
+		JWTRefreshSecret:          env("JWT_REFRESH_SECRET", ""),
+		BootstrapAdminEmail:       env("BOOTSTRAP_ADMIN_EMAIL", ""),
+		BootstrapAdminPassword:    env("BOOTSTRAP_ADMIN_PASSWORD", ""),
+		BootstrapAdminDisplayName: env("BOOTSTRAP_ADMIN_DISPLAY_NAME", "Admin"),
 	}
 
 	accessTTL, err := time.ParseDuration(env("JWT_ACCESS_TTL", "15m"))

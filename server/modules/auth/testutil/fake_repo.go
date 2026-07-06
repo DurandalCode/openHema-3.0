@@ -40,10 +40,16 @@ func (r *FakeRepo) CreateUser(_ context.Context, u domain.NewUser) (domain.User,
 		return domain.User{}, domain.ErrUserExists
 	}
 
+	role := u.Role
+	if role == "" {
+		role = domain.RoleUser
+	}
+
 	user := domain.User{
 		ID:          uuid.NewString(),
 		Email:       u.Email,
 		DisplayName: u.DisplayName,
+		Role:        role,
 		CreatedAt:   time.Now().UTC(),
 	}
 	r.users[u.Email] = storedUser{user: user, passwordHash: u.PasswordHash}
@@ -69,6 +75,69 @@ func (r *FakeRepo) GetUserByID(_ context.Context, id string) (domain.User, error
 
 	for _, su := range r.users {
 		if su.user.ID == id {
+			return su.user, nil
+		}
+	}
+	return domain.User{}, domain.ErrUserNotFound
+}
+
+// CountAdmins возвращает количество пользователей с ролью admin.
+func (r *FakeRepo) CountAdmins(_ context.Context) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	n := 0
+	for _, su := range r.users {
+		if su.user.Role == domain.RoleAdmin {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ListAdmins возвращает всех администраторов.
+func (r *FakeRepo) ListAdmins(_ context.Context) ([]domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.User, 0)
+	for _, su := range r.users {
+		if su.user.Role == domain.RoleAdmin {
+			out = append(out, su.user)
+		}
+	}
+	return out, nil
+}
+
+// ListUsers возвращает пользователей с постраничной навигацией.
+func (r *FakeRepo) ListUsers(_ context.Context, p domain.ListParams) ([]domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	all := make([]domain.User, 0, len(r.users))
+	for _, su := range r.users {
+		all = append(all, su.user)
+	}
+
+	if p.Offset >= int32(len(all)) {
+		return []domain.User{}, nil
+	}
+	end := p.Offset + p.Limit
+	if end > int32(len(all)) || p.Limit == 0 {
+		end = int32(len(all))
+	}
+	return all[p.Offset:end], nil
+}
+
+// SetUserRole обновляет роль пользователя. Если пользователь не найден → ErrUserNotFound.
+func (r *FakeRepo) SetUserRole(_ context.Context, id string, role domain.Role) (domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for key, su := range r.users {
+		if su.user.ID == id {
+			su.user.Role = role
+			r.users[key] = su
 			return su.user, nil
 		}
 	}
