@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// User — публичное представление пользователя (без пароля).
+message User {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// TokenPair — пара JWT: короткоживущий access и долгоживущий refresh.
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+}

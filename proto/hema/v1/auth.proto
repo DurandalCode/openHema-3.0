@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "hema/v1/common.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// AuthService — аутентификация и управление сессией.
+service AuthService {
+  // Register создаёт нового пользователя и возвращает его вместе с токенами.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Login проверяет учётные данные и выдаёт пару токенов.
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // Refresh обменивает refresh-токен на новую пару токенов.
+  rpc Refresh(RefreshRequest) returns (RefreshResponse);
+  // Me возвращает текущего пользователя по access-токену (в метаданных).
+  rpc Me(MeRequest) returns (MeResponse);
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string display_name = 3;
+}
+
+message RegisterResponse {
+  User user = 1;
+  TokenPair tokens = 2;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  User user = 1;
+  TokenPair tokens = 2;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message RefreshResponse {
+  TokenPair tokens = 1;
+}
+
+message MeRequest {}
+
+message MeResponse {
+  User user = 1;
+}

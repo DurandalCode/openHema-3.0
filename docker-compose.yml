@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hema}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-hema}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hema} -d ${POSTGRES_DB:-hema}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Одноразовый прогон goose-миграций перед стартом сервера.
+  migrate:
+    build:
+      context: ./server
+    entrypoint: ["/bin/sh", "-c", "/app/goose -dir /app/migrations postgres \"$$DATABASE_URL\" up"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-hema}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-hema}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  server:
+    build:
+      context: ./server
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-hema}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-hema}?sslmode=disable
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-720h}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ./web
+    environment:
+      SERVER_GRPC_URL: http://server:8080
+      PORT: "3000"
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - server
+
+volumes:
+  pgdata:
