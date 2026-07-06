@@ -5,6 +5,8 @@
 package auth
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -24,11 +26,39 @@ type Deps struct {
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux.
-func Register(mux *http.ServeMux, deps Deps, opts ...connect.HandlerOption) {
+// baseOpts применяются к обоим сервисам (recovery/logging/auth);
+// adminOpts дополнительно накладываются на AdminService (require-admin).
+func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
 	svc := service.New(r, deps.Tokens)
-	handler := api.NewHandler(svc)
 
-	path, h := hemav1connect.NewAuthServiceHandler(handler, opts...)
-	mux.Handle(path, h)
+	authHandler := api.NewHandler(svc)
+	adminHandler := api.NewAdminHandler(svc)
+
+	authPath, authH := hemav1connect.NewAuthServiceHandler(authHandler, baseOpts...)
+	mux.Handle(authPath, authH)
+
+	adminAll := make([]connect.HandlerOption, 0, len(baseOpts)+len(adminOpts))
+	adminAll = append(adminAll, baseOpts...)
+	adminAll = append(adminAll, adminOpts...)
+	adminPath, adminH := hemav1connect.NewAdminServiceHandler(adminHandler, adminAll...)
+	mux.Handle(adminPath, adminH)
+}
+
+// Bootstrap создаёт первого админа из переданных кредов, если в системе
+// ещё нет ни одного администратора. Идемпотентен. Логирует результат.
+// Вызывается composition root'ом (internal/platform) при старте сервера.
+func Bootstrap(ctx context.Context, deps Deps, log *slog.Logger, email, password, displayName string) {
+	r := repo.New(deps.Pool)
+	svc := service.New(r, deps.Tokens)
+
+	created, err := svc.BootstrapAdmin(ctx, email, password, displayName)
+	switch {
+	case err != nil:
+		log.Error("bootstrap admin failed", "err", err)
+	case created:
+		log.Info("bootstrap admin created", "email", email)
+	default:
+		log.Info("bootstrap admin skipped", "reason", "admins exist or no credentials")
+	}
 }

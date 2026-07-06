@@ -13,32 +13,48 @@ import (
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
 	"github.com/hema/server/modules/auth/service"
 	"github.com/hema/server/modules/auth/testutil"
+	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
 )
 
-// setup поднимает реальный Connect-хендлер с fake-репозиторием и возвращает
-// типобезопасный клиент, ходящий через HTTP на тестовый сервер.
-func setup(t *testing.T) (hemav1connect.AuthServiceClient, *testutil.FakeRepo) {
+// setup поднимает реальные Connect-хендлеры с fake-репозиторием и возвращает
+// типобезопасные клиенты для AuthService и AdminService, ходящие через HTTP
+// на тестовый сервер. Interceptor-конфигурация повторяет прод-сетап:
+// глобально Auth (валидация Bearer-токена), на AdminService — RequireAdmin.
+func setup(t *testing.T) (hemav1connect.AuthServiceClient, hemav1connect.AdminServiceClient, *testutil.FakeRepo) {
 	t.Helper()
 
 	repo := testutil.NewFakeRepo()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
 	svc := service.New(repo, tokens)
-	handler := NewHandler(svc)
+	authHandler := NewHandler(svc)
+	adminHandler := NewAdminHandler(svc)
 
-	path, h := hemav1connect.NewAuthServiceHandler(handler)
+	baseOpts := []connect.HandlerOption{
+		connect.WithInterceptors(connectutil.Auth(tokens)),
+	}
+	adminOpts := []connect.HandlerOption{
+		connect.WithInterceptors(connectutil.RequireAdmin()),
+	}
+
+	authPath, authH := hemav1connect.NewAuthServiceHandler(authHandler, baseOpts...)
+	adminPath, adminH := hemav1connect.NewAdminServiceHandler(adminHandler, append(baseOpts, adminOpts...)...)
+
 	mux := http.NewServeMux()
-	mux.Handle(path, h)
+	mux.Handle(authPath, authH)
+	mux.Handle(adminPath, adminH)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
-	client := hemav1connect.NewAuthServiceClient(server.Client(), server.URL)
-	return client, repo
+	client := server.Client()
+	authClient := hemav1connect.NewAuthServiceClient(client, server.URL)
+	adminClient := hemav1connect.NewAdminServiceClient(client, server.URL)
+	return authClient, adminClient, repo
 }
 
 func TestRegister_E2E(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	res, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:       "e2e@hema.test",
@@ -67,7 +83,7 @@ func TestRegister_E2E(t *testing.T) {
 }
 
 func TestRegister_E2E_DuplicateReturnsAlreadyExists(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	_, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "dup@hema.test",
@@ -87,7 +103,7 @@ func TestRegister_E2E_DuplicateReturnsAlreadyExists(t *testing.T) {
 }
 
 func TestLogin_E2E(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	_, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "login@hema.test",
@@ -113,7 +129,7 @@ func TestLogin_E2E(t *testing.T) {
 }
 
 func TestLogin_E2E_WrongPasswordReturnsUnauthenticated(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	_, _ = client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "login@hema.test",
@@ -130,7 +146,7 @@ func TestLogin_E2E_WrongPasswordReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestLogin_E2E_NonexistentUserReturnsUnauthenticated(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	_, err := client.Login(context.Background(), connect.NewRequest(&hemav1.LoginRequest{
 		Email:    "ghost@hema.test",
@@ -142,7 +158,7 @@ func TestLogin_E2E_NonexistentUserReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestMe_E2E(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	regRes, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:       "me@hema.test",
@@ -163,10 +179,13 @@ func TestMe_E2E(t *testing.T) {
 	if res.Msg.User.Email != "me@hema.test" {
 		t.Errorf("Email = %q", res.Msg.User.Email)
 	}
+	if res.Msg.User.Role != hemav1.Role_ROLE_USER {
+		t.Errorf("Role = %v, want ROLE_USER", res.Msg.User.Role)
+	}
 }
 
 func TestMe_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	_, err := client.Me(context.Background(), connect.NewRequest(&hemav1.MeRequest{}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
@@ -175,7 +194,7 @@ func TestMe_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestMe_E2E_GarbageTokenReturnsUnauthenticated(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	req := connect.NewRequest(&hemav1.MeRequest{})
 	req.Header().Set("Authorization", "Bearer garbage")
@@ -186,7 +205,7 @@ func TestMe_E2E_GarbageTokenReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestRefresh_E2E(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	regRes, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "refresh@hema.test",
@@ -208,7 +227,7 @@ func TestRefresh_E2E(t *testing.T) {
 }
 
 func TestRefresh_E2E_InvalidTokenReturnsUnauthenticated(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	_, err := client.Refresh(context.Background(), connect.NewRequest(&hemav1.RefreshRequest{
 		RefreshToken: "garbage",
@@ -219,7 +238,7 @@ func TestRefresh_E2E_InvalidTokenReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestRefresh_E2E_AccessTokenRejected(t *testing.T) {
-	client, _ := setup(t)
+	client, _, _ := setup(t)
 
 	regRes, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "rt@hema.test",

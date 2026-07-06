@@ -10,7 +10,7 @@ vi.mock("@/lib/grpc/client", () => ({
 }));
 
 import { MeResponseSchema } from "@/gen/hema/v1/auth_pb";
-import { UserSchema } from "@/gen/hema/v1/common_pb";
+import { Role, UserSchema } from "@/gen/hema/v1/common_pb";
 import { authClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { getCurrentUser } from "./get-current-user";
@@ -35,6 +35,7 @@ describe("getCurrentUser", () => {
           id: "u1",
           email: "ivan@example.com",
           displayName: "Иван",
+          role: Role.USER,
           createdAt: create(TimestampSchema, {
             seconds: 1_700_000_000n,
             nanos: 0,
@@ -47,6 +48,7 @@ describe("getCurrentUser", () => {
       id: "u1",
       email: "ivan@example.com",
       displayName: "Иван",
+      role: "ROLE_USER",
       createdAt: "2023-11-14T22:13:20.000Z",
     });
   });
@@ -85,11 +87,52 @@ describe("getCurrentUser", () => {
           id: "u1",
           email: "ivan@example.com",
           displayName: "Иван",
+          role: Role.USER,
         }),
       }),
     );
 
     const user = await getCurrentUser();
     expect(user?.createdAt).toBe("");
+  });
+
+  it("preserves ROLE_ADMIN for admin user", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("token-abc");
+    vi.mocked(authClient.me).mockResolvedValue(
+      create(MeResponseSchema, {
+        user: create(UserSchema, {
+          id: "a1",
+          email: "admin@hema.test",
+          displayName: "Admin",
+          role: Role.ADMIN,
+          createdAt: create(TimestampSchema, { seconds: 0n, nanos: 0 }),
+        }),
+      }),
+    );
+
+    expect(await getCurrentUser()).toEqual({
+      id: "a1",
+      email: "admin@hema.test",
+      displayName: "Admin",
+      role: "ROLE_ADMIN",
+      createdAt: "1970-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("normalizes unknown role to ROLE_UNSPECIFIED", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("token-abc");
+    vi.mocked(authClient.me).mockResolvedValue(
+      create(MeResponseSchema, {
+        user: create(UserSchema, {
+          id: "u1",
+          email: "ivan@example.com",
+          displayName: "Иван",
+          role: undefined,
+        }),
+      }),
+    );
+
+    const user = await getCurrentUser();
+    expect(user?.role).toBe("ROLE_UNSPECIFIED");
   });
 });

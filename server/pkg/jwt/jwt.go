@@ -23,6 +23,7 @@ var ErrInvalidToken = errors.New("jwt: invalid token")
 // Claims — полезная нагрузка токена.
 type Claims struct {
 	UserID string    `json:"uid"`
+	Role   string    `json:"rol,omitempty"`
 	Type   TokenType `json:"typ"`
 	jwt.RegisteredClaims
 }
@@ -51,13 +52,14 @@ type Pair struct {
 	Refresh string
 }
 
-// Issue выпускает пару access+refresh для указанного пользователя.
-func (m *Manager) Issue(userID string) (Pair, error) {
-	access, err := m.sign(userID, AccessToken, m.accessSecret, m.accessTTL)
+// Issue выпускает пару access+refresh для указанного пользователя с заданной ролью.
+// Роль попадает только в access-токен (refresh не несёт авторизационного смысла).
+func (m *Manager) Issue(userID, role string) (Pair, error) {
+	access, err := m.sign(userID, role, AccessToken, m.accessSecret, m.accessTTL)
 	if err != nil {
 		return Pair{}, err
 	}
-	refresh, err := m.sign(userID, RefreshToken, m.refreshSecret, m.refreshTTL)
+	refresh, err := m.sign(userID, "", RefreshToken, m.refreshSecret, m.refreshTTL)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -74,10 +76,11 @@ func (m *Manager) ParseRefresh(token string) (*Claims, error) {
 	return m.parse(token, RefreshToken, m.refreshSecret)
 }
 
-func (m *Manager) sign(userID string, typ TokenType, secret []byte, ttl time.Duration) (string, error) {
+func (m *Manager) sign(userID, role string, typ TokenType, secret []byte, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		UserID: userID,
+		Role:   role,
 		Type:   typ,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,

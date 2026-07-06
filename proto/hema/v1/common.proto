@@ -6,12 +6,20 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
 
+// Role — роль пользователя в системе.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_USER = 1;
+  ROLE_ADMIN = 2;
+}
+
 // User — публичное представление пользователя (без пароля).
 message User {
   string id = 1;
   string email = 2;
   string display_name = 3;
   google.protobuf.Timestamp created_at = 4;
+  Role role = 5;
 }
 
 // TokenPair — пара JWT: короткоживущий access и долгоживущий refresh.

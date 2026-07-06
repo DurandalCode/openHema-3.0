@@ -33,6 +33,14 @@ export async function Navbar() {
                 {item.title}
               </a>
             ))}
+            {user?.role === "ROLE_ADMIN" && (
+              <a
+                href="/admin"
+                className="font-medium text-foreground transition-colors hover:text-primary"
+              >
+                Админка
+              </a>
+            )}
           </nav>
         </div>
 

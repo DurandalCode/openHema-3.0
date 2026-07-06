@@ -96,6 +96,18 @@ func toProtoUser(u domain.User) *hemav1.User {
 		Email:       u.Email,
 		DisplayName: u.DisplayName,
 		CreatedAt:   timestamppb.New(u.CreatedAt),
+		Role:        toProtoRole(u.Role),
+	}
+}
+
+func toProtoRole(r domain.Role) hemav1.Role {
+	switch r {
+	case domain.RoleAdmin:
+		return hemav1.Role_ROLE_ADMIN
+	case domain.RoleUser:
+		return hemav1.Role_ROLE_USER
+	default:
+		return hemav1.Role_ROLE_UNSPECIFIED
 	}
 }
 
@@ -115,6 +127,8 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeUnauthenticated, err)
 	case errors.Is(err, domain.ErrUserNotFound):
 		return connect.NewError(connect.CodeUnauthenticated, domain.ErrInvalidCredentials)
+	case errors.Is(err, domain.ErrForbidden):
+		return connect.NewError(connect.CodePermissionDenied, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

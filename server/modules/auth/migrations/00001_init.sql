@@ -7,10 +7,13 @@ CREATE TABLE auth.users (
     email         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     display_name  TEXT NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    role          TEXT NOT NULL DEFAULT 'user',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_users_role CHECK (role IN ('user', 'admin'))
 );
 
 CREATE INDEX idx_users_email ON auth.users (email);
+CREATE INDEX idx_users_admin ON auth.users (role) WHERE role = 'admin';
 -- +goose StatementEnd
 
 -- +goose Down
