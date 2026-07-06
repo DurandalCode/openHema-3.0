@@ -1,0 +1,27 @@
+# secrets / local env
+.env
+*.local
+
+# Go
+/server/bin/
+*.test
+*.out
+
+# Сгенерированный код (НЕ коммитим — генерится из proto/sql через make).
+# См. docs/adr/0004-no-generated-in-repo.md
+/server/gen/
+/server/modules/*/repo/sqlc/
+
+# Node / Next
+node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/src/gen/
+.pnpm-store/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

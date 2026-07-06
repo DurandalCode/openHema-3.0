@@ -1,0 +1,236 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Отменяем прошлый запуск того же PR/ветки при новом push.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Определение изменённых частей репо (path filter).
+  # ──────────────────────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      web: ${{ steps.filter.outputs.web }}
+      proto: ${{ steps.filter.outputs.proto }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            server:
+              - 'server/**'
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
+            proto:
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+  # ──────────────────────────────────────────────────────────────
+  # proto: buf lint + buf breaking (только при изменении proto/).
+  # ──────────────────────────────────────────────────────────────
+  proto-lint:
+    needs: changes
+    if: needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # полный history для buf breaking
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: buf lint
+        working-directory: proto
+        run: buf lint
+      - name: Ensure local main branch (for breaking check)
+        if: github.event_name == 'pull_request'
+        run: git fetch origin main:main
+      - name: buf breaking (against main)
+        # Проверка обратной совместимости против ветки main.
+        # `.git` — в корне репо, поэтому `../.git` (working-directory = proto).
+        # `continue-on-error` временно, пока main пустой — убери после первого merge.
+        # На push в main — пропускаем (нечего сравнивать с самим собой).
+        if: github.event_name == 'pull_request'
+        working-directory: proto
+        run: buf breaking --against '../.git#branch=main,subdir=proto'
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────────────────────
+  # server: build / vet / test — отдельными кубиками.
+  # Запускаются при изменении server/** или proto/** (нужна регенерация).
+  # ──────────────────────────────────────────────────────────────
+  server-build:
+    needs: changes
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto + sqlc)
+        run: |
+          make generate
+          make sqlc
+      - name: go build
+        working-directory: server
+        run: go build ./...
+
+  server-vet:
+    needs: changes
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto + sqlc)
+        run: |
+          make generate
+          make sqlc
+      - name: go vet
+        working-directory: server
+        run: go vet ./...
+
+  server-test:
+    needs: changes
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto + sqlc)
+        run: |
+          make generate
+          make sqlc
+      - name: go test
+        working-directory: server
+        run: go test -race ./...
+
+  # ──────────────────────────────────────────────────────────────
+  # web: test / tsc / eslint / build — отдельными кубиками.
+  # test/tsc/build запускаются при изменении web/** или proto/** (нужен gen).
+  # eslint — только при изменении web/** (gen не нужен).
+  # ──────────────────────────────────────────────────────────────
+  web-test:
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto → TS)
+        run: make generate
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: vitest
+        working-directory: web
+        run: pnpm test
+
+  web-tsc:
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto → TS)
+        run: make generate
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: tsc --noEmit
+        working-directory: web
+        run: pnpm exec tsc --noEmit
+
+  web-eslint:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: eslint
+        working-directory: web
+        run: pnpm lint
+
+  web-build:
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto → TS)
+        run: make generate
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: next build
+        working-directory: web
+        run: pnpm build
+        env:
+          SERVER_GRPC_URL: http://localhost:8080

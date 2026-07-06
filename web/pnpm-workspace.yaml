@@ -1,0 +1,11 @@
+# Настройки pnpm (в pnpm v10+ живут здесь, а не в package.json).
+#
+# sharp — опциональная зависимость Next.js для оптимизации изображений.
+# Мы её не используем. Явно указываем pnpm НЕ запускать её build-скрипт
+# (`sharp: false`), иначе `pnpm install --frozen-lockfile` на чистой машине
+# (в т.ч. в Docker) падает с ERR_PNPM_IGNORED_BUILDS.
+onlyBuiltDependencies: []
+allowBuilds:
+  sharp: false
+  esbuild: false
+  unrs-resolver: false
