@@ -1,19 +1,26 @@
 "use client";
 
+import { LogOutIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useLogout } from "@/features/auth/api/use-logout";
+import { Button } from "@/shared/ui/button";
 
 export function LogoutButton() {
   const router = useRouter();
-
-  async function onLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
+  const logout = useLogout(() => {
+    router.push("/");
     router.refresh();
-  }
+  });
 
   return (
-    <button onClick={onLogout} style={{ marginTop: 24 }}>
-      Выйти
-    </button>
+    <Button
+      variant="outline"
+      onClick={() => logout.mutate()}
+      disabled={logout.isPending}
+      className="mt-6 gap-2"
+    >
+      <LogOutIcon />
+      {logout.isPending ? "Выходим…" : "Выйти"}
+    </Button>
   );
 }
