@@ -20,6 +20,7 @@ cmd/server/          композит всех модулей (монолит)
 pkg/                 переиспользуемое БЕЗ бизнес-логики:
   config logger jwt crypto(argon2id) connectutil pgxutil
 internal/platform/   composition root (пул БД, токены, регистрация модулей)
+internal/testdb/     testcontainers Postgres + goose per-module (ADR 0010)
 modules/<name>/
   module.go          Register(mux, deps) — единая точка входа
   api/               Connect-хендлер, маппинг proto↔domain, ошибки→connect.Code
@@ -28,6 +29,7 @@ modules/<name>/
   repo/queries/*.sql источник для sqlc
   repo/sqlc/         generated (DO NOT EDIT)
   migrations/        goose, схема модуля
+  integration/       *_integration_test.go (//go:build integration, ADR 0010)
 gen/                 proto→Go (DO NOT EDIT)
 ```
 
@@ -43,12 +45,20 @@ gen/                 proto→Go (DO NOT EDIT)
 
 ## Тестирование
 
-См. `docs/adr/0003-testing.md` и `docs/conventions.md` (раздел «Тестирование»).
+См. `docs/adr/0003-testing.md`, `docs/adr/0010-e2e-integration-testing.md` и
+`docs/conventions.md` (раздел «Тестирование»).
 
 - **Юнит**: `pkg/*_test.go`, `modules/*/service/*_test.go` (с fake-репо).
-- **E2E ручек**: `modules/*/api/*_test.go` — `httptest` + Connect-клиент.
+- **E2E ручек**: `modules/*/api/*_test.go` — `httptest` + Connect-клиент
+  (fake-репозиторий, без БД).
+- **Интеграционные с БД** (build-tag `integration`):
+  `modules/*/integration/*_integration_test.go` — testcontainers Postgres +
+  полный Connect-путь через `httptest` server × real PG. Хелпер:
+  `internal/testdb`. Запуск: `make test-integration` (Docker).
 - **Fake-репозитории**: `modules/*/testutil/` — in-memory `domain.Repository`.
-- Каждый инкремент содержит тесты.
+- Каждый инкремент содержит тесты. Каждый модуль с PG-схемой обязан иметь
+  integration-тест (минимум: миграции применяются, seed читается, хотя бы один
+  публичный RPC через реальный Connect).
 
 ## Транспорт
 

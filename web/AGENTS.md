@@ -100,6 +100,18 @@ src/
 - Vitest для чистой логики: маппинг ошибок, сериализация proto→JSON,
   `getCurrentUser` (mock cookie + gRPC), auth fetchers (mock `globalThis.fetch`),
   zustand stores.
+- **BFF e2e-тесты** (`*.e2e.test.ts`, ADR 0010) — НЕ мокают `tournamentToJson`
+  и аналоги; реальный `toJson` по реальному proto-ответу, мок-транспорт
+  connect-es через `vi.stubGlobal("fetch", ...)`. Ловят proto3-omitted,
+  NaN-enum, round-trip опциональных timestamp'ов. Суффикс `.e2e.test.ts` для
+  читабельности; в `pnpm test` входят по умолчанию (дешёвые, без Docker).
+- Protobuf-моки: generated-типы (`User`, `MeResponse`, `Timestamp`, ...) имеют
+  brand `$typeName` от `Message<"...">`. Plain-объекты не присваиваются — `tsc`
+  в CI ловит `TS2322`/`TS2345`, даже если Vitest (transpile-only) проходит.
+  Используй `create(Schema, partial)` из `@bufbuild/protobuf` со сгенерированными
+  схемами (`UserSchema`, `MeResponseSchema`, `TimestampSchema` из
+  `@bufbuild/protobuf/wkt`). Локально всегда проверяй `pnpm exec tsc --noEmit`
+  после изменения тестов с protobuf-моками — `pnpm test`alone не ловит.
 - Скриншотные тесты намеренно не используем (см. ADR 0003).
 - Каждый инкремент UI/BFF-логики содержит тесты.
 

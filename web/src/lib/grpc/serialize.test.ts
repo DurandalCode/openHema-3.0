@@ -76,7 +76,7 @@ describe("tournamentToJson", () => {
     expect(json.emblemUrl).toBe("https://cdn/x.png");
     expect(json.isActive).toBe(true);
     expect(json.contacts).toEqual([
-      { id: "c1", type: "CONTACT_TYPE_TELEGRAM", value: "@org" },
+      { id: "c1", type: "CONTACT_TYPE_TELEGRAM", value: "@org", position: 0 },
     ]);
   });
 

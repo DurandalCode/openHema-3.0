@@ -126,6 +126,25 @@ jobs:
         working-directory: server
         run: go test -race ./...
 
+  # testcontainers-go поднимает Postgres сам (docker-демон уже есть на
+  # GitHub-раннере) — отдельный services: postgres не нужен. См. ADR 0010.
+  server-test-integration:
+    needs: changes
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto + sqlc)
+        run: |
+          make generate
+          make sqlc
+      - name: go test -tags=integration
+        run: make test-integration
+
   # ──────────────────────────────────────────────────────────────
   # web: test / tsc / eslint / build — отдельными кубиками.
   # test/tsc/build запускаются при изменении web/** или proto/** (нужен gen).

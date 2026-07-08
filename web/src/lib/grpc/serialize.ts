@@ -33,7 +33,9 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
     eventEndAt: raw.eventEndAt ?? "",
     emblemUrl: raw.emblemUrl ?? "",
     isActive: raw.isActive ?? false,
-    contacts: Array.isArray(raw.contacts) ? raw.contacts : [],
+    contacts: Array.isArray(raw.contacts)
+      ? raw.contacts.map((c) => ({ ...c, value: c.value ?? "", position: c.position ?? 0 }))
+      : [],
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
   };
