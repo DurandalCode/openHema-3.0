@@ -1,5 +1,8 @@
 import { Swords, Trophy } from "lucide-react";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
+import { Col, Row } from "@/shared/ui/stack";
 import type { ContactType, Tournament } from "@/entities/tournament/lib/types";
 
 const CONTACT_LABELS: Partial<Record<ContactType, string>> = {
@@ -45,13 +48,16 @@ export function TournamentHero({ tournament }: { tournament: Tournament | null }
       id="tournament"
       className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 py-16 md:py-24"
     >
-      <div className="flex flex-col items-center gap-8 text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+      <Col align="center" gap={8} className="text-center">
+        <Badge
+          variant="outline"
+          className="gap-2 border-border/60 bg-muted/40 px-3 py-1 text-xs font-normal text-muted-foreground"
+        >
           <Swords className="size-3" />
           Активный турнир
-        </div>
+        </Badge>
 
-        <div className="flex flex-col items-center gap-4">
+        <Col align="center" gap={4}>
           {tournament.emblemUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -66,7 +72,7 @@ export function TournamentHero({ tournament }: { tournament: Tournament | null }
           {eventRange && (
             <p className="text-muted-foreground text-lg">{eventRange}</p>
           )}
-        </div>
+        </Col>
 
         {tournament.description && (
           <p className="max-w-2xl text-pretty text-base text-muted-foreground md:text-lg">
@@ -75,21 +81,21 @@ export function TournamentHero({ tournament }: { tournament: Tournament | null }
         )}
 
         {contacts.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-3">
+          <Row align="center" justify="center" gap={3} wrap>
             {contacts.map((c, i) => (
-              <a
-                key={c.id ?? i}
-                href={contactHref(c.type, c.value)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md border border-border/60 px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
-              >
-                {CONTACT_LABELS[c.type] ?? "Контакт"}: {c.value}
-              </a>
+              <Button key={c.id ?? i} variant="outline" size="sm" asChild>
+                <a
+                  href={contactHref(c.type, c.value)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {CONTACT_LABELS[c.type] ?? "Контакт"}: {c.value}
+                </a>
+              </Button>
             ))}
-          </div>
+          </Row>
         )}
-      </div>
+      </Col>
     </section>
   );
 }

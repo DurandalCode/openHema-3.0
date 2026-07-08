@@ -5,7 +5,15 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
+import { Col, Row } from "@/shared/ui/stack";
 import { useUpdateTournament } from "../api/use-update-tournament";
 import type { ContactType, Tournament } from "@/entities/tournament/lib/types";
 
@@ -64,8 +72,8 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
   const error = update.error?.message ?? null;
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-5">
-      <div className="grid gap-2">
+    <Col as="form" onSubmit={onSubmit} gap={5}>
+      <Col gap={2}>
         <Label htmlFor="title">Название *</Label>
         <Input
           id="title"
@@ -73,9 +81,9 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
           onChange={(e) => setTitle(e.target.value)}
           required
         />
-      </div>
+      </Col>
 
-      <div className="grid gap-2">
+      <Col gap={2}>
         <Label htmlFor="description">Описание</Label>
         <Textarea
           id="description"
@@ -83,34 +91,38 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
         />
-      </div>
+      </Col>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="eventStartAt">Дата и время начала</Label>
-          <Input
-            id="eventStartAt"
-            type="datetime-local"
-            value={eventStartAt}
-            onChange={(e) => setEventStartAt(e.target.value)}
-          />
+      <Col gap={2}>
+        {/* Настоящая 2-колоночная сетка (не стек) — оставлена как CSS Grid,
+            Row/Col тут не подходят: обе даты должны быть равной ширины и
+            переходить в одну колонку на мобильном. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Col gap={2}>
+            <Label htmlFor="eventStartAt">Дата и время начала</Label>
+            <Input
+              id="eventStartAt"
+              type="datetime-local"
+              value={eventStartAt}
+              onChange={(e) => setEventStartAt(e.target.value)}
+            />
+          </Col>
+          <Col gap={2}>
+            <Label htmlFor="eventEndAt">Дата и время окончания</Label>
+            <Input
+              id="eventEndAt"
+              type="datetime-local"
+              value={eventEndAt}
+              onChange={(e) => setEventEndAt(e.target.value)}
+            />
+          </Col>
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="eventEndAt">Дата и время окончания</Label>
-          <Input
-            id="eventEndAt"
-            type="datetime-local"
-            value={eventEndAt}
-            onChange={(e) => setEventEndAt(e.target.value)}
-            // Для однодневного турнира оставляется пустым.
-          />
-          <p className="text-xs text-muted-foreground">
-            Для однодневного турнира оставьте пустым.
-          </p>
-        </div>
-      </div>
+        <p className="text-xs text-muted-foreground">
+          Для однодневного турнира оставьте поле окончания пустым.
+        </p>
+      </Col>
 
-      <div className="grid gap-2">
+      <Col gap={2}>
         <Label htmlFor="emblemUrl">URL эмблемы</Label>
         <Input
           id="emblemUrl"
@@ -119,34 +131,38 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
           value={emblemUrl}
           onChange={(e) => setEmblemUrl(e.target.value)}
         />
-      </div>
+      </Col>
 
-      <div className="grid gap-2">
-        <div className="flex items-center justify-between">
+      <Col gap={2}>
+        <Row align="center" justify="between">
           <Label>Контакты</Label>
           <Button type="button" variant="outline" size="sm" onClick={addContact}>
             + Добавить
           </Button>
-        </div>
+        </Row>
         {contacts.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Контакты ещё не добавлены.
           </p>
         ) : (
-          <div className="grid gap-2">
+          <Col gap={2}>
             {contacts.map((c, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <select
-                  className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              <Row key={i} align="center" gap={2}>
+                <Select
                   value={c.type}
-                  onChange={(e) => setContactType(i, e.target.value as ContactType)}
+                  onValueChange={(value) => setContactType(i, value as ContactType)}
                 >
-                  {CONTACT_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONTACT_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   value={c.value}
                   onChange={(e) => setContactValue(i, e.target.value)}
@@ -160,11 +176,11 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
                 >
                   Удалить
                 </Button>
-              </div>
+              </Row>
             ))}
-          </div>
+          </Col>
         )}
-      </div>
+      </Col>
 
       {error && (
         <Alert variant="destructive">
@@ -173,11 +189,11 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
       )}
 
       <div>
-        <Button type="submit" disabled={update.isPending}>
-          {update.isPending ? "Сохранение…" : "Сохранить"}
+        <Button type="submit" loading={update.isPending}>
+          Сохранить
         </Button>
       </div>
-    </form>
+    </Col>
   );
 }
 

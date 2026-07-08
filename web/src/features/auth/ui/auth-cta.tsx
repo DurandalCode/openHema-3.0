@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/shared/ui/button";
+import { Col } from "@/shared/ui/stack";
 import { useAuthDialogStore } from "../model/auth-dialog-store";
 
 /**
@@ -11,13 +12,13 @@ export function AuthCta() {
   const open = useAuthDialogStore((s) => s.open);
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row">
+    <Col gap={3} className="sm:flex-row">
       <Button size="lg" onClick={() => open("register")}>
         Создать аккаунт
       </Button>
       <Button size="lg" variant="ghost" onClick={() => open("login")}>
         Войти
       </Button>
-    </div>
+    </Col>
   );
 }

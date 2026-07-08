@@ -44,7 +44,8 @@ make sqlc       # sql: queries → server/modules/*/repo/sqlc
 
 # 2. Поднять БД и применить миграции
 cp .env.example .env   # задать JWT_* секреты!
-make dev               # postgres + migrate + server + web
+make dev               # postgres в докере + migrate + server и web локально
+# make prod            # альтернатива: весь стек в докере с полной сборкой
 ```
 
 Сгенерированный код (`server/gen/`, `web/src/gen/`, `server/modules/*/repo/sqlc/`)
@@ -101,7 +102,8 @@ Claude Code — `.claude/skills/` + `.claude/commands/spec.md` (см. `CLAUDE.md
 | `make generate`   | Генерация из proto (Go + TS) через buf          |
 | `make migrate`    | Прогон goose-миграций по всем модулям           |
 | `make sqlc`       | Генерация sqlc-репозиториев                     |
-| `make dev`        | Поднять весь стек через docker-compose          |
+| `make dev`        | Локально: postgres в докере + миграции + server/web |
+| `make prod`       | Полная сборка и запуск всего стека в докере      |
 | `make server`     | Локальный запуск Go-сервера                     |
 | `make web`        | Локальный запуск Next.js                        |
 | `make test`       | Тесты сервера (`go test ./...`)                 |

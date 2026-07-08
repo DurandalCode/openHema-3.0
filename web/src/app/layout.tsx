@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/shared/lib/theme-provider";
 import { QueryProvider } from "@/shared/lib/query-provider";
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
+import { Col } from "@/shared/ui/stack";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,10 +27,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           disableTransitionOnChange
         >
           <QueryProvider>
-            <div className="relative flex min-h-svh flex-col">
+            <Col className="relative min-h-svh">
               <Navbar />
               <main className="flex-1">{children}</main>
-            </div>
+            </Col>
             <AuthDialog />
           </QueryProvider>
         </ThemeProvider>

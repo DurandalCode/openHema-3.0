@@ -8,6 +8,7 @@ import {
 import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
 import { TournamentSettingsForm } from "@/features/tournament-settings/ui/tournament-settings-form";
 import { TournamentHero } from "@/widgets/tournament-hero/tournament-hero";
+import { AdminHeader } from "../admin-header";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,10 +19,11 @@ export default async function AdminTournamentPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Турнир</h1>
-      <p className="mt-2 text-muted-foreground">
-        Профиль активного турнира. Изменения сразу видны на главной.
-      </p>
+      <AdminHeader
+        backHref="/admin"
+        title="Турнир"
+        description="Профиль активного турнира. Изменения сразу видны на главной."
+      />
 
       <div className="mt-8">
         <TournamentHero tournament={tournament} />
