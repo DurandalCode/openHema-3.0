@@ -63,17 +63,21 @@ build: ## Сборка сервера и клиента
 	cd web && pnpm build
 
 .PHONY: test
-test: ## Тесты сервера (go test ./...)
+test: ## Тесты сервера (go test ./..., без Docker — без build-tag integration)
 	cd server && go test ./...
 
 .PHONY: test-web
-test-web: ## Тесты клиента (vitest)
+test-web: ## Тесты клиента (vitest: unit + e2e-route)
 	cd web && pnpm test
 
 .PHONY: test-all
-test-all: ## Все тесты (server + web)
+test-all: ## Все unit/e2e без Docker (server + web)
 	cd server && go test ./...
 	cd web && pnpm test
+
+.PHONY: test-integration
+test-integration: ## Интеграционные тесты сервера с БД (требует Docker, ADR 0010)
+	cd server && TESTCONTAINERS_RYUK_DISABLED=true go test -tags=integration ./...
 
 .PHONY: dev
 dev: ## Поднять весь стек через docker-compose
