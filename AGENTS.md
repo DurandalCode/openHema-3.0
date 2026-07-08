@@ -84,8 +84,9 @@ make dev               # postgres + migrate + server + web
 3. **tasks** — `tasks.md`: упорядоченный TDD-чеклист.
 4. **code** — реализация по циклу red → green → refactor (тест первым).
 
-Инструменты (OpenCode): скиллы `write-spec`, `add-module`, `add-feature-web`,
-`tdd-cycle` (`.opencode/skill/`) и команда `/spec`. Конфиг — `opencode.json`.
+Инструменты: скиллы `write-spec`, `add-module`, `add-feature-web`, `tdd-cycle`
+и команда `/spec`. Для OpenCode — `.opencode/skill/` + `opencode.json`. Для
+Claude Code — `.claude/skills/` + `.claude/commands/spec.md` (см. `CLAUDE.md`).
 
 Мелкие правки (рефактор, баг-фикс, косметика) спеки не требуют — только
 инкремент с тестами.
