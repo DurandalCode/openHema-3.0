@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { CreateAdminForm } from "@/features/admin/ui/create-admin-form";
+import { AdminHeader } from "../admin-header";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,10 +15,11 @@ export const dynamic = "force-dynamic";
 export default function CreateAdminPage() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Новый админ</h1>
-      <p className="mt-2 text-muted-foreground">
-        Создать пользователя с ролью ADMIN.
-      </p>
+      <AdminHeader
+        backHref="/admin"
+        title="Новый админ"
+        description="Создать пользователя с ролью ADMIN."
+      />
 
       <Card className="mt-6">
         <CardHeader>

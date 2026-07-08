@@ -1,10 +1,7 @@
 export const siteConfig = {
   name: "HEMA Tournament",
   description: "Платформа для проведения HEMA-турниров",
-  navItems: [
-    { title: "Турниры", href: "#tournaments" },
-    { title: "Возможности", href: "#features" },
-  ],
+  navItems: [{ title: "Турнир", href: "#tournament" }],
 } as const;
 
 export type SiteConfig = typeof siteConfig;

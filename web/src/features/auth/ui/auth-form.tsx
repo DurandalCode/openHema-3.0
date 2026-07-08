@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { Col } from "@/shared/ui/stack";
 import { useLogin } from "../api/use-login";
 import { useRegister } from "../api/use-register";
 import type { AuthMode } from "../api/requests";
@@ -38,9 +39,9 @@ export function AuthForm({
   const error = mutation.error?.message ?? null;
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-4">
+    <Col as="form" onSubmit={onSubmit} gap={4}>
       {isRegister && (
-        <div className="grid gap-2">
+        <Col gap={2}>
           <Label htmlFor="display-name">Имя</Label>
           <Input
             id="display-name"
@@ -50,9 +51,9 @@ export function AuthForm({
             required
             autoComplete="name"
           />
-        </div>
+        </Col>
       )}
-      <div className="grid gap-2">
+      <Col gap={2}>
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -63,8 +64,8 @@ export function AuthForm({
           required
           autoComplete="email"
         />
-      </div>
-      <div className="grid gap-2">
+      </Col>
+      <Col gap={2}>
         <Label htmlFor="password">Пароль</Label>
         <Input
           id="password"
@@ -75,23 +76,15 @@ export function AuthForm({
           required
           autoComplete={isRegister ? "new-password" : "current-password"}
         />
-      </div>
+      </Col>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <Button
-        type="submit"
-        disabled={mutation.isPending}
-        className="w-full"
-      >
-        {mutation.isPending
-          ? "…"
-          : isRegister
-            ? "Зарегистрироваться"
-            : "Войти"}
+      <Button type="submit" loading={mutation.isPending} className="w-full">
+        {isRegister ? "Зарегистрироваться" : "Войти"}
       </Button>
-    </form>
+    </Col>
   );
 }

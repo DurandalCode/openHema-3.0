@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card";
+import { Col, Row } from "@/shared/ui/stack";
 import { LogoutButton } from "./logout-button";
 
 export const runtime = "nodejs";
@@ -31,27 +32,33 @@ export default async function DashboardPage() {
           <CardTitle>Профиль</CardTitle>
           <CardDescription>Данные вашего аккаунта.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm">
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Email</span>
-            <span className="truncate font-medium">{user.email}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Имя</span>
-            <span className="font-medium">{user.displayName || "—"}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Регистрация</span>
-            <span className="font-medium">
-              {user.createdAt
-                ? new Date(user.createdAt).toLocaleDateString("ru-RU")
-                : "—"}
-            </span>
-          </div>
+        <CardContent className="text-sm">
+          <Col gap={3}>
+            <ProfileRow label="Email" value={user.email} />
+            <ProfileRow label="Имя" value={user.displayName || "—"} />
+            <ProfileRow
+              label="Регистрация"
+              value={
+                user.createdAt
+                  ? new Date(user.createdAt).toLocaleDateString("ru-RU")
+                  : "—"
+              }
+            />
+          </Col>
         </CardContent>
       </Card>
 
       <LogoutButton />
     </div>
+  );
+}
+
+/** ProfileRow — единая строка «label — value» карточки профиля. */
+function ProfileRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Row justify="between" gap={4}>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate font-medium">{value}</span>
+    </Row>
   );
 }

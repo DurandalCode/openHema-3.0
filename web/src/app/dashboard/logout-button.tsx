@@ -16,11 +16,11 @@ export function LogoutButton() {
     <Button
       variant="outline"
       onClick={() => logout.mutate()}
-      disabled={logout.isPending}
+      loading={logout.isPending}
       className="mt-6 gap-2"
     >
-      <LogOutIcon />
-      {logout.isPending ? "Выходим…" : "Выйти"}
+      {!logout.isPending && <LogOutIcon />}
+      Выйти
     </Button>
   );
 }

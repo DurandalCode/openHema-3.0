@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { Col } from "@/shared/ui/stack";
 import { useCreateAdmin } from "../api/use-create-admin";
 
 /** CreateAdminForm — форма создания нового администратора. */
@@ -24,8 +24,8 @@ export function CreateAdminForm() {
   const error = create.error?.message ?? null;
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-4">
-      <div className="grid gap-2">
+    <Col as="form" onSubmit={onSubmit} gap={4}>
+      <Col gap={2}>
         <Label htmlFor="display-name">Имя</Label>
         <Input
           id="display-name"
@@ -35,8 +35,8 @@ export function CreateAdminForm() {
           required
           autoComplete="name"
         />
-      </div>
-      <div className="grid gap-2">
+      </Col>
+      <Col gap={2}>
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -47,8 +47,8 @@ export function CreateAdminForm() {
           required
           autoComplete="email"
         />
-      </div>
-      <div className="grid gap-2">
+      </Col>
+      <Col gap={2}>
         <Label htmlFor="password">Пароль</Label>
         <Input
           id="password"
@@ -59,20 +59,15 @@ export function CreateAdminForm() {
           required
           autoComplete="new-password"
         />
-      </div>
+      </Col>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending ? "…" : "Создать админа"}
-        </Button>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/admin">Назад</Link>
-        </Button>
-      </div>
-    </form>
+      <Button type="submit" loading={create.isPending}>
+        Создать админа
+      </Button>
+    </Col>
   );
 }
