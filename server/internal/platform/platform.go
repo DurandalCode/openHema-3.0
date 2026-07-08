@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hema/server/modules/auth"
+	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
@@ -58,6 +59,9 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	// ── Регистрация модулей монолита ─────────────────────────────
 	deps := auth.Deps{Pool: pool, Tokens: tokens}
 	auth.Register(mux, deps, baseOpts, adminOpts)
+
+	tournamentDeps := tournament.Deps{Pool: pool}
+	tournament.Register(mux, tournamentDeps, baseOpts, adminOpts)
 
 	// ── Бутстрап первого админа (до начала приёма запросов) ───────
 	auth.Bootstrap(ctx, deps, log,

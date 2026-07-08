@@ -15,11 +15,21 @@ services:
       timeout: 5s
       retries: 10
 
-  # Одноразовый прогон goose-миграций перед стартом сервера.
+  # Одноразовый прогон goose-миграций всех модулей перед стартом сервера.
+  # Goose хранит версию НА МОДУЛЬ (отдельная таблица), чтобы одинаково
+  # названные 00001_init.sql в разных модулях не silent-skip'али друг друга.
+  # Цикл по /app/modules/*/migrations соответствует `make migrate`.
   migrate:
     build:
       context: ./server
-    entrypoint: ["/bin/sh", "-c", "/app/goose -dir /app/migrations postgres \"$$DATABASE_URL\" up"]
+    entrypoint:
+      - "/bin/sh"
+      - "-c"
+      - |
+        for d in /app/modules/*/migrations; do
+          m=$$(basename "$$(dirname "$$d")")
+          /app/goose -dir "$$d" -table "goose_db_version_$$m" postgres "$$DATABASE_URL" up
+        done
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-hema}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-hema}?sslmode=disable
     depends_on:

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Swords, Users, Trophy } from "lucide-react";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
+import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
 import { siteConfig } from "@/shared/config/site-config";
 import { Button } from "@/shared/ui/button";
 import {
@@ -10,6 +11,7 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { AuthCta } from "@/features/auth/ui/auth-cta";
+import { TournamentHero } from "@/widgets/tournament-hero/tournament-hero";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +37,10 @@ const features = [
 ];
 
 export default async function HomePage() {
-  const user = await getCurrentUser();
+  const [user, tournament] = await Promise.all([
+    getCurrentUser(),
+    getActiveTournament(),
+  ]);
 
   return (
     <div className="flex flex-col">
@@ -89,22 +94,8 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Tournaments placeholder */}
-      <section
-        id="tournaments"
-        className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 py-16 md:py-24"
-      >
-        <Card className="border-dashed">
-          <CardHeader className="items-center text-center">
-            <Trophy className="size-8 text-muted-foreground" />
-            <CardTitle>Турниры скоро появятся</CardTitle>
-            <CardDescription>
-              Раздел находится в разработке. Здесь будет список активных и
-              прошедших турниров.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </section>
+      {/* Tournament */}
+      <TournamentHero tournament={tournament} />
 
       {/* Footer */}
       <footer className="border-t border-border/60">

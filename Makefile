@@ -13,6 +13,7 @@ SQLC  := cd server && go tool sqlc
 DB_URL ?= $(DATABASE_URL)
 
 MIGRATIONS_DIR := server/modules/auth/migrations
+TOURNAMENT_MIGRATIONS_DIR := server/modules/tournament/migrations
 
 .PHONY: help
 help: ## Показать доступные команды
@@ -35,13 +36,18 @@ lint-proto: ## Линт proto
 sqlc: ## Генерация sqlc-репозиториев
 	$(SQLC) generate
 
+# Goose хранит версию НА МОДУЛЬ (отдельная таблица): модули могут иметь
+# одинаково названные миграции (00001_init.sql), а общая goose_db_version
+# привела бы к silent skip (ADR 0002 — модуль владеет своей схемой).
 .PHONY: migrate
-migrate: ## Прогон goose-миграций (требует DATABASE_URL)
-	$(GOOSE) -dir ../$(MIGRATIONS_DIR) postgres "$(DB_URL)" up
+migrate: ## Прогон goose-миграций по всем модулям (требует DATABASE_URL)
+	$(GOOSE) -dir ../$(MIGRATIONS_DIR)          -table goose_db_version_auth       postgres "$(DB_URL)" up
+	$(GOOSE) -dir ../$(TOURNAMENT_MIGRATIONS_DIR) -table goose_db_version_tournament postgres "$(DB_URL)" up
 
 .PHONY: migrate-down
-migrate-down: ## Откат последней миграции
-	$(GOOSE) -dir ../$(MIGRATIONS_DIR) postgres "$(DB_URL)" down
+migrate-down: ## Откат последней миграции во всех модулях
+	$(GOOSE) -dir ../$(TOURNAMENT_MIGRATIONS_DIR) -table goose_db_version_tournament postgres "$(DB_URL)" down
+	$(GOOSE) -dir ../$(MIGRATIONS_DIR)          -table goose_db_version_auth       postgres "$(DB_URL)" down
 
 .PHONY: server
 server: ## Локальный запуск Go-сервера

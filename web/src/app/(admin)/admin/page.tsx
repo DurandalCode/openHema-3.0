@@ -19,9 +19,14 @@ export default async function AdminPage() {
             Управление пользователями и администраторами.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/admin/create">+ Создать админа</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/admin/tournament">Турнир</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/admin/create">+ Создать админа</Link>
+          </Button>
+        </div>
       </div>
 
       <div className="mt-8">
