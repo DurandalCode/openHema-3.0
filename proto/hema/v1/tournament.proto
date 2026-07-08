@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// TournamentService — публичное чтение активного турнира. RPC доступны без
+// access-токена (перечислены в publicProcedures интерсептора Auth).
+service TournamentService {
+  // GetActiveTournament возвращает активный турнир для главной страницы.
+  rpc GetActiveTournament(GetActiveTournamentRequest) returns (GetActiveTournamentResponse);
+}
+
+// TournamentAdminService — управление профилем турнира. Все RPC требуют роль
+// ADMIN (проверяется серверным интерсептором RequireAdmin).
+service TournamentAdminService {
+  // UpdateActiveTournament обновляет поля активного турнира целиком, включая
+  // список контактов (полная замена набора контактов).
+  rpc UpdateActiveTournament(UpdateActiveTournamentRequest) returns (UpdateActiveTournamentResponse);
+}
+
+// ContactType — канал связи с организаторами турнира.
+enum ContactType {
+  CONTACT_TYPE_UNSPECIFIED = 0;
+  CONTACT_TYPE_TELEGRAM = 1;
+  CONTACT_TYPE_VK = 2;
+  CONTACT_TYPE_FACEBOOK = 3;
+  CONTACT_TYPE_WEBSITE = 4;
+  CONTACT_TYPE_EMAIL = 5;
+  CONTACT_TYPE_OTHER = 6;
+}
+
+// Tournament — профиль турнира.
+message Tournament {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  // event_start_at — дата и время начала проведения с временной зоной.
+  // Опционально (турнир без назначенной даты допустим). Для однодневного
+  // турнира задается только start; для многодневного — start + end.
+  google.protobuf.Timestamp event_start_at = 4;
+  // emblem_url — URL на эмблему турнира (внешнее изображение). Опционально.
+  string emblem_url = 5;
+  bool is_active = 6;
+  repeated Contact contacts = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  // event_end_at — дата и время окончания (многодневные турниры). Опционально;
+  // если задано, то event_start_at обязательно и end >= start.
+  google.protobuf.Timestamp event_end_at = 10;
+}
+
+// Contact — один канал связи: тип + значение, с позицией в списке.
+message Contact {
+  string id = 1;
+  ContactType type = 2;
+  string value = 3;
+  int32 position = 4;
+}
+
+message GetActiveTournamentRequest {}
+
+message GetActiveTournamentResponse {
+  Tournament tournament = 1;
+}
+
+// UpdateActiveTournamentRequest — новые значения полей активного турнира.
+// Контакты передаются целиком (старый набор заменяется новым).
+message UpdateActiveTournamentRequest {
+  string title = 1;
+  string description = 2;
+  // event_start_at — null/нуль означает «дата начала не задана» (опционально).
+  google.protobuf.Timestamp event_start_at = 3;
+  string emblem_url = 4;
+  repeated ContactInput contacts = 5;
+  // event_end_at — null/нуль означает «однодневный/без даты окончания».
+  // Если задано, event_start_at обязательно и end >= start.
+  google.protobuf.Timestamp event_end_at = 6;
+}
+
+// ContactInput — контакт при вводе (без id и без position; позиция
+// определяется порядком в массиве).
+message ContactInput {
+  ContactType type = 1;
+  string value = 2;
+}
+
+message UpdateActiveTournamentResponse {
+  Tournament tournament = 1;
+}

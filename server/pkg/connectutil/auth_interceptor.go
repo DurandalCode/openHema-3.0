@@ -12,9 +12,10 @@ import (
 // обновление сессии). Имена процедур в каноническом Connect-виде
 // "/<package>.<Service>/<Method>".
 var publicProcedures = map[string]struct{}{
-	"/hema.v1.AuthService/Register": {},
-	"/hema.v1.AuthService/Login":    {},
-	"/hema.v1.AuthService/Refresh":  {},
+	"/hema.v1.AuthService/Register":               {},
+	"/hema.v1.AuthService/Login":                  {},
+	"/hema.v1.AuthService/Refresh":                {},
+	"/hema.v1.TournamentService/GetActiveTournament": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт
