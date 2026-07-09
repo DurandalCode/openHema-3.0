@@ -55,3 +55,4 @@ docs/specs/
 | 0000 | healthcheck         | пример  | Health-check эндпоинт (демо формата)              |
 | 0001 | tournament-profile  | done   | Профиль турнира: настройка из админки + вывод на главной |
 | 0002 | ui-consistency      | done    | Консистентность UI: bootstrap → дизайн-система, чистка путей в никуда |
+| 0003 | nominations         | done    | Номинации турнира: CRUD + порядок (admin), публичное чтение; типизированные jsonb-метаданные |

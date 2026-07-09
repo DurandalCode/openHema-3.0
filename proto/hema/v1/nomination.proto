@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// NominationService — публичное чтение номинаций турнира. RPC доступны без
+// access-токена (перечислены в publicProcedures интерсептора Auth).
+service NominationService {
+  // ListNominations возвращает номинации турнира по порядку.
+  rpc ListNominations(ListNominationsRequest) returns (ListNominationsResponse);
+  // GetNomination возвращает одну номинацию по id.
+  rpc GetNomination(GetNominationRequest) returns (GetNominationResponse);
+}
+
+// NominationAdminService — управление номинациями турнира. Все RPC требуют
+// роль ADMIN (проверяется серверным интерсептором RequireAdmin).
+service NominationAdminService {
+  // CreateNomination создаёт номинацию у указанного турнира.
+  rpc CreateNomination(CreateNominationRequest) returns (CreateNominationResponse);
+  // UpdateNomination обновляет поля существующей номинации целиком.
+  rpc UpdateNomination(UpdateNominationRequest) returns (UpdateNominationResponse);
+  // DeleteNomination удаляет номинацию.
+  rpc DeleteNomination(DeleteNominationRequest) returns (DeleteNominationResponse);
+  // ReorderNominations задаёт порядок номинаций турнира целиком (полный
+  // упорядоченный список id).
+  rpc ReorderNominations(ReorderNominationsRequest) returns (ReorderNominationsResponse);
+}
+
+// NominationMetadata — типизированная закрытая схема прочих данных номинации.
+// Все поля опциональны. Хранится как jsonb (расширяемо без миграций), но
+// контракт типизирован: неизвестных полей на проводе быть не может.
+message NominationMetadata {
+  // rules_url — ссылка на правила/регламент номинации. Опционально.
+  optional string rules_url = 1;
+}
+
+// Nomination — дисциплина/категория турнира.
+message Nomination {
+  string id = 1;
+  string tournament_id = 2;
+  string title = 3;
+  string description = 4;
+  // fighter_capacity — плановая вместимость номинации. Опционально
+  // (presence различает «0» и «не задано»).
+  optional int32 fighter_capacity = 5;
+  NominationMetadata metadata = 6;
+  // position — порядок в списке номинаций турнира (0-индекс).
+  int32 position = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message ListNominationsRequest {
+  string tournament_id = 1;
+}
+
+message ListNominationsResponse {
+  repeated Nomination nominations = 1;
+}
+
+message GetNominationRequest {
+  string id = 1;
+}
+
+message GetNominationResponse {
+  Nomination nomination = 1;
+}
+
+// CreateNominationRequest — tournament_id обязателен: клиент явно указывает,
+// у какого турнира создаётся номинация (в MVP сервер проверяет, что это
+// активный турнир).
+message CreateNominationRequest {
+  string tournament_id = 1;
+  string title = 2;
+  string description = 3;
+  optional int32 fighter_capacity = 4;
+  NominationMetadata metadata = 5;
+}
+
+message CreateNominationResponse {
+  Nomination nomination = 1;
+}
+
+// UpdateNominationRequest — полная замена редактируемых полей номинации.
+// tournament_id неизменяем (перепривязка номинации к другому турниру — вне
+// скоупа).
+message UpdateNominationRequest {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  optional int32 fighter_capacity = 4;
+  NominationMetadata metadata = 5;
+}
+
+message UpdateNominationResponse {
+  Nomination nomination = 1;
+}
+
+message DeleteNominationRequest {
+  string id = 1;
+}
+
+message DeleteNominationResponse {}
+
+// ReorderNominationsRequest — ordered_ids должен содержать ровно текущий
+// набор id номинаций турнира; иначе запрос отклоняется как невалидный.
+message ReorderNominationsRequest {
+  string tournament_id = 1;
+  repeated string ordered_ids = 2;
+}
+
+message ReorderNominationsResponse {
+  repeated Nomination nominations = 1;
+}

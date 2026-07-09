@@ -1,7 +1,9 @@
 import { toJson } from "@bufbuild/protobuf";
 import { UserSchema, type User } from "@/gen/hema/v1/common_pb";
 import { TournamentSchema, type Tournament } from "@/gen/hema/v1/tournament_pb";
+import { NominationSchema, type Nomination } from "@/gen/hema/v1/nomination_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
+import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -39,4 +41,38 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
   };
+}
+
+/**
+ * nominationToJson превращает protobuf-сообщение Nomination в обычный
+ * JSON-объект, пригодный для NextResponse.json.
+ *
+ * Нормализует proto3-дефолты аналогично tournamentToJson. `fighterCapacity`
+ * (proto3 `optional int32`) сохраняет presence: `null` = не задано, отличимо
+ * от явного 0 (FR-10 в спеке номинаций).
+ */
+export function nominationToJson(nomination: Nomination | undefined): NominationDto | null {
+  if (!nomination) return null;
+  const raw = toJson(NominationSchema, nomination) as Partial<NominationDto> & {
+    fighterCapacity?: number;
+  };
+  return {
+    id: raw.id ?? "",
+    tournamentId: raw.tournamentId ?? "",
+    title: raw.title ?? "",
+    description: raw.description ?? "",
+    fighterCapacity: typeof raw.fighterCapacity === "number" ? raw.fighterCapacity : null,
+    metadata: { rulesUrl: raw.metadata?.rulesUrl ?? "" },
+    position: raw.position ?? 0,
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
+}
+
+/** nominationsToJson превращает массив protobuf Nomination в массив DTO. */
+export function nominationsToJson(nominations: Nomination[] | undefined): NominationDto[] {
+  if (!nominations) return [];
+  return nominations
+    .map((n) => nominationToJson(n))
+    .filter((n): n is NominationDto => n !== null);
 }

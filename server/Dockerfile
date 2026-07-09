@@ -29,8 +29,9 @@ COPY --from=build /out/server /app/server
 COPY --from=build /out/goose /app/goose
 # Каждый модуль владеет своей PG-схемой и миграциями (ADR 0002). Goose гоняет
 # свою директорию на модуль; при новом модуле добавить строку COPY здесь.
-COPY --from=build /src/modules/auth/migrations       /app/modules/auth/migrations
-COPY --from=build /src/modules/tournament/migrations /app/modules/tournament/migrations
+COPY --from=build /src/modules/auth/migrations        /app/modules/auth/migrations
+COPY --from=build /src/modules/tournament/migrations  /app/modules/tournament/migrations
+COPY --from=build /src/modules/nomination/migrations  /app/modules/nomination/migrations
 
 USER app
 EXPOSE 8080

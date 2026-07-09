@@ -2,6 +2,7 @@ import { createClient, type Client } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
 import { AdminService } from "@/gen/hema/v1/admin_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
+import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
 
 // Адрес Go-сервера (gRPC/Connect). Задаётся через окружение.
@@ -49,3 +50,21 @@ export const tournamentClient: Client<typeof TournamentService> = createClient(
  */
 export const tournamentAdminClient: Client<typeof TournamentAdminService> =
   createClient(TournamentAdminService, transport);
+
+/**
+ * nominationClient — публичный клиент NominationService (чтение номинаций
+ * турнира). ListNominations/GetNomination не требуют access-токена.
+ * Только на сервере (Node runtime).
+ */
+export const nominationClient: Client<typeof NominationService> = createClient(
+  NominationService,
+  transport,
+);
+
+/**
+ * nominationAdminClient — клиент NominationAdminService (управление
+ * номинациями турнира). Все RPC требуют роль ADMIN; BFF прокидывает
+ * access-токен админа из httpOnly-cookie. Только на сервере (Node runtime).
+ */
+export const nominationAdminClient: Client<typeof NominationAdminService> =
+  createClient(NominationAdminService, transport);
