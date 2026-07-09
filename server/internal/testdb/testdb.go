@@ -32,6 +32,7 @@ var moduleMigrations = []struct {
 	dir  string // абсолютный путь к директории migrations
 }{
 	{"auth", moduleDir("auth")}, {"tournament", moduleDir("tournament")},
+	{"nomination", moduleDir("nomination")},
 }
 
 // Postgres поднимает PostgreSQL в Docker (testcontainers), применяет миграции

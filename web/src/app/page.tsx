@@ -2,12 +2,14 @@ import Link from "next/link";
 import { Swords } from "lucide-react";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
 import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
+import { getNominations } from "@/entities/nomination/model/get-nominations";
 import { siteConfig } from "@/shared/config/site-config";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Col, Row } from "@/shared/ui/stack";
 import { AuthCta } from "@/features/auth/ui/auth-cta";
 import { TournamentHero } from "@/widgets/tournament-hero/tournament-hero";
+import { NominationsList } from "@/widgets/nominations-list/nominations-list";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,7 @@ export default async function HomePage() {
     getCurrentUser(),
     getActiveTournament(),
   ]);
+  const nominations = await getNominations(tournament?.id ?? "");
 
   return (
     <Col>
@@ -50,6 +53,9 @@ export default async function HomePage() {
 
       {/* Tournament */}
       <TournamentHero tournament={tournament} />
+
+      {/* Nominations */}
+      <NominationsList nominations={nominations} />
 
       {/* Footer */}
       <footer className="border-t border-border/60">

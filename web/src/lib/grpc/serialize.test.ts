@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest";
 import { fromJson } from "@bufbuild/protobuf";
 import { UserSchema } from "@/gen/hema/v1/common_pb";
 import { TournamentSchema } from "@/gen/hema/v1/tournament_pb";
-import { tournamentToJson, userToJson } from "@/lib/grpc/serialize";
+import { NominationSchema } from "@/gen/hema/v1/nomination_pb";
+import {
+  nominationsToJson,
+  nominationToJson,
+  tournamentToJson,
+  userToJson,
+} from "@/lib/grpc/serialize";
 
 type UserJson = {
   id: string;
@@ -136,5 +142,109 @@ describe("tournamentToJson", () => {
     expect(json.title).toBe("Cup");
     expect(json.description).toBe("");
     expect(json.emblemUrl).toBe("");
+  });
+});
+
+type NominationJson = {
+  id: string;
+  tournamentId: string;
+  title: string;
+  description: string;
+  fighterCapacity: number | null;
+  metadata: { rulesUrl: string };
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+describe("nominationToJson", () => {
+  it("converts a filled protobuf Nomination to plain JSON", () => {
+    const n = fromJson(NominationSchema, {
+      id: "n1",
+      tournamentId: "t1",
+      title: "Лонгсворд",
+      description: "Основная номинация",
+      fighterCapacity: 16,
+      metadata: { rulesUrl: "https://example.com/rules" },
+      position: 0,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-07-07T00:00:00Z",
+    });
+
+    const json = nominationToJson(n) as NominationJson;
+
+    expect(json).not.toBeNull();
+    expect(json.id).toBe("n1");
+    expect(json.tournamentId).toBe("t1");
+    expect(json.title).toBe("Лонгсворд");
+    expect(json.fighterCapacity).toBe(16);
+    expect(json.metadata).toEqual({ rulesUrl: "https://example.com/rules" });
+    expect(json.position).toBe(0);
+  });
+
+  it("returns null for undefined", () => {
+    expect(nominationToJson(undefined)).toBeNull();
+  });
+
+  // Регрессия presence: fighterCapacity не задан (proto3 optional) должен
+  // отличаться от заданного нуля — иначе UI не сможет показать «не задано».
+  it("normalizes unset fighterCapacity to null (distinct from 0)", () => {
+    const n = fromJson(NominationSchema, {
+      id: "n1",
+      tournamentId: "t1",
+      title: "T",
+    });
+
+    const json = nominationToJson(n) as NominationJson;
+
+    expect(json.fighterCapacity).toBeNull();
+  });
+
+  it("preserves explicit zero fighterCapacity", () => {
+    const n = fromJson(NominationSchema, {
+      id: "n1",
+      tournamentId: "t1",
+      title: "T",
+      fighterCapacity: 0,
+    });
+
+    const json = nominationToJson(n) as NominationJson;
+
+    expect(json.fighterCapacity).toBe(0);
+  });
+
+  // Регрессия proto3-omitted: пустой title/description/metadata.rulesUrl
+  // опускаются toJson — consumer (карточка номинации) ждёт строки.
+  it("normalizes proto3 defaults for a minimal nomination", () => {
+    const n = fromJson(NominationSchema, {
+      id: "n1",
+      tournamentId: "t1",
+      title: "T",
+    });
+
+    const json = nominationToJson(n) as NominationJson;
+
+    expect(json.description).toBe("");
+    expect(json.metadata).toEqual({ rulesUrl: "" });
+    expect(json.position).toBe(0);
+    expect(json.createdAt).toBe("");
+    expect(json.updatedAt).toBe("");
+  });
+});
+
+describe("nominationsToJson", () => {
+  it("converts an array of protobuf Nominations", () => {
+    const a = fromJson(NominationSchema, { id: "a", tournamentId: "t1", title: "A" });
+    const b = fromJson(NominationSchema, { id: "b", tournamentId: "t1", title: "B" });
+
+    const json = nominationsToJson([a, b]);
+
+    expect(json).toHaveLength(2);
+    expect(json[0].id).toBe("a");
+    expect(json[1].id).toBe("b");
+  });
+
+  it("returns empty array for undefined", () => {
+    expect(nominationsToJson(undefined)).toEqual([]);
   });
 });

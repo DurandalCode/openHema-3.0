@@ -21,6 +21,9 @@ export default async function AdminPage() {
             <Button asChild variant="outline">
               <Link href="/admin/tournament">Турнир</Link>
             </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/nominations">Номинации</Link>
+            </Button>
             <Button asChild>
               <Link href="/admin/create">+ Создать админа</Link>
             </Button>

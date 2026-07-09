@@ -72,4 +72,26 @@ gen/                 proto→Go (DO NOT EDIT)
 2. Миграция создаёт схему `<name>` и таблицы.
 3. Экспортировать `Register(mux, deps, opts...)`.
 4. Зарегистрировать в `internal/platform`.
-5. При выносе в сервис — собрать `cmd/<name>/main.go`.
+5. **Синхронизировать инфраструктурные точки**, где модули перечислены по
+   имени явным списком (глоб `modules/*/...` есть не везде — забытая точка
+   не ловится ни юнит-, ни e2e-, ни testcontainers-тестами, только полным
+   докер-стеком):
+   - `server/sqlc.yaml` — секция `sql:` (генерация репозитория, `make sqlc`).
+   - `server/internal/testdb/testdb.go` — `moduleMigrations` (testcontainers
+     для `*_integration_test.go`, `make test-integration`).
+   - Корневой `Makefile` — цели `migrate`/`migrate-down`
+     (`make dev`/`make migrate`, локальный цикл разработки).
+   - `server/Dockerfile` — `COPY --from=build /src/modules/<name>/migrations
+     /app/modules/<name>/migrations` (прод-образ). `docker-compose.yml` сам
+     по себе трогать не нужно — сервис `migrate` гоняет
+     `/app/modules/*/migrations` по глобу, но каталог миграций модуля должен
+     физически попасть в образ этой строкой COPY.
+6. При выносе в сервис — собрать `cmd/<name>/main.go`.
+7. **Проверить миграции нового модуля в полном докеризованном стеке**:
+   `docker compose up --build` (или `make prod`), затем
+   `docker compose logs migrate` и/или `docker compose exec postgres psql
+   -U hema -d hema -c '\dn'` — убедиться, что схема модуля создалась.
+   `make test-integration` и `make dev` этот путь НЕ покрывают (первый не
+   использует `server/Dockerfile`, второй гоняет `make migrate` локально, а
+   не через `migrate`-сервис compose) — пропущенная строка COPY в
+   `server/Dockerfile` не даёт о себе знать нигде, кроме прод-образа.
