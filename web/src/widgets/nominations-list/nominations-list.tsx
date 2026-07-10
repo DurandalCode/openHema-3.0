@@ -24,10 +24,7 @@ export function NominationsList({ nominations }: { nominations: Nomination[] }) 
       className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 py-16 md:py-24"
     >
       <Col align="center" gap={8}>
-        <Badge
-          variant="outline"
-          className="gap-2 border-border/60 bg-muted/40 px-3 py-1 text-xs font-normal text-muted-foreground"
-        >
+        <Badge variant="gold" className="gap-2 px-3 py-1 text-xs font-normal">
           <Swords className="size-3" />
           Номинации
         </Badge>

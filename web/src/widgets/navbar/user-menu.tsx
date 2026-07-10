@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOutIcon } from "lucide-react";
+import { LayoutDashboardIcon, LogOutIcon, ShieldIcon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
@@ -49,6 +50,21 @@ export function UserMenu({ user }: { user: CurrentUser }) {
         <DropdownMenuLabel className="truncate">
           {user.displayName || "Профиль"}
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard">
+            <LayoutDashboardIcon />
+            Кабинет
+          </Link>
+        </DropdownMenuItem>
+        {user.role === "ROLE_ADMIN" && (
+          <DropdownMenuItem asChild>
+            <Link href="/admin">
+              <ShieldIcon />
+              Админка
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => logout.mutate()}

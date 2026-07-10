@@ -23,7 +23,6 @@ export function AuthDialog() {
 
   function onSuccess() {
     close();
-    router.push("/dashboard");
     router.refresh();
   }
 

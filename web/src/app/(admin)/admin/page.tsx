@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
-import { Button } from "@/shared/ui/button";
 import { AdminList } from "@/features/admin/ui/admin-list";
 import { AdminHeader } from "./admin-header";
 
@@ -16,19 +14,6 @@ export default async function AdminPage() {
       <AdminHeader
         title="Админка"
         description="Управление пользователями и администраторами."
-        actions={
-          <>
-            <Button asChild variant="outline">
-              <Link href="/admin/tournament">Турнир</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/admin/nominations">Номинации</Link>
-            </Button>
-            <Button asChild>
-              <Link href="/admin/create">+ Создать админа</Link>
-            </Button>
-          </>
-        }
       />
 
       <div className="mt-8">

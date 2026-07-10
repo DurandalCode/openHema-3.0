@@ -16,7 +16,6 @@ export default function CreateAdminPage() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-16">
       <AdminHeader
-        backHref="/admin"
         title="Новый админ"
         description="Создать пользователя с ролью ADMIN."
       />
