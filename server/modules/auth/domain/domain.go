@@ -53,6 +53,9 @@ type Repository interface {
 	// GetCredentialsByEmail возвращает пользователя и его хеш пароля.
 	GetCredentialsByEmail(ctx context.Context, email string) (User, string, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
+	// GetUsersByIDs возвращает пользователей по набору идентификаторов
+	// (батч-резолв; неизвестные id просто отсутствуют в результате).
+	GetUsersByIDs(ctx context.Context, ids []string) ([]User, error)
 	CountAdmins(ctx context.Context) (int, error)
 	ListAdmins(ctx context.Context) ([]User, error)
 	ListUsers(ctx context.Context, p ListParams) ([]User, error)

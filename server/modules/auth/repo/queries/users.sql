@@ -13,6 +13,11 @@ SELECT id, email, password_hash, display_name, role, created_at
 FROM auth.users
 WHERE id = $1;
 
+-- name: GetUsersByIDs :many
+SELECT id, email, password_hash, display_name, role, created_at
+FROM auth.users
+WHERE id = ANY($1::uuid[]);
+
 -- name: CountAdmins :one
 SELECT count(*) FROM auth.users WHERE role = 'admin';
 

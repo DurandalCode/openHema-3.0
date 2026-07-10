@@ -2,8 +2,23 @@ import { toJson } from "@bufbuild/protobuf";
 import { UserSchema, type User } from "@/gen/hema/v1/common_pb";
 import { TournamentSchema, type Tournament } from "@/gen/hema/v1/tournament_pb";
 import { NominationSchema, type Nomination } from "@/gen/hema/v1/nomination_pb";
+import {
+  ApplicationSchema,
+  ApplicationEventSchema,
+  NominationParticipantSchema,
+  type Application,
+  type ApplicationEvent,
+  type NominationParticipant,
+} from "@/gen/hema/v1/application_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
+import type {
+  Application as ApplicationDto,
+  ApplicationEvent as ApplicationEventDto,
+  ApplicationState as ApplicationStateDto,
+  ApplicationEventType as ApplicationEventTypeDto,
+  NominationParticipant as NominationParticipantDto,
+} from "@/entities/application/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -75,4 +90,64 @@ export function nominationsToJson(nominations: Nomination[] | undefined): Nomina
   return nominations
     .map((n) => nominationToJson(n))
     .filter((n): n is NominationDto => n !== null);
+}
+
+/**
+ * applicationToJson превращает protobuf-сообщение Application в обычный
+ * JSON-объект. `state` — строковый литерал (как `role` у User), не число.
+ */
+export function applicationToJson(app: Application | undefined): ApplicationDto | null {
+  if (!app) return null;
+  const raw = toJson(ApplicationSchema, app) as Partial<ApplicationDto>;
+  return {
+    id: raw.id ?? "",
+    nominationId: raw.nominationId ?? "",
+    tournamentId: raw.tournamentId ?? "",
+    applicantUserId: raw.applicantUserId ?? "",
+    applicantDisplayName: raw.applicantDisplayName ?? "",
+    state: (raw.state as ApplicationStateDto) ?? "APPLICATION_STATE_UNSPECIFIED",
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
+}
+
+/** applicationsToJson превращает массив protobuf Application в массив DTO. */
+export function applicationsToJson(apps: Application[] | undefined): ApplicationDto[] {
+  if (!apps) return [];
+  return apps
+    .map((a) => applicationToJson(a))
+    .filter((a): a is ApplicationDto => a !== null);
+}
+
+/** applicationHistoryToJson превращает историю заявки (ApplicationEvent[]) в DTO. */
+export function applicationHistoryToJson(
+  history: ApplicationEvent[] | undefined,
+): ApplicationEventDto[] {
+  if (!history) return [];
+  return history.map((ev) => {
+    const raw = toJson(ApplicationEventSchema, ev) as Partial<ApplicationEventDto>;
+    return {
+      type: (raw.type as ApplicationEventTypeDto) ?? "APPLICATION_EVENT_TYPE_UNSPECIFIED",
+      actorId: raw.actorId ?? "",
+      occurredAt: raw.occurredAt ?? "",
+      sequence: raw.sequence ?? 0,
+    };
+  });
+}
+
+/**
+ * nominationParticipantsToJson превращает публичный стартовый лист номинации
+ * (NominationParticipant[]) в массив DTO.
+ */
+export function nominationParticipantsToJson(
+  participants: NominationParticipant[] | undefined,
+): NominationParticipantDto[] {
+  if (!participants) return [];
+  return participants.map((p) => {
+    const raw = toJson(NominationParticipantSchema, p) as Partial<NominationParticipantDto>;
+    return {
+      displayName: raw.displayName ?? "",
+      state: (raw.state as ApplicationStateDto) ?? "APPLICATION_STATE_UNSPECIFIED",
+    };
+  });
 }

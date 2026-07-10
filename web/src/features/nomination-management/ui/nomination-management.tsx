@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowDown, ArrowUp, Pencil, Trash2, X } from "lucide-react";
+import Link from "next/link";
+import { ArrowDown, ArrowUp, ClipboardList, Pencil, Trash2, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -300,6 +301,11 @@ function NominationRow({
               aria-label="Переместить ниже"
             >
               <ArrowDown />
+            </Button>
+            <Button type="button" variant="ghost" size="icon-sm" asChild aria-label="Заявки">
+              <Link href={`/admin/applications?nominationId=${nomination.id}`}>
+                <ClipboardList />
+              </Link>
             </Button>
             <Button
               type="button"

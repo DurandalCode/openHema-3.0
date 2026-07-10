@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hema/server/modules/application"
 	"github.com/hema/server/modules/auth"
 	"github.com/hema/server/modules/nomination"
 	"github.com/hema/server/modules/tournament"
@@ -64,11 +65,19 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	tournamentDeps := tournament.Deps{Pool: pool}
 	tournament.Register(mux, tournamentDeps, baseOpts, adminOpts)
 
+	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
 	nominationDeps := nomination.Deps{
 		Pool:        pool,
-		Tournaments: tournament.NewActiveTournamentIDProvider(pool),
+		Tournaments: activeTournaments,
 	}
 	nomination.Register(mux, nominationDeps, baseOpts, adminOpts)
+
+	applicationDeps := application.Deps{
+		Pool:        pool,
+		Nominations: NewNominationInfoProvider(pool, activeTournaments),
+		Users:       auth.NewDisplayNameProvider(pool, tokens),
+	}
+	application.Register(mux, applicationDeps, baseOpts, adminOpts)
 
 	// ── Бутстрап первого админа (до начала приёма запросов) ───────
 	auth.Bootstrap(ctx, deps, log,

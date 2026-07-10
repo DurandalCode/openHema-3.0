@@ -220,3 +220,61 @@ func TestMe_RefreshTokenRejected(t *testing.T) {
 		t.Errorf("refresh token should not work as access, got %v", err)
 	}
 }
+
+func TestDisplayNames_HappyPath(t *testing.T) {
+	svc, _ := testService()
+	ctx := context.Background()
+
+	u1, _, err := svc.Register(ctx, "one@hema.test", "pass", "Fighter One")
+	if err != nil {
+		t.Fatalf("Register 1: %v", err)
+	}
+	u2, _, err := svc.Register(ctx, "two@hema.test", "pass", "Fighter Two")
+	if err != nil {
+		t.Fatalf("Register 2: %v", err)
+	}
+
+	names, err := svc.DisplayNames(ctx, []string{u1.ID, u2.ID})
+	if err != nil {
+		t.Fatalf("DisplayNames: %v", err)
+	}
+	if names[u1.ID] != "Fighter One" {
+		t.Errorf("names[u1.ID] = %q, want %q", names[u1.ID], "Fighter One")
+	}
+	if names[u2.ID] != "Fighter Two" {
+		t.Errorf("names[u2.ID] = %q, want %q", names[u2.ID], "Fighter Two")
+	}
+}
+
+func TestDisplayNames_UnknownIDSkippedGracefully(t *testing.T) {
+	svc, _ := testService()
+	ctx := context.Background()
+
+	u1, _, err := svc.Register(ctx, "known@hema.test", "pass", "Known User")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	names, err := svc.DisplayNames(ctx, []string{u1.ID, "00000000-0000-0000-0000-000000000000"})
+	if err != nil {
+		t.Fatalf("DisplayNames: %v", err)
+	}
+	if len(names) != 1 {
+		t.Fatalf("expected only known id in result, got %+v", names)
+	}
+	if names[u1.ID] != "Known User" {
+		t.Errorf("names[u1.ID] = %q, want %q", names[u1.ID], "Known User")
+	}
+}
+
+func TestDisplayNames_EmptyInput(t *testing.T) {
+	svc, _ := testService()
+
+	names, err := svc.DisplayNames(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("DisplayNames: %v", err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("expected empty map, got %+v", names)
+	}
+}

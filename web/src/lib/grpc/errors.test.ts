@@ -31,6 +31,20 @@ describe("errorResponse", () => {
     expect(res.status).toBe(404);
   });
 
+  it("maps CodeFailedPrecondition to 409", () => {
+    const err = new ConnectError("invalid transition", Code.FailedPrecondition);
+    const res = errorResponse(err);
+
+    expect(res.status).toBe(409);
+  });
+
+  it("maps CodeAborted to 409", () => {
+    const err = new ConnectError("concurrent modification", Code.Aborted);
+    const res = errorResponse(err);
+
+    expect(res.status).toBe(409);
+  });
+
   it("maps CodeInternal to 500", () => {
     const err = new ConnectError("boom", Code.Internal);
     const res = errorResponse(err);
