@@ -13,7 +13,6 @@ export default async function AdminNominationsPage() {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-16">
       <AdminHeader
-        backHref="/admin"
         title="Номинации"
         description="Дисциплины/категории активного турнира. Изменения сразу видны на главной."
       />

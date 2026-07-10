@@ -20,7 +20,6 @@ export default async function AdminTournamentPage() {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-16">
       <AdminHeader
-        backHref="/admin"
         title="Турнир"
         description="Профиль активного турнира. Изменения сразу видны на главной."
       />

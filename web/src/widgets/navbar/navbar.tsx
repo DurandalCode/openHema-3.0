@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
 import { siteConfig } from "@/shared/config/site-config";
 import { Row } from "@/shared/ui/stack";
+import { NavLinks } from "./nav-links";
 import { UserMenu } from "./user-menu";
 import { NavbarAuthButton } from "./navbar-auth-button";
 import { ThemeToggle } from "./theme-toggle";
@@ -24,25 +25,15 @@ export async function Navbar() {
           >
             {siteConfig.name}
           </Link>
-          <Row as="nav" align="center" gap={6} className="hidden text-sm md:flex">
-            {siteConfig.navItems.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {item.title}
-              </a>
-            ))}
-            {user?.role === "ROLE_ADMIN" && (
-              <Link
-                href="/admin"
-                className="font-medium text-foreground transition-colors hover:text-primary"
-              >
-                Админка
-              </Link>
-            )}
-          </Row>
+          <NavLinks />
+          {user?.role === "ROLE_ADMIN" && (
+            <Link
+              href="/admin"
+              className="hidden text-sm font-medium text-foreground transition-colors hover:text-primary md:inline"
+            >
+              Админка
+            </Link>
+          )}
         </Row>
 
         <Row align="center" gap={2}>
