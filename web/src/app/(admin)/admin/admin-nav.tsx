@@ -10,6 +10,7 @@ const ADMIN_NAV_ITEMS = [
   { title: "Пользователи", href: "/admin" },
   { title: "Турнир", href: "/admin/tournament" },
   { title: "Номинации", href: "/admin/nominations" },
+  { title: "Заявки", href: "/admin/applications" },
   { title: "+ Создать админа", href: "/admin/create" },
 ] as const;
 

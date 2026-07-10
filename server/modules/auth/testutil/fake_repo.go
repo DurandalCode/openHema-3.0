@@ -81,6 +81,26 @@ func (r *FakeRepo) GetUserByID(_ context.Context, id string) (domain.User, error
 	return domain.User{}, domain.ErrUserNotFound
 }
 
+// GetUsersByIDs возвращает пользователей по набору идентификаторов;
+// неизвестные id просто отсутствуют в результате.
+func (r *FakeRepo) GetUsersByIDs(_ context.Context, ids []string) ([]domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	want := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		want[id] = struct{}{}
+	}
+
+	out := make([]domain.User, 0, len(ids))
+	for _, su := range r.users {
+		if _, ok := want[su.user.ID]; ok {
+			out = append(out, su.user)
+		}
+	}
+	return out, nil
+}
+
 // CountAdmins возвращает количество пользователей с ролью admin.
 func (r *FakeRepo) CountAdmins(_ context.Context) (int, error) {
 	r.mu.Lock()

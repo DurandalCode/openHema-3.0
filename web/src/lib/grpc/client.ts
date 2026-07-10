@@ -1,6 +1,11 @@
 import { createClient, type Client } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
 import { AdminService } from "@/gen/hema/v1/admin_pb";
+import {
+  ApplicationAdminService,
+  ApplicationPublicService,
+  ApplicationService,
+} from "@/gen/hema/v1/application_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
@@ -68,3 +73,29 @@ export const nominationClient: Client<typeof NominationService> = createClient(
  */
 export const nominationAdminClient: Client<typeof NominationAdminService> =
   createClient(NominationAdminService, transport);
+
+/**
+ * applicationClient — клиент ApplicationService (операции заявителя над
+ * своей заявкой). Все RPC требуют access-токен; BFF прокидывает его из
+ * httpOnly-cookie. Только на сервере (Node runtime).
+ */
+export const applicationClient: Client<typeof ApplicationService> = createClient(
+  ApplicationService,
+  transport,
+);
+
+/**
+ * applicationAdminClient — клиент ApplicationAdminService (секретарь/admin:
+ * подтверждение оплаты, регистрация, сводный экран заявок). Все RPC требуют
+ * роль ADMIN. Только на сервере (Node runtime).
+ */
+export const applicationAdminClient: Client<typeof ApplicationAdminService> =
+  createClient(ApplicationAdminService, transport);
+
+/**
+ * applicationPublicClient — публичный клиент ApplicationPublicService
+ * (стартовый лист номинации: имена + счётчики). Не требует access-токена.
+ * Только на сервере (Node runtime).
+ */
+export const applicationPublicClient: Client<typeof ApplicationPublicService> =
+  createClient(ApplicationPublicService, transport);

@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
+import { MyApplicationsList } from "@/features/my-applications/ui/my-applications-list";
 import { LogoutButton } from "./logout-button";
 
 export const runtime = "nodejs";
@@ -47,6 +48,13 @@ export default async function DashboardPage() {
           </Col>
         </CardContent>
       </Card>
+
+      <div className="mt-10 max-w-2xl">
+        <h2 className="text-xl font-semibold tracking-tight">Мои заявки</h2>
+        <div className="mt-4">
+          <MyApplicationsList />
+        </div>
+      </div>
 
       <LogoutButton />
     </div>

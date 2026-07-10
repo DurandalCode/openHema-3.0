@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// ApplicationService — операции заявителя над своей заявкой. Все RPC требуют
+// access-токен (не входят в publicProcedures интерсептора Auth); заявитель
+// берётся из токена, не из тела запроса.
+service ApplicationService {
+  // SubmitApplication подаёт заявку текущего пользователя в номинацию.
+  rpc SubmitApplication(SubmitApplicationRequest) returns (SubmitApplicationResponse);
+  // DeclarePayment отмечает оплату собственной заявки.
+  rpc DeclarePayment(DeclarePaymentRequest) returns (DeclarePaymentResponse);
+  // WithdrawApplication отзывает собственную заявку.
+  rpc WithdrawApplication(WithdrawApplicationRequest) returns (WithdrawApplicationResponse);
+  // ListMyApplications возвращает заявки текущего пользователя.
+  rpc ListMyApplications(ListMyApplicationsRequest) returns (ListMyApplicationsResponse);
+  // GetApplication возвращает одну заявку с историей событий. Доступна
+  // владельцу заявки или admin.
+  rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+}
+
+// ApplicationAdminService — операции секретаря/организатора. Все RPC требуют
+// роль ADMIN (проверяется серверным интерсептором RequireAdmin).
+service ApplicationAdminService {
+  // ConfirmPayment подтверждает заявленную оплату.
+  rpc ConfirmPayment(ConfirmPaymentRequest) returns (ConfirmPaymentResponse);
+  // RegisterFighter регистрирует оплаченную заявку (терминальный шаг флоу).
+  rpc RegisterFighter(RegisterFighterRequest) returns (RegisterFighterResponse);
+  // ListNominationApplications возвращает заявки одной номинации.
+  rpc ListNominationApplications(ListNominationApplicationsRequest) returns (ListNominationApplicationsResponse);
+  // ListApplications — сводный экран заявок турнира с опциональной
+  // фильтрацией по статусу и/или номинации.
+  rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
+}
+
+// ApplicationPublicService — публичное чтение стартового листа номинации. RPC
+// доступны без access-токена (перечислены в publicProcedures интерсептора Auth).
+service ApplicationPublicService {
+  // ListNominationParticipants возвращает имена заявленных/подтверждённых
+  // бойцов и счётчики номинации.
+  rpc ListNominationParticipants(ListNominationParticipantsRequest) returns (ListNominationParticipantsResponse);
+}
+
+// ApplicationState — состояние заявки, реконструированное сверткой потока
+// событий (не хранимое поле).
+enum ApplicationState {
+  APPLICATION_STATE_UNSPECIFIED = 0;
+  APPLICATION_STATE_SUBMITTED = 1;
+  APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION = 2;
+  APPLICATION_STATE_PAID = 3;
+  APPLICATION_STATE_REGISTERED = 4;
+  APPLICATION_STATE_WITHDRAWN = 5;
+}
+
+// ApplicationEventType — тип доменного события в журнале заявки.
+enum ApplicationEventType {
+  APPLICATION_EVENT_TYPE_UNSPECIFIED = 0;
+  APPLICATION_EVENT_TYPE_SUBMITTED = 1;
+  APPLICATION_EVENT_TYPE_PAYMENT_DECLARED = 2;
+  APPLICATION_EVENT_TYPE_PAYMENT_CONFIRMED = 3;
+  APPLICATION_EVENT_TYPE_FIGHTER_REGISTERED = 4;
+  APPLICATION_EVENT_TYPE_WITHDRAWN = 5;
+}
+
+// Application — заявка, реконструированная из потока событий.
+message Application {
+  string id = 1;
+  string nomination_id = 2;
+  string tournament_id = 3;
+  string applicant_user_id = 4;
+  // applicant_display_name — отображаемое имя заявителя, обогащённое из
+  // домена auth (не хранится в заявке).
+  string applicant_display_name = 5;
+  ApplicationState state = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// ApplicationEvent — одна запись истории заявки.
+message ApplicationEvent {
+  ApplicationEventType type = 1;
+  string actor_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  int32 sequence = 4;
+}
+
+// NominationParticipant — элемент публичного стартового листа номинации.
+// Без user_id: публичная выдача не раскрывает идентификаторы.
+message NominationParticipant {
+  string display_name = 1;
+  ApplicationState state = 2;
+}
+
+message SubmitApplicationRequest {
+  string nomination_id = 1;
+}
+
+message SubmitApplicationResponse {
+  Application application = 1;
+}
+
+message DeclarePaymentRequest {
+  string application_id = 1;
+}
+
+message DeclarePaymentResponse {
+  Application application = 1;
+}
+
+message WithdrawApplicationRequest {
+  string application_id = 1;
+}
+
+message WithdrawApplicationResponse {
+  Application application = 1;
+}
+
+message ListMyApplicationsRequest {}
+
+message ListMyApplicationsResponse {
+  repeated Application applications = 1;
+}
+
+message GetApplicationRequest {
+  string application_id = 1;
+}
+
+message GetApplicationResponse {
+  Application application = 1;
+  repeated ApplicationEvent history = 2;
+}
+
+message ConfirmPaymentRequest {
+  string application_id = 1;
+}
+
+message ConfirmPaymentResponse {
+  Application application = 1;
+}
+
+// RegisterFighterRequest — регистрирует оплаченную заявку.
+message RegisterFighterRequest {
+  string application_id = 1;
+}
+
+// RegisterFighterResponse — capacity_exceeded несёт мягкое предупреждение о
+// переполнении номинации (soft cap); регистрация им не блокируется.
+message RegisterFighterResponse {
+  Application application = 1;
+  bool capacity_exceeded = 2;
+}
+
+message ListNominationApplicationsRequest {
+  string nomination_id = 1;
+}
+
+message ListNominationApplicationsResponse {
+  repeated Application applications = 1;
+}
+
+// ListApplicationsRequest — сводный экран заявок турнира. Фильтры опциональны
+// и комбинируются; отсутствие фильтра = без ограничения по нему.
+message ListApplicationsRequest {
+  string tournament_id = 1;
+  optional ApplicationState status = 2;
+  optional string nomination_id = 3;
+}
+
+message ListApplicationsResponse {
+  repeated Application applications = 1;
+}
+
+message ListNominationParticipantsRequest {
+  string nomination_id = 1;
+}
+
+// ListNominationParticipantsResponse — стартовый лист номинации.
+// applied_count — все неотозванные заявки; confirmed_count — заявки с
+// подтверждённой оплатой и выше (paid + registered). fighter_capacity —
+// лимит номинации (soft cap); отсутствие = не задан.
+message ListNominationParticipantsResponse {
+  repeated NominationParticipant participants = 1;
+  int32 applied_count = 2;
+  int32 confirmed_count = 3;
+  optional int32 fighter_capacity = 4;
+}

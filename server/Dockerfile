@@ -32,6 +32,7 @@ COPY --from=build /out/goose /app/goose
 COPY --from=build /src/modules/auth/migrations        /app/modules/auth/migrations
 COPY --from=build /src/modules/tournament/migrations  /app/modules/tournament/migrations
 COPY --from=build /src/modules/nomination/migrations  /app/modules/nomination/migrations
+COPY --from=build /src/modules/application/migrations /app/modules/application/migrations
 
 USER app
 EXPOSE 8080

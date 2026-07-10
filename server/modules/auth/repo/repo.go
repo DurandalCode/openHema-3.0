@@ -71,6 +71,31 @@ func (r *Repo) GetUserByID(ctx context.Context, id string) (domain.User, error) 
 	return toDomain(row), nil
 }
 
+// GetUsersByIDs возвращает пользователей по набору идентификаторов;
+// нераспознаваемые (не-UUID) id пропускаются, а не считаются ошибкой.
+func (r *Repo) GetUsersByIDs(ctx context.Context, ids []string) ([]domain.User, error) {
+	uids := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		uid, err := uuid.Parse(id)
+		if err != nil {
+			continue
+		}
+		uids = append(uids, uid)
+	}
+	if len(uids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.q.GetUsersByIDs(ctx, uids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomain(row))
+	}
+	return out, nil
+}
+
 // CountAdmins возвращает количество пользователей с ролью admin.
 func (r *Repo) CountAdmins(ctx context.Context) (int, error) {
 	n, err := r.q.CountAdmins(ctx)

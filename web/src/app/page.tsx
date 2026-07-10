@@ -1,6 +1,8 @@
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
 import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
 import { getNominations } from "@/entities/nomination/model/get-nominations";
+import { getNominationParticipants } from "@/entities/application/model/get-nomination-participants";
+import type { NominationParticipants } from "@/entities/application/lib/types";
 import { siteConfig } from "@/shared/config/site-config";
 import { Col, Row } from "@/shared/ui/stack";
 import { AuthCta } from "@/features/auth/ui/auth-cta";
@@ -19,6 +21,11 @@ export default async function HomePage() {
     getActiveTournament(),
   ]);
   const nominations = await getNominations(tournament?.id ?? "");
+  const participantsByNomination: Record<string, NominationParticipants> = Object.fromEntries(
+    await Promise.all(
+      nominations.map(async (n) => [n.id, await getNominationParticipants(n.id)] as const),
+    ),
+  );
 
   return (
     <Col>
@@ -26,7 +33,11 @@ export default async function HomePage() {
       <TournamentHero tournament={tournament} />
 
       {/* Nominations */}
-      <NominationsList nominations={nominations} />
+      <NominationsList
+        nominations={nominations}
+        participantsByNomination={participantsByNomination}
+        isAuthenticated={Boolean(user)}
+      />
 
       {!user && (
         <Col align="center" gap={3} className="mx-auto w-full max-w-6xl px-4 pb-16 text-center">

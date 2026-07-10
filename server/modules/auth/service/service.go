@@ -90,6 +90,25 @@ func (s *Service) Me(ctx context.Context, accessToken string) (domain.User, erro
 	return s.repo.GetUserByID(ctx, claims.UserID)
 }
 
+// DisplayNames возвращает батч отображаемых имён пользователей по набору id.
+// Межмодульная точка входа для UserProvider других модулей (напр.
+// application, ADR 0002): неизвестные/недоступные id просто отсутствуют в
+// результате — не ошибка.
+func (s *Service) DisplayNames(ctx context.Context, ids []string) (map[string]string, error) {
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	users, err := s.repo.GetUsersByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get users by ids: %w", err)
+	}
+	out := make(map[string]string, len(users))
+	for _, u := range users {
+		out[u.ID] = u.DisplayName
+	}
+	return out, nil
+}
+
 // createUser хеширует пароль и делегирует вставку репозиторию.
 func (s *Service) createUser(ctx context.Context, email, password, displayName string, role domain.Role) (domain.User, error) {
 	hash, err := crypto.HashPassword(password)

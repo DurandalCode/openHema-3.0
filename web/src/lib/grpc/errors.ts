@@ -8,6 +8,11 @@ const codeToStatus: Partial<Record<Code, number>> = {
   [Code.PermissionDenied]: 403,
   [Code.NotFound]: 404,
   [Code.AlreadyExists]: 409,
+  // FailedPrecondition (недопустимый переход state machine заявки) и
+  // Aborted (конфликт версии потока, ADR 0011) — оба «текущее состояние не
+  // позволяет» на стороне клиента, конвенционально 409.
+  [Code.FailedPrecondition]: 409,
+  [Code.Aborted]: 409,
   [Code.Internal]: 500,
   [Code.Unavailable]: 503,
 };

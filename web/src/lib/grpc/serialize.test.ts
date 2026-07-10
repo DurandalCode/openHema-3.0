@@ -4,6 +4,15 @@ import { UserSchema } from "@/gen/hema/v1/common_pb";
 import { TournamentSchema } from "@/gen/hema/v1/tournament_pb";
 import { NominationSchema } from "@/gen/hema/v1/nomination_pb";
 import {
+  ApplicationSchema,
+  ApplicationEventSchema,
+  NominationParticipantSchema,
+} from "@/gen/hema/v1/application_pb";
+import {
+  applicationHistoryToJson,
+  applicationsToJson,
+  applicationToJson,
+  nominationParticipantsToJson,
   nominationsToJson,
   nominationToJson,
   tournamentToJson,
@@ -246,5 +255,87 @@ describe("nominationsToJson", () => {
 
   it("returns empty array for undefined", () => {
     expect(nominationsToJson(undefined)).toEqual([]);
+  });
+});
+
+describe("applicationToJson", () => {
+  it("converts a protobuf Application to plain JSON", () => {
+    const app = fromJson(ApplicationSchema, {
+      id: "app-1",
+      nominationId: "nom-1",
+      tournamentId: "t1",
+      applicantUserId: "user-1",
+      applicantDisplayName: "Fighter One",
+      state: "APPLICATION_STATE_SUBMITTED",
+    });
+
+    const json = applicationToJson(app);
+
+    expect(json).not.toBeNull();
+    expect(json?.id).toBe("app-1");
+    expect(json?.nominationId).toBe("nom-1");
+    expect(json?.applicantDisplayName).toBe("Fighter One");
+    expect(json?.state).toBe("APPLICATION_STATE_SUBMITTED");
+  });
+
+  it("returns null for undefined", () => {
+    expect(applicationToJson(undefined)).toBeNull();
+  });
+});
+
+describe("applicationsToJson", () => {
+  it("converts an array of protobuf Applications", () => {
+    const a = fromJson(ApplicationSchema, { id: "a", state: "APPLICATION_STATE_SUBMITTED" });
+    const b = fromJson(ApplicationSchema, { id: "b", state: "APPLICATION_STATE_PAID" });
+
+    const json = applicationsToJson([a, b]);
+
+    expect(json).toHaveLength(2);
+    expect(json[0].id).toBe("a");
+    expect(json[1].state).toBe("APPLICATION_STATE_PAID");
+  });
+
+  it("returns empty array for undefined", () => {
+    expect(applicationsToJson(undefined)).toEqual([]);
+  });
+});
+
+describe("applicationHistoryToJson", () => {
+  it("converts an array of protobuf ApplicationEvent", () => {
+    const ev = fromJson(ApplicationEventSchema, {
+      type: "APPLICATION_EVENT_TYPE_SUBMITTED",
+      actorId: "user-1",
+      sequence: 1,
+    });
+
+    const json = applicationHistoryToJson([ev]);
+
+    expect(json).toHaveLength(1);
+    expect(json[0].type).toBe("APPLICATION_EVENT_TYPE_SUBMITTED");
+    expect(json[0].actorId).toBe("user-1");
+    expect(json[0].sequence).toBe(1);
+  });
+
+  it("returns empty array for undefined", () => {
+    expect(applicationHistoryToJson(undefined)).toEqual([]);
+  });
+});
+
+describe("nominationParticipantsToJson", () => {
+  it("converts an array of protobuf NominationParticipant", () => {
+    const p = fromJson(NominationParticipantSchema, {
+      displayName: "Fighter One",
+      state: "APPLICATION_STATE_REGISTERED",
+    });
+
+    const json = nominationParticipantsToJson([p]);
+
+    expect(json).toHaveLength(1);
+    expect(json[0].displayName).toBe("Fighter One");
+    expect(json[0].state).toBe("APPLICATION_STATE_REGISTERED");
+  });
+
+  it("returns empty array for undefined", () => {
+    expect(nominationParticipantsToJson(undefined)).toEqual([]);
   });
 });

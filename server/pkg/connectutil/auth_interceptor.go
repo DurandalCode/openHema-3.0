@@ -18,6 +18,7 @@ var publicProcedures = map[string]struct{}{
 	"/hema.v1.TournamentService/GetActiveTournament": {},
 	"/hema.v1.NominationService/ListNominations":     {},
 	"/hema.v1.NominationService/GetNomination":       {},
+	"/hema.v1.ApplicationPublicService/ListNominationParticipants": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт
