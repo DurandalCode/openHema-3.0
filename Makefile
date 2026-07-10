@@ -91,6 +91,10 @@ dev: ## Локальный дев: postgres в докере + миграции +
 	$(MAKE) migrate
 	$(MAKE) -j2 server web
 
+.PHONY: demo
+demo: migrate ## Наполнить БД тестовыми данными для ручной проверки UX (сбрасывает demo-сущности: users/nominations/applications)
+	cd server && go run ./cmd/demo
+
 .PHONY: prod
 prod: ## Полная сборка и запуск всего стека в докере
 	docker compose up --build

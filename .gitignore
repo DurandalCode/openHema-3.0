@@ -4,6 +4,7 @@
 
 # Go
 /server/bin/
+/server/demo
 *.test
 *.out
 
