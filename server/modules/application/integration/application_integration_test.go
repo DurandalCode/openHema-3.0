@@ -334,3 +334,121 @@ func TestIntegration_NominationParticipants_CountsAndCapacity(t *testing.T) {
 		t.Fatalf("expected no capacity set, got %v", *resp.Msg.FighterCapacity)
 	}
 }
+
+// TestIntegration_ClubAndEquipment_Persisted подтверждает, что миграция
+// 00002 применилась и club/needs_equipment реально сохраняются и читаются
+// через проекцию (не только через fake-репо), AC-1/AC-2.
+func TestIntegration_ClubAndEquipment_Persisted(t *testing.T) {
+	c := setup(t)
+	nominationID := createNomination(t, c, "Details Test")
+	applicantID := "00000000-0000-0000-0000-0000000000f6"
+
+	submitResp, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
+		NominationId:   nominationID,
+		Club:           "Sokol",
+		NeedsEquipment: true,
+	}, userBearer(t, applicantID)))
+	if err != nil {
+		t.Fatalf("SubmitApplication: %v", err)
+	}
+	if submitResp.Msg.Application.Club != "Sokol" || !submitResp.Msg.Application.NeedsEquipment {
+		t.Fatalf("expected club/needs_equipment in submit response, got %+v", submitResp.Msg.Application)
+	}
+
+	getResp, err := c.app.GetApplication(context.Background(), authed(t, &hemav1.GetApplicationRequest{
+		ApplicationId: submitResp.Msg.Application.Id,
+	}, userBearer(t, applicantID)))
+	if err != nil {
+		t.Fatalf("GetApplication: %v", err)
+	}
+	if getResp.Msg.Application.Club != "Sokol" || !getResp.Msg.Application.NeedsEquipment {
+		t.Fatalf("expected club/needs_equipment persisted in projection, got %+v", getResp.Msg.Application)
+	}
+}
+
+// TestIntegration_EditApplication_PersistsDetailsAndAmendedEvent подтверждает
+// сквозную правку через реальную БД: UpsertCurrent обновляет club/
+// needs_equipment/applicant_name_override, а журнал events получает новую
+// строку amended, не трогая прошлые (AC-3/AC-4/AC-13).
+func TestIntegration_EditApplication_PersistsDetailsAndAmendedEvent(t *testing.T) {
+	c := setup(t)
+	nominationID := createNomination(t, c, "Edit Test")
+	applicantID := "00000000-0000-0000-0000-0000000000f7"
+
+	submitResp, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationID,
+		Club:         "hema club",
+	}, userBearer(t, applicantID)))
+	if err != nil {
+		t.Fatalf("SubmitApplication: %v", err)
+	}
+	appID := submitResp.Msg.Application.Id
+
+	editResp, err := c.admin.EditApplication(context.Background(), authed(t, &hemav1.EditApplicationRequest{
+		ApplicationId:         appID,
+		Club:                  "HEMA Club",
+		NeedsEquipment:        true,
+		ApplicantNameOverride: "Ivan Petrov",
+	}, adminBearer(t)))
+	if err != nil {
+		t.Fatalf("EditApplication: %v", err)
+	}
+	if editResp.Msg.Application.Club != "HEMA Club" || !editResp.Msg.Application.NeedsEquipment {
+		t.Fatalf("expected updated club/needs_equipment, got %+v", editResp.Msg.Application)
+	}
+	if editResp.Msg.Application.ApplicantDisplayName != "Ivan Petrov" {
+		t.Fatalf("expected overridden display name, got %q", editResp.Msg.Application.ApplicantDisplayName)
+	}
+
+	getResp, err := c.app.GetApplication(context.Background(), authed(t, &hemav1.GetApplicationRequest{
+		ApplicationId: appID,
+	}, adminBearer(t)))
+	if err != nil {
+		t.Fatalf("GetApplication: %v", err)
+	}
+	if getResp.Msg.Application.Club != "HEMA Club" {
+		t.Fatalf("expected club persisted after edit, got %q", getResp.Msg.Application.Club)
+	}
+	if len(getResp.Msg.History) != 2 {
+		t.Fatalf("expected 2 history events (submit + amend), got %d", len(getResp.Msg.History))
+	}
+	if getResp.Msg.History[0].Type != hemav1.ApplicationEventType_APPLICATION_EVENT_TYPE_SUBMITTED {
+		t.Fatalf("expected first event to remain SUBMITTED (journal immutable), got %s", getResp.Msg.History[0].Type)
+	}
+	if getResp.Msg.History[1].Type != hemav1.ApplicationEventType_APPLICATION_EVENT_TYPE_AMENDED {
+		t.Fatalf("expected second event AMENDED, got %s", getResp.Msg.History[1].Type)
+	}
+}
+
+// TestIntegration_EditApplication_TransferToDuplicate_PartialUniqueIndex
+// подтверждает, что реальный partial unique index блокирует перенос заявки
+// (EditApplication) в номинацию, где у бойца уже есть активная заявка —
+// тот же инвариант, что и на Submit, но через путь админской правки (AC-9).
+func TestIntegration_EditApplication_TransferToDuplicate_PartialUniqueIndex(t *testing.T) {
+	c := setup(t)
+	nominationA := createNomination(t, c, "Transfer Source")
+	nominationB := createNomination(t, c, "Transfer Target")
+	applicantID := "00000000-0000-0000-0000-0000000000f8"
+	bearer := userBearer(t, applicantID)
+
+	appA, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationA,
+	}, bearer))
+	if err != nil {
+		t.Fatalf("SubmitApplication A: %v", err)
+	}
+	if _, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationB,
+	}, bearer)); err != nil {
+		t.Fatalf("SubmitApplication B: %v", err)
+	}
+
+	targetNomination := nominationB
+	_, err = c.admin.EditApplication(context.Background(), authed(t, &hemav1.EditApplicationRequest{
+		ApplicationId: appA.Msg.Application.Id,
+		NominationId:  &targetNomination,
+	}, adminBearer(t)))
+	if connect.CodeOf(err) != connect.CodeAlreadyExists {
+		t.Fatalf("expected CodeAlreadyExists on transfer into duplicate, got %v (%v)", connect.CodeOf(err), err)
+	}
+}

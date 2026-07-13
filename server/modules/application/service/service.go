@@ -19,17 +19,23 @@ import (
 
 const maxAppendAttempts = 2
 
-// Application — заявка, обогащённая отображаемым именем заявителя (резолв из
-// домена auth через UserProvider; в журнале/проекции имя не хранится).
+// Application — заявка, обогащённая отображаемым именем заявителя.
+// ApplicantDisplayName — эффективное имя: переопределение (если задано
+// админом), иначе имя из домена auth (резолв через UserProvider; ни то, ни
+// другое не хранится в журнале — override живёт в заявке, имя из auth — в
+// профиле пользователя).
 type Application struct {
-	ID                   string
-	NominationID         string
-	TournamentID         string
-	ApplicantUserID      string
-	ApplicantDisplayName string
-	State                domain.State
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                    string
+	NominationID          string
+	TournamentID          string
+	ApplicantUserID       string
+	ApplicantDisplayName  string
+	State                 domain.State
+	Club                  string
+	NeedsEquipment        bool
+	ApplicantNameOverride string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // HistoryEvent — одна запись истории заявки (для GetApplication).
@@ -46,6 +52,18 @@ type Participant struct {
 	State       domain.State
 }
 
+// EditInput — желаемые значения полей при админской правке заявки
+// (спека 0006, FR-3). Club/NeedsEquipment/ApplicantNameOverride — полный
+// снапшот (форма всегда шлёт текущее значение). NominationID/State —
+// опциональны: nil = не менять.
+type EditInput struct {
+	Club                  string
+	NeedsEquipment        bool
+	ApplicantNameOverride string
+	NominationID          *string
+	State                 *domain.State
+}
+
 // Service реализует юзкейсы заявок. Зависит от портов, не от pg/proto.
 type Service struct {
 	repo        domain.Repository
@@ -60,8 +78,9 @@ func New(repo domain.Repository, nominations domain.NominationProvider, users do
 
 // Submit подаёт заявку callerID в номинацию. Резолвит tournament_id номинации
 // через NominationProvider; предпроверяет активный дубль (быстрый отказ —
-// финальный арбитр гонки — partial unique index в Append).
-func (s *Service) Submit(ctx context.Context, callerID, nominationID string) (Application, error) {
+// финальный арбитр гонки — partial unique index в Append). club и
+// needsEquipment — детали, указанные бойцом при подаче (FR-1, спека 0006).
+func (s *Service) Submit(ctx context.Context, callerID, nominationID, club string, needsEquipment bool) (Application, error) {
 	callerID = strings.TrimSpace(callerID)
 	nominationID = strings.TrimSpace(nominationID)
 	if callerID == "" || nominationID == "" {
@@ -81,7 +100,7 @@ func (s *Service) Submit(ctx context.Context, callerID, nominationID string) (Ap
 		return Application{}, domain.ErrDuplicateActive
 	}
 
-	ev, err := domain.Submit(nominationID, info.TournamentID, callerID, time.Now())
+	ev, err := domain.Submit(nominationID, info.TournamentID, callerID, club, needsEquipment, time.Now())
 	if err != nil {
 		return Application{}, err
 	}
@@ -168,6 +187,67 @@ func (s *Service) Register(ctx context.Context, actorID, appID string) (Applicat
 		return out, capacityExceeded, err
 	}
 	return Application{}, false, lastErr
+}
+
+// EditApplication редактирует заявку (только admin, доступ проверяется вне
+// домена — RequireAdmin): клуб, признак экипировки, переопределение имени,
+// перенос в другую номинацию и/или ручную смену статуса (FR-3..FR-9,
+// спека 0006). Допустимо над заявкой в любом состоянии, включая терминальные
+// (FR-9). Фиксируется событием ApplicationAmended, не переписывая прошлое.
+// Конфликт версии — один прозрачный повтор, затем ErrConcurrency.
+func (s *Service) EditApplication(ctx context.Context, actorID, appID string, in EditInput) (Application, error) {
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return Application{}, domain.ErrNotFound
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAppendAttempts; attempt++ {
+		events, err := s.repo.Load(ctx, appID)
+		if err != nil {
+			return Application{}, err
+		}
+		current, err := domain.Rebuild(appID, events)
+		if err != nil {
+			return Application{}, err
+		}
+
+		patch := domain.AmendPatch{
+			Club:                  in.Club,
+			NeedsEquipment:        in.NeedsEquipment,
+			ApplicantNameOverride: in.ApplicantNameOverride,
+			NewState:              in.State,
+		}
+		if in.NominationID != nil {
+			targetNominationID := strings.TrimSpace(*in.NominationID)
+			info, err := s.nominations.Nomination(ctx, targetNominationID)
+			if err != nil {
+				return Application{}, domain.ErrNominationNotFound
+			}
+			patch.NominationID = &targetNominationID
+			patch.TournamentID = info.TournamentID
+		}
+
+		ev, err := current.Amend(actorID, patch, time.Now())
+		if err != nil {
+			return Application{}, err
+		}
+
+		next, err := domain.Rebuild(appID, append(events, ev))
+		if err != nil {
+			return Application{}, err
+		}
+
+		if err := s.repo.Append(ctx, appID, current.Version, ev, toView(next)); err != nil {
+			if isConcurrencyConflict(err) {
+				lastErr = err
+				continue
+			}
+			return Application{}, err
+		}
+		return s.enrich(ctx, next)
+	}
+	return Application{}, lastErr
 }
 
 // GetApplication возвращает заявку с историей. Доступна владельцу заявки или
@@ -258,7 +338,7 @@ func (s *Service) NominationParticipants(ctx context.Context, nominationID strin
 
 	participants := make([]Participant, 0, len(views))
 	for _, v := range views {
-		participants = append(participants, Participant{DisplayName: names[v.ApplicantUserID], State: v.State})
+		participants = append(participants, Participant{DisplayName: effectiveName(v.ApplicantNameOverride, names[v.ApplicantUserID]), State: v.State})
 	}
 	return participants, applied, confirmed, info.FighterCapacity, nil
 }
@@ -326,14 +406,17 @@ func (s *Service) enrich(ctx context.Context, app domain.Application) (Applicati
 		return Application{}, err
 	}
 	return Application{
-		ID:                   app.ID,
-		NominationID:         app.NominationID,
-		TournamentID:         app.TournamentID,
-		ApplicantUserID:      app.ApplicantUserID,
-		ApplicantDisplayName: names[app.ApplicantUserID],
-		State:                app.State,
-		CreatedAt:            app.CreatedAt,
-		UpdatedAt:            app.UpdatedAt,
+		ID:                    app.ID,
+		NominationID:          app.NominationID,
+		TournamentID:          app.TournamentID,
+		ApplicantUserID:       app.ApplicantUserID,
+		ApplicantDisplayName:  effectiveName(app.ApplicantNameOverride, names[app.ApplicantUserID]),
+		State:                 app.State,
+		Club:                  app.Club,
+		NeedsEquipment:        app.NeedsEquipment,
+		ApplicantNameOverride: app.ApplicantNameOverride,
+		CreatedAt:             app.CreatedAt,
+		UpdatedAt:             app.UpdatedAt,
 	}, nil
 }
 
@@ -345,29 +428,44 @@ func (s *Service) enrichViews(ctx context.Context, views []domain.ApplicationVie
 	out := make([]Application, 0, len(views))
 	for _, v := range views {
 		out = append(out, Application{
-			ID:                   v.ID,
-			NominationID:         v.NominationID,
-			TournamentID:         v.TournamentID,
-			ApplicantUserID:      v.ApplicantUserID,
-			ApplicantDisplayName: names[v.ApplicantUserID],
-			State:                v.State,
-			CreatedAt:            v.CreatedAt,
-			UpdatedAt:            v.UpdatedAt,
+			ID:                    v.ID,
+			NominationID:          v.NominationID,
+			TournamentID:          v.TournamentID,
+			ApplicantUserID:       v.ApplicantUserID,
+			ApplicantDisplayName:  effectiveName(v.ApplicantNameOverride, names[v.ApplicantUserID]),
+			State:                 v.State,
+			Club:                  v.Club,
+			NeedsEquipment:        v.NeedsEquipment,
+			ApplicantNameOverride: v.ApplicantNameOverride,
+			CreatedAt:             v.CreatedAt,
+			UpdatedAt:             v.UpdatedAt,
 		})
 	}
 	return out, nil
 }
 
+// effectiveName — переопределение имени приоритетнее имени из auth; пустой
+// override — откат к auth (спека 0006, FR-4).
+func effectiveName(override, authName string) string {
+	if override != "" {
+		return override
+	}
+	return authName
+}
+
 func toView(app domain.Application) domain.ApplicationView {
 	return domain.ApplicationView{
-		ID:              app.ID,
-		NominationID:    app.NominationID,
-		TournamentID:    app.TournamentID,
-		ApplicantUserID: app.ApplicantUserID,
-		State:           app.State,
-		Version:         app.Version,
-		CreatedAt:       app.CreatedAt,
-		UpdatedAt:       app.UpdatedAt,
+		ID:                    app.ID,
+		NominationID:          app.NominationID,
+		TournamentID:          app.TournamentID,
+		ApplicantUserID:       app.ApplicantUserID,
+		State:                 app.State,
+		Club:                  app.Club,
+		NeedsEquipment:        app.NeedsEquipment,
+		ApplicantNameOverride: app.ApplicantNameOverride,
+		Version:               app.Version,
+		CreatedAt:             app.CreatedAt,
+		UpdatedAt:             app.UpdatedAt,
 	}
 }
 

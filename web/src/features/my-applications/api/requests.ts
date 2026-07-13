@@ -23,9 +23,25 @@ export async function listMyApplicationsRequest(): Promise<ApplicationListResult
   }
 }
 
-/** submitApplicationRequest — POST /api/applications (подать заявку). */
-export async function submitApplicationRequest(nominationId: string): Promise<ApplicationResult> {
-  return post("/api/applications", { nominationId });
+export type SubmitApplicationDetails = {
+  club?: string;
+  needsEquipment?: boolean;
+};
+
+/**
+ * submitApplicationRequest — POST /api/applications (подать заявку).
+ * club/needsEquipment — доп. поля заявки, указываемые бойцом при подаче
+ * (спека 0006, FR-1).
+ */
+export async function submitApplicationRequest(
+  nominationId: string,
+  details: SubmitApplicationDetails = {},
+): Promise<ApplicationResult> {
+  return post("/api/applications", {
+    nominationId,
+    club: details.club ?? "",
+    needsEquipment: details.needsEquipment ?? false,
+  });
 }
 
 /** declarePaymentRequest — POST /api/applications/[id]/declare-payment. */

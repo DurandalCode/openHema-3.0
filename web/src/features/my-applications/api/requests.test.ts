@@ -48,7 +48,7 @@ describe("features/my-applications/api/requests", () => {
   });
 
   describe("submitApplicationRequest", () => {
-    it("POSTs /api/applications with nominationId", async () => {
+    it("POSTs /api/applications with nominationId and default club/needsEquipment", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ application: { id: "a1", nominationId: "n1" } }),
@@ -60,7 +60,22 @@ describe("features/my-applications/api/requests", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nominationId: "n1" }),
+        body: JSON.stringify({ nominationId: "n1", club: "", needsEquipment: false }),
+      });
+    });
+
+    it("POSTs club/needsEquipment when provided", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ application: { id: "a1", nominationId: "n1", club: "Sokol" } }),
+      });
+
+      await submitApplicationRequest("n1", { club: "Sokol", needsEquipment: true });
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nominationId: "n1", club: "Sokol", needsEquipment: true }),
       });
     });
 

@@ -56,6 +56,17 @@ func (s State) IsActive() bool {
 	return !s.IsTerminal()
 }
 
+// valid — известное состояние заявки (для валидации ручной установки статуса
+// при админской правке, спека 0006).
+func (s State) valid() bool {
+	switch s {
+	case StateSubmitted, StateAwaitingPaymentConfirmation, StatePaid, StateRegistered, StateWithdrawn:
+		return true
+	default:
+		return false
+	}
+}
+
 // EventType — тип доменного события в журнале заявки. Именование — в
 // прошедшем времени, доменный факт (ADR 0011).
 type EventType string
@@ -66,14 +77,32 @@ const (
 	EventPaymentConfirmed  EventType = "payment_confirmed"
 	EventFighterRegistered EventType = "fighter_registered"
 	EventWithdrawn         EventType = "withdrawn"
+	EventAmended           EventType = "amended"
 )
 
-// Payload — полезная нагрузка события. Значима только для EventSubmitted:
-// задаёт идентичность потока (номинация, турнир, заявитель).
+// Payload — полезная нагрузка события.
+//
+// Для EventSubmitted значимы: NominationID/TournamentID/ApplicantUserID
+// (идентичность потока) и Club/NeedsEquipment (детали, заданные бойцом).
+//
+// Для EventAmended (админская правка, спека 0006) поля — патч поверх текущего
+// агрегата: Club/NeedsEquipment/ApplicantNameOverride — всегда полный
+// желаемый снапшот этих атрибутов; NominationID — пусто ⇒ номинацию не
+// менять, непусто ⇒ перенос (сопровождается TournamentID); NewState — пусто
+// ⇒ статус не менять, непусто ⇒ ручная установка статуса.
 type Payload struct {
 	NominationID    string
 	TournamentID    string
 	ApplicantUserID string
+	// Club — клуб бойца (может быть пустым).
+	Club string
+	// NeedsEquipment — нужна ли бойцу экипировка.
+	NeedsEquipment bool
+	// ApplicantNameOverride — переопределение отображаемого имени (только
+	// EventAmended); «» = имя резолвится из auth.
+	ApplicantNameOverride string
+	// NewState — целевое состояние при ручной правке (только EventAmended).
+	NewState State
 }
 
 // Event — один факт в журнале заявки. Неизменяем после записи (ADR 0011).
@@ -93,6 +122,13 @@ type Application struct {
 	TournamentID    string
 	ApplicantUserID string
 	State           State
+	// Club — клуб бойца (может быть пустым).
+	Club string
+	// NeedsEquipment — нужна ли бойцу экипировка.
+	NeedsEquipment bool
+	// ApplicantNameOverride — переопределение отображаемого имени, заданное
+	// админом; «» = имя резолвится из auth (спека 0006).
+	ApplicantNameOverride string
 	// Version — версия потока = номер последнего применённого события.
 	Version   int
 	CreatedAt time.Time
@@ -102,19 +138,23 @@ type Application struct {
 // ApplicationView — плоское текущее состояние агрегата для инлайн-проекции
 // (read-model). Обновляется атомарно с записью события (ADR 0011).
 type ApplicationView struct {
-	ID              string
-	NominationID    string
-	TournamentID    string
-	ApplicantUserID string
-	State           State
-	Version         int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                    string
+	NominationID          string
+	TournamentID          string
+	ApplicantUserID       string
+	State                 State
+	Club                  string
+	NeedsEquipment        bool
+	ApplicantNameOverride string
+	Version               int
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // Submit создаёт первое событие нового потока заявки. Не проверяет
-// существование номинации/дубли — это задача service (через порты).
-func Submit(nominationID, tournamentID, applicantUserID string, now time.Time) (Event, error) {
+// существование номинации/дубли — это задача service (через порты). club и
+// needsEquipment — детали, указанные бойцом при подаче (FR-1, спека 0006).
+func Submit(nominationID, tournamentID, applicantUserID, club string, needsEquipment bool, now time.Time) (Event, error) {
 	if nominationID == "" || tournamentID == "" || applicantUserID == "" {
 		return Event{}, ErrInvalidTransition
 	}
@@ -127,6 +167,8 @@ func Submit(nominationID, tournamentID, applicantUserID string, now time.Time) (
 			NominationID:    nominationID,
 			TournamentID:    tournamentID,
 			ApplicantUserID: applicantUserID,
+			Club:            club,
+			NeedsEquipment:  needsEquipment,
 		},
 	}, nil
 }
@@ -174,6 +216,57 @@ func (a Application) Withdraw(actorID string, now time.Time) (Event, error) {
 	return a.nextEvent(EventWithdrawn, actorID, now), nil
 }
 
+// AmendPatch — желаемые значения полей при админской правке заявки
+// (спека 0006, FR-3). Club/NeedsEquipment/ApplicantNameOverride — всегда
+// полный снапшот (форма шлёт текущее значение). NominationID/NewState —
+// опциональны: nil = не менять.
+type AmendPatch struct {
+	Club                  string
+	NeedsEquipment        bool
+	ApplicantNameOverride string
+	// NominationID — непусто ⇒ перенос в другую номинацию; должен
+	// сопровождаться TournamentID (резолвится service через NominationProvider).
+	NominationID *string
+	TournamentID string
+	// NewState — непусто ⇒ ручная установка статуса в обход обычного флоу.
+	NewState *State
+}
+
+// Amend — админ правит заявку: детали (клуб/экипировка/имя), перенос в
+// другую номинацию и/или ручную смену статуса (FR-3..FR-9). Формирует новое
+// событие журнала, не переписывая прошлое (0005, FR-10). Допустимо над
+// заявкой в любом состоянии, включая терминальные (FR-9) — в отличие от
+// пользовательских переходов, терминальность не проверяется. Существование
+// целевой номинации и инвариант «нет активного дубля» — ответственность
+// service (через порты и Append).
+func (a Application) Amend(actorID string, patch AmendPatch, now time.Time) (Event, error) {
+	payload := Payload{
+		Club:                  patch.Club,
+		NeedsEquipment:        patch.NeedsEquipment,
+		ApplicantNameOverride: patch.ApplicantNameOverride,
+	}
+	if patch.NominationID != nil {
+		if *patch.NominationID == "" || patch.TournamentID == "" {
+			return Event{}, ErrInvalidTransition
+		}
+		payload.NominationID = *patch.NominationID
+		payload.TournamentID = patch.TournamentID
+	}
+	if patch.NewState != nil {
+		if !patch.NewState.valid() {
+			return Event{}, ErrInvalidTransition
+		}
+		payload.NewState = *patch.NewState
+	}
+	return Event{
+		Type:       EventAmended,
+		ActorID:    actorID,
+		OccurredAt: now,
+		Sequence:   a.Version + 1,
+		Payload:    payload,
+	}, nil
+}
+
 func (a Application) nextEvent(t EventType, actorID string, now time.Time) Event {
 	return Event{
 		Type:       t,
@@ -207,6 +300,8 @@ func (a *Application) apply(ev Event) error {
 		a.NominationID = ev.Payload.NominationID
 		a.TournamentID = ev.Payload.TournamentID
 		a.ApplicantUserID = ev.Payload.ApplicantUserID
+		a.Club = ev.Payload.Club
+		a.NeedsEquipment = ev.Payload.NeedsEquipment
 		a.State = StateSubmitted
 		a.CreatedAt = ev.OccurredAt
 	case EventPaymentDeclared:
@@ -217,6 +312,17 @@ func (a *Application) apply(ev Event) error {
 		a.State = StateRegistered
 	case EventWithdrawn:
 		a.State = StateWithdrawn
+	case EventAmended:
+		a.Club = ev.Payload.Club
+		a.NeedsEquipment = ev.Payload.NeedsEquipment
+		a.ApplicantNameOverride = ev.Payload.ApplicantNameOverride
+		if ev.Payload.NominationID != "" {
+			a.NominationID = ev.Payload.NominationID
+			a.TournamentID = ev.Payload.TournamentID
+		}
+		if ev.Payload.NewState != "" {
+			a.State = ev.Payload.NewState
+		}
 	default:
 		return fmt.Errorf("application: unknown event type %q", ev.Type)
 	}

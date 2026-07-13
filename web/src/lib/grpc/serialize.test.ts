@@ -267,6 +267,8 @@ describe("applicationToJson", () => {
       applicantUserId: "user-1",
       applicantDisplayName: "Fighter One",
       state: "APPLICATION_STATE_SUBMITTED",
+      club: "Sokol",
+      needsEquipment: true,
     });
 
     const json = applicationToJson(app);
@@ -276,6 +278,17 @@ describe("applicationToJson", () => {
     expect(json?.nominationId).toBe("nom-1");
     expect(json?.applicantDisplayName).toBe("Fighter One");
     expect(json?.state).toBe("APPLICATION_STATE_SUBMITTED");
+    expect(json?.club).toBe("Sokol");
+    expect(json?.needsEquipment).toBe(true);
+  });
+
+  it("defaults club to empty string and needsEquipment to false when unset", () => {
+    const app = fromJson(ApplicationSchema, { id: "app-2", state: "APPLICATION_STATE_SUBMITTED" });
+
+    const json = applicationToJson(app);
+
+    expect(json?.club).toBe("");
+    expect(json?.needsEquipment).toBe(false);
   });
 
   it("returns null for undefined", () => {

@@ -25,7 +25,7 @@ export async function Navbar() {
           >
             {siteConfig.name}
           </Link>
-          <NavLinks />
+          <NavLinks isAuthenticated={Boolean(user)} />
           {user?.role === "ROLE_ADMIN" && (
             <Link
               href="/admin"

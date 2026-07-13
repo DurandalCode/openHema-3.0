@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   confirmPaymentRequest,
+  editApplicationRequest,
   listApplicationsOverviewRequest,
   registerFighterRequest,
 } from "./requests";
@@ -96,6 +97,44 @@ describe("features/application-review/api/requests", () => {
       const result = await registerFighterRequest("a1");
 
       expect(result).toEqual({ ok: false, error: "invalid transition" });
+    });
+  });
+
+  describe("editApplicationRequest", () => {
+    it("POSTs /api/applications/[id]/edit with the given fields", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ application: { id: "a1", club: "HEMA Club" } }),
+      });
+
+      const result = await editApplicationRequest("a1", {
+        club: "HEMA Club",
+        needsEquipment: true,
+        applicantNameOverride: "Ivan Petrov",
+        nominationId: "n2",
+        state: "APPLICATION_STATE_REGISTERED",
+      });
+
+      expect(result).toEqual({ ok: true, application: { id: "a1", club: "HEMA Club" } });
+      expect(fetchMock).toHaveBeenCalledWith("/api/applications/a1/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          club: "HEMA Club",
+          needsEquipment: true,
+          applicantNameOverride: "Ivan Petrov",
+          nominationId: "n2",
+          state: "APPLICATION_STATE_REGISTERED",
+        }),
+      });
+    });
+
+    it("returns ok:false with server error (e.g. transfer duplicate)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "duplicate" }) });
+
+      const result = await editApplicationRequest("a1", { club: "X" });
+
+      expect(result).toEqual({ ok: false, error: "duplicate" });
     });
   });
 });

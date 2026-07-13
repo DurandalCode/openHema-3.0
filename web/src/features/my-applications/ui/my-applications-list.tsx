@@ -11,8 +11,8 @@ import { useMyApplications } from "../api/use-my-applications";
 import { useDeclarePayment } from "../api/use-declare-payment";
 import { useWithdrawApplication } from "../api/use-withdraw-application";
 
-/** MyApplicationsList — раздел кабинета «Мои заявки»: статус, действия
- * заявителя (оплатить/отозвать), гейтинг по состоянию (FR-4/FR-6). */
+/** MyApplicationsList — страница «Мои заявки»: статус, действия заявителя
+ * (оплатить/отозвать), гейтинг по состоянию (FR-4/FR-6). */
 export function MyApplicationsList() {
   const { data: applications = [], isLoading } = useMyApplications();
 
@@ -44,6 +44,16 @@ function ApplicationRow({ application }: { application: Application }) {
         <Row align="center" justify="between" gap={4} wrap>
           <Col gap={1}>
             <Badge variant="outline">{stateLabel(application.state)}</Badge>
+            {(application.club || application.needsEquipment) && (
+              <p className="text-xs text-muted-foreground">
+                {[
+                  application.club && `Клуб: ${application.club}`,
+                  application.needsEquipment && "нужна экипировка",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
           </Col>
           <Row gap={2}>
             {actions.includes("declarePayment") && (

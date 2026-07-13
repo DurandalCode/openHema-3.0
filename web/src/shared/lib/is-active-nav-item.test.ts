@@ -25,8 +25,8 @@ describe("isActiveNavItem", () => {
   });
 
   it("treats hash anchors as never active by pathname", () => {
-    expect(isActiveNavItem("/", "#tournament")).toBe(false);
-    expect(isActiveNavItem("/about", "#tournament")).toBe(false);
+    expect(isActiveNavItem("/", "/#tournament")).toBe(false);
+    expect(isActiveNavItem("/about", "/#tournament")).toBe(false);
   });
 
   it("treats home route as exact-only", () => {

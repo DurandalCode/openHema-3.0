@@ -1,19 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { cn } from "@/shared/lib/cn";
 import { Col, Row } from "@/shared/ui/stack";
+import { Input } from "@/shared/ui/input";
 import { allowedSecretaryActions, stateLabel } from "@/entities/application/lib/state";
 import type { Application, ApplicationState } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { useApplicationsOverview } from "../api/use-applications-overview";
 import { useConfirmPayment } from "../api/use-confirm-payment";
 import { useRegisterFighter } from "../api/use-register-fighter";
+import { EditApplicationDialog } from "./edit-application-dialog";
 
 const STATUS_OPTIONS: ApplicationState[] = [
   "APPLICATION_STATE_SUBMITTED",
@@ -45,25 +47,44 @@ export function ApplicationsOverview({
   const [nominationIds, setNominationIds] = useState<Set<string>>(
     () => new Set(initialNominationId ? [initialNominationId] : []),
   );
+  const [search, setSearch] = useState("");
+  const [needsEquipmentOnly, setNeedsEquipmentOnly] = useState(false);
 
   const { data: applications = [], isLoading } = useApplicationsOverview(tournamentId, {});
 
-  const filtered = useMemo(
-    () =>
-      applications.filter(
-        (app) =>
-          (statuses.size === 0 || statuses.has(app.state)) &&
-          (nominationIds.size === 0 || nominationIds.has(app.nominationId)),
-      ),
-    [applications, statuses, nominationIds],
-  );
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return applications.filter((app) => {
+      if (statuses.size > 0 && !statuses.has(app.state)) return false;
+      if (nominationIds.size > 0 && !nominationIds.has(app.nominationId)) return false;
+      if (needsEquipmentOnly && !app.needsEquipment) return false;
+      if (
+        query &&
+        !app.applicantDisplayName.toLowerCase().includes(query) &&
+        !app.club.toLowerCase().includes(query)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [applications, statuses, nominationIds, needsEquipmentOnly, search]);
 
-  const hasFilters = statuses.size > 0 || nominationIds.size > 0;
+  const hasFilters =
+    statuses.size > 0 || nominationIds.size > 0 || needsEquipmentOnly || search.trim().length > 0;
   const nominationTitle = (id: string) => nominations.find((n) => n.id === id)?.title ?? id;
 
   return (
     <Col gap={6}>
       <Col gap={3}>
+        <div className="relative max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Поиск по имени или клубу"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
         <Row gap={2} wrap>
           {STATUS_OPTIONS.map((s) => (
             <FilterBadge
@@ -74,6 +95,12 @@ export function ApplicationsOverview({
               {stateLabel(s)}
             </FilterBadge>
           ))}
+          <FilterBadge
+            active={needsEquipmentOnly}
+            onClick={() => setNeedsEquipmentOnly((prev) => !prev)}
+          >
+            Нужна экипировка
+          </FilterBadge>
         </Row>
         {nominations.length > 0 && (
           <Row gap={2} wrap>
@@ -95,6 +122,8 @@ export function ApplicationsOverview({
             onClick={() => {
               setStatuses(new Set());
               setNominationIds(new Set());
+              setNeedsEquipmentOnly(false);
+              setSearch("");
             }}
           >
             <X className="size-3" />
@@ -116,6 +145,7 @@ export function ApplicationsOverview({
               key={app.id}
               application={app}
               nominationTitle={nominationTitle(app.nominationId)}
+              nominations={nominations}
             />
           ))}
         </Col>
@@ -161,9 +191,11 @@ function FilterBadge({
 function ApplicationReviewRow({
   application,
   nominationTitle,
+  nominations,
 }: {
   application: Application;
   nominationTitle: string;
+  nominations: Nomination[];
 }) {
   const confirm = useConfirmPayment();
   const register = useRegisterFighter();
@@ -172,6 +204,12 @@ function ApplicationReviewRow({
   const warning = register.data?.capacityExceeded
     ? "Номинация переполнена (лимит превышен) — регистрация всё равно выполнена."
     : null;
+  const details = [
+    application.club && `Клуб: ${application.club}`,
+    application.needsEquipment && "нужна экипировка",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <Card>
@@ -180,9 +218,11 @@ function ApplicationReviewRow({
           <Col gap={1}>
             <span className="font-medium">{application.applicantDisplayName || "—"}</span>
             <span className="text-xs text-muted-foreground">{nominationTitle}</span>
+            {details && <span className="text-xs text-muted-foreground">{details}</span>}
           </Col>
           <Row align="center" gap={2}>
             <Badge variant="outline">{stateLabel(application.state)}</Badge>
+            <EditApplicationDialog application={application} nominations={nominations} />
             {actions.includes("confirmPayment") && (
               <Button
                 type="button"

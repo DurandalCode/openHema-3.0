@@ -35,7 +35,7 @@ func (h *Handler) SubmitApplication(
 	ctx context.Context,
 	req *connect.Request[hemav1.SubmitApplicationRequest],
 ) (*connect.Response[hemav1.SubmitApplicationResponse], error) {
-	app, err := h.svc.Submit(ctx, connectutil.CallerID(ctx), req.Msg.NominationId)
+	app, err := h.svc.Submit(ctx, connectutil.CallerID(ctx), req.Msg.NominationId, req.Msg.Club, req.Msg.NeedsEquipment)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -178,6 +178,32 @@ func (h *AdminHandler) ListApplications(
 	}), nil
 }
 
+// EditApplication редактирует заявку: клуб, признак экипировки,
+// переопределение имени, перенос в номинацию и/или ручную смену статуса
+// (спека 0006, FR-3..FR-9). Допустимо над заявкой в любом состоянии.
+func (h *AdminHandler) EditApplication(
+	ctx context.Context,
+	req *connect.Request[hemav1.EditApplicationRequest],
+) (*connect.Response[hemav1.EditApplicationResponse], error) {
+	in := service.EditInput{
+		Club:                  req.Msg.Club,
+		NeedsEquipment:        req.Msg.NeedsEquipment,
+		ApplicantNameOverride: req.Msg.ApplicantNameOverride,
+		NominationID:          req.Msg.NominationId,
+	}
+	if req.Msg.State != nil {
+		st := fromProtoState(*req.Msg.State)
+		in.State = &st
+	}
+	app, err := h.svc.EditApplication(ctx, connectutil.CallerID(ctx), req.Msg.ApplicationId, in)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.EditApplicationResponse{
+		Application: toProtoApplication(app),
+	}), nil
+}
+
 // PublicHandler реализует ApplicationPublicServiceHandler (стартовый лист
 // номинации). Доступ не ограничен — RPC перечислены в publicProcedures.
 type PublicHandler struct {
@@ -245,6 +271,8 @@ func toProtoApplication(a service.Application) *hemav1.Application {
 		ApplicantUserId:      a.ApplicantUserID,
 		ApplicantDisplayName: a.ApplicantDisplayName,
 		State:                toProtoState(a.State),
+		Club:                 a.Club,
+		NeedsEquipment:       a.NeedsEquipment,
 		CreatedAt:            timestamppb.New(a.CreatedAt),
 		UpdatedAt:            timestamppb.New(a.UpdatedAt),
 	}
@@ -320,6 +348,8 @@ func toProtoEventType(t domain.EventType) hemav1.ApplicationEventType {
 		return hemav1.ApplicationEventType_APPLICATION_EVENT_TYPE_FIGHTER_REGISTERED
 	case domain.EventWithdrawn:
 		return hemav1.ApplicationEventType_APPLICATION_EVENT_TYPE_WITHDRAWN
+	case domain.EventAmended:
+		return hemav1.ApplicationEventType_APPLICATION_EVENT_TYPE_AMENDED
 	default:
 		return hemav1.ApplicationEventType_APPLICATION_EVENT_TYPE_UNSPECIFIED
 	}

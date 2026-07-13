@@ -84,7 +84,7 @@ describe("app/api/applications route", () => {
       const data = await res.json();
       expect(data.application).toEqual({ id: "a1", nominationId: "n1" });
       expect(applicationClient.submitApplication).toHaveBeenCalledWith(
-        { nominationId: "n1" },
+        { nominationId: "n1", club: "", needsEquipment: false },
         { headers: { Authorization: "Bearer tok" } },
       );
     });
@@ -97,6 +97,20 @@ describe("app/api/applications route", () => {
 
       const res = await POST(postReq({ nominationId: "n1" }));
       expect(res.status).toBe(409);
+    });
+
+    it("submits application with club and needsEquipment", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(applicationClient.submitApplication).mockResolvedValue({
+        application: { id: "a1", nominationId: "n1", club: "Sokol", needsEquipment: true },
+      } as never);
+
+      const res = await POST(postReq({ nominationId: "n1", club: "Sokol", needsEquipment: true }));
+      expect(res.status).toBe(200);
+      expect(applicationClient.submitApplication).toHaveBeenCalledWith(
+        { nominationId: "n1", club: "Sokol", needsEquipment: true },
+        { headers: { Authorization: "Bearer tok" } },
+      );
     });
 
     it("maps CodeNotFound (nomination not found) to 404", async () => {

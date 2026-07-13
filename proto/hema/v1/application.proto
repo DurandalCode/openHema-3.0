@@ -35,6 +35,10 @@ service ApplicationAdminService {
   // ListApplications — сводный экран заявок турнира с опциональной
   // фильтрацией по статусу и/или номинации.
   rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
+  // EditApplication редактирует заявку: клуб, признак экипировки,
+  // переопределение имени, перенос в другую номинацию, ручная смена статуса.
+  // Допустимо над заявкой в любом состоянии, включая терминальные.
+  rpc EditApplication(EditApplicationRequest) returns (EditApplicationResponse);
 }
 
 // ApplicationPublicService — публичное чтение стартового листа номинации. RPC
@@ -64,6 +68,7 @@ enum ApplicationEventType {
   APPLICATION_EVENT_TYPE_PAYMENT_CONFIRMED = 3;
   APPLICATION_EVENT_TYPE_FIGHTER_REGISTERED = 4;
   APPLICATION_EVENT_TYPE_WITHDRAWN = 5;
+  APPLICATION_EVENT_TYPE_AMENDED = 6;
 }
 
 // Application — заявка, реконструированная из потока событий.
@@ -78,6 +83,10 @@ message Application {
   ApplicationState state = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  // club — клуб бойца (свободный текст, может быть пустым).
+  string club = 9;
+  // needs_equipment — нужна ли бойцу экипировка от организатора.
+  bool needs_equipment = 10;
 }
 
 // ApplicationEvent — одна запись истории заявки.
@@ -97,6 +106,10 @@ message NominationParticipant {
 
 message SubmitApplicationRequest {
   string nomination_id = 1;
+  // club — клуб бойца (опционально, «» = не указан).
+  string club = 2;
+  // needs_equipment — нужна ли бойцу экипировка от организатора.
+  bool needs_equipment = 3;
 }
 
 message SubmitApplicationResponse {
@@ -172,6 +185,25 @@ message ListApplicationsRequest {
 
 message ListApplicationsResponse {
   repeated Application applications = 1;
+}
+
+// EditApplicationRequest — правка заявки админом (FR-3..FR-9, спека 0006).
+// club/needs_equipment/applicant_name_override — полный желаемый снапшот этих
+// полей (форма всегда шлёт текущее значение). nomination_id/state —
+// опциональны: присутствие поля означает перенос номинации/ручную смену
+// статуса, отсутствие — поле не трогать.
+message EditApplicationRequest {
+  string application_id = 1;
+  string club = 2;
+  bool needs_equipment = 3;
+  // applicant_name_override — «» = убрать переопределение (имя из auth).
+  string applicant_name_override = 4;
+  optional string nomination_id = 5;
+  optional ApplicationState state = 6;
+}
+
+message EditApplicationResponse {
+  Application application = 1;
 }
 
 message ListNominationParticipantsRequest {
