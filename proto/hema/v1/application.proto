@@ -98,10 +98,13 @@ message ApplicationEvent {
 }
 
 // NominationParticipant — элемент публичного стартового листа номинации.
-// Без user_id: публичная выдача не раскрывает идентификаторы.
+// Без user_id: публичная выдача не раскрывает идентификаторы. club —
+// публичное поле (поправка 0006 в спеке 0007: клуб бойца виден в составе
+// номинации).
 message NominationParticipant {
   string display_name = 1;
   ApplicationState state = 2;
+  string club = 3;
 }
 
 message SubmitApplicationRequest {

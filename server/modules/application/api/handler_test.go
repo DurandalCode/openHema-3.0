@@ -44,7 +44,7 @@ func setup(t *testing.T) clients {
 	users.Set(applicantUserID, "Applicant Name")
 	users.Set(adminUserID, "Admin Name")
 
-	svc := service.New(repo, nominations, users)
+	svc := service.New(repo, nominations, users, testutil.NewFakeFighterSink())
 	appHandler := NewHandler(svc)
 	adminHandler := NewAdminHandler(svc)
 	publicHandler := NewPublicHandler(svc)
@@ -290,6 +290,7 @@ func TestListNominationParticipants_Public(t *testing.T) {
 
 	submitResp, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
 		NominationId: nominationID,
+		Club:         "Sokol",
 	}, applicantUserID, "user"))
 	if err != nil {
 		t.Fatalf("SubmitApplication: %v", err)
@@ -320,6 +321,10 @@ func TestListNominationParticipants_Public(t *testing.T) {
 	}
 	if len(resp.Msg.Participants) != 1 || resp.Msg.Participants[0].DisplayName != "Applicant Name" {
 		t.Fatalf("expected participant with display name, got %+v", resp.Msg.Participants)
+	}
+	// Поправка 0006 (спека 0007, п.8): клуб публичен в стартовом листе.
+	if resp.Msg.Participants[0].Club != "Sokol" {
+		t.Fatalf("expected public participant club=Sokol, got %q", resp.Msg.Participants[0].Club)
 	}
 }
 

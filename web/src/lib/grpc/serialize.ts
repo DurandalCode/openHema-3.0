@@ -10,6 +10,12 @@ import {
   type ApplicationEvent,
   type NominationParticipant,
 } from "@/gen/hema/v1/application_pb";
+import {
+  FighterSchema,
+  RosterEntrySchema,
+  type Fighter,
+  type RosterEntry,
+} from "@/gen/hema/v1/fighter_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
 import type {
@@ -19,6 +25,14 @@ import type {
   ApplicationEventType as ApplicationEventTypeDto,
   NominationParticipant as NominationParticipantDto,
 } from "@/entities/application/lib/types";
+import type {
+  Fighter as FighterDto,
+  FighterStatus as FighterStatusDto,
+  WithdrawalReason as WithdrawalReasonDto,
+  Participation as ParticipationDto,
+  ParticipationStatus as ParticipationStatusDto,
+  RosterEntry as RosterEntryDto,
+} from "@/entities/fighter/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -150,6 +164,56 @@ export function nominationParticipantsToJson(
     return {
       displayName: raw.displayName ?? "",
       state: (raw.state as ApplicationStateDto) ?? "APPLICATION_STATE_UNSPECIFIED",
+      club: raw.club ?? "",
+    };
+  });
+}
+
+/**
+ * fighterToJson превращает protobuf-сообщение Fighter в обычный JSON-объект.
+ * `status`/`withdrawalReason`/`participations[].status` — строковые литералы.
+ */
+export function fighterToJson(fighter: Fighter | undefined): FighterDto | null {
+  if (!fighter) return null;
+  const raw = toJson(FighterSchema, fighter) as Partial<FighterDto>;
+  return {
+    id: raw.id ?? "",
+    tournamentId: raw.tournamentId ?? "",
+    name: raw.name ?? "",
+    club: raw.club ?? "",
+    status: (raw.status as FighterStatusDto) ?? "FIGHTER_STATUS_UNSPECIFIED",
+    withdrawalReason: (raw.withdrawalReason as WithdrawalReasonDto) ?? "WITHDRAWAL_REASON_UNSPECIFIED",
+    participations: Array.isArray(raw.participations)
+      ? raw.participations.map(
+          (p): ParticipationDto => ({
+            nominationId: p.nominationId ?? "",
+            status: (p.status as ParticipationStatusDto) ?? "PARTICIPATION_STATUS_UNSPECIFIED",
+          }),
+        )
+      : [],
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
+}
+
+/** fightersToJson превращает массив protobuf Fighter в массив DTO. */
+export function fightersToJson(fighters: Fighter[] | undefined): FighterDto[] {
+  if (!fighters) return [];
+  return fighters.map((f) => fighterToJson(f)).filter((f): f is FighterDto => f !== null);
+}
+
+/**
+ * rosterEntriesToJson превращает публичный состав номинации (RosterEntry[])
+ * в массив DTO.
+ */
+export function rosterEntriesToJson(entries: RosterEntry[] | undefined): RosterEntryDto[] {
+  if (!entries) return [];
+  return entries.map((e) => {
+    const raw = toJson(RosterEntrySchema, e) as Partial<RosterEntryDto>;
+    return {
+      name: raw.name ?? "",
+      club: raw.club ?? "",
+      inRoster: raw.inRoster ?? false,
     };
   });
 }

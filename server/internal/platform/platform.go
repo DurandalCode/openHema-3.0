@@ -12,6 +12,7 @@ import (
 
 	"github.com/hema/server/modules/application"
 	"github.com/hema/server/modules/auth"
+	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/config"
@@ -72,10 +73,19 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	}
 	nomination.Register(mux, nominationDeps, baseOpts, adminOpts)
 
+	fighterNominations := NewFighterNominationProvider(pool, activeTournaments)
+	fighterDeps := fighter.Deps{
+		Pool:        pool,
+		Nominations: fighterNominations,
+		Tournaments: activeTournaments,
+	}
+	fighter.Register(mux, fighterDeps, baseOpts, adminOpts)
+
 	applicationDeps := application.Deps{
 		Pool:        pool,
 		Nominations: NewNominationInfoProvider(pool, activeTournaments),
 		Users:       auth.NewDisplayNameProvider(pool, tokens),
+		Fighters:    fighter.NewRegistrationSink(pool, fighterNominations),
 	}
 	application.Register(mux, applicationDeps, baseOpts, adminOpts)
 

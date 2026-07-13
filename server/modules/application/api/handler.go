@@ -297,6 +297,7 @@ func toProtoParticipants(participants []service.Participant) []*hemav1.Nominatio
 		out = append(out, &hemav1.NominationParticipant{
 			DisplayName: p.DisplayName,
 			State:       toProtoState(p.State),
+			Club:        p.Club,
 		})
 	}
 	return out

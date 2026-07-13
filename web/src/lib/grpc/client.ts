@@ -7,6 +7,7 @@ import {
   ApplicationService,
 } from "@/gen/hema/v1/application_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
+import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
 
@@ -99,3 +100,23 @@ export const applicationAdminClient: Client<typeof ApplicationAdminService> =
  */
 export const applicationPublicClient: Client<typeof ApplicationPublicService> =
   createClient(ApplicationPublicService, transport);
+
+/**
+ * fighterAdminClient — клиент FighterAdminService (ростер бойцов турнира:
+ * ручное заведение, вывод/возврат, участие в номинациях, правка). Все RPC
+ * требуют роль ADMIN. Только на сервере (Node runtime).
+ */
+export const fighterAdminClient: Client<typeof FighterAdminService> = createClient(
+  FighterAdminService,
+  transport,
+);
+
+/**
+ * fighterPublicClient — публичный клиент FighterPublicService (состав
+ * номинации: имя/клуб/статус). Не требует access-токена. Только на сервере
+ * (Node runtime).
+ */
+export const fighterPublicClient: Client<typeof FighterPublicService> = createClient(
+  FighterPublicService,
+  transport,
+);

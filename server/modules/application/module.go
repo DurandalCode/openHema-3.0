@@ -22,12 +22,14 @@ import (
 )
 
 // Deps — явные зависимости модуля application (DI через конструктор).
-// Nominations и Users — межмодульные зависимости (порты, не прямой доступ к
-// чужим схемам, ADR 0002).
+// Nominations, Users и Fighters — межмодульные зависимости (порты, не прямой
+// доступ к чужим схемам, ADR 0002). Fighters — кроссдоменный эффект
+// регистрации заявки в домен бойцов (спека 0007).
 type Deps struct {
 	Pool        *pgxpool.Pool
 	Nominations domain.NominationProvider
 	Users       domain.UserProvider
+	Fighters    domain.FighterRegistrationSink
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
@@ -35,7 +37,7 @@ type Deps struct {
 // дополнительно накладываются на ApplicationAdminService (require-admin).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Nominations, deps.Users)
+	svc := service.New(r, deps.Nominations, deps.Users, deps.Fighters)
 
 	handler := api.NewHandler(svc)
 	adminHandler := api.NewAdminHandler(svc)

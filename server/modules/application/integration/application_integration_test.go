@@ -23,6 +23,7 @@ import (
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/application"
 	"github.com/hema/server/modules/auth"
+	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/connectutil"
@@ -43,6 +44,7 @@ type clients struct {
 	admin       hemav1connect.ApplicationAdminServiceClient
 	public      hemav1connect.ApplicationPublicServiceClient
 	nominations hemav1connect.NominationAdminServiceClient
+	auth        hemav1connect.AuthServiceClient
 }
 
 // setup поднимает PG (testdb.Postgres), применяет миграции auth+tournament+
@@ -75,10 +77,12 @@ func setup(t *testing.T) clients {
 		Tournaments: activeTournaments,
 	}, baseOpts, adminOpts)
 
+	fighterNominations := platform.NewFighterNominationProvider(pool, activeTournaments)
 	application.Register(mux, application.Deps{
 		Pool:        pool,
 		Nominations: platform.NewNominationInfoProvider(pool, activeTournaments),
 		Users:       auth.NewDisplayNameProvider(pool, tokens),
+		Fighters:    fighter.NewRegistrationSink(pool, fighterNominations),
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -90,6 +94,7 @@ func setup(t *testing.T) clients {
 		admin:       hemav1connect.NewApplicationAdminServiceClient(client, server.URL),
 		public:      hemav1connect.NewApplicationPublicServiceClient(client, server.URL),
 		nominations: hemav1connect.NewNominationAdminServiceClient(client, server.URL),
+		auth:        hemav1connect.NewAuthServiceClient(client, server.URL),
 	}
 }
 
@@ -135,6 +140,23 @@ func createNomination(t *testing.T, c clients, title string) string {
 	return res.Msg.Nomination.Id
 }
 
+// registerApplicant заводит настоящего пользователя через AuthService (не
+// синтетический JWT напрямую) — так у него есть строка в auth.users и
+// резолвится display_name. Это важно для кроссдоменного эффекта регистрации
+// (application → fighter, спека 0007): бойцу нужен непустой снапшот имени.
+func registerApplicant(t *testing.T, c clients, email, displayName string) (userID, bearer string) {
+	t.Helper()
+	res, err := c.auth.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
+		Email:       email,
+		Password:    "password123",
+		DisplayName: displayName,
+	}))
+	if err != nil {
+		t.Fatalf("Register applicant: %v", err)
+	}
+	return res.Msg.User.Id, "Bearer " + res.Msg.Tokens.AccessToken
+}
+
 func TestIntegration_MigrationsApplied(t *testing.T) {
 	setup(t)
 }
@@ -142,11 +164,11 @@ func TestIntegration_MigrationsApplied(t *testing.T) {
 func TestIntegration_FullFlow_SubmitDeclareConfirmRegister(t *testing.T) {
 	c := setup(t)
 	nominationID := createNomination(t, c, "Longsword Open")
-	applicantID := "00000000-0000-0000-0000-0000000000f1"
+	_, applicantBearer := registerApplicant(t, c, "fighter-e2e@example.com", "Ivan Petrov")
 
 	submitResp, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
 		NominationId: nominationID,
-	}, userBearer(t, applicantID)))
+	}, applicantBearer))
 	if err != nil {
 		t.Fatalf("SubmitApplication: %v", err)
 	}
@@ -154,7 +176,7 @@ func TestIntegration_FullFlow_SubmitDeclareConfirmRegister(t *testing.T) {
 
 	if _, err := c.app.DeclarePayment(context.Background(), authed(t, &hemav1.DeclarePaymentRequest{
 		ApplicationId: appID,
-	}, userBearer(t, applicantID))); err != nil {
+	}, applicantBearer)); err != nil {
 		t.Fatalf("DeclarePayment: %v", err)
 	}
 
@@ -297,6 +319,7 @@ func TestIntegration_NominationParticipants_CountsAndCapacity(t *testing.T) {
 
 	app1, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
 		NominationId: nominationID,
+		Club:         "Sokol",
 	}, userBearer(t, applicant1)))
 	if err != nil {
 		t.Fatalf("SubmitApplication 1: %v", err)
@@ -332,6 +355,15 @@ func TestIntegration_NominationParticipants_CountsAndCapacity(t *testing.T) {
 	}
 	if resp.Msg.FighterCapacity != nil {
 		t.Fatalf("expected no capacity set, got %v", *resp.Msg.FighterCapacity)
+	}
+	var sawClub bool
+	for _, p := range resp.Msg.Participants {
+		if p.Club == "Sokol" {
+			sawClub = true
+		}
+	}
+	if !sawClub {
+		t.Fatalf("expected public participant club=Sokol (0006 amendment), got %+v", resp.Msg.Participants)
 	}
 }
 

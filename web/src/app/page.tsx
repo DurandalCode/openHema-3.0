@@ -3,6 +3,8 @@ import { getActiveTournament } from "@/entities/tournament/model/get-active-tour
 import { getNominations } from "@/entities/nomination/model/get-nominations";
 import { getNominationParticipants } from "@/entities/application/model/get-nomination-participants";
 import type { NominationParticipants } from "@/entities/application/lib/types";
+import { getNominationRoster } from "@/entities/fighter/model/get-nomination-roster";
+import type { RosterEntry } from "@/entities/fighter/lib/types";
 import { siteConfig } from "@/shared/config/site-config";
 import { Col, Row } from "@/shared/ui/stack";
 import { AuthCta } from "@/features/auth/ui/auth-cta";
@@ -26,6 +28,14 @@ export default async function HomePage() {
       nominations.map(async (n) => [n.id, await getNominationParticipants(n.id)] as const),
     ),
   );
+  // rosterByNomination — реальный состав номинации (бойцы), появляется после
+  // регистрации первого бойца. Пока пуст, NominationsList показывает воронку
+  // заявок (UX-решение, спека 0007 п.5).
+  const rosterByNomination: Record<string, RosterEntry[]> = Object.fromEntries(
+    await Promise.all(
+      nominations.map(async (n) => [n.id, await getNominationRoster(n.id)] as const),
+    ),
+  );
 
   return (
     <Col>
@@ -36,6 +46,7 @@ export default async function HomePage() {
       <NominationsList
         nominations={nominations}
         participantsByNomination={participantsByNomination}
+        rosterByNomination={rosterByNomination}
         isAuthenticated={Boolean(user)}
       />
 
