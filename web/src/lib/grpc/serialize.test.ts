@@ -8,10 +8,13 @@ import {
   ApplicationEventSchema,
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
+import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
 import {
   applicationHistoryToJson,
   applicationsToJson,
   applicationToJson,
+  arenaToJson,
+  arenasToJson,
   nominationParticipantsToJson,
   nominationsToJson,
   nominationToJson,
@@ -350,5 +353,95 @@ describe("nominationParticipantsToJson", () => {
 
   it("returns empty array for undefined", () => {
     expect(nominationParticipantsToJson(undefined)).toEqual([]);
+  });
+});
+
+type ArenaJson = {
+  id: string;
+  tournamentId: string;
+  name: string;
+  description: string;
+  position: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+describe("arenaToJson", () => {
+  it("converts a filled protobuf Arena to plain JSON", () => {
+    const a = fromJson(ArenaSchema, {
+      id: "a1",
+      tournamentId: "t1",
+      name: "Ристалище 1",
+      description: "У входа",
+      position: 2,
+      status: "ARENA_STATUS_ACTIVE",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-07-07T00:00:00Z",
+    });
+
+    const json = arenaToJson(a) as ArenaJson;
+
+    expect(json).not.toBeNull();
+    expect(json.id).toBe("a1");
+    expect(json.tournamentId).toBe("t1");
+    expect(json.name).toBe("Ристалище 1");
+    expect(json.description).toBe("У входа");
+    expect(json.position).toBe(2);
+    expect(json.status).toBe("ARENA_STATUS_ACTIVE");
+    expect(json.createdAt).toBe("2026-01-01T00:00:00Z");
+    expect(json.updatedAt).toBe("2026-07-07T00:00:00Z");
+  });
+
+  it("converts an archived arena", () => {
+    const a = fromJson(ArenaSchema, {
+      id: "a2",
+      name: "Arhivnaya",
+      status: "ARENA_STATUS_ARCHIVED",
+    });
+    const json = arenaToJson(a) as ArenaJson;
+    expect(json.status).toBe("ARENA_STATUS_ARCHIVED");
+  });
+
+  it("returns null for undefined", () => {
+    expect(arenaToJson(undefined)).toBeNull();
+  });
+
+  // Регрессия proto3-omitted: пустые строки и 0 в toJson опускаются —
+  // BFF обязан нормализовать дефолты (consumer ждёт строки, не undefined).
+  it("normalizes proto3 defaults for empty/seed arena", () => {
+    const a = fromJson(ArenaSchema, {
+      id: "00000000-0000-0000-0000-000000000aaa",
+      tournamentId: "00000000-0000-0000-0000-000000000001",
+      createdAt: "2026-07-13T00:00:00Z",
+      updatedAt: "2026-07-13T00:00:00Z",
+    });
+
+    const json = arenaToJson(a) as ArenaJson;
+
+    expect(json).not.toBeNull();
+    expect(json.id).toBe("00000000-0000-0000-0000-000000000aaa");
+    expect(json.name).toBe("");
+    expect(json.description).toBe("");
+    expect(json.position).toBe(0);
+    expect(json.status).toBe("ARENA_STATUS_UNSPECIFIED");
+  });
+});
+
+describe("arenasToJson", () => {
+  it("converts an array of protobuf Arenas", () => {
+    const a = fromJson(ArenaSchema, { id: "a1", name: "A", status: "ARENA_STATUS_ACTIVE" });
+    const b = fromJson(ArenaSchema, { id: "a2", name: "B", status: "ARENA_STATUS_ARCHIVED" });
+
+    const json = arenasToJson([a, b]);
+
+    expect(json).toHaveLength(2);
+    expect(json[0].id).toBe("a1");
+    expect(json[0].status).toBe("ARENA_STATUS_ACTIVE");
+    expect(json[1].status).toBe("ARENA_STATUS_ARCHIVED");
+  });
+
+  it("returns empty array for undefined", () => {
+    expect(arenasToJson(undefined)).toEqual([]);
   });
 });

@@ -16,6 +16,7 @@ import {
   type Fighter,
   type RosterEntry,
 } from "@/gen/hema/v1/fighter_pb";
+import { ArenaSchema, type Arena } from "@/gen/hema/v1/arena_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
 import type {
@@ -33,6 +34,10 @@ import type {
   ParticipationStatus as ParticipationStatusDto,
   RosterEntry as RosterEntryDto,
 } from "@/entities/fighter/lib/types";
+import type {
+  Arena as ArenaDto,
+  ArenaStatus as ArenaStatusDto,
+} from "@/entities/arena/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -216,4 +221,30 @@ export function rosterEntriesToJson(entries: RosterEntry[] | undefined): RosterE
       inRoster: raw.inRoster ?? false,
     };
   });
+}
+
+/**
+ * arenaToJson превращает protobuf-сообщение Arena в обычный JSON-объект.
+ * `status` — строковый литерал. Нормализует proto3-дефолты: пустые строки
+ * сохраняются (UI ждёт строку, не undefined), position = 0 при отсутствии.
+ */
+export function arenaToJson(arena: Arena | undefined): ArenaDto | null {
+  if (!arena) return null;
+  const raw = toJson(ArenaSchema, arena) as Partial<ArenaDto>;
+  return {
+    id: raw.id ?? "",
+    tournamentId: raw.tournamentId ?? "",
+    name: raw.name ?? "",
+    description: raw.description ?? "",
+    position: raw.position ?? 0,
+    status: (raw.status as ArenaStatusDto) ?? "ARENA_STATUS_UNSPECIFIED",
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
+}
+
+/** arenasToJson превращает массив protobuf Arena в массив DTO. */
+export function arenasToJson(arenas: Arena[] | undefined): ArenaDto[] {
+  if (!arenas) return [];
+  return arenas.map((a) => arenaToJson(a)).filter((a): a is ArenaDto => a !== null);
 }

@@ -22,6 +22,9 @@ import (
 	"github.com/hema/server/modules/application/domain"
 	apprepo "github.com/hema/server/modules/application/repo"
 	appservice "github.com/hema/server/modules/application/service"
+	arenadomain "github.com/hema/server/modules/arena/domain"
+	arenarepo "github.com/hema/server/modules/arena/repo"
+	arenaservice "github.com/hema/server/modules/arena/service"
 	"github.com/hema/server/modules/auth"
 	authrepo "github.com/hema/server/modules/auth/repo"
 	authservice "github.com/hema/server/modules/auth/service"
@@ -96,8 +99,8 @@ var nominationSeeds = []nominationSeed{
 		RulesURL:        "https://hema-tournament.example/rules/longsword-men",
 	},
 	{
-		Title:           "Лонгсорд — женщины",
-		Description:     "Лонгсорд, женский зачёт",
+		Title:           "Лонгсворд — женщины",
+		Description:     "Лонгсворд, женский зачёт",
 		FighterCapacity: 12,
 		HasCapacity:     true,
 		RulesURL:        "https://hema-tournament.example/rules/longsword-women",
@@ -123,11 +126,33 @@ var nominationSeeds = []nominationSeed{
 	},
 }
 
+// arenaSeed — сид-данные площадки (ристалища/арены турнира, спека 0008).
+type arenaSeed struct {
+	Name        string
+	Description string
+}
+
+var arenaSeeds = []arenaSeed{
+	{
+		Name:        "Ристалище 1",
+		Description: "Главная арена, у входа. Ковёр 6×6 м.",
+	},
+	{
+		Name:        "Ристалище 2",
+		Description: "Боковая арена, у трибун. Ковёр 5×5 м.",
+	},
+	{
+		Name:        "Тренировочная зона",
+		Description: "Разминочная площадка без зрительских мест.",
+	},
+}
+
 // Services — собранные сервисы всех модулей, нужные сценариям наполнения.
 type Services struct {
 	Auth        *authservice.Service
 	Tournament  *tournamentservice.Service
 	Nomination  *nomservice.Service
+	Arena       *arenaservice.Service
 	Application *appservice.Service
 	Fighter     *fighterservice.Service
 }
@@ -142,6 +167,7 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 		Auth:       authservice.New(authrepo.New(pool), tokens),
 		Tournament: tournamentservice.New(tournamentrepo.New(pool)),
 		Nomination: nomservice.New(nomrepo.New(pool), activeTournaments),
+		Arena:      arenaservice.New(arenarepo.New(pool), activeTournaments),
 		Application: appservice.New(
 			apprepo.New(pool),
 			platform.NewNominationInfoProvider(pool, activeTournaments),
@@ -177,13 +203,14 @@ type AppStats struct {
 // нужные последующим шагам (напр. RegisterAll) и отчёту в консоли.
 type SeedResult struct {
 	BootstrapAdminID string
-	AdminIDs         []string
-	FighterUserIDs   []string
-	TournamentID     string
-	NominationIDs    []string
-	NominationTitles map[string]string // nominationID -> title, для отчётов
-	Applications     []ApplicationRecord
-	Stats            AppStats
+	AdminIDs          []string
+	FighterUserIDs    []string
+	TournamentID      string
+	NominationIDs     []string
+	NominationTitles  map[string]string // nominationID -> title, для отчётов
+	ArenaIDs          []string
+	Applications      []ApplicationRecord
+	Stats             AppStats
 }
 
 // Wipe очищает demo-сущности перед повторным наполнением. Активный турнир
@@ -195,6 +222,7 @@ type SeedResult struct {
 // (спека 0007, дедуп по origin_user_id).
 func Wipe(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
+		"TRUNCATE TABLE arena.arenas RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE fighter.participations, fighter.fighters RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE application.events, application.application_current RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE nomination.nominations RESTART IDENTITY CASCADE",
@@ -249,6 +277,12 @@ func Seed(ctx context.Context, svc Services, cfg config.Config, rng *rand.Rand) 
 	for i, id := range nominationIDs {
 		result.NominationTitles[id] = nominationSeeds[i].Title
 	}
+
+	arenaIDs, err := seedArenas(ctx, svc.Arena, tournamentID)
+	if err != nil {
+		return result, fmt.Errorf("seed arenas: %w", err)
+	}
+	result.ArenaIDs = arenaIDs
 
 	applications, stats, err := seedApplications(ctx, svc.Application, rng, adminIDs[0], fighterUserIDs, nominationIDs)
 	if err != nil {
@@ -404,6 +438,23 @@ func seedNominations(ctx context.Context, svc *nomservice.Service, tournamentID 
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create nomination %q: %w", n.Title, err)
+		}
+		ids = append(ids, created.ID)
+	}
+	return ids, nil
+}
+
+// seedArenas создаёт площадки турнира (спека 0008). Позиции назначаются
+// сервисом по порядку добавления (MaxPosition+1 в транзакции).
+func seedArenas(ctx context.Context, svc *arenaservice.Service, tournamentID string) ([]string, error) {
+	ids := make([]string, 0, len(arenaSeeds))
+	for _, a := range arenaSeeds {
+		created, err := svc.Create(ctx, tournamentID, arenadomain.CreateInput{
+			Name:        a.Name,
+			Description: a.Description,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create arena %q: %w", a.Name, err)
 		}
 		ids = append(ids, created.ID)
 	}

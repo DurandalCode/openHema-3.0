@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// ArenaAdminService — управление площадками (ристалищами/аренами) турнира.
+// Все RPC требуют роль ADMIN (проверяется серверным интерсептором RequireAdmin).
+// Домен админский: публичного чтения в этом инкременте нет (появится вместе с
+// боями/расписанием, см. spec 0008 «Вне скоупа»).
+service ArenaAdminService {
+  // ListArenas возвращает площадки турнира по порядку (активные и архивные
+  // различимы по status).
+  rpc ListArenas(ListArenasRequest) returns (ListArenasResponse);
+  // GetArena возвращает одну площадку по id (для страницы управления).
+  rpc GetArena(GetArenaRequest) returns (GetArenaResponse);
+  // CreateArena создаёт площадку у указанного турнира.
+  rpc CreateArena(CreateArenaRequest) returns (CreateArenaResponse);
+  // UpdateArena обновляет редактируемые поля площадки (name, description)
+  // целиком. tournament_id и id неизменяемы.
+  rpc UpdateArena(UpdateArenaRequest) returns (UpdateArenaResponse);
+  // ArchiveArena убирает площадку в архив (обратимо, без физ. удаления).
+  rpc ArchiveArena(ArchiveArenaRequest) returns (ArchiveArenaResponse);
+  // RestoreArena возвращает площадку из архива.
+  rpc RestoreArena(RestoreArenaRequest) returns (RestoreArenaResponse);
+  // ReorderArenas задаёт порядок площадок турнира целиком (полный
+  // упорядоченный список id).
+  rpc ReorderArenas(ReorderArenasRequest) returns (ReorderArenasResponse);
+}
+
+// ArenaStatus — статус площадки. Архивация — обратимое «удаление» (FR-5).
+enum ArenaStatus {
+  ARENA_STATUS_UNSPECIFIED = 0;
+  ARENA_STATUS_ACTIVE = 1;
+  ARENA_STATUS_ARCHIVED = 2;
+}
+
+// Arena — площадка/ристалище турнира. Независимая сущность: не ссылается на
+// бойцов/номинации/заявки. Будущие бои будут ссылаться на arena_id.
+message Arena {
+  string id = 1;
+  string tournament_id = 2;
+  string name = 3;
+  string description = 4;
+  // position — порядок в списке площадок турнира (0-индекс).
+  int32 position = 5;
+  ArenaStatus status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message ListArenasRequest {
+  string tournament_id = 1;
+}
+
+message ListArenasResponse {
+  repeated Arena arenas = 1;
+}
+
+message GetArenaRequest {
+  string id = 1;
+}
+
+message GetArenaResponse {
+  Arena arena = 1;
+}
+
+// CreateArenaRequest — tournament_id обязателен: клиент явно указывает, у
+// какого турнира создаётся площадка (в MVP сервер проверяет, что это активный
+// турнир).
+message CreateArenaRequest {
+  string tournament_id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message CreateArenaResponse {
+  Arena arena = 1;
+}
+
+// UpdateArenaRequest — полная замена редактируемых полей (name, description).
+// id и tournament_id неизменяемы.
+message UpdateArenaRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message UpdateArenaResponse {
+  Arena arena = 1;
+}
+
+message ArchiveArenaRequest {
+  string id = 1;
+}
+
+message ArchiveArenaResponse {
+  Arena arena = 1;
+}
+
+message RestoreArenaRequest {
+  string id = 1;
+}
+
+message RestoreArenaResponse {
+  Arena arena = 1;
+}
+
+// ReorderArenasRequest — ordered_ids должен содержать ровно текущий набор id
+// площадок турнира; иначе запрос отклоняется как невалидный.
+message ReorderArenasRequest {
+  string tournament_id = 1;
+  repeated string ordered_ids = 2;
+}
+
+message ReorderArenasResponse {
+  repeated Arena arenas = 1;
+}

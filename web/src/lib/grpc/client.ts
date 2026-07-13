@@ -6,6 +6,7 @@ import {
   ApplicationPublicService,
   ApplicationService,
 } from "@/gen/hema/v1/application_pb";
+import { ArenaAdminService } from "@/gen/hema/v1/arena_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
 import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
@@ -118,5 +119,15 @@ export const fighterAdminClient: Client<typeof FighterAdminService> = createClie
  */
 export const fighterPublicClient: Client<typeof FighterPublicService> = createClient(
   FighterPublicService,
+  transport,
+);
+
+/**
+ * arenaAdminClient — клиент ArenaAdminService (управление площадками турнира:
+ * создать/править/архивировать/вернуть/переупорядочить). Все RPC требуют роль
+ * ADMIN. Только на сервере (Node runtime).
+ */
+export const arenaAdminClient: Client<typeof ArenaAdminService> = createClient(
+  ArenaAdminService,
   transport,
 );
