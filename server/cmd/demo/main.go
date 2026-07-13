@@ -41,36 +41,38 @@ import (
 const fighterPassword = "fighter123"
 const adminPassword = "admin12345"
 
-// fighter — сид-данные заявителя.
+// fighter — сид-данные заявителя. Club — клуб бойца для заявок (спека 0006,
+// FR-1); «» намеренно у части бойцов — демонстрирует подачу без клуба (AC-2).
 type fighter struct {
 	Email       string
 	DisplayName string
+	Club        string
 }
 
 var fighters = []fighter{
-	{"ivan.sokolov@example.com", "Иван Соколов"},
-	{"dmitry.volkov@example.com", "Дмитрий Волков"},
-	{"alexey.morozov@example.com", "Алексей Морозов"},
-	{"sergey.lebedev@example.com", "Сергей Лебедев"},
-	{"maria.kuznetsova@example.com", "Мария Кузнецова"},
-	{"anna.smirnova@example.com", "Анна Смирнова"},
-	{"olga.zaharova@example.com", "Ольга Захарова"},
-	{"pavel.nikitin@example.com", "Павел Никитин"},
-	{"roman.kozlov@example.com", "Роман Козлов"},
-	{"artem.fedorov@example.com", "Артём Фёдоров"},
-	{"nikita.egorov@example.com", "Никита Егоров"},
-	{"maxim.grigoriev@example.com", "Максим Григорьев"},
-	{"victoria.pavlova@example.com", "Виктория Павлова"},
-	{"tatiana.semenova@example.com", "Татьяна Семёнова"},
-	{"kirill.vorobiev@example.com", "Кирилл Воробьёв"},
-	{"yulia.solovieva@example.com", "Юлия Соловьёва"},
+	{"ivan.sokolov@example.com", "Иван Соколов", "Сокол"},
+	{"dmitry.volkov@example.com", "Дмитрий Волков", "Сокол"},
+	{"alexey.morozov@example.com", "Алексей Морозов", "Стальной Клинок"},
+	{"sergey.lebedev@example.com", "Сергей Лебедев", "Стальной Клинок"},
+	{"maria.kuznetsova@example.com", "Мария Кузнецова", "Дружина"},
+	{"anna.smirnova@example.com", "Анна Смирнова", "Дружина"},
+	{"olga.zaharova@example.com", "Ольга Захарова", ""},
+	{"pavel.nikitin@example.com", "Павел Никитин", "Вольный Стрелок"},
+	{"roman.kozlov@example.com", "Роман Козлов", "Вольный Стрелок"},
+	{"artem.fedorov@example.com", "Артём Фёдоров", "Гардемарин"},
+	{"nikita.egorov@example.com", "Никита Егоров", "Гардемарин"},
+	{"maxim.grigoriev@example.com", "Максим Григорьев", ""},
+	{"victoria.pavlova@example.com", "Виктория Павлова", "Сокол"},
+	{"tatiana.semenova@example.com", "Татьяна Семёнова", "Стальной Клинок"},
+	{"kirill.vorobiev@example.com", "Кирилл Воробьёв", "Дружина"},
+	{"yulia.solovieva@example.com", "Юлия Соловьёва", "Вольный Стрелок"},
 }
 
 // admins — сид-данные администраторов (двое — чтобы в UI были рабочие
 // сценарии повышения/понижения роли, требующие больше одного админа).
 var admins = []fighter{
-	{"admin@hema.local", "Админ Оргкомитета"},
-	{"secretary@hema.local", "Секретарь Турнира"},
+	{"admin@hema.local", "Админ Оргкомитета", ""},
+	{"secretary@hema.local", "Секретарь Турнира", ""},
 }
 
 // nominationSeed — сид-данные номинации.
@@ -364,13 +366,16 @@ func seedApplications(
 	mainNominations := nominationIDs[:len(nominationIDs)-1]
 	overflowNomination := nominationIDs[len(nominationIDs)-1]
 
-	for _, applicantID := range fighterIDs {
+	for idx, applicantID := range fighterIDs {
+		// fighterIDs идёт в том же порядке, что и package-level fighters
+		// (seedFighters сохраняет порядок) — индекс даёт клуб/экипировку.
+		club, needsEquipment := fighterDetails(idx)
 		count := 1 + rng.Intn(3) // 1..3 заявки на заявителя
 		perm := rng.Perm(len(mainNominations))
 		for i := 0; i < count && i < len(perm); i++ {
 			nominationID := mainNominations[perm[i]]
 			outcome := outcomeWeights[rng.Intn(len(outcomeWeights))]
-			state, warned, err := driveApplication(ctx, svc, applicantID, organizerID, nominationID, outcome)
+			state, warned, err := driveApplication(ctx, svc, applicantID, organizerID, nominationID, club, needsEquipment, outcome)
 			if err != nil {
 				return stats, fmt.Errorf("applicant %s -> nomination %s: %w", applicantID, nominationID, err)
 			}
@@ -388,8 +393,9 @@ func seedApplications(
 	if len(overflowApplicants) > 5 {
 		overflowApplicants = overflowApplicants[:5]
 	}
-	for _, applicantID := range overflowApplicants {
-		state, warned, err := driveApplication(ctx, svc, applicantID, organizerID, overflowNomination, outcomeRegistered)
+	for idx, applicantID := range overflowApplicants {
+		club, needsEquipment := fighterDetails(idx)
+		state, warned, err := driveApplication(ctx, svc, applicantID, organizerID, overflowNomination, club, needsEquipment, outcomeRegistered)
 		if err != nil {
 			return stats, fmt.Errorf("overflow applicant %s: %w", applicantID, err)
 		}
@@ -403,16 +409,24 @@ func seedApplications(
 	return stats, nil
 }
 
+// fighterDetails возвращает клуб и признак нужды в экипировке для бойца по
+// его индексу в package-level fighters (спека 0006, FR-1). needsEquipment —
+// детерминированно у каждого третьего бойца, чтобы демо показывало оба случая.
+func fighterDetails(idx int) (club string, needsEquipment bool) {
+	return fighters[idx].Club, idx%3 == 0
+}
+
 // driveApplication подаёт заявку и проводит её командами сервиса до нужного
 // статуса. Возвращает достигнутое состояние и флаг мягкого предупреждения о
 // переполнении номинации (значим только для outcomeRegistered).
 func driveApplication(
 	ctx context.Context,
 	svc *appservice.Service,
-	applicantID, organizerID, nominationID string,
+	applicantID, organizerID, nominationID, club string,
+	needsEquipment bool,
 	outcome targetOutcome,
 ) (domain.State, bool, error) {
-	app, err := svc.Submit(ctx, applicantID, nominationID)
+	app, err := svc.Submit(ctx, applicantID, nominationID, club, needsEquipment)
 	if err != nil {
 		return "", false, fmt.Errorf("submit: %w", err)
 	}

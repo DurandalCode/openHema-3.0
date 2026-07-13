@@ -1,4 +1,4 @@
-import type { Application } from "@/entities/application/lib/types";
+import type { Application, ApplicationState } from "@/entities/application/lib/types";
 
 export type ApplicationListResult =
   | { ok: true; applications: Application[] }
@@ -85,6 +85,41 @@ export async function registerFighterRequest(applicationId: string): Promise<Reg
       application: data.application as Application,
       capacityExceeded: data.capacityExceeded ?? false,
     };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+export type EditApplicationInput = {
+  club?: string;
+  needsEquipment?: boolean;
+  applicantNameOverride?: string;
+  nominationId?: string;
+  state?: ApplicationState;
+};
+
+/**
+ * editApplicationRequest — POST /api/applications/[id]/edit (admin). Правка
+ * заявки: клуб, признак экипировки, переопределение имени, перенос номинации
+ * и/или ручная смена статуса (спека 0006, FR-3..FR-9). Допустимо над заявкой
+ * в любом состоянии.
+ */
+export async function editApplicationRequest(
+  applicationId: string,
+  input: EditApplicationInput,
+): Promise<ApplicationResult> {
+  try {
+    const res = await fetch(`/api/applications/${encodeURIComponent(applicationId)}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { application?: Application };
+    return { ok: true, application: data.application as Application };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }

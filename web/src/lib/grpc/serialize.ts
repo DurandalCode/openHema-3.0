@@ -106,6 +106,8 @@ export function applicationToJson(app: Application | undefined): ApplicationDto 
     applicantUserId: raw.applicantUserId ?? "",
     applicantDisplayName: raw.applicantDisplayName ?? "",
     state: (raw.state as ApplicationStateDto) ?? "APPLICATION_STATE_UNSPECIFIED",
+    club: raw.club ?? "",
+    needsEquipment: raw.needsEquipment ?? false,
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
   };

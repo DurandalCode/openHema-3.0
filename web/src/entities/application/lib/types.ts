@@ -22,7 +22,8 @@ export type ApplicationEventType =
   | "APPLICATION_EVENT_TYPE_PAYMENT_DECLARED"
   | "APPLICATION_EVENT_TYPE_PAYMENT_CONFIRMED"
   | "APPLICATION_EVENT_TYPE_FIGHTER_REGISTERED"
-  | "APPLICATION_EVENT_TYPE_WITHDRAWN";
+  | "APPLICATION_EVENT_TYPE_WITHDRAWN"
+  | "APPLICATION_EVENT_TYPE_AMENDED";
 
 export type Application = {
   id: string;
@@ -31,6 +32,10 @@ export type Application = {
   applicantUserId: string;
   applicantDisplayName: string;
   state: ApplicationState;
+  // club — клуб бойца (может быть пустым). needsEquipment — нужна ли
+  // экипировка от организатора (спека 0006).
+  club: string;
+  needsEquipment: boolean;
   createdAt: string;
   updatedAt: string;
 };

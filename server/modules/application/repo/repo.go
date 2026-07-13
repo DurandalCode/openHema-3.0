@@ -118,14 +118,17 @@ func (r *Repo) Append(ctx context.Context, appID string, expectedVersion int, ev
 	}
 
 	if err := q.UpsertCurrent(ctx, sqlc.UpsertCurrentParams{
-		ApplicationID:   aid,
-		NominationID:    nominationID,
-		TournamentID:    tournamentID,
-		ApplicantUserID: applicantID,
-		State:           string(view.State),
-		Version:         int32(view.Version),
-		CreatedAt:       view.CreatedAt,
-		UpdatedAt:       view.UpdatedAt,
+		ApplicationID:         aid,
+		NominationID:          nominationID,
+		TournamentID:          tournamentID,
+		ApplicantUserID:       applicantID,
+		State:                 string(view.State),
+		Version:               int32(view.Version),
+		CreatedAt:             view.CreatedAt,
+		UpdatedAt:             view.UpdatedAt,
+		Club:                  view.Club,
+		NeedsEquipment:        view.NeedsEquipment,
+		ApplicantNameOverride: view.ApplicantNameOverride,
 	}); err != nil {
 		if isUniqueViolation(err, constraintActiveDuplicate) {
 			return domain.ErrDuplicateActive
@@ -257,14 +260,17 @@ func toViews(rows []sqlc.ApplicationApplicationCurrent) []domain.ApplicationView
 
 func toView(row sqlc.ApplicationApplicationCurrent) domain.ApplicationView {
 	return domain.ApplicationView{
-		ID:              row.ApplicationID.String(),
-		NominationID:    row.NominationID.String(),
-		TournamentID:    row.TournamentID.String(),
-		ApplicantUserID: row.ApplicantUserID.String(),
-		State:           domain.State(row.State),
-		Version:         int(row.Version),
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		ID:                    row.ApplicationID.String(),
+		NominationID:          row.NominationID.String(),
+		TournamentID:          row.TournamentID.String(),
+		ApplicantUserID:       row.ApplicantUserID.String(),
+		State:                 domain.State(row.State),
+		Club:                  row.Club,
+		NeedsEquipment:        row.NeedsEquipment,
+		ApplicantNameOverride: row.ApplicantNameOverride,
+		Version:               int(row.Version),
+		CreatedAt:             row.CreatedAt,
+		UpdatedAt:             row.UpdatedAt,
 	}
 }
 
@@ -282,19 +288,30 @@ func toDomainEvent(row sqlc.LoadStreamRow) (domain.Event, error) {
 	}, nil
 }
 
-// jsonPayload — сериализуемое представление domain.Payload. Значимо только
-// для событий с заполненной идентичностью потока (Submitted).
+// jsonPayload — сериализуемое представление domain.Payload. Для Submitted
+// значимы NominationID/TournamentID/ApplicantUserID (идентичность потока) и
+// Club/NeedsEquipment (детали). Для Amended (спека 0006) — Club/
+// NeedsEquipment/ApplicantNameOverride как полный снапшот, и опционально
+// NominationID+TournamentID (перенос) / NewState (ручная смена статуса).
 type jsonPayload struct {
-	NominationID    string `json:"nomination_id,omitempty"`
-	TournamentID    string `json:"tournament_id,omitempty"`
-	ApplicantUserID string `json:"applicant_user_id,omitempty"`
+	NominationID          string `json:"nomination_id,omitempty"`
+	TournamentID          string `json:"tournament_id,omitempty"`
+	ApplicantUserID       string `json:"applicant_user_id,omitempty"`
+	Club                  string `json:"club,omitempty"`
+	NeedsEquipment        bool   `json:"needs_equipment,omitempty"`
+	ApplicantNameOverride string `json:"applicant_name_override,omitempty"`
+	NewState              string `json:"new_state,omitempty"`
 }
 
 func marshalPayload(p domain.Payload) ([]byte, error) {
 	return json.Marshal(jsonPayload{
-		NominationID:    p.NominationID,
-		TournamentID:    p.TournamentID,
-		ApplicantUserID: p.ApplicantUserID,
+		NominationID:          p.NominationID,
+		TournamentID:          p.TournamentID,
+		ApplicantUserID:       p.ApplicantUserID,
+		Club:                  p.Club,
+		NeedsEquipment:        p.NeedsEquipment,
+		ApplicantNameOverride: p.ApplicantNameOverride,
+		NewState:              string(p.NewState),
 	})
 }
 
@@ -307,9 +324,13 @@ func unmarshalPayload(raw []byte) (domain.Payload, error) {
 		return domain.Payload{}, err
 	}
 	return domain.Payload{
-		NominationID:    p.NominationID,
-		TournamentID:    p.TournamentID,
-		ApplicantUserID: p.ApplicantUserID,
+		NominationID:          p.NominationID,
+		TournamentID:          p.TournamentID,
+		ApplicantUserID:       p.ApplicantUserID,
+		Club:                  p.Club,
+		NeedsEquipment:        p.NeedsEquipment,
+		ApplicantNameOverride: p.ApplicantNameOverride,
+		NewState:              domain.State(p.NewState),
 	}, nil
 }
 

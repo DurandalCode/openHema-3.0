@@ -54,7 +54,11 @@ func (r *FakeRepo) Load(_ context.Context, appID string) ([]domain.Event, error)
 
 // Append атомарно вставляет событие с version = expectedVersion+1 и обновляет
 // проекцию. Конфликт версии → ErrConcurrency; нарушение инварианта активного
-// дубля на новом потоке → ErrDuplicateActive.
+// дубля → ErrDuplicateActive. Проверка дубля не привязана к новому потоку
+// (expectedVersion==0): админская правка (перенос номинации, ручная смена
+// статуса, спека 0006) может сделать активной уже существующую заявку — и
+// должна ловить тот же дубль, что и обычная Submit (моделирует partial
+// unique index в реальной БД, который действует на каждый UPSERT проекции).
 func (r *FakeRepo) Append(_ context.Context, appID string, expectedVersion int, ev domain.Event, view domain.ApplicationView) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -65,7 +69,7 @@ func (r *FakeRepo) Append(_ context.Context, appID string, expectedVersion int, 
 	}
 
 	key := activeKey{userID: view.ApplicantUserID, nominationID: view.NominationID}
-	if expectedVersion == 0 {
+	if view.State.IsActive() {
 		if existing, ok := r.active[key]; ok && existing != appID {
 			return domain.ErrDuplicateActive
 		}
@@ -73,6 +77,16 @@ func (r *FakeRepo) Append(_ context.Context, appID string, expectedVersion int, 
 
 	r.streams[appID] = append(current, ev)
 	r.views[appID] = view
+
+	// Заявка могла сменить (user, nomination) при переносе в другую номинацию
+	// (EditApplication, спека 0006) — старый ключ инварианта для этой заявки
+	// больше не актуален и должен быть снят, иначе дубль-проверка ложно
+	// заблокирует новую подачу в старую номинацию.
+	for k, id := range r.active {
+		if id == appID && k != key {
+			delete(r.active, k)
+		}
+	}
 
 	if view.State.IsActive() {
 		r.active[key] = appID

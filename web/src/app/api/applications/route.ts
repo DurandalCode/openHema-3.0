@@ -8,6 +8,8 @@ export const runtime = "nodejs";
 
 type SubmitBody = {
   nominationId: string;
+  club?: string;
+  needsEquipment?: boolean;
 };
 
 /** GET /api/applications — заявки текущего пользователя («мои заявки»). */
@@ -48,7 +50,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const res = await applicationClient.submitApplication(
-      { nominationId: body.nominationId },
+      {
+        nominationId: body.nominationId,
+        club: body.club ?? "",
+        needsEquipment: body.needsEquipment ?? false,
+      },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     return NextResponse.json({ application: applicationToJson(res.application) });
