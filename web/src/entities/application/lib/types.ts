@@ -48,10 +48,13 @@ export type ApplicationEvent = {
 };
 
 // NominationParticipant — элемент публичного стартового листа номинации.
-// Без applicantUserId: публичная выдача не раскрывает идентификаторы.
+// Без applicantUserId: публичная выдача не раскрывает идентификаторы. club —
+// публичное поле (поправка 0006 в спеке 0007: клуб бойца виден в составе
+// номинации).
 export type NominationParticipant = {
   displayName: string;
   state: ApplicationState;
+  club: string;
 };
 
 export type NominationParticipants = {

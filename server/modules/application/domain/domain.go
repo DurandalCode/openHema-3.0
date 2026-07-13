@@ -382,3 +382,26 @@ type NominationProvider interface {
 type UserProvider interface {
 	DisplayNames(ctx context.Context, ids []string) (map[string]string, error)
 }
+
+// RegisteredFighter — снапшот данных заявки на момент регистрации, нужный
+// для кроссдоменного создания/дополнения бойца (спека 0007).
+type RegisteredFighter struct {
+	TournamentID string
+	NominationID string
+	// OriginUserID — applicant_user_id заявки; в домене fighter становится
+	// техническим ключом происхождения (дедупликация), не auth-связью.
+	OriginUserID string
+	// Name — эффективное отображаемое имя на момент регистрации (override
+	// или имя из auth), снапшот.
+	Name string
+	Club string
+}
+
+// FighterRegistrationSink — межмодульная зависимость: кроссдоменный эффект
+// регистрации заявки в домен бойцов (application → fighter, ADR 0002, спека
+// 0007). Синхронный in-process вызов (событийной шины пока нет, ADR 0011
+// EDD ещё не принят для этого перехода); идемпотентность на стороне fighter
+// обеспечивает дедуп по (tournament_id, origin_user_id).
+type FighterRegistrationSink interface {
+	OnRegistered(ctx context.Context, in RegisteredFighter) error
+}

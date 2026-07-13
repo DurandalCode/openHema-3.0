@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package hema.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// FighterAdminService — управление ростером бойцов турнира (секретарь).
+// Все RPC требуют роль ADMIN (проверяется серверным интерсептором
+// RequireAdmin). Боец — внутренняя сущность турнира, отвязанная от
+// пользователей системы (спека 0007).
+service FighterAdminService {
+  // CreateFighter заводит бойца вручную (без электронной заявки) и назначает
+  // его в одну или несколько номинаций. Без проверок лимитов/дублей.
+  rpc CreateFighter(CreateFighterRequest) returns (CreateFighterResponse);
+  // EditFighter правит имя и клуб бойца независимо от заявки/профиля.
+  rpc EditFighter(EditFighterRequest) returns (EditFighterResponse);
+  // WithdrawFighter выводит бойца со всего турнира с причиной (травма/бан/
+  // иное). Боец не участвует в боях, но остаётся в системе.
+  rpc WithdrawFighter(WithdrawFighterRequest) returns (WithdrawFighterResponse);
+  // ReturnFighter возвращает ранее выведенного бойца в прежний состав участий.
+  rpc ReturnFighter(ReturnFighterRequest) returns (ReturnFighterResponse);
+  // AddToNomination добавляет бойцу участие в номинации (идемпотентно для
+  // уже активного участия).
+  rpc AddToNomination(AddToNominationRequest) returns (AddToNominationResponse);
+  // RemoveFromNomination снимает бойца с одной номинации; в других
+  // номинациях боец продолжает. Обратимо (AddToNomination).
+  rpc RemoveFromNomination(RemoveFromNominationRequest) returns (RemoveFromNominationResponse);
+  // MoveFighter переводит бойца из одной номинации в другую (снять с одной +
+  // добавить в другую одной операцией).
+  rpc MoveFighter(MoveFighterRequest) returns (MoveFighterResponse);
+  // GetFighter возвращает одного бойца со всеми его участиями.
+  rpc GetFighter(GetFighterRequest) returns (GetFighterResponse);
+  // ListRoster возвращает ростер турнира: бойцов с их участиями и статусами.
+  rpc ListRoster(ListRosterRequest) returns (ListRosterResponse);
+}
+
+// FighterPublicService — публичное чтение состава номинации. RPC доступны
+// без access-токена (перечислены в publicProcedures интерсептора Auth).
+service FighterPublicService {
+  // ListNominationRoster возвращает состав номинации: имя, клуб и статус
+  // участия каждого бойца. Выведенные/снятые показываются как «выбыл», не
+  // скрываются.
+  rpc ListNominationRoster(ListNominationRosterRequest) returns (ListNominationRosterResponse);
+}
+
+// FighterStatus — статус бойца на уровне всего турнира.
+enum FighterStatus {
+  FIGHTER_STATUS_UNSPECIFIED = 0;
+  FIGHTER_STATUS_ACTIVE = 1;
+  FIGHTER_STATUS_WITHDRAWN = 2;
+}
+
+// WithdrawalReason — причина вывода бойца с турнира.
+enum WithdrawalReason {
+  WITHDRAWAL_REASON_UNSPECIFIED = 0;
+  WITHDRAWAL_REASON_INJURY = 1;
+  WITHDRAWAL_REASON_BAN = 2;
+  WITHDRAWAL_REASON_OTHER = 3;
+}
+
+// ParticipationStatus — статус участия бойца в конкретной номинации.
+enum ParticipationStatus {
+  PARTICIPATION_STATUS_UNSPECIFIED = 0;
+  PARTICIPATION_STATUS_ACTIVE = 1;
+  PARTICIPATION_STATUS_REMOVED = 2;
+}
+
+// Participation — участие бойца в одной номинации.
+message Participation {
+  string nomination_id = 1;
+  ParticipationStatus status = 2;
+}
+
+// Fighter — персона-участник турнира, отвязанная от пользователей системы.
+// Имя/клуб — снапшот (из заявки при регистрации либо введённые admin).
+message Fighter {
+  string id = 1;
+  string tournament_id = 2;
+  string name = 3;
+  string club = 4;
+  FighterStatus status = 5;
+  WithdrawalReason withdrawal_reason = 6;
+  repeated Participation participations = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// RosterEntry — элемент публичного состава номинации. Без id/происхождения:
+// публичная выдача не раскрывает внутренние идентификаторы.
+message RosterEntry {
+  string name = 1;
+  string club = 2;
+  // in_roster — true, если боец активен и участие в номинации активно
+  // («в составе»); false — выведен/снят («выбыл»).
+  bool in_roster = 3;
+}
+
+message CreateFighterRequest {
+  string tournament_id = 1;
+  string name = 2;
+  string club = 3;
+  repeated string nomination_ids = 4;
+}
+
+message CreateFighterResponse {
+  Fighter fighter = 1;
+}
+
+message EditFighterRequest {
+  string fighter_id = 1;
+  string name = 2;
+  string club = 3;
+}
+
+message EditFighterResponse {
+  Fighter fighter = 1;
+}
+
+message WithdrawFighterRequest {
+  string fighter_id = 1;
+  WithdrawalReason reason = 2;
+}
+
+message WithdrawFighterResponse {
+  Fighter fighter = 1;
+}
+
+message ReturnFighterRequest {
+  string fighter_id = 1;
+}
+
+message ReturnFighterResponse {
+  Fighter fighter = 1;
+}
+
+message AddToNominationRequest {
+  string fighter_id = 1;
+  string nomination_id = 2;
+}
+
+message AddToNominationResponse {
+  Fighter fighter = 1;
+}
+
+message RemoveFromNominationRequest {
+  string fighter_id = 1;
+  string nomination_id = 2;
+}
+
+message RemoveFromNominationResponse {
+  Fighter fighter = 1;
+}
+
+message MoveFighterRequest {
+  string fighter_id = 1;
+  string from_nomination_id = 2;
+  string to_nomination_id = 3;
+}
+
+message MoveFighterResponse {
+  Fighter fighter = 1;
+}
+
+message GetFighterRequest {
+  string fighter_id = 1;
+}
+
+message GetFighterResponse {
+  Fighter fighter = 1;
+}
+
+// ListRosterRequest — ростер турнира; tournament_id опционален (при пустом —
+// используется активный турнир, MVP с единственным активным турниром).
+message ListRosterRequest {
+  optional string tournament_id = 1;
+}
+
+message ListRosterResponse {
+  repeated Fighter fighters = 1;
+}
+
+message ListNominationRosterRequest {
+  string nomination_id = 1;
+}
+
+message ListNominationRosterResponse {
+  repeated RosterEntry entries = 1;
+}

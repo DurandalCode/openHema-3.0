@@ -16,6 +16,7 @@ MIGRATIONS_DIR := server/modules/auth/migrations
 TOURNAMENT_MIGRATIONS_DIR := server/modules/tournament/migrations
 NOMINATION_MIGRATIONS_DIR := server/modules/nomination/migrations
 APPLICATION_MIGRATIONS_DIR := server/modules/application/migrations
+FIGHTER_MIGRATIONS_DIR := server/modules/fighter/migrations
 
 .PHONY: help
 help: ## Показать доступные команды
@@ -47,9 +48,11 @@ migrate: ## Прогон goose-миграций по всем модулям (т
 	$(GOOSE) -dir ../$(TOURNAMENT_MIGRATIONS_DIR) -table goose_db_version_tournament postgres "$(DB_URL)" up
 	$(GOOSE) -dir ../$(NOMINATION_MIGRATIONS_DIR) -table goose_db_version_nomination postgres "$(DB_URL)" up
 	$(GOOSE) -dir ../$(APPLICATION_MIGRATIONS_DIR) -table goose_db_version_application postgres "$(DB_URL)" up
+	$(GOOSE) -dir ../$(FIGHTER_MIGRATIONS_DIR) -table goose_db_version_fighter postgres "$(DB_URL)" up
 
 .PHONY: migrate-down
 migrate-down: ## Откат последней миграции во всех модулях
+	$(GOOSE) -dir ../$(FIGHTER_MIGRATIONS_DIR) -table goose_db_version_fighter postgres "$(DB_URL)" down
 	$(GOOSE) -dir ../$(APPLICATION_MIGRATIONS_DIR) -table goose_db_version_application postgres "$(DB_URL)" down
 	$(GOOSE) -dir ../$(NOMINATION_MIGRATIONS_DIR) -table goose_db_version_nomination postgres "$(DB_URL)" down
 	$(GOOSE) -dir ../$(TOURNAMENT_MIGRATIONS_DIR) -table goose_db_version_tournament postgres "$(DB_URL)" down
@@ -92,8 +95,12 @@ dev: ## Локальный дев: postgres в докере + миграции +
 	$(MAKE) -j2 server web
 
 .PHONY: demo
-demo: migrate ## Наполнить БД тестовыми данными для ручной проверки UX (сбрасывает demo-сущности: users/nominations/applications)
+demo: migrate ## Демо-savepoint «заявки»: users/nominations/applications во всех статусах (сбрасывает demo-сущности)
 	cd server && go run ./cmd/demo
+
+.PHONY: demo-registered
+demo-registered: migrate ## Демо-savepoint «бойцы»: то же, что demo, но все заявки доведены до регистрации бойцов
+	cd server && go run ./cmd/demo-registered
 
 .PHONY: prod
 prod: ## Полная сборка и запуск всего стека в докере

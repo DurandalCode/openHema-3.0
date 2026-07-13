@@ -72,3 +72,21 @@ sql:
               type: UUID
           - db_type: timestamptz
             go_type: time.Time
+  - name: fighter
+    engine: postgresql
+    schema: modules/fighter/migrations
+    queries: modules/fighter/repo/queries
+    gen:
+      go:
+        package: sqlc
+        out: modules/fighter/repo/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+          - db_type: timestamptz
+            go_type: time.Time

@@ -50,6 +50,9 @@ type HistoryEvent struct {
 type Participant struct {
 	DisplayName string
 	State       domain.State
+	// Club — публичное поле (поправка 0006 в спеке 0007): клуб бойца виден в
+	// составе номинации.
+	Club string
 }
 
 // EditInput — желаемые значения полей при админской правке заявки
@@ -69,11 +72,12 @@ type Service struct {
 	repo        domain.Repository
 	nominations domain.NominationProvider
 	users       domain.UserProvider
+	fighters    domain.FighterRegistrationSink
 }
 
 // New создаёт сервис application.
-func New(repo domain.Repository, nominations domain.NominationProvider, users domain.UserProvider) *Service {
-	return &Service{repo: repo, nominations: nominations, users: users}
+func New(repo domain.Repository, nominations domain.NominationProvider, users domain.UserProvider, fighters domain.FighterRegistrationSink) *Service {
+	return &Service{repo: repo, nominations: nominations, users: users, fighters: fighters}
 }
 
 // Submit подаёт заявку callerID в номинацию. Резолвит tournament_id номинации
@@ -184,7 +188,21 @@ func (s *Service) Register(ctx context.Context, actorID, appID string) (Applicat
 		}
 
 		out, err := s.enrich(ctx, next)
-		return out, capacityExceeded, err
+		if err != nil {
+			return Application{}, false, err
+		}
+
+		if err := s.fighters.OnRegistered(ctx, domain.RegisteredFighter{
+			TournamentID: out.TournamentID,
+			NominationID: out.NominationID,
+			OriginUserID: out.ApplicantUserID,
+			Name:         out.ApplicantDisplayName,
+			Club:         out.Club,
+		}); err != nil {
+			return Application{}, false, err
+		}
+
+		return out, capacityExceeded, nil
 	}
 	return Application{}, false, lastErr
 }
@@ -338,7 +356,11 @@ func (s *Service) NominationParticipants(ctx context.Context, nominationID strin
 
 	participants := make([]Participant, 0, len(views))
 	for _, v := range views {
-		participants = append(participants, Participant{DisplayName: effectiveName(v.ApplicantNameOverride, names[v.ApplicantUserID]), State: v.State})
+		participants = append(participants, Participant{
+			DisplayName: effectiveName(v.ApplicantNameOverride, names[v.ApplicantUserID]),
+			State:       v.State,
+			Club:        v.Club,
+		})
 	}
 	return participants, applied, confirmed, info.FighterCapacity, nil
 }

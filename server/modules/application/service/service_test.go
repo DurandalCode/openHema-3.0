@@ -25,7 +25,7 @@ func newTestService() (*service.Service, *testutil.FakeRepo, *testutil.FakeNomin
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantID, "Applicant Name")
 	users.Set(adminID, "Admin Name")
-	svc := service.New(repo, nominations, users)
+	svc := service.New(repo, nominations, users, testutil.NewFakeFighterSink())
 	return svc, repo, nominations, users
 }
 
@@ -284,6 +284,85 @@ func TestGetApplication_HistoryFullPath(t *testing.T) {
 	}
 }
 
+// TestRegister_NotifiesFighterSink проверяет кроссдоменный эффект регистрации
+// (application → fighter, спека 0007): после успешной регистрации sink
+// вызывается с корректным снапшотом (эффективное имя, клуб, ключ
+// происхождения = applicant_user_id, номинация/турнир).
+func TestRegister_NotifiesFighterSink(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	nominations := testutil.NewFakeNominationProvider()
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	users := testutil.NewFakeUserProvider()
+	users.Set(applicantID, "Applicant Name")
+	users.Set(adminID, "Admin Name")
+	sink := testutil.NewFakeFighterSink()
+	svc := service.New(repo, nominations, users, sink)
+	ctx := context.Background()
+
+	app, err := svc.Submit(ctx, applicantID, nominationID, "Sokol", true)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	app, err = svc.DeclarePayment(ctx, applicantID, app.ID)
+	if err != nil {
+		t.Fatalf("DeclarePayment: %v", err)
+	}
+	app, err = svc.ConfirmPayment(ctx, adminID, app.ID)
+	if err != nil {
+		t.Fatalf("ConfirmPayment: %v", err)
+	}
+	if len(sink.Calls()) != 0 {
+		t.Fatalf("expected sink not called before registration")
+	}
+
+	app, _, err = svc.Register(ctx, adminID, app.ID)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	calls := sink.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 sink call, got %d", len(calls))
+	}
+	got := calls[0]
+	if got.TournamentID != tournamentID || got.NominationID != nominationID {
+		t.Fatalf("unexpected tournament/nomination in sink call: %+v", got)
+	}
+	if got.OriginUserID != applicantID {
+		t.Fatalf("expected origin user id = applicant id, got %q", got.OriginUserID)
+	}
+	if got.Name != "Applicant Name" {
+		t.Fatalf("expected effective display name, got %q", got.Name)
+	}
+	if got.Club != "Sokol" {
+		t.Fatalf("expected club snapshot, got %q", got.Club)
+	}
+	_ = app
+}
+
+// TestRegister_FighterSinkError_PropagatesAsError проверяет, что ошибка
+// кроссдоменного эффекта возвращается наружу (MVP-компромисс: событие уже
+// закоммичено в журнал заявки, но RPC сообщает об ошибке — см. риски plan.md).
+func TestRegister_FighterSinkError_PropagatesAsError(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	nominations := testutil.NewFakeNominationProvider()
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	users := testutil.NewFakeUserProvider()
+	users.Set(applicantID, "Applicant Name")
+	users.Set(adminID, "Admin Name")
+	sink := testutil.NewFakeFighterSink()
+	sinkErr := errors.New("fighter sink unavailable")
+	sink.SetError(sinkErr)
+	svc := service.New(repo, nominations, users, sink)
+	ctx := context.Background()
+
+	app := submitPaidApplication(t, svc, ctx)
+	_, _, err := svc.Register(ctx, adminID, app.ID)
+	if !errors.Is(err, sinkErr) {
+		t.Fatalf("expected sink error to propagate, got %v", err)
+	}
+}
+
 func TestRegister_CapacityExceeded_SoftWarning(t *testing.T) {
 	svc, _, nominations, users := newTestService()
 	ctx := context.Background()
@@ -377,7 +456,7 @@ func TestConcurrency_OneRetryThenSuccess(t *testing.T) {
 	users.Set(applicantID, "Applicant Name")
 
 	repo := &flakyRepo{FakeRepo: testutil.NewFakeRepo()}
-	svc := service.New(repo, nominations, users)
+	svc := service.New(repo, nominations, users, testutil.NewFakeFighterSink())
 	ctx := context.Background()
 
 	app, err := svc.Submit(ctx, applicantID, nominationID, "", false)
@@ -406,7 +485,7 @@ func TestConcurrency_ExhaustedThenAborted(t *testing.T) {
 	users.Set(applicantID, "Applicant Name")
 
 	repo := &flakyRepo{FakeRepo: testutil.NewFakeRepo()}
-	svc := service.New(repo, nominations, users)
+	svc := service.New(repo, nominations, users, testutil.NewFakeFighterSink())
 	ctx := context.Background()
 
 	app, err := svc.Submit(ctx, applicantID, nominationID, "", false)
@@ -479,7 +558,7 @@ func TestNominationParticipants_CountsAndNames(t *testing.T) {
 	users.Set("user-1", "Fighter One")
 	users.Set("user-2", "Fighter Two")
 
-	app1, err := svc.Submit(ctx, "user-1", nominationID, "", false)
+	app1, err := svc.Submit(ctx, "user-1", nominationID, "Sokol", false)
 	if err != nil {
 		t.Fatalf("Submit 1: %v", err)
 	}
@@ -510,6 +589,18 @@ func TestNominationParticipants_CountsAndNames(t *testing.T) {
 	}
 	if len(participants) != 2 {
 		t.Fatalf("expected 2 participants, got %d", len(participants))
+	}
+	var sawClub bool
+	for _, p := range participants {
+		if p.DisplayName == "Fighter One" {
+			if p.Club != "Sokol" {
+				t.Fatalf("expected club Sokol for Fighter One, got %q", p.Club)
+			}
+			sawClub = true
+		}
+	}
+	if !sawClub {
+		t.Fatalf("expected to find Fighter One among participants")
 	}
 }
 

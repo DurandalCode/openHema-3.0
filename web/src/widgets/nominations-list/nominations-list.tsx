@@ -10,7 +10,9 @@ import {
 import { Col, Row } from "@/shared/ui/stack";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import type { NominationParticipants } from "@/entities/application/lib/types";
+import type { RosterEntry } from "@/entities/fighter/lib/types";
 import { SubmitApplicationButton } from "@/features/my-applications/ui/submit-application-button";
+import { NominationRoster } from "@/widgets/nomination-roster/nomination-roster";
 
 /** NominationsList — секция публичной страницы турнира со списком номинаций.
  * Пустые поля скрываются (FR-12/AC-10); при отсутствии номинаций секция не
@@ -20,15 +22,22 @@ import { SubmitApplicationButton } from "@/features/my-applications/ui/submit-ap
  * «заявлено · подтверждено / лимит» — публичны (FR-15/FR-16). Кнопка «Подать
  * заявку» видна только аутентифицированному пользователю (FR-1/FR-11).
  *
- * Server component: данные приходят через props из `getNominations()` и
- * `getNominationParticipants()`. */
+ * Ростер бойцов (спека 0007) — отдельный список, появляется после первой
+ * регистрации. Пока он пуст, показывается воронка заявок (0005); когда
+ * ростер не пуст, он заменяет список заявок как более актуальный источник
+ * «кто участвует» (UX-решение, спека 0007 п.5 «Принятые решения»).
+ *
+ * Server component: данные приходят через props из `getNominations()`,
+ * `getNominationParticipants()` и `getNominationRoster()`. */
 export function NominationsList({
   nominations,
   participantsByNomination,
+  rosterByNomination,
   isAuthenticated,
 }: {
   nominations: Nomination[];
   participantsByNomination: Record<string, NominationParticipants>;
+  rosterByNomination?: Record<string, RosterEntry[]>;
   isAuthenticated: boolean;
 }) {
   if (nominations.length === 0) return null;
@@ -49,6 +58,7 @@ export function NominationsList({
         <div className="grid w-full gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {nominations.map((n) => {
             const participants = participantsByNomination[n.id];
+            const roster = rosterByNomination?.[n.id] ?? [];
             return (
               <Card key={n.id}>
                 <CardHeader>
@@ -81,20 +91,28 @@ export function NominationsList({
                         </a>
                       </Row>
                     )}
-                    {participants && participants.participants.length > 0 && (
-                      <Col gap={1}>
-                        {participants.participants.map((p, i) => (
-                          <Row key={i} align="center" gap={2}>
-                            {p.state === "APPLICATION_STATE_PAID" ||
-                            p.state === "APPLICATION_STATE_REGISTERED" ? (
-                              <CheckCircle2 className="size-3.5 text-primary" />
-                            ) : (
-                              <span className="size-3.5" />
-                            )}
-                            <span>{p.displayName}</span>
-                          </Row>
-                        ))}
-                      </Col>
+                    {roster.length > 0 ? (
+                      <NominationRoster entries={roster} />
+                    ) : (
+                      participants &&
+                      participants.participants.length > 0 && (
+                        <Col gap={1}>
+                          {participants.participants.map((p, i) => (
+                            <Row key={i} align="center" gap={2}>
+                              {p.state === "APPLICATION_STATE_PAID" ||
+                              p.state === "APPLICATION_STATE_REGISTERED" ? (
+                                <CheckCircle2 className="size-3.5 text-primary" />
+                              ) : (
+                                <span className="size-3.5" />
+                              )}
+                              <span>{p.displayName}</span>
+                              {p.club && (
+                                <span className="text-xs text-muted-foreground">({p.club})</span>
+                              )}
+                            </Row>
+                          ))}
+                        </Col>
+                      )
                     )}
                     {isAuthenticated && <SubmitApplicationButton nominationId={n.id} />}
                   </Col>
