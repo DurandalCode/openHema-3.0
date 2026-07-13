@@ -65,6 +65,7 @@ func main() {
 	log.Info("создали заявителей", "count", len(result.FighterUserIDs))
 	log.Info("обновили активный турнир", "id", result.TournamentID)
 	log.Info("создали номинации", "count", len(result.NominationIDs))
+	log.Info("создали площадки", "count", len(result.ArenaIDs))
 	log.Info("создали заявки",
 		"total", result.Stats.Total,
 		"submitted", result.Stats.ByState[domain.StateSubmitted],

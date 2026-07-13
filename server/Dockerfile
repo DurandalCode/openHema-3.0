@@ -34,6 +34,7 @@ COPY --from=build /src/modules/tournament/migrations  /app/modules/tournament/mi
 COPY --from=build /src/modules/nomination/migrations  /app/modules/nomination/migrations
 COPY --from=build /src/modules/application/migrations /app/modules/application/migrations
 COPY --from=build /src/modules/fighter/migrations      /app/modules/fighter/migrations
+COPY --from=build /src/modules/arena/migrations        /app/modules/arena/migrations
 
 USER app
 EXPOSE 8080

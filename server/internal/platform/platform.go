@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hema/server/modules/application"
+	"github.com/hema/server/modules/arena"
 	"github.com/hema/server/modules/auth"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
@@ -88,6 +89,12 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		Fighters:    fighter.NewRegistrationSink(pool, fighterNominations),
 	}
 	application.Register(mux, applicationDeps, baseOpts, adminOpts)
+
+	arenaDeps := arena.Deps{
+		Pool:        pool,
+		Tournaments: activeTournaments,
+	}
+	arena.Register(mux, arenaDeps, baseOpts, adminOpts)
 
 	// ── Бутстрап первого админа (до начала приёма запросов) ───────
 	auth.Bootstrap(ctx, deps, log,
