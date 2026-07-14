@@ -98,6 +98,15 @@ type RosterEntry struct {
 	InRoster bool
 }
 
+// FighterRef — проекция бойца «в составе» номинации с id (для модуля pool,
+// спека 0009 FR-12): в отличие от RosterEntry несёт id — нужен для DnD/
+// членства в пуле.
+type FighterRef struct {
+	ID   string
+	Name string
+	Club string
+}
+
 // NewManual создаёт бойца, заведённого admin вручную (без электронной
 // заявки): OriginUserID = nil, дедупу не подлежит. Без проверок лимитов и
 // дублей (спека 0007, FR-6).
@@ -259,6 +268,10 @@ type Repository interface {
 	// бойцу, у которого есть (или было) участие в этой номинации — имя, клуб
 	// и признак «в составе» (выведенные/снятые не скрываются, FR-12).
 	RosterByNomination(ctx context.Context, nominationID string) ([]RosterEntry, error)
+	// ActiveFightersByNomination возвращает бойцов «в составе» номинации
+	// (FighterStatus=active И ParticipationStatus=active) с id — для модуля
+	// pool (спека 0009, FR-12). Выведенные/снятые не включаются.
+	ActiveFightersByNomination(ctx context.Context, nominationID string) ([]FighterRef, error)
 }
 
 // NominationInfo — сведения о номинации, нужные модулю fighter.

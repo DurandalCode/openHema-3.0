@@ -139,3 +139,23 @@ func (r *FakeRepo) RosterByNomination(_ context.Context, nominationID string) ([
 	}
 	return out, nil
 }
+
+// ActiveFightersByNomination возвращает бойцов «в составе» номинации.
+func (r *FakeRepo) ActiveFightersByNomination(_ context.Context, nominationID string) ([]domain.FighterRef, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.FighterRef, 0)
+	for _, f := range r.fighters {
+		if f.Status != domain.StatusActive {
+			continue
+		}
+		for _, p := range f.Participations {
+			if p.NominationID == nominationID && p.Status == domain.ParticipationActive {
+				out = append(out, domain.FighterRef{ID: f.ID, Name: f.Name, Club: f.Club})
+				break
+			}
+		}
+	}
+	return out, nil
+}

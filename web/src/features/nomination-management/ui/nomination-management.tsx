@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ClipboardList, Pencil, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardList, Pencil, Trash2, Users, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -305,6 +305,11 @@ function NominationRow({
             <Button type="button" variant="ghost" size="icon-sm" asChild aria-label="Заявки">
               <Link href={`/admin/applications?nominationId=${nomination.id}`}>
                 <ClipboardList />
+              </Link>
+            </Button>
+            <Button type="button" variant="ghost" size="icon-sm" asChild aria-label="Пулы">
+              <Link href={`/admin/nominations/${nomination.id}/pools`}>
+                <Users />
               </Link>
             </Button>
             <Button

@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+package hema.v1;
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// PoolAdminService — управление раскладкой бойцов номинации по пулам
+// (группам). Все RPC требуют роль ADMIN (проверяется серверным
+// интерсептором RequireAdmin). Публичного чтения нет (спека 0009, FR-13):
+// пулы — служебная раскладка организатора.
+service PoolAdminService {
+  // GetLayout возвращает текущую раскладку номинации: статус, список
+  // нераспределённых бойцов и список пулов с их бойцами (lazy-init —
+  // отсутствие раскладки трактуется как draft с пустыми пулами, FR-14).
+  rpc GetLayout(GetLayoutRequest) returns (GetLayoutResponse);
+  // CreatePool создаёт пул в номинации. Имя генерируется системой как
+  // «Пул N», где N — наименьший свободный положительный номер (FR-3).
+  // Только в draft.
+  rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
+  // DeletePool удаляет пул; все его бойцы возвращаются в нераспределённые
+  // (FR-4). Undoable. Только в draft.
+  rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
+  // ResetLayout удаляет все пулы номинации разом и возвращает всех бойцов
+  // в нераспределённые, статус остаётся draft (FR-4a). Только в draft.
+  rpc ResetLayout(ResetLayoutRequest) returns (ResetLayoutResponse);
+  // AssignFighter перемещает бойца в пул: из нераспределённых либо из
+  // другого пула (move одним действием, FR-5). Только в draft.
+  rpc AssignFighter(AssignFighterRequest) returns (AssignFighterResponse);
+  // UnassignFighter возвращает бойца из пула в нераспределённые (FR-5).
+  // Только в draft.
+  rpc UnassignFighter(UnassignFighterRequest) returns (UnassignFighterResponse);
+  // AutoDistribute раскладывает всех нераспределённых бойцов по
+  // существующим пулам, минимизируя одноклубников в одном пуле (FR-6/FR-7).
+  // Уже расставленные бойцы не трогаются. Undoable. Только в draft.
+  rpc AutoDistribute(AutoDistributeRequest) returns (AutoDistributeResponse);
+  // Undo откатывает последнее mutating-действие среди двух классов:
+  // автораспределение или удаление пула (FR-7a). Только в draft.
+  rpc Undo(UndoRequest) returns (UndoResponse);
+  // SetLayoutStatus переключает статус раскладки draft↔ready (FR-9).
+  rpc SetLayoutStatus(SetLayoutStatusRequest) returns (SetLayoutStatusResponse);
+}
+
+// PoolLayoutStatus — статус раскладки номинации целиком. В этой фиче
+// реализованы переходы только draft↔ready; active/finished — в контракте
+// для целостности (бои — будущая фича, спека 0009 «Вне скоупа»).
+enum PoolLayoutStatus {
+  POOL_LAYOUT_STATUS_UNSPECIFIED = 0;
+  POOL_LAYOUT_STATUS_DRAFT = 1;
+  POOL_LAYOUT_STATUS_READY = 2;
+  POOL_LAYOUT_STATUS_ACTIVE = 3;
+  POOL_LAYOUT_STATUS_FINISHED = 4;
+}
+
+// FighterRef — проекция бойца для экрана управления пулами (DnD): id для
+// перетаскивания, имя/клуб — снапшот из модуля fighter.
+message FighterRef {
+  string fighter_id = 1;
+  string name = 2;
+  string club = 3;
+}
+
+// Pool — пул (группа) номинации с его бойцами. Имя не редактируется
+// (генерируется системой из номера, спека 0009 «Вне скоупа»).
+message Pool {
+  string id = 1;
+  string nomination_id = 2;
+  int32 number = 3;
+  string name = 4;
+  repeated FighterRef members = 5;
+}
+
+// PoolLayout — раскладка номинации целиком: статус, нераспределённые,
+// пулы. can_undo — доступна ли кнопка «Отменить» (FR-7a).
+message PoolLayout {
+  string nomination_id = 1;
+  PoolLayoutStatus status = 2;
+  repeated FighterRef unassigned = 3;
+  repeated Pool pools = 4;
+  bool can_undo = 5;
+}
+
+message GetLayoutRequest {
+  string nomination_id = 1;
+}
+
+message GetLayoutResponse {
+  PoolLayout layout = 1;
+}
+
+message CreatePoolRequest {
+  string nomination_id = 1;
+}
+
+message CreatePoolResponse {
+  PoolLayout layout = 1;
+}
+
+message DeletePoolRequest {
+  string pool_id = 1;
+}
+
+message DeletePoolResponse {
+  PoolLayout layout = 1;
+}
+
+message ResetLayoutRequest {
+  string nomination_id = 1;
+}
+
+message ResetLayoutResponse {
+  PoolLayout layout = 1;
+}
+
+// AssignFighterRequest — pool_id обязателен (целевой пул); если боец уже
+// состоит в другом пуле этой номинации — это move одним действием (FR-5).
+message AssignFighterRequest {
+  string nomination_id = 1;
+  string fighter_id = 2;
+  string pool_id = 3;
+}
+
+message AssignFighterResponse {
+  PoolLayout layout = 1;
+}
+
+message UnassignFighterRequest {
+  string nomination_id = 1;
+  string fighter_id = 2;
+}
+
+message UnassignFighterResponse {
+  PoolLayout layout = 1;
+}
+
+message AutoDistributeRequest {
+  string nomination_id = 1;
+}
+
+message AutoDistributeResponse {
+  PoolLayout layout = 1;
+}
+
+message UndoRequest {
+  string nomination_id = 1;
+}
+
+message UndoResponse {
+  PoolLayout layout = 1;
+}
+
+message SetLayoutStatusRequest {
+  string nomination_id = 1;
+  PoolLayoutStatus status = 2;
+}
+
+message SetLayoutStatusResponse {
+  PoolLayout layout = 1;
+}

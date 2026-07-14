@@ -10,6 +10,7 @@ import { ArenaAdminService } from "@/gen/hema/v1/arena_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
 import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
+import { PoolAdminService } from "@/gen/hema/v1/pool_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
 
 // Адрес Go-сервера (gRPC/Connect). Задаётся через окружение.
@@ -129,5 +130,16 @@ export const fighterPublicClient: Client<typeof FighterPublicService> = createCl
  */
 export const arenaAdminClient: Client<typeof ArenaAdminService> = createClient(
   ArenaAdminService,
+  transport,
+);
+
+/**
+ * poolAdminClient — клиент PoolAdminService (управление раскладкой бойцов
+ * номинации по пулам: создать/удалить пул, DnD, автораспределение, undo,
+ * смена статуса draft/ready). Все RPC требуют роль ADMIN; публичного чтения
+ * нет (спека 0009, FR-13). Только на сервере (Node runtime).
+ */
+export const poolAdminClient: Client<typeof PoolAdminService> = createClient(
+  PoolAdminService,
   transport,
 );
