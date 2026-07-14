@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createNominationRequest,
   deleteNominationRequest,
+  getPoolLayoutStatusRequest,
   listNominationsRequest,
   reorderNominationsRequest,
   updateNominationRequest,
@@ -131,6 +132,41 @@ describe("features/nomination-management/api/requests", () => {
       const result = await deleteNominationRequest("n1");
 
       expect(result).toEqual({ ok: false, error: "not found" });
+    });
+  });
+
+  describe("getPoolLayoutStatusRequest", () => {
+    it("GETs /api/nominations/[id]/pool-status and returns status slice on 2xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: "POOL_LAYOUT_STATUS_READY", canUndo: true }),
+      });
+
+      const result = await getPoolLayoutStatusRequest("n1");
+
+      expect(result).toEqual({
+        ok: true,
+        status: { status: "POOL_LAYOUT_STATUS_READY", canUndo: true },
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-status", {
+        method: "GET",
+      });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "forbidden" }) });
+
+      const result = await getPoolLayoutStatusRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await getPoolLayoutStatusRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 
