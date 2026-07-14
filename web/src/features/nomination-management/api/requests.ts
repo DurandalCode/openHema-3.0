@@ -17,6 +17,42 @@ export type NominationListResult =
 
 export type DeleteResult = { ok: true } | { ok: false; error: string };
 
+export type PoolLayoutStatus = {
+  status: string;
+  canUndo: boolean;
+};
+
+export type PoolLayoutStatusResult =
+  | { ok: true; status: PoolLayoutStatus }
+  | { ok: false; error: string };
+
+/**
+ * getPoolLayoutStatusRequest — GET /api/nominations/[id]/pool-status (только
+ * admin): тонкий срез раскладки пулов (status + canUndo) для бейджа статуса в
+ * списке номинаций.
+ */
+export async function getPoolLayoutStatusRequest(
+  nominationId: string,
+): Promise<PoolLayoutStatusResult> {
+  try {
+    const res = await fetch(
+      `/api/nominations/${encodeURIComponent(nominationId)}/pool-status`,
+      { method: "GET" },
+    );
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { status?: string; canUndo?: boolean };
+    return {
+      ok: true,
+      status: { status: data.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED", canUndo: data.canUndo ?? false },
+    };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
 /** listNominationsRequest — GET /api/nominations?tournamentId=... (публичный). */
 export async function listNominationsRequest(tournamentId: string): Promise<NominationListResult> {
   try {

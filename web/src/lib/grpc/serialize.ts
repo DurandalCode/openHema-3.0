@@ -17,6 +17,7 @@ import {
   type RosterEntry,
 } from "@/gen/hema/v1/fighter_pb";
 import { ArenaSchema, type Arena } from "@/gen/hema/v1/arena_pb";
+import { PoolLayoutSchema, type PoolLayout } from "@/gen/hema/v1/pool_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
 import type {
@@ -38,6 +39,12 @@ import type {
   Arena as ArenaDto,
   ArenaStatus as ArenaStatusDto,
 } from "@/entities/arena/lib/types";
+import type {
+  PoolLayout as PoolLayoutDto,
+  PoolLayoutStatus as PoolLayoutStatusDto,
+  FighterRef as PoolFighterRefDto,
+  Pool as PoolDto,
+} from "@/entities/pool/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -247,4 +254,35 @@ export function arenaToJson(arena: Arena | undefined): ArenaDto | null {
 export function arenasToJson(arenas: Arena[] | undefined): ArenaDto[] {
   if (!arenas) return [];
   return arenas.map((a) => arenaToJson(a)).filter((a): a is ArenaDto => a !== null);
+}
+
+function poolFighterRefToJson(raw: Partial<PoolFighterRefDto> | undefined): PoolFighterRefDto {
+  return { fighterId: raw?.fighterId ?? "", name: raw?.name ?? "", club: raw?.club ?? "" };
+}
+
+/**
+ * poolLayoutToJson превращает protobuf-сообщение PoolLayout в обычный
+ * JSON-объект (спека 0009). `status` — строковый литерал; `pools`/
+ * `unassigned` — нормализованные массивы (без undefined-полей).
+ */
+export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto | null {
+  if (!layout) return null;
+  const raw = toJson(PoolLayoutSchema, layout) as Partial<PoolLayoutDto>;
+  return {
+    nominationId: raw.nominationId ?? "",
+    status: (raw.status as PoolLayoutStatusDto) ?? "POOL_LAYOUT_STATUS_UNSPECIFIED",
+    unassigned: Array.isArray(raw.unassigned) ? raw.unassigned.map(poolFighterRefToJson) : [],
+    pools: Array.isArray(raw.pools)
+      ? raw.pools.map(
+          (p): PoolDto => ({
+            id: p.id ?? "",
+            nominationId: p.nominationId ?? "",
+            number: p.number ?? 0,
+            name: p.name ?? "",
+            members: Array.isArray(p.members) ? p.members.map(poolFighterRefToJson) : [],
+          }),
+        )
+      : [],
+    canUndo: raw.canUndo ?? false,
+  };
 }

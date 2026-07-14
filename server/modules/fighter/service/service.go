@@ -203,6 +203,16 @@ func (s *Service) ListNominationRoster(ctx context.Context, nominationID string)
 	return s.repo.RosterByNomination(ctx, nominationID)
 }
 
+// ActiveFightersByNomination возвращает бойцов «в составе» номинации — для
+// межмодульного порта, используемого модулем pool (спека 0009, FR-12).
+func (s *Service) ActiveFightersByNomination(ctx context.Context, nominationID string) ([]domain.FighterRef, error) {
+	nominationID = strings.TrimSpace(nominationID)
+	if nominationID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.repo.ActiveFightersByNomination(ctx, nominationID)
+}
+
 func (s *Service) getFighter(ctx context.Context, fighterID string) (domain.Fighter, error) {
 	fighterID = strings.TrimSpace(fighterID)
 	if fighterID == "" {

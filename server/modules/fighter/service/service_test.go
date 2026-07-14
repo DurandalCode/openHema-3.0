@@ -363,3 +363,45 @@ func TestListRosterAndNominationRoster(t *testing.T) {
 		}
 	})
 }
+
+func TestActiveFightersByNomination(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns only fighters active AND with active participation", func(t *testing.T) {
+		svc, _, noms := newService()
+		noms.Set("n1", domain.NominationInfo{TournamentID: "t1"})
+
+		active, _ := svc.CreateManual(ctx, "t1", "Active Guy", "Club A", []string{"n1"})
+		withdrawn, _ := svc.CreateManual(ctx, "t1", "Withdrawn Guy", "Club B", []string{"n1"})
+		_, err := svc.WithdrawFighter(ctx, withdrawn.ID, domain.ReasonBan)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		removed, _ := svc.CreateManual(ctx, "t1", "Removed Guy", "Club C", []string{"n1"})
+		_, err = svc.RemoveFromNomination(ctx, removed.ID, "n1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		otherNom, _ := svc.CreateManual(ctx, "t1", "Other Nomination Guy", "Club D", []string{"n2"})
+		_ = otherNom
+
+		refs, err := svc.ActiveFightersByNomination(ctx, "n1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(refs) != 1 {
+			t.Fatalf("expected 1 active fighter ref, got %d: %+v", len(refs), refs)
+		}
+		if refs[0].ID != active.ID || refs[0].Name != "Active Guy" || refs[0].Club != "Club A" {
+			t.Fatalf("unexpected fighter ref: %+v", refs[0])
+		}
+	})
+
+	t.Run("empty nomination id is invalid input", func(t *testing.T) {
+		svc, _, _ := newService()
+		_, err := svc.ActiveFightersByNomination(ctx, "")
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Fatalf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/hema/server/modules/auth"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
+	poolmodule "github.com/hema/server/modules/pool"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/connectutil"
@@ -95,6 +96,12 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		Tournaments: activeTournaments,
 	}
 	arena.Register(mux, arenaDeps, baseOpts, adminOpts)
+
+	poolDeps := poolmodule.Deps{
+		Pool:     pool,
+		Fighters: NewPoolActiveFightersProvider(pool),
+	}
+	poolmodule.Register(mux, poolDeps, baseOpts, adminOpts)
 
 	// ── Бутстрап первого админа (до начала приёма запросов) ───────
 	auth.Bootstrap(ctx, deps, log,

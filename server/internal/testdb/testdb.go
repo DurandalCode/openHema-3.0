@@ -36,6 +36,7 @@ var moduleMigrations = []struct {
 	{"application", moduleDir("application")},
 	{"fighter", moduleDir("fighter")},
 	{"arena", moduleDir("arena")},
+	{"pool", moduleDir("pool")},
 }
 
 // Postgres поднимает PostgreSQL в Docker (testcontainers), применяет миграции

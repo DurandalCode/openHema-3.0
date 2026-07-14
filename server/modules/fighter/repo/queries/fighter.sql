@@ -53,3 +53,12 @@ FROM fighter.participations p
 JOIN fighter.fighters f ON f.id = p.fighter_id
 WHERE p.nomination_id = $1
 ORDER BY f.name;
+
+-- name: ActiveFightersByNomination :many
+SELECT f.id, f.name, f.club
+FROM fighter.participations p
+JOIN fighter.fighters f ON f.id = p.fighter_id
+WHERE p.nomination_id = $1
+  AND f.status = 'active'
+  AND p.status = 'active'
+ORDER BY f.name;

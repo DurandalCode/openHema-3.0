@@ -240,6 +240,23 @@ func (r *Repo) RosterByNomination(ctx context.Context, nominationID string) ([]d
 	return out, nil
 }
 
+// ActiveFightersByNomination возвращает бойцов «в составе» номинации.
+func (r *Repo) ActiveFightersByNomination(ctx context.Context, nominationID string) ([]domain.FighterRef, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return nil, fmt.Errorf("parse nomination id: %w", err)
+	}
+	rows, err := r.q.ActiveFightersByNomination(ctx, nid)
+	if err != nil {
+		return nil, fmt.Errorf("active fighters by nomination: %w", err)
+	}
+	out := make([]domain.FighterRef, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.FighterRef{ID: row.ID.String(), Name: row.Name, Club: row.Club})
+	}
+	return out, nil
+}
+
 func upsertParticipations(ctx context.Context, q *sqlc.Queries, fighterID uuid.UUID, participations []domain.Participation) error {
 	for _, p := range participations {
 		nid, err := uuid.Parse(p.NominationID)

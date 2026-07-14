@@ -2,8 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ClipboardList, Pencil, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardList, Pencil, Trash2, Users, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
@@ -15,8 +16,10 @@ import { useCreateNomination } from "../api/use-create-nomination";
 import { useUpdateNomination } from "../api/use-update-nomination";
 import { useDeleteNomination } from "../api/use-delete-nomination";
 import { useReorderNominations } from "../api/use-reorder-nominations";
+import { usePoolLayoutStatus } from "../api/use-pool-layout-status";
 import type { NominationInput } from "../api/requests";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { poolLayoutStatusLabel } from "@/entities/pool/lib/types";
 
 type FormState = {
   title: string;
@@ -169,6 +172,7 @@ function NominationRow({
 }) {
   const update = useUpdateNomination(tournamentId);
   const del = useDeleteNomination(tournamentId);
+  const poolStatus = usePoolLayoutStatus(nomination.id);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>({
     title: nomination.title,
@@ -266,6 +270,9 @@ function NominationRow({
               <p className="text-sm text-muted-foreground">{nomination.description}</p>
             )}
             <Row gap={3} className="text-xs text-muted-foreground">
+              {poolStatus.data && (
+                <PoolStatusBadge status={poolStatus.data.status} canUndo={poolStatus.data.canUndo} />
+              )}
               {nomination.fighterCapacity !== null && (
                 <span>Бойцов: {nomination.fighterCapacity}</span>
               )}
@@ -307,6 +314,11 @@ function NominationRow({
                 <ClipboardList />
               </Link>
             </Button>
+            <Button type="button" variant="ghost" size="icon-sm" asChild aria-label="Пулы">
+              <Link href={`/admin/nominations/${nomination.id}/pools`}>
+                <Users />
+              </Link>
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -335,5 +347,30 @@ function NominationRow({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * PoolStatusBadge — бейдж статуса раскладки бойцов по пулам (спека 0009):
+ * черновик / готово / ... Выбор variant по статусу; «готово» — outline
+ * (менее яркий, чем default-primary); draft — secondary. Для active/finished
+ * выходит за рамки текущей фичи, но показывается for completeness.
+ *
+ * `canUndo` вижу-как «есть отмена» — показывается только в draft (иначе noise),
+ *через tooltip заголовка бейджа.
+ */
+function PoolStatusBadge({ status, canUndo }: { status: string; canUndo: boolean }) {
+  const variant: "default" | "secondary" | "outline" =
+    status === "POOL_LAYOUT_STATUS_READY"
+      ? "default"
+      : status === "POOL_LAYOUT_STATUS_DRAFT"
+        ? "secondary"
+        : "outline";
+  const label = poolLayoutStatusLabel(status as Parameters<typeof poolLayoutStatusLabel>[0]);
+  const undoHint = canUndo && status === "POOL_LAYOUT_STATUS_DRAFT" ? " (есть отмена)" : "";
+  return (
+    <Badge variant={variant} title={`Раскладка: ${label}${undoHint}`}>
+      {label}
+    </Badge>
   );
 }
