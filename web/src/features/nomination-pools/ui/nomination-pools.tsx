@@ -148,12 +148,7 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
           </div>
         </div>
 
-        <DragOverlay
-          dropAnimation={{
-            duration: 200,
-            easing: "cubic-bezier(0.2, 0, 0, 1)",
-          }}
-        >
+        <DragOverlay dropAnimation={null}>
           {draggingFighter && (
             <div className="rounded-md border bg-card px-2 py-1.5 text-sm shadow-lg">
               <FighterCardContent fighter={draggingFighter} />
