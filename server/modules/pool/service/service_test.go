@@ -631,4 +631,138 @@ func TestResetLayout_AC17b(t *testing.T) {
 	if layout.Status != domain.LayoutDraft {
 		t.Fatalf("expected draft, got %s", layout.Status)
 	}
+	// Инкремент 2026-07-14: сброс раскладки создаёт undo (FR-4a/FR-7a).
+	if !layout.CanUndo {
+		t.Fatalf("expected CanUndo=true after reset (undo available)")
+	}
+}
+
+// AC-13a4: undo сброса раскладки восстанавливает все пулы со всеми бойцами.
+func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters := newService()
+	fighters.Set("n1",
+		domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"},
+		domain.FighterRef{ID: "b3"},
+	)
+	repo.SeedPool("n1", 1, "b1", "b2")
+	repo.SeedPool("n1", 2, "b3")
+	repo.SeedPool("n1", 3) // пустой
+
+	afterReset, err := svc.ResetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !afterReset.CanUndo {
+		t.Fatalf("expected CanUndo=true after reset")
+	}
+	if len(afterReset.Pools) != 0 {
+		t.Fatalf("expected reset to remove all pools, got %d", len(afterReset.Pools))
+	}
+
+	layout, err := svc.Undo(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(layout.Pools) != 3 {
+		t.Fatalf("expected 3 pools restored, got %d", len(layout.Pools))
+	}
+	// Номера восстановленных пулов.
+	numbers := poolNumbers(layout.Pools)
+	if !containsInt(numbers, 1) || !containsInt(numbers, 2) || !containsInt(numbers, 3) {
+		t.Fatalf("expected pools numbered 1,2,3 restored, got %v", numbers)
+	}
+	// Членства восстановленных пулов.
+	for _, p := range layout.Pools {
+		switch p.Number {
+		case 1:
+			if got := memberIDs(p); !reflect.DeepEqual(got, map[string]bool{"b1": true, "b2": true}) {
+				t.Fatalf("pool 1 members = %v, want {b1,b2}", got)
+			}
+		case 2:
+			if got := memberIDs(p); !reflect.DeepEqual(got, map[string]bool{"b3": true}) {
+				t.Fatalf("pool 2 members = %v, want {b3}", got)
+			}
+		case 3:
+			if len(p.Members) != 0 {
+				t.Fatalf("expected pool 3 empty, got %v", p.Members)
+			}
+		}
+	}
+	// Все бойцы снова распределены — нераспределённых нет.
+	if len(layout.Unassigned) != 0 {
+		t.Fatalf("expected all fighters back in pools after undo, got %d unassigned", len(layout.Unassigned))
+	}
+	if layout.CanUndo {
+		t.Fatalf("expected CanUndo=false after undo (undo cleared)")
+	}
+}
+
+// AC-13a4 (доп): повторный undo после undo-reset — undo очищен, даёт
+// ErrNothingToUndo (как и для UndoAuto/UndoDeletePool — «undo самого undo
+// не предусмотрено» означает, что undo одноразовый, не циклический).
+func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
+	repo.SeedPool("n1", 1, "b1")
+	repo.SeedPool("n1", 2, "b2")
+
+	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	first, err := svc.Undo(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(first.Pools) != 2 {
+		t.Fatalf("expected 2 pools restored, got %d", len(first.Pools))
+	}
+	if first.CanUndo {
+		t.Fatalf("expected CanUndo=false after undo (undo cleared)")
+	}
+	// Повторный undo — undo очищен, откатывать нечего.
+	_, err = svc.Undo(ctx, "n1")
+	if !errors.Is(err, domain.ErrNothingToUndo) {
+		t.Fatalf("expected ErrNothingToUndo on repeat undo, got %v", err)
+	}
+}
+
+// AC-13b (доп): сброс раскладки создаёт свой undo, а не обнуляет (против
+// прежней семантики, где reset обнулял undo).
+func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
+	repo.SeedPool("n1", 1, "b1")
+	// b2 — нераспределённый, чтобы авто что-то расставило и записало undo.
+
+	// Сначала авто — создаёт undo (auto).
+	afterAuto, err := svc.AutoDistribute(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !afterAuto.CanUndo {
+		t.Fatalf("expected CanUndo=true after auto")
+	}
+	// Затем сброс — обнуляет undo авто, но создаёт свой (reset).
+	afterReset, err := svc.ResetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !afterReset.CanUndo {
+		t.Fatalf("expected CanUndo=true after reset (reset creates its own undo)")
+	}
+	// Undo после сброса восстанавливает раскладку (как она была до сброса, т.е.
+	// с пулом 1 + b1 и b2 — авто расставило b2 в единственный пул).
+	layout, err := svc.Undo(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(layout.Pools) != 1 {
+		t.Fatalf("expected 1 pool restored after undo-reset, got %d", len(layout.Pools))
+	}
+	if len(layout.Pools[0].Members) != 2 {
+		t.Fatalf("expected 2 members in restored pool, got %v", layout.Pools[0].Members)
+	}
 }

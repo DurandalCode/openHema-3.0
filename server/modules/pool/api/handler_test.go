@@ -207,6 +207,33 @@ func TestResetLayout_E2E(t *testing.T) {
 	if len(res.Msg.Layout.Pools) != 0 {
 		t.Errorf("Pools len = %d, want 0", len(res.Msg.Layout.Pools))
 	}
+	// Инкремент 2026-07-14: reset создаёт undo (FR-4a/FR-7a).
+	if !res.Msg.Layout.CanUndo {
+		t.Errorf("expected CanUndo=true after reset")
+	}
+}
+
+func TestUndo_E2E_UndoReset(t *testing.T) {
+	admin, repo, fighters := setup(t)
+	fighters.Set(n1, domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
+	repo.SeedPool(n1, 1, "b1")
+	repo.SeedPool(n1, 2, "b2")
+
+	resetReq := connect.NewRequest(&hemav1.ResetLayoutRequest{NominationId: n1})
+	resetReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ResetLayout(context.Background(), resetReq); err != nil {
+		t.Fatalf("ResetLayout: %v", err)
+	}
+
+	req := connect.NewRequest(&hemav1.UndoRequest{NominationId: n1})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.Undo(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if len(res.Msg.Layout.Pools) != 2 {
+		t.Errorf("expected 2 pools restored after undo-reset, got %d", len(res.Msg.Layout.Pools))
+	}
 }
 
 func TestAssignFighter_E2E(t *testing.T) {

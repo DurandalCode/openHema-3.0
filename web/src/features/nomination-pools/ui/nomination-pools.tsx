@@ -52,7 +52,9 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Загрузка…</p>;
@@ -146,8 +148,17 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
           </div>
         </div>
 
-        <DragOverlay>
-          {draggingFighter && <FighterCardContent fighter={draggingFighter} />}
+        <DragOverlay
+          dropAnimation={{
+            duration: 200,
+            easing: "cubic-bezier(0.2, 0, 0, 1)",
+          }}
+        >
+          {draggingFighter && (
+            <div className="rounded-md border bg-card px-2 py-1.5 text-sm shadow-lg">
+              <FighterCardContent fighter={draggingFighter} />
+            </div>
+          )}
         </DragOverlay>
       </DndContext>
     </Col>
@@ -349,9 +360,12 @@ function FighterCard({
       {...listeners}
       {...attributes}
       className={cn(
-        "rounded-md border bg-card px-2 py-1.5 text-sm",
+        "rounded-md border bg-card px-2 py-1.5 text-sm transition-shadow",
         readOnly ? "cursor-default" : "cursor-grab active:cursor-grabbing",
-        isDragging && "opacity-40",
+        // Во время drag оригинал скрыт (opacity-0) — видна только DragOverlay
+        // (копия, следующая за курсором). Раньше opacity-40 давал фантомный
+        // «гост», который маячил под overlay и создавал визуальный шум.
+        isDragging && "opacity-0",
       )}
     >
       <FighterCardContent fighter={fighter} readOnly={readOnly} />

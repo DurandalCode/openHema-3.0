@@ -34,15 +34,24 @@ const (
 )
 
 // UndoKind — вид последнего mutating-действия, доступного для отката (FR-7a).
-// Undo относится только к двум классам действий: автораспределение и
-// удаление пула.
+// Undo относится к трём классам действий: автораспределение, удаление пула и
+// сброс раскладки.
 type UndoKind string
 
 const (
 	UndoNone       UndoKind = ""
 	UndoAuto       UndoKind = "auto"
 	UndoDeletePool UndoKind = "delete_pool"
+	UndoReset      UndoKind = "reset"
 )
+
+// ResetPool — снапшот одного пула номинации на момент сброса раскладки (для
+// UndoReset): номер пула + его бойцы. Восстановление пересоздаёт пул с тем же
+// номером и членствами (AC-13a4).
+type ResetPool struct {
+	Number     int
+	FighterIDs []string
+}
 
 // UndoState — снапшот последнего undoable-действия раскладки.
 type UndoState struct {
@@ -54,6 +63,9 @@ type UndoState struct {
 	// PoolNumber — для UndoDeletePool: номер удалённого пула (восстановить
 	// под тем же номером/именем, FR-3).
 	PoolNumber int
+	// Pools — для UndoReset: снапшот всех пулов номинации на момент сброса
+	// (восстановить все пулы с их бойцами, AC-13a4).
+	Pools []ResetPool
 }
 
 // Layout — раскладка номинации целиком: статус, нераспределённые, пулы.
@@ -84,8 +96,9 @@ type Repository interface {
 	// DeletePool атомарно удаляет пул (каскадом членства) и записывает
 	// undo-снапшот (kind=delete_pool, number+fighter_ids удалённого пула).
 	DeletePool(ctx context.Context, poolID string) error
-	// ResetLayout атомарно удаляет все пулы номинации (каскадом членства),
-	// очищает undo, гарантирует статус draft (FR-4a).
+	// ResetLayout атомарно удаляет все пулы номинации (каскадом членства) и
+	// записывает undo-снапшот всех пулов с их членствами (kind=reset),
+	// гарантирует статус draft (FR-4a, undoable — FR-7a).
 	ResetLayout(ctx context.Context, nominationID string) error
 	// AssignFighter кладёт бойца в пул: upsert членства по (nomination_id,
 	// fighter_id) — move одним действием, если боец уже был в другом пуле
@@ -103,6 +116,9 @@ type Repository interface {
 	// UndoDeletePool пересоздаёт пул с тем же number и восстанавливает
 	// членства fighterIDs, очищает undo.
 	UndoDeletePool(ctx context.Context, nominationID string, number int, fighterIDs []string) error
+	// UndoReset пересоздаёт все пулы из снапшота с теми же номерами и
+	// восстанавливает их членства, очищает undo (AC-13a4).
+	UndoReset(ctx context.Context, nominationID string, pools []ResetPool) error
 	// PruneMembers удаляет членства бойцов номинации, которых нет среди
 	// activeFighterIDs (FR-15). Не мутирует undo: реконсиляция — не
 	// admin-действие в смысле FR-7a, а системное подчищение.

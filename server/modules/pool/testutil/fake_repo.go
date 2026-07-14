@@ -120,17 +120,33 @@ func (r *FakeRepo) DeletePool(_ context.Context, poolID string) error {
 	return nil
 }
 
-// ResetLayout удаляет все пулы номинации, очищает undo, статус — draft.
+// ResetLayout удаляет все пулы номинации, записывает undo-снапшот всех
+// пулов с их членствами (kind=reset), статус — draft.
 func (r *FakeRepo) ResetLayout(_ context.Context, nominationID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Снапшот всех пулов номинации (number + memberIDs) до удаления.
+	snapshot := make([]domain.ResetPool, 0)
+	for _, p := range r.pools {
+		if p.nominationID == nominationID {
+			snapshot = append(snapshot, domain.ResetPool{
+				Number:     p.number,
+				FighterIDs: append([]string{}, p.memberIDs...),
+			})
+		}
+	}
+	// Удаляем все пулы номинации.
 	for id, p := range r.pools {
 		if p.nominationID == nominationID {
 			delete(r.pools, id)
 		}
 	}
-	r.layouts[nominationID] = layoutRow{status: domain.LayoutDraft}
+	// Записываем undo-снапшот (kind=reset), статус — draft.
+	r.setUndoLocked(nominationID, domain.UndoState{
+		Kind:  domain.UndoReset,
+		Pools: snapshot,
+	})
 	return nil
 }
 
@@ -213,6 +229,23 @@ func (r *FakeRepo) UndoDeletePool(_ context.Context, nominationID string, number
 	r.pools[id] = &poolRow{
 		id: id, nominationID: nominationID, number: number,
 		memberIDs: append([]string{}, fighterIDs...),
+	}
+	r.clearUndoLocked(nominationID)
+	return nil
+}
+
+// UndoReset пересоздаёт все пулы из снапшота с теми же номерами и членами,
+// очищает undo (AC-13a4).
+func (r *FakeRepo) UndoReset(_ context.Context, nominationID string, pools []domain.ResetPool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, p := range pools {
+		id := uuid.NewString()
+		r.pools[id] = &poolRow{
+			id: id, nominationID: nominationID, number: p.Number,
+			memberIDs: append([]string{}, p.FighterIDs...),
+		}
 	}
 	r.clearUndoLocked(nominationID)
 	return nil

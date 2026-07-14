@@ -6,6 +6,8 @@
 - Статус: done
 - Дата: 2026-07-14
 - План: `./plan.md`
+- Инкремент (2026-07-14): undo для «Сбросить раскладку» — задачи IR1..IR7
+  ниже. Спека/план правлены (FR-4a/FR-7a/FR-10/AC-13a4/AC-13b/AC-17b).
 
 ## Порядок
 
@@ -102,6 +104,68 @@
       и `arenas`/`nominations` страницы админки, серверная обёртка только
       получает сущность для заголовка. `widgets/` не даёт выгоды для
       одной фичи без композиции нескольких.
+
+## Инкремент 2026-07-14 — undo для «Сбросить раскладку»
+
+> FR-4a/FR-7a расширены: reset становится undoable (третий класс undo).
+> Спека/план правлены выше. Контракты (proto) **не трогаем** — `can_undo`
+> bool уже покрывает кнопку; вид undo скрыт в JSONB/domain.
+
+Порядок: domain → fake → service (red→green) → repo + миграция → api → web.
+
+- [x] IR1. **domain** — `domain/domain.go`: добавить `UndoReset UndoKind =
+      "reset"`; расширить `UndoState` снапшотом всех пулов на момент сброса
+      (`Pools []ResetPool`, `ResetPool{Number int, FighterIDs []string}`).
+      Обновить комментарий `UndoKind`. Red: в IR3 тесты сервис станут
+      компилироваться через новые поля.
+- [x] IR2. **testutil (fake)** — `testutil/fake_repo.go`: `ResetLayout`
+      вместо `clearUndo` пишет undo-снапшот всех пулов номинации (number +
+      memberIDs) с `Kind=UndoReset` в `setUndoLocked`; новый метод
+      `UndoReset(ctx, pools []ResetPool)` — пересоздаёт все пулы (как
+      `UndoDeletePool` для каждого, но числом). Red: IR3 тесты начнут падать.
+- [x] IR3. **service (red→green)** — `service/service_test.go`:
+      - `TestUndo_AC13a4_UndoResetRestoresAllPools` — 3 пула с бойцами →
+        Reset → Undo → все 3 пула восстановлены с теми же номерами и бойцами;
+        CanUndo true после reset;
+      - `TestResetLayout_AC17b_UndoAvailableAfterReset` — CanUndo true
+        сразу после Reset (в дополнение к существующему `TestResetLayout_AC17b`);
+      - `TestUndo_AC13b` обновить: сброс раскладки **не** обнуляет undo, а
+        создаёт свой (заменить «сброс обнуляет» на «сброс создаёт undo» в
+        списке обнуляющих; проверить, что после Reset CanUndo true).
+      Затем `service/service.go`: `Undo` — ветка `UndoReset` →
+      `repo.UndoReset(ctx, undo.Pools)`; `ResetLayout` — оставить как есть
+      (repo пишет undo). Red→green.
+- [x] IR4. **repo + миграция**
+      **Девиация от плана**: новый sqlc-запрос `ListPoolsAndMembers` не
+      потребовался — `ResetLayout` переиспользует существующие
+      `ListPoolsByNomination` + `ListMembersByNomination` (уже есть в
+      `GetLayout`), без новой генерации sqlc. `make sqlc` запускать не нужно. — `migrations/00002_undo_reset.sql` (goose
+      Up/Down: DROP+ADD CHECK с `'reset'`). `repo/queries/pool.sql` —
+      `ListPoolsAndMembersByNomination :many` (number + fighter_ids для
+      снапшота reset; agg или два запроса в `repo.go`). `repo/repo.go`:
+      `ResetLayout` — в транзакции: собрать снапшот всех пулов (number +
+      fighter_ids), удалить пулы, записать `undo_kind='reset'` с
+      `{"pools":[{number,fighter_ids},...]}`; `UndoReset` — в транзакции:
+      для каждого пула из снапшота `InsertPool` (number) + `InsertMember`
+      для каждого fighter_id; `EnsureLayoutAndClearUndo`. `make sqlc`.
+      Red: `go test -tags=integration ./modules/pool/...` — миграции
+      применяются, UndoReset через реальную PG работает.
+- [x] IR5. **api** — `api/handler_test.go`: `TestResetLayout_E2E` — после
+      reset `CanUndo=true`; `TestUndo_E2E_UndoReset` — reset → undo → пулы
+      восстановлены. Handler не меняется (маппинг не зависит от вида undo).
+- [x] IR6. **web** — `ui/nomination-pools.tsx`: DnD-косметика (пункт 2
+      юзера) — убрать «ghost» фантом оставшейся карточки и сделать движение
+      плавнее (details ниже в коде). Тест не нужен — визуальная правка;
+      `pnpm test` + `tsc --noEmit` должны оставаться зелёными.
+- [x] IR7. **проверка** — `go test ./...` + `go vet ./...` + `go build ./...`
+      (server) зелёные; `pnpm test` (375/375) + `pnpm exec tsc --noEmit` (web)
+      зелёные. Integration-тесты (`TestIntegration_UndoReset_*`) добавлены,
+      компилируются (`go build -tags=integration`); локально не запущены —
+      Colima rootless Docker not found (проблема окружения, не код); прогон в
+      CI (пользователь). — `go test ./...` + `go build ./...` (server),
+      `pnpm test` + `pnpm exec tsc --noEmit` (web) зелёные;
+      `go test -tags=integration ./modules/pool/...` зелёный (Docker).
+      Статусы инкремента отметить здесь.
 
 ## Проверка
 

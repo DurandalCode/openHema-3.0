@@ -75,14 +75,22 @@ func (s *Service) DeletePool(ctx context.Context, poolID string) (domain.Layout,
 }
 
 // ResetLayout удаляет все пулы номинации и возвращает всех бойцов в
-// нераспределённые (FR-4a). Только в draft.
+// нераспределённые (FR-4a). Записывает undo-снапшот всех пулов с их членствами
+// (undoable — FR-7a). Только в draft. Если пулов нет — no-op (без undo).
 func (s *Service) ResetLayout(ctx context.Context, nominationID string) (domain.Layout, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	if err := s.requireDraft(ctx, nominationID); err != nil {
+	layout, err := s.loadLayout(ctx, nominationID)
+	if err != nil {
 		return domain.Layout{}, err
+	}
+	if layout.Status != domain.LayoutDraft {
+		return domain.Layout{}, domain.ErrNotDraft
+	}
+	if len(layout.Pools) == 0 {
+		return layout, nil // no-op: пулов нет — нечего сбрасывать, undo не пишется
 	}
 	if err := s.repo.ResetLayout(ctx, nominationID); err != nil {
 		return domain.Layout{}, err
@@ -153,8 +161,8 @@ func (s *Service) AutoDistribute(ctx context.Context, nominationID string) (doma
 	return s.loadLayout(ctx, nominationID)
 }
 
-// Undo откатывает последнее mutating-действие среди двух классов:
-// автораспределение или удаление пула (FR-7a). Только в draft.
+// Undo откатывает последнее mutating-действие среди трёх классов:
+// автораспределение, удаление пула или сброс раскладки (FR-7a). Только в draft.
 func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
@@ -174,6 +182,10 @@ func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout,
 		}
 	case domain.UndoDeletePool:
 		if err := s.repo.UndoDeletePool(ctx, nominationID, undo.PoolNumber, undo.FighterIDs); err != nil {
+			return domain.Layout{}, err
+		}
+	case domain.UndoReset:
+		if err := s.repo.UndoReset(ctx, nominationID, undo.Pools); err != nil {
 			return domain.Layout{}, err
 		}
 	default:

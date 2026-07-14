@@ -33,11 +33,22 @@ func New(pool *pgxpool.Pool) *Repo {
 var _ domain.Repository = (*Repo)(nil)
 
 // undoDataJSON — сериализуемая форма undo-снапшота для JSONB-колонки
-// (спека 0009, решение №16). Одна форма покрывает оба вида undo: для
-// UndoAuto Number не используется (пропускается через omitempty).
+// (спека 0009, решение №16). Одна форма покрывает все три вида undo:
+// - UndoAuto: FighterIDs (кого расставило авто → вернуть в нераспределённые);
+// - UndoDeletePool: Number + FighterIDs (восстановить пул + членства);
+// - UndoReset: Pools (снапшот всех пулов с их членствами → восстановить все).
+// Для UndoAuto/UndoDeletePool Pools пуст (omitempty); для UndoReset
+// FighterIDs/Number не используются (omitempty).
 type undoDataJSON struct {
+	FighterIDs []string       `json:"fighter_ids,omitempty"`
+	Number     int            `json:"number,omitempty"`
+	Pools      []undoPoolJSON  `json:"pools,omitempty"`
+}
+
+// undoPoolJSON — один пул в снапшоте undo-reset: номер + бойцы.
+type undoPoolJSON struct {
+	Number     int      `json:"number"`
 	FighterIDs []string `json:"fighter_ids,omitempty"`
-	Number     int      `json:"number,omitempty"`
 }
 
 // GetLayout возвращает статус, undo-снапшот и пулы номинации. Отсутствие
@@ -190,8 +201,9 @@ func (r *Repo) DeletePool(ctx context.Context, poolID string) error {
 	return nil
 }
 
-// ResetLayout атомарно удаляет все пулы номинации, гарантирует статус draft
-// без undo (FR-4a).
+// ResetLayout атомарно удаляет все пулы номинации, записывает undo-снапшот
+// всех пулов с их членствами (kind=reset), гарантирует статус draft
+// (FR-4a, undoable — FR-7a).
 func (r *Repo) ResetLayout(ctx context.Context, nominationID string) error {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
@@ -205,13 +217,80 @@ func (r *Repo) ResetLayout(ctx context.Context, nominationID string) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := r.q.WithTx(tx)
 
+	// Снапшот всех пулов номинации (number + fighter_ids) до удаления.
+	poolRows, err := q.ListPoolsByNomination(ctx, nid)
+	if err != nil {
+		return fmt.Errorf("list pools: %w", err)
+	}
+	memberRows, err := q.ListMembersByNomination(ctx, nid)
+	if err != nil {
+		return fmt.Errorf("list members: %w", err)
+	}
+	byPool := make(map[uuid.UUID][]string, len(poolRows))
+	for _, m := range memberRows {
+		byPool[m.PoolID] = append(byPool[m.PoolID], m.FighterID.String())
+	}
+	pools := make([]undoPoolJSON, 0, len(poolRows))
+	for _, p := range poolRows {
+		pools = append(pools, undoPoolJSON{Number: int(p.Number), FighterIDs: byPool[p.ID]})
+	}
+
 	if err := q.DeleteAllPoolsByNomination(ctx, nid); err != nil {
 		return fmt.Errorf("delete all pools: %w", err)
 	}
-	if err := q.SetLayoutStatus(ctx, sqlc.SetLayoutStatusParams{
-		NominationID: nid, Status: string(domain.LayoutDraft),
+	undoData, err := encodeUndo(undoDataJSON{Pools: pools})
+	if err != nil {
+		return err
+	}
+	if err := q.SetLayoutUndo(ctx, sqlc.SetLayoutUndoParams{
+		NominationID: nid, UndoKind: string(domain.UndoReset), UndoData: undoData,
 	}); err != nil {
-		return fmt.Errorf("set layout status: %w", err)
+		return fmt.Errorf("set layout undo: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// UndoReset пересоздаёт все пулы из снапшота с теми же номерами и членами,
+// очищает undo (AC-13a4). Идемпотентно: повторный вызов даёт тот же результат
+// (InsertPool на свободный номер + InsertMember; если пул с номером уже
+// существует — UNIQUE(nomination_id, number) даст конфликт, но после undo
+// undo обнулён, повторный undo не должен доходить сюда; для надёжности
+// используем тот же инвариант «любая мутация обнуляет undo» → номера свободны).
+func (r *Repo) UndoReset(ctx context.Context, nominationID string, pools []domain.ResetPool) error {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return fmt.Errorf("parse nomination id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	for _, p := range pools {
+		fids, err := parseUUIDs(p.FighterIDs)
+		if err != nil {
+			return err
+		}
+		poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{NominationID: nid, Number: int32(p.Number)})
+		if err != nil {
+			return fmt.Errorf("insert pool %d: %w", p.Number, err)
+		}
+		for _, fid := range fids {
+			if err := q.InsertMember(ctx, sqlc.InsertMemberParams{
+				PoolID: poolRow.ID, NominationID: nid, FighterID: fid,
+			}); err != nil {
+				return fmt.Errorf("insert member: %w", err)
+			}
+		}
+	}
+	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
+		return fmt.Errorf("ensure layout: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -460,11 +539,18 @@ func decodeUndo(kind string, data []byte) (domain.UndoState, error) {
 			return domain.UndoState{}, fmt.Errorf("unmarshal undo data: %w", err)
 		}
 	}
-	return domain.UndoState{
+	state := domain.UndoState{
 		Kind:       domain.UndoKind(kind),
 		FighterIDs: parsed.FighterIDs,
 		PoolNumber: parsed.Number,
-	}, nil
+	}
+	if len(parsed.Pools) > 0 {
+		state.Pools = make([]domain.ResetPool, len(parsed.Pools))
+		for i, p := range parsed.Pools {
+			state.Pools[i] = domain.ResetPool{Number: p.Number, FighterIDs: p.FighterIDs}
+		}
+	}
+	return state, nil
 }
 
 func encodeUndo(d undoDataJSON) ([]byte, error) {

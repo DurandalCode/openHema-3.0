@@ -273,6 +273,80 @@ func TestIntegration_DeletePool_CascadesMembers(t *testing.T) {
 	}
 }
 
+// TestIntegration_UndoReset_RestoresAllPools проверяет, что сброс раскладки
+// записывает undo-снапшот всех пулов с членствами, а undo восстанавливает
+// все пулы с теми же номерами и бойцами (AC-13a4, инкремент 2026-07-14).
+func TestIntegration_UndoReset_RestoresAllPools(t *testing.T) {
+	c, _ := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "Клуб А")
+	f2 := createFighter(t, c, nomID, "Пётр", "Клуб Б")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	pool1ID := created.Msg.Layout.Pools[0].Id
+
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f1, PoolId: pool1ID})
+	assignReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+		t.Fatalf("AssignFighter: %v", err)
+	}
+
+	// Создаём второй пул и кладём туда второго бойца.
+	createReq2 := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq2.Header().Set("Authorization", adminBearer(t))
+	created2, err := c.pool.CreatePool(context.Background(), createReq2)
+	if err != nil {
+		t.Fatalf("CreatePool 2: %v", err)
+	}
+	pool2ID := created2.Msg.Layout.Pools[0].Id
+	assignReq2 := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f2, PoolId: pool2ID})
+	assignReq2.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.AssignFighter(context.Background(), assignReq2); err != nil {
+		t.Fatalf("AssignFighter 2: %v", err)
+	}
+
+	// Сбрасываем раскладку — все пулы удаляются, undo доступен.
+	resetReq := connect.NewRequest(&hemav1.ResetLayoutRequest{NominationId: nomID})
+	resetReq.Header().Set("Authorization", adminBearer(t))
+	reset, err := c.pool.ResetLayout(context.Background(), resetReq)
+	if err != nil {
+		t.Fatalf("ResetLayout: %v", err)
+	}
+	if len(reset.Msg.Layout.Pools) != 0 {
+		t.Fatalf("expected all pools removed after reset, got %d", len(reset.Msg.Layout.Pools))
+	}
+	if !reset.Msg.Layout.CanUndo {
+		t.Fatalf("expected CanUndo=true after reset")
+	}
+
+	// Undo — восстанавливает все пулы с теми же номерами и бойцами.
+	undoReq := connect.NewRequest(&hemav1.UndoRequest{NominationId: nomID})
+	undoReq.Header().Set("Authorization", adminBearer(t))
+	undo, err := c.pool.Undo(context.Background(), undoReq)
+	if err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if len(undo.Msg.Layout.Pools) != 2 {
+		t.Fatalf("expected 2 pools restored after undo-reset, got %d", len(undo.Msg.Layout.Pools))
+	}
+	// Проверяем, что все бойцы снова распределены.
+	totalMembers := 0
+	for _, p := range undo.Msg.Layout.Pools {
+		totalMembers += len(p.Members)
+	}
+	if totalMembers != 2 {
+		t.Fatalf("expected 2 members total across restored pools, got %d", totalMembers)
+	}
+	if len(undo.Msg.Layout.Unassigned) != 0 {
+		t.Fatalf("expected 0 unassigned after undo-reset, got %d", len(undo.Msg.Layout.Unassigned))
+	}
+}
+
 func TestIntegration_NoToken(t *testing.T) {
 	c, _ := setup(t)
 
