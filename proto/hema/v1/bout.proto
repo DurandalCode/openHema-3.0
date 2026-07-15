@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package hema.v1;
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// BoutAdminService — чтение боёв, сформированных внутри пулов номинации
+// (спека 0010). Формирование запускается автоматически переходом раскладки
+// пула в ready (PoolAdminService.SetLayoutStatus) — отдельного RPC на
+// формирование нет. Все RPC требуют роль ADMIN (RequireAdmin). Публичного
+// чтения в этом инкременте нет (спека 0010, FR-8).
+service BoutAdminService {
+  // ListBoutsByNomination возвращает бои всех пулов номинации, уже готовые
+  // (сформированные при переходе раскладки в ready), отсортированные по
+  // pool_id, затем sequence_number (порядок проведения внутри пула,
+  // спека FR-3a/FR-3b). Клиент группирует по pool_id самостоятельно
+  // (пулы уже известны из PoolAdminService.GetLayout).
+  rpc ListBoutsByNomination(ListBoutsByNominationRequest) returns (ListBoutsByNominationResponse);
+}
+
+// BoutFighterRef — снапшот бойца на момент формирования боя (имя/клуб не
+// перечитываются из модуля fighter при чтении — спека, решение №5).
+// Название с префиксом Bout — в пакете hema.v1 уже есть pool.FighterRef
+// (своя проекция), модули proto-контрактов не переиспользуют чужие
+// сообщения, как и Go-типы (ADR 0002).
+message BoutFighterRef {
+  string fighter_id = 1;
+  string name = 2;
+  string club = 3;
+}
+
+// Bout — один бой: пара бойцов внутри пула + место в порядке проведения.
+// round_number — тур (внутри одного тура боец участвует не более раза,
+// FR-3a). sequence_number — итоговый порядок исполнения в пуле, 1..N,
+// уникален в пределах pool_id (FR-3a/FR-3b).
+message Bout {
+  string id = 1;
+  string pool_id = 2;
+  string nomination_id = 3;
+  int32 round_number = 4;
+  int32 sequence_number = 5;
+  BoutFighterRef fighter_a = 6;
+  BoutFighterRef fighter_b = 7;
+}
+
+message ListBoutsByNominationRequest {
+  string nomination_id = 1;
+}
+
+message ListBoutsByNominationResponse {
+  repeated Bout bouts = 1;
+}
