@@ -41,11 +41,16 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/bout.proto` — `BoutAdminService`
+- [x] T1. `proto/hema/v1/bout.proto` — `BoutAdminService`
       (`ListBoutsByNomination`), сообщения `Bout`/`FighterRef`/
       `ListBoutsByNominationRequest`/`ListBoutsByNominationResponse` (см. plan
       «Контракты»). `make generate` (Go+TS).
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
+      **Отклонение от плана**: `FighterRef` переименован в `BoutFighterRef` —
+      в пакете `hema.v1` уже есть `pool.FighterRef` (одноимённое сообщение
+      из `pool.proto`), protobuf требует уникальности имён сообщений в
+      пределах пакета. Далее по тексту plan/tasks «FighterRef» для bout
+      читать как `BoutFighterRef`.
 
 ## Server — новый модуль bout (снизу вверх) [Волна 1 · Трек A]
 
