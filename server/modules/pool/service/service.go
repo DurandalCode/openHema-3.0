@@ -13,11 +13,12 @@ import (
 type Service struct {
 	repo     domain.Repository
 	fighters domain.ActiveFightersProvider
+	bouts    domain.BoutGenerator
 }
 
 // New создаёт сервис pool.
-func New(repo domain.Repository, fighters domain.ActiveFightersProvider) *Service {
-	return &Service{repo: repo, fighters: fighters}
+func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutGenerator) *Service {
+	return &Service{repo: repo, fighters: fighters, bouts: bouts}
 }
 
 // GetLayout возвращает раскладку номинации (lazy-init + реконсиляция с
@@ -196,6 +197,13 @@ func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout,
 
 // SetStatus переключает статус раскладки draft↔ready (FR-9). Другие целевые
 // статусы отклоняются — переходы в active/finished не реализованы.
+//
+// Переход draft → ready формирует бои каждого пула (спека 0010, FR-2);
+// переход ready → draft удаляет ранее сформированные бои (FR-5). Порядок —
+// сначала эффект в bout (generate/clear), только потом статус в pool (план
+// «Обзор решения»): если bout-шаг упал, статус раскладки не меняется.
+// Повторный вызов с уже текущим статусом (draft→draft, ready→ready) — не
+// переход, BoutGenerator не вызывается.
 func (s *Service) SetStatus(ctx context.Context, nominationID string, status domain.LayoutStatus) (domain.Layout, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
@@ -204,10 +212,35 @@ func (s *Service) SetStatus(ctx context.Context, nominationID string, status dom
 	if status != domain.LayoutDraft && status != domain.LayoutReady {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
+	current, err := s.loadLayout(ctx, nominationID)
+	if err != nil {
+		return domain.Layout{}, err
+	}
+	switch {
+	case current.Status == domain.LayoutDraft && status == domain.LayoutReady:
+		if err := s.bouts.GenerateForNomination(ctx, nominationID, toBoutPools(current.Pools)); err != nil {
+			return domain.Layout{}, err
+		}
+	case current.Status == domain.LayoutReady && status == domain.LayoutDraft:
+		if err := s.bouts.ClearForNomination(ctx, nominationID); err != nil {
+			return domain.Layout{}, err
+		}
+	}
 	if err := s.repo.SetStatus(ctx, nominationID, status); err != nil {
 		return domain.Layout{}, err
 	}
 	return s.loadLayout(ctx, nominationID)
+}
+
+// toBoutPools маппит пулы раскладки во вход генерации боёв: loadLayout уже
+// отдаёт Pool.Members обогащёнными и отфильтрованными до активных (FR-12,
+// спека 0009) — ровно то, что нужно на вход BoutGenerator.
+func toBoutPools(pools []domain.Pool) []domain.BoutPoolInput {
+	out := make([]domain.BoutPoolInput, len(pools))
+	for i, p := range pools {
+		out[i] = domain.BoutPoolInput{PoolID: p.ID, Fighters: p.Members}
+	}
+	return out
 }
 
 // requireDraft проверяет, что раскладка номинации в статусе draft

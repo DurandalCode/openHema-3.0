@@ -31,6 +31,11 @@ type FakeRepo struct {
 	mu      sync.Mutex
 	layouts map[string]layoutRow
 	pools   map[string]*poolRow
+
+	// SetStatusCalls — счётчик вызовов SetStatus (спека 0010, T12): позволяет
+	// тестам service убедиться, что при ошибке BoutGenerator статус в repo не
+	// меняется (порядок «эффект в bout → потом статус»).
+	SetStatusCalls int
 }
 
 // NewFakeRepo создаёт пустой fake-репозиторий.
@@ -281,6 +286,7 @@ func (r *FakeRepo) SetStatus(_ context.Context, nominationID string, status doma
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.SetStatusCalls++
 	r.layouts[nominationID] = layoutRow{status: status}
 	return nil
 }

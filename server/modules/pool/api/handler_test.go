@@ -28,8 +28,9 @@ func setup(t *testing.T) (hemav1connect.PoolAdminServiceClient, *testutil.FakeRe
 
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
+	bouts := testutil.NewFakeBoutGenerator()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo, fighters)
+	svc := service.New(repo, fighters, bouts)
 	handler := NewAdminHandler(svc)
 
 	baseOpts := []connect.HandlerOption{
