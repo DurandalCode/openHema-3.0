@@ -143,7 +143,7 @@
 
 ## Server — platform wiring [Волна 2 · join, нужны треки A и B]
 
-- [ ] T13. **wiring** — `internal/platform/bout_generator.go`:
+- [x] T13. **wiring** — `internal/platform/bout_generator.go`:
       `PoolBoutGenerator` — адаптер к `pool/domain.BoutGenerator`, строит
       собственный `boutservice.Service` поверх `boutrepo.New(pool)` (по
       образцу `PoolActiveFightersProvider`). `internal/platform/platform.go`:
