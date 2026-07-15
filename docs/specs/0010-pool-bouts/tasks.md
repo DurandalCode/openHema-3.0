@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: in progress
 - Дата: 2026-07-15
 - План: `./plan.md`
 
@@ -54,7 +54,7 @@
 
 ## Server — новый модуль bout (снизу вверх) [Волна 1 · Трек A]
 
-- [ ] T2. **domain — алгоритм (red→green)** —
+- [x] T2. **domain — алгоритм (red→green)** —
       `modules/bout/domain/distribute_test.go`: `GenerateRoundRobin` —
       таблица кейсов **программно по диапазону N** (не только руками
       подобранные примеры — см. plan «Риски»), для N = 0..10:
@@ -69,52 +69,52 @@
       плохих стыков (AC-11).
       Затем `modules/bout/domain/distribute.go`: круговой метод + эвристика
       минимизации стыков (см. plan «Server» → domain).
-- [ ] T3. **domain — сущности/порты/ошибки** — `modules/bout/domain/domain.go`:
+- [x] T3. **domain — сущности/порты/ошибки** — `modules/bout/domain/domain.go`:
       `FighterRef`, `Bout`, `PoolInput`, порт `Repository`
       (`ReplaceForNomination`, `ListByNomination`), `ErrInvalidInput`. Red
       через T5 (service не собирается без порта).
-- [ ] T4. **testutil** — `modules/bout/testutil/fake_repo.go`: in-memory
+- [x] T4. **testutil** — `modules/bout/testutil/fake_repo.go`: in-memory
       `domain.Repository` (`var _ domain.Repository = (*FakeRepo)(nil)`),
       с методом инспекции сохранённого состояния для тестов service.
-- [ ] T5. **service (red→green)** — `modules/bout/service/service_test.go`
+- [x] T5. **service (red→green)** — `modules/bout/service/service_test.go`
       (fake-репо): `GenerateForNomination` с несколькими `PoolInput`
       собирает бои всех пулов и передаёт их одним вызовом
       `ReplaceForNomination`; `ClearForNomination` вызывает
       `ReplaceForNomination(ctx, nominationID, nil)`; `ListByNomination` —
       passthrough; пустой `nominationID` → `ErrInvalidInput`. Затем
       `modules/bout/service/service.go`.
-- [ ] T6. **repo** — `modules/bout/repo/queries/bout.sql`
+- [x] T6. **repo** — `modules/bout/repo/queries/bout.sql`
       (`-- name: DeleteBoutsByNomination :exec`,
       `-- name: InsertBout :one`, `-- name: ListBoutsByNomination :many`
       с `ORDER BY pool_id, sequence_number`); `make sqlc`;
       `modules/bout/repo/repo.go` — `ReplaceForNomination` одной
       транзакцией (delete-по-nomination_id + bulk-insert; `bouts == nil` →
       только delete), `ListByNomination`.
-- [ ] T7. **migrations** — `modules/bout/migrations/00001_init.sql` (goose
+- [x] T7. **migrations** — `modules/bout/migrations/00001_init.sql` (goose
       Up/Down): схема `bout` + таблица `bouts` со всеми колонками/CHECK/
       UNIQUE/индексами (DDL из plan «Server» → migrations).
-- [ ] T8. **api (red→green)** — `modules/bout/api/handler_test.go`
+- [x] T8. **api (red→green)** — `modules/bout/api/handler_test.go`
       (httptest + Connect, fake-репо): `ListBoutsByNomination` — счастливый
       путь (несколько пулов, сортировка по `pool_id, sequence_number`) +
       admin-guard. Затем `modules/bout/api/handler.go` — маппинг proto↔domain,
       `ErrInvalidInput` → `InvalidArgument`.
-- [ ] T9. **wiring** — `modules/bout/module.go`: `Deps{ Pool *pgxpool.Pool }`,
+- [x] T9. **wiring** — `modules/bout/module.go`: `Deps{ Pool *pgxpool.Pool }`,
       `Register(mux, deps, baseOpts, adminOpts)` — монтирует
       `BoutAdminService` под `RequireAdmin` (без межмодульных портов, bout ни
       от кого не зависит).
 
 ## Server — изменения модуля pool [Волна 1 · Трек B]
 
-- [ ] T10. **domain — порт** — `modules/pool/domain/domain.go`: добавить
+- [x] T10. **domain — порт** — `modules/pool/domain/domain.go`: добавить
       `BoutPoolInput{ PoolID string; Fighters []FighterRef }` и порт
       `BoutGenerator{ GenerateForNomination(ctx, nominationID string, pools
       []BoutPoolInput) error; ClearForNomination(ctx, nominationID string)
       error }`. Red через T12 (service/testutil не собираются без порта).
-- [ ] T11. **testutil — fake** — `modules/pool/testutil/fake_bout_generator.go`:
+- [x] T11. **testutil — fake** — `modules/pool/testutil/fake_bout_generator.go`:
       `FakeBoutGenerator` (spy: фиксирует вызовы `GenerateForNomination`/
       `ClearForNomination` с аргументами; настраиваемая ошибка на каждый
       метод) — `var _ domain.BoutGenerator = (*FakeBoutGenerator)(nil)`.
-- [ ] T12. **service (red→green)** — расширить
+- [x] T12. **service (red→green)** — расширить
       `modules/pool/service/service_test.go`:
       - `SetStatus(draft→ready)` вызывает `BoutGenerator.
         GenerateForNomination` с составом каждого пула (только активные
@@ -135,6 +135,11 @@
       передаёт его в `service.New(r, deps.Fighters, deps.Bouts)` — тип
       `domain.BoutGenerator` свой (пакет `pool/domain`), для этой правки
       модуль `bout` не нужен, поэтому она в треке B, а не в T13.
+      **Отклонение от плана**: пришлось также поправить один вызов
+      `service.New(...)` в `modules/pool/api/handler_test.go` (не входил в
+      исходный список файлов трека B) — иначе не собирался бы уже
+      существующий e2e-тест API пула из-за новой сигнатуры конструктора.
+      Безопасно: другие треки этот файл не трогали.
 
 ## Server — platform wiring [Волна 2 · join, нужны треки A и B]
 
@@ -150,14 +155,14 @@
 
 > См. `server/AGENTS.md` → «Добавление модуля».
 
-- [ ] T14. `server/sqlc.yaml` — секция `bout` (schema
+- [x] T14. `server/sqlc.yaml` — секция `bout` (schema
       `modules/bout/migrations`, queries `modules/bout/repo/queries`, out
       `modules/bout/repo/sqlc`).
-- [ ] T15. `server/internal/testdb/testdb.go` — добавить `{"bout",
+- [x] T15. `server/internal/testdb/testdb.go` — добавить `{"bout",
       moduleDir("bout")}` в `moduleMigrations`.
-- [ ] T16. Корневой `Makefile` — `BOUT_MIGRATIONS_DIR`, добавить в цели
+- [x] T16. Корневой `Makefile` — `BOUT_MIGRATIONS_DIR`, добавить в цели
       `migrate`/`migrate-down` (по образцу `POOL_MIGRATIONS_DIR`).
-- [ ] T17. `server/Dockerfile` — `COPY --from=build
+- [x] T17. `server/Dockerfile` — `COPY --from=build
       /src/modules/bout/migrations /app/modules/bout/migrations`.
 
 ## Интеграционные тесты [Волна 3 · join]
@@ -180,21 +185,26 @@
 
 ## Web [Волна 1 · Трек C]
 
-- [ ] T20. **BFF (red→green)** — `app/api/nominations/[id]/bouts/route.ts`
+- [x] T20. **BFF (red→green)** — `app/api/nominations/[id]/bouts/route.ts`
       (GET, Node runtime) + `route.test.ts`/`.e2e.test.ts`: happy path,
       маппинг `connect.Code`→HTTP, admin-guard (реюз `lib/grpc`).
-- [ ] T21. **entities/bout** — `entities/bout/lib/types.ts` (`Bout`,
+- [x] T21. **entities/bout** — `entities/bout/lib/types.ts` (`Bout`,
       `FighterRef` из proto) + `groupBoutsByPool` (чистая функция) +
       `groupBoutsByPool.test.ts`.
-- [ ] T22. **features/nomination-pools — api** — `api/keys.ts` (`bouts
+- [x] T22. **features/nomination-pools — api** — `api/keys.ts` (`bouts
       (nominationId)`), `api/requests.ts` (`fetchBouts`), `api/use-bouts.ts`
       (RQ-хук, `enabled: layout?.status === "POOL_LAYOUT_STATUS_READY"`) +
       тесты (мок `fetch`).
-- [ ] T23. **features/nomination-pools — ui** — `ui/nomination-pools.tsx`:
+- [x] T23. **features/nomination-pools — ui** — `ui/nomination-pools.tsx`:
       в карточке пула при `readOnly` (ready) под списком бойцов — список
       боёв этого пула (`groupBoutsByPool`, сортировка по
       `sequence_number`): «Тур {round_number}: {fighter_a.name} —
       {fighter_b.name}».
+      **Отклонение от плана**: T20 потребовал расширить общую инфраструктуру
+      `web/src/lib/grpc/client.ts` (+`boutAdminClient`) и `serialize.ts`
+      (+`boutToJson`/`boutsToJson`) — не входили в исходный список файлов
+      трека C, но это тот же паттерн, что у `pool`/`arena` (общий слой BFF),
+      и ни один другой трек эти файлы не трогал.
 
 ## Проверка [Волна 4 · join]
 
