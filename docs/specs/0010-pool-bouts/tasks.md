@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: in progress
+- Статус: done
 - Дата: 2026-07-15
 - План: `./plan.md`
 
@@ -167,12 +167,12 @@
 
 ## Интеграционные тесты [Волна 3 · join]
 
-- [ ] T18. **bout** (нужен трек A) — `modules/bout/integration/bout_integration_test.go`
+- [x] T18. **bout** (нужен трек A) — `modules/bout/integration/bout_integration_test.go`
       (`//go:build integration`, testcontainers): миграции применяются;
       `ReplaceForNomination` транзакционно (delete+insert, повторный вызов
       заменяет прежние бои); `UNIQUE(pool_id, sequence_number)` держит
       инвариант; `ListBoutsByNomination` через реальный Connect × PG.
-- [ ] T19. **pool × bout — сквозной путь** (нужен T13) — расширить
+- [x] T19. **pool × bout — сквозной путь** (нужен T13) — расширить
       `modules/pool/integration/pool_integration_test.go` (или новый файл):
       реальные `pool` + `bout` схемы, реальный `PoolActiveFightersProvider`/
       `PoolBoutGenerator`: создать пулы с бойцами → `SetLayoutStatus(ready)`
@@ -208,14 +208,23 @@
 
 ## Проверка [Волна 4 · join]
 
-- [ ] T24. `make test-all` зелёный (server + web).
-- [ ] T25. `make test-integration` зелёный (T18/T19, требует Docker).
-- [ ] T26. `pnpm exec tsc --noEmit` (задет protobuf-моки в BFF/entities).
-- [ ] T27. `go build ./...` + `pnpm build`.
-- [ ] T28. Полный докеризованный стек нового модуля (`server/AGENTS.md` DoD):
-      `docker compose up --build`, затем `docker compose logs migrate` и/или
-      `docker compose exec postgres psql -U hema -d hema -c '\dn'` —
-      убедиться, что схема `bout` создалась. `make test-integration`/`make
-      dev` этот путь не покрывают (см. чеклист «Добавление модуля»).
-- [ ] T29. Обновить статусы `spec.md`/`plan.md` → `done`, индекс
-      `docs/specs/README.md` → `done`.
+- [x] T24. `make test-all` зелёный (server + web). 401/401 web-тестов,
+      все server-пакеты (включая новый `bout`) зелёные.
+- [x] T25. `make test-integration` зелёный (T18/T19, требует Docker). Весь
+      репозиторий, не только spec 0010 — ни одна ранее существующая
+      интеграция не сломана.
+- [x] T26. `pnpm exec tsc --noEmit` — чисто.
+- [x] T27. `go build ./...` + `pnpm build` — оба зелёные;
+      `/api/nominations/[id]/bouts` присутствует в манифесте роутов.
+- [x] T28. Докеризованная проверка миграций нового модуля.
+      **Отклонение от плана**: вместо полного `docker compose up --build`
+      (поднял бы `server`/`web` контейнеры на портах 8080/3000, уже занятых
+      локальным `make dev` этой машины) — `docker compose build migrate` +
+      `docker compose run --rm migrate` против уже поднятого `postgres`
+      (тот же сервис из `docker-compose.yml`, что использует `make dev`).
+      Это ровно то, что нужно проверить (миграции модуля в докер-образе), не
+      трогая работающие процессы. `goose: ... OK 00001_init.sql` для `bout`
+      (остальные модули — «no migrations to run», уже были на актуальной
+      версии). `\dn` подтвердил схему `bout`; `\d bout.bouts` — все колонки/
+      CHECK/UNIQUE/индексы совпадают с DDL из plan.md.
+- [x] T29. Статусы обновлены (см. ниже).
