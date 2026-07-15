@@ -26,7 +26,7 @@
 | ----- | -------- | ------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | 0     | —        | T1            | `proto/hema/v1/bout.proto`                                                                                                  | —                               |
 | 1     | A (bout) | T2–T9, T14–T17 | `modules/bout/**`, `server/sqlc.yaml` (секция `bout`), `server/internal/testdb/testdb.go`, `Makefile` (`BOUT_*`), `server/Dockerfile` (COPY bout) | волна 0                        |
-| 1     | B (pool) | T10–T12       | `modules/pool/domain/domain.go`, `modules/pool/testutil/fake_bout_generator.go`, `modules/pool/service/*`                  | волна 0 (использует fake, не ждёт трек A) |
+| 1     | B (pool) | T10–T12       | `modules/pool/domain/domain.go`, `modules/pool/testutil/fake_bout_generator.go`, `modules/pool/service/*`, `modules/pool/module.go` | волна 0 (использует fake, не ждёт трек A) |
 | 1     | C (web)  | T20–T23       | `web/src/app/api/nominations/[id]/bouts/**`, `web/src/entities/bout/**`, `web/src/features/nomination-pools/**`            | волна 0 (нужны TS-типы из `make generate`) |
 | 2     | join     | T13           | `internal/platform/bout_generator.go`, `internal/platform/platform.go`                                                     | треки A **и** B смержены       |
 | 3     | join     | T18           | `modules/bout/integration/*`                                                                                                | трек A смержен                 |
@@ -130,7 +130,11 @@
       получает `bouts domain.BoutGenerator`; `SetStatus` переписывается по
       схеме из plan; `toBoutPools` — маппинг `[]domain.Pool →
       []domain.BoutPoolInput`. Обновить все существующие вызовы `New(...)` в
-      тестах на новую сигнатуру.
+      тестах на новую сигнатуру. **Также** `modules/pool/module.go`:
+      `Deps` получает поле `Bouts domain.BoutGenerator`, `Register`
+      передаёт его в `service.New(r, deps.Fighters, deps.Bouts)` — тип
+      `domain.BoutGenerator` свой (пакет `pool/domain`), для этой правки
+      модуль `bout` не нужен, поэтому она в треке B, а не в T13.
 
 ## Server — platform wiring [Волна 2 · join, нужны треки A и B]
 
@@ -140,7 +144,7 @@
       образцу `PoolActiveFightersProvider`). `internal/platform/platform.go`:
       зарегистрировать `boutmodule.Register(mux, boutmodule.Deps{Pool: pool},
       baseOpts, adminOpts)`, добавить `Bouts: NewPoolBoutGenerator(pool)` в
-      `poolmodule.Deps`.
+      `poolmodule.Deps` (поле уже добавлено треком B, T12).
 
 ## Синхронизация инфраструктуры нового модуля [Волна 1 · Трек A]
 
