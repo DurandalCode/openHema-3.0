@@ -11,10 +11,11 @@ import (
 	"github.com/hema/server/modules/pool/testutil"
 )
 
-func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider) {
+func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutGenerator) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
-	return service.New(repo, fighters), repo, fighters
+	bouts := testutil.NewFakeBoutGenerator()
+	return service.New(repo, fighters, bouts), repo, fighters, bouts
 }
 
 func poolNumbers(pools []domain.Pool) []int {
@@ -54,7 +55,7 @@ func memberIDs(p domain.Pool) map[string]bool {
 // AC-1: начальный экран — draft, все активные бойцы в нераспределённых,
 // пулов нет.
 func TestGetLayout_AC1_InitialLazyDraft(t *testing.T) {
-	svc, _, fighters := newService()
+	svc, _, fighters, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "f1", Name: "A", Club: "X"},
 		domain.FighterRef{ID: "f2", Name: "B", Club: "Y"},
@@ -75,7 +76,7 @@ func TestGetLayout_AC1_InitialLazyDraft(t *testing.T) {
 }
 
 func TestGetLayout_EmptyNominationID(t *testing.T) {
-	svc, _, _ := newService()
+	svc, _, _, _ := newService()
 	_, err := svc.GetLayout(context.Background(), "")
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
@@ -84,7 +85,7 @@ func TestGetLayout_EmptyNominationID(t *testing.T) {
 
 // AC-2: создание пула — свободный номер, переиспользование после удаления.
 func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
-	svc, _, fighters := newService()
+	svc, _, fighters, _ := newService()
 	fighters.Set("n1")
 	ctx := context.Background()
 
@@ -127,7 +128,7 @@ func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
 }
 
 func TestCreatePool_ForbiddenInReady(t *testing.T) {
-	svc, _, fighters := newService()
+	svc, _, fighters, _ := newService()
 	fighters.Set("n1")
 	ctx := context.Background()
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -140,7 +141,7 @@ func TestCreatePool_ForbiddenInReady(t *testing.T) {
 
 // AC-3: удаление пула возвращает бойцов в нераспределённые.
 func TestDeletePool_AC3_ReturnsFightersToUnassigned(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "b1"},
 		domain.FighterRef{ID: "b2"},
@@ -160,7 +161,7 @@ func TestDeletePool_AC3_ReturnsFightersToUnassigned(t *testing.T) {
 }
 
 func TestDeletePool_NotFound(t *testing.T) {
-	svc, _, _ := newService()
+	svc, _, _, _ := newService()
 	_, err := svc.DeletePool(context.Background(), "missing")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
@@ -172,7 +173,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("AC-4 unassigned to pool", func(t *testing.T) {
-		svc, repo, fighters := newService()
+		svc, repo, fighters, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		poolID := repo.SeedPool("n1", 1)
 		layout, err := svc.AssignFighter(ctx, "n1", "b1", poolID)
@@ -188,7 +189,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 	})
 
 	t.Run("AC-5 pool to unassigned", func(t *testing.T) {
-		svc, repo, fighters := newService()
+		svc, repo, fighters, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		repo.SeedPool("n1", 1, "b1")
 		layout, err := svc.UnassignFighter(ctx, "n1", "b1")
@@ -204,7 +205,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 	})
 
 	t.Run("AC-6/7 pool to pool moves, does not duplicate", func(t *testing.T) {
-		svc, repo, fighters := newService()
+		svc, repo, fighters, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		p1 := repo.SeedPool("n1", 1, "b1")
 		p2 := repo.SeedPool("n1", 2)
@@ -226,7 +227,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 
 // AC-8: автораспределение без пулов отклоняется.
 func TestAutoDistribute_AC8_NoPools(t *testing.T) {
-	svc, _, fighters := newService()
+	svc, _, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	_, err := svc.AutoDistribute(context.Background(), "n1")
 	if !errors.Is(err, domain.ErrNoPools) {
@@ -236,7 +237,7 @@ func TestAutoDistribute_AC8_NoPools(t *testing.T) {
 
 // AC-9: автораспределение без нераспределённых — no-op.
 func TestAutoDistribute_AC9_NoUnassignedIsNoop(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	layout, err := svc.AutoDistribute(context.Background(), "n1")
@@ -261,7 +262,7 @@ func redBlueFighters() []domain.FighterRef {
 
 // AC-10: основной сценарий автораспределения — P={B1,R1,R3}, Q={B2,R2,X}.
 func TestAutoDistribute_AC10_BasicScenario(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", redBlueFighters()...)
 	p := repo.SeedPool("n1", 1)
 	q := repo.SeedPool("n1", 2)
@@ -288,7 +289,7 @@ func TestAutoDistribute_AC10_BasicScenario(t *testing.T) {
 
 // AC-11: автораспределение не трогает уже расставленных.
 func TestAutoDistribute_AC11_DoesNotTouchAlreadyAssigned(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", redBlueFighters()...)
 	p := repo.SeedPool("n1", 1, "R1")
 	q := repo.SeedPool("n1", 2)
@@ -309,7 +310,7 @@ func TestAutoDistribute_AC11_DoesNotTouchAlreadyAssigned(t *testing.T) {
 
 // AC-12: пустой клуб не считается общим — все попадают в единственный пул.
 func TestAutoDistribute_AC12_EmptyClubNotCommon(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "x1"}, domain.FighterRef{ID: "x2"},
 		domain.FighterRef{ID: "x3"}, domain.FighterRef{ID: "x4"},
@@ -329,7 +330,7 @@ func TestAutoDistribute_AC12_EmptyClubNotCommon(t *testing.T) {
 // дают идентичный результат.
 func TestAutoDistribute_AC13_Deterministic(t *testing.T) {
 	run := func() map[string]bool {
-		svc, repo, fighters := newService()
+		svc, repo, fighters, _ := newService()
 		fighters.Set("n1", redBlueFighters()...)
 		p := repo.SeedPool("n1", 1)
 		repo.SeedPool("n1", 2)
@@ -349,7 +350,7 @@ func TestAutoDistribute_AC13_Deterministic(t *testing.T) {
 // AC-13a: undo автораспределения возвращает только расставленных авто,
 // ручная раскладка сохраняется.
 func TestUndo_AC13a_UndoAutoPreservesManual(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", redBlueFighters()...)
 	p := repo.SeedPool("n1", 1, "R1") // R1 расставлен вручную
 	q := repo.SeedPool("n1", 2)
@@ -375,7 +376,7 @@ func TestUndo_AC13a_UndoAutoPreservesManual(t *testing.T) {
 
 // AC-13a2: undo удаления пула восстанавливает пул со всеми бойцами.
 func TestUndo_AC13a2_UndoDeletePool(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	poolID := repo.SeedPool("n1", 3, "b1", "b2")
 	ctx := context.Background()
@@ -401,7 +402,7 @@ func TestUndo_AC13a2_UndoDeletePool(t *testing.T) {
 
 // AC-13a3: если авто идёт после удаления пула — undo относится к авто.
 func TestUndo_AC13a3_LatestActionWins(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1, "b1")
 	ctx := context.Background()
@@ -434,7 +435,7 @@ func TestUndo_AC13a3_LatestActionWins(t *testing.T) {
 
 // AC-13b: undo одноразовый — любая иная мутация обнуляет его.
 func TestUndo_AC13b_AnyMutationClearsUndo(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 	ctx := context.Background()
@@ -457,7 +458,7 @@ func TestUndo_AC13b_AnyMutationClearsUndo(t *testing.T) {
 
 // AC-13c: undo без предыдущего mutating-действия отклоняется.
 func TestUndo_AC13c_NothingToUndo(t *testing.T) {
-	svc, _, fighters := newService()
+	svc, _, fighters, _ := newService()
 	fighters.Set("n1")
 	_, err := svc.Undo(context.Background(), "n1")
 	if !errors.Is(err, domain.ErrNothingToUndo) {
@@ -467,7 +468,7 @@ func TestUndo_AC13c_NothingToUndo(t *testing.T) {
 
 // AC-13d: undo запрещён в ready.
 func TestUndo_AC13d_ForbiddenInReady(t *testing.T) {
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 	ctx := context.Background()
@@ -485,7 +486,7 @@ func TestUndo_AC13d_ForbiddenInReady(t *testing.T) {
 
 // AC-14: переход draft → ready.
 func TestSetStatus_AC14_DraftToReady(t *testing.T) {
-	svc, _, fighters := newService()
+	svc, _, fighters, _ := newService()
 	fighters.Set("n1")
 	layout, err := svc.SetStatus(context.Background(), "n1", domain.LayoutReady)
 	if err != nil {
@@ -497,7 +498,7 @@ func TestSetStatus_AC14_DraftToReady(t *testing.T) {
 }
 
 func TestSetStatus_InvalidTarget(t *testing.T) {
-	svc, _, _ := newService()
+	svc, _, _, _ := newService()
 	_, err := svc.SetStatus(context.Background(), "n1", domain.LayoutActive)
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
@@ -507,7 +508,7 @@ func TestSetStatus_InvalidTarget(t *testing.T) {
 // AC-15: ready блокирует изменения раскладки.
 func TestReadyBlocksMutations_AC15(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1)
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -537,7 +538,7 @@ func TestReadyBlocksMutations_AC15(t *testing.T) {
 // AC-16: возврат ready → draft, состав пулов не меняется.
 func TestSetStatus_AC16_ReadyToDraftPreservesPools(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -555,10 +556,186 @@ func TestSetStatus_AC16_ReadyToDraftPreservesPools(t *testing.T) {
 	}
 }
 
+// T12 (спека 0010): draft → ready вызывает BoutGenerator.GenerateForNomination
+// с составом каждого пула — только активные (обогащённые) бойцы, как в
+// Layout.Pools[i].Members; осиротевшие членства (withdrawn) не передаются.
+func TestSetStatus_T12_DraftToReadyGeneratesBouts(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1",
+		domain.FighterRef{ID: "f1", Name: "A", Club: "X"},
+		domain.FighterRef{ID: "f2", Name: "B", Club: "Y"},
+		domain.FighterRef{ID: "f3", Name: "C", Club: "Z"},
+	)
+	p1 := repo.SeedPool("n1", 1, "f1", "f2", "withdrawn")
+	p2 := repo.SeedPool("n1", 2, "f3")
+
+	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutReady)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if layout.Status != domain.LayoutReady {
+		t.Fatalf("expected ready, got %s", layout.Status)
+	}
+	if len(bouts.GenerateCalls) != 1 {
+		t.Fatalf("expected 1 GenerateForNomination call, got %d", len(bouts.GenerateCalls))
+	}
+	call := bouts.GenerateCalls[0]
+	if call.NominationID != "n1" {
+		t.Fatalf("expected nominationID n1, got %s", call.NominationID)
+	}
+	if len(call.Pools) != 2 {
+		t.Fatalf("expected 2 pools passed, got %d", len(call.Pools))
+	}
+	gotP1 := boutPoolByID(call.Pools, p1)
+	if got := memberIDs(domain.Pool{Members: gotP1.Fighters}); !reflect.DeepEqual(got, map[string]bool{"f1": true, "f2": true}) {
+		t.Fatalf("pool1 fighters = %v, want {f1,f2} (withdrawn excluded)", got)
+	}
+	gotP2 := boutPoolByID(call.Pools, p2)
+	if got := memberIDs(domain.Pool{Members: gotP2.Fighters}); !reflect.DeepEqual(got, map[string]bool{"f3": true}) {
+		t.Fatalf("pool2 fighters = %v, want {f3}", got)
+	}
+	if len(bouts.ClearCalls) != 0 {
+		t.Fatalf("expected no ClearForNomination calls, got %d", len(bouts.ClearCalls))
+	}
+}
+
+// T12: ready → draft вызывает BoutGenerator.ClearForNomination.
+func TestSetStatus_T12_ReadyToDraftClearsBouts(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bouts.GenerateCalls) != 1 {
+		t.Fatalf("expected 1 generate call before draft transition, got %d", len(bouts.GenerateCalls))
+	}
+
+	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if layout.Status != domain.LayoutDraft {
+		t.Fatalf("expected draft, got %s", layout.Status)
+	}
+	if len(bouts.ClearCalls) != 1 {
+		t.Fatalf("expected 1 ClearForNomination call, got %d", len(bouts.ClearCalls))
+	}
+	if bouts.ClearCalls[0].NominationID != "n1" {
+		t.Fatalf("expected nominationID n1, got %s", bouts.ClearCalls[0].NominationID)
+	}
+}
+
+// T12: повторный SetStatus с уже текущим статусом (draft→draft, ready→ready)
+// не переход — BoutGenerator вообще не вызывается.
+func TestSetStatus_T12_SameStatusDoesNotTouchBoutGenerator(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("draft to draft", func(t *testing.T) {
+		svc, _, fighters, bouts := newService()
+		fighters.Set("n1")
+		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(bouts.GenerateCalls) != 0 || len(bouts.ClearCalls) != 0 {
+			t.Fatalf("expected no bout generator calls, got generate=%d clear=%d", len(bouts.GenerateCalls), len(bouts.ClearCalls))
+		}
+	})
+
+	t.Run("ready to ready", func(t *testing.T) {
+		svc, _, fighters, bouts := newService()
+		fighters.Set("n1")
+		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(bouts.GenerateCalls) != 1 {
+			t.Fatalf("expected 1 generate call for the actual transition, got %d", len(bouts.GenerateCalls))
+		}
+		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(bouts.GenerateCalls) != 1 {
+			t.Fatalf("expected still 1 generate call after repeat ready->ready (no-op), got %d", len(bouts.GenerateCalls))
+		}
+		if len(bouts.ClearCalls) != 0 {
+			t.Fatalf("expected no clear calls, got %d", len(bouts.ClearCalls))
+		}
+	})
+}
+
+// T12: ошибка GenerateForNomination пробрасывается из SetStatus, и
+// repo.SetStatus при этом не вызывается (порядок «эффект в bout → потом
+// статус» из plan «Обзор решения»).
+func TestSetStatus_T12_GenerateErrorPreventsStatusChange(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+	wantErr := errors.New("bout generation failed")
+	bouts.GenerateErr = wantErr
+
+	_, err := svc.SetStatus(ctx, "n1", domain.LayoutReady)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected generate error, got %v", err)
+	}
+	if repo.SetStatusCalls != 0 {
+		t.Fatalf("expected repo.SetStatus not called, got %d calls", repo.SetStatusCalls)
+	}
+	status, _, _, err := repo.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != domain.LayoutDraft {
+		t.Fatalf("expected status to remain draft, got %s", status)
+	}
+}
+
+// T12: ошибка ClearForNomination пробрасывается из SetStatus, и
+// repo.SetStatus при этом не вызывается для этого перехода.
+func TestSetStatus_T12_ClearErrorPreventsStatusChange(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callsAfterReady := repo.SetStatusCalls
+
+	wantErr := errors.New("bout clear failed")
+	bouts.ClearErr = wantErr
+
+	_, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected clear error, got %v", err)
+	}
+	if repo.SetStatusCalls != callsAfterReady {
+		t.Fatalf("expected repo.SetStatus not called again, got %d calls (was %d)", repo.SetStatusCalls, callsAfterReady)
+	}
+	status, _, _, err := repo.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != domain.LayoutReady {
+		t.Fatalf("expected status to remain ready, got %s", status)
+	}
+}
+
+func boutPoolByID(pools []domain.BoutPoolInput, id string) domain.BoutPoolInput {
+	for _, p := range pools {
+		if p.PoolID == id {
+			return p
+		}
+	}
+	return domain.BoutPoolInput{}
+}
+
 // AC-17: выведенный боец не виден и его членство удаляется.
 func TestReconciliation_AC17_WithdrawnFighterHiddenAndPruned(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1", Club: "X"}) // b2/withdrawn не активен
 	repo.SeedPool("n1", 1, "b1", "withdrawn-b2")
 
@@ -582,7 +759,7 @@ func TestReconciliation_AC17_WithdrawnFighterHiddenAndPruned(t *testing.T) {
 // AC-17a: восстановленный боец появляется в нераспределённых, не в старом пуле.
 func TestReconciliation_AC17a_ReturnedFighterGoesToUnassigned(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1", "b2")
 
@@ -612,7 +789,7 @@ func TestReconciliation_AC17a_ReturnedFighterGoesToUnassigned(t *testing.T) {
 // AC-17b: сброс раскладки удаляет все пулы, возвращает всех в нераспределённые.
 func TestResetLayout_AC17b(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"}, domain.FighterRef{ID: "b3"})
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
@@ -640,7 +817,7 @@ func TestResetLayout_AC17b(t *testing.T) {
 // AC-13a4: undo сброса раскладки восстанавливает все пулы со всеми бойцами.
 func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"},
 		domain.FighterRef{ID: "b3"},
@@ -703,7 +880,7 @@ func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
 // не предусмотрено» означает, что undo одноразовый, не циклический).
 func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
@@ -732,7 +909,7 @@ func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
 // прежней семантики, где reset обнулял undo).
 func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters := newService()
+	svc, repo, fighters, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	repo.SeedPool("n1", 1, "b1")
 	// b2 — нераспределённый, чтобы авто что-то расставило и записало undo.
