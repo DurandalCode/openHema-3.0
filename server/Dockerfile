@@ -36,6 +36,7 @@ COPY --from=build /src/modules/application/migrations /app/modules/application/m
 COPY --from=build /src/modules/fighter/migrations      /app/modules/fighter/migrations
 COPY --from=build /src/modules/arena/migrations        /app/modules/arena/migrations
 COPY --from=build /src/modules/pool/migrations         /app/modules/pool/migrations
+COPY --from=build /src/modules/bout/migrations         /app/modules/bout/migrations
 
 USER app
 EXPOSE 8080
