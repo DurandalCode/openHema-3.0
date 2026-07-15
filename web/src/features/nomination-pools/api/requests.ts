@@ -1,7 +1,12 @@
 import type { PoolLayout } from "@/entities/pool/lib/types";
+import type { Bout } from "@/entities/bout/lib/types";
 
 export type PoolLayoutResult =
   | { ok: true; layout: PoolLayout }
+  | { ok: false; error: string };
+
+export type BoutsResult =
+  | { ok: true; bouts: Bout[] }
   | { ok: false; error: string };
 
 /** getLayoutRequest — GET /api/nominations/[id]/pool-layout (только admin). */
@@ -81,6 +86,26 @@ export async function setLayoutStatusRequest(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
+}
+
+/**
+ * fetchBouts — GET /api/nominations/[id]/bouts (только admin; бои видны
+ * только когда раскладка пулов в ready, спека 0010, AC-5).
+ */
+export async function fetchBouts(nominationId: string): Promise<BoutsResult> {
+  try {
+    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/bouts`, {
+      method: "GET",
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { bouts?: Bout[] };
+    return { ok: true, bouts: data.bouts ?? [] };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
 }
 
 async function fetchLayout(url: string, init: RequestInit): Promise<PoolLayoutResult> {
