@@ -5,4 +5,5 @@
  */
 export const nominationPoolsKeys = {
   layout: (nominationId: string) => ["nomination-pools", "layout", nominationId] as const,
+  bouts: (nominationId: string) => ["nomination-pools", "bouts", nominationId] as const,
 };

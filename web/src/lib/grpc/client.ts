@@ -8,6 +8,7 @@ import {
 } from "@/gen/hema/v1/application_pb";
 import { ArenaAdminService } from "@/gen/hema/v1/arena_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
+import { BoutAdminService } from "@/gen/hema/v1/bout_pb";
 import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
 import { PoolAdminService } from "@/gen/hema/v1/pool_pb";
@@ -141,5 +142,16 @@ export const arenaAdminClient: Client<typeof ArenaAdminService> = createClient(
  */
 export const poolAdminClient: Client<typeof PoolAdminService> = createClient(
   PoolAdminService,
+  transport,
+);
+
+/**
+ * boutAdminClient — клиент BoutAdminService (чтение боёв, сформированных
+ * внутри пулов номинации при фиксации раскладки, спека 0010). Все RPC
+ * требуют роль ADMIN; публичного чтения нет (спека 0010, FR-8). Только на
+ * сервере (Node runtime).
+ */
+export const boutAdminClient: Client<typeof BoutAdminService> = createClient(
+  BoutAdminService,
   transport,
 );

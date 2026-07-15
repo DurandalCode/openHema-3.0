@@ -5,6 +5,7 @@ import {
   autoDistributeRequest,
   createPoolRequest,
   deletePoolRequest,
+  fetchBouts,
   getLayoutRequest,
   resetLayoutRequest,
   setLayoutStatusRequest,
@@ -147,6 +148,46 @@ describe("features/nomination-pools/api/requests", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ready" }),
       });
+    });
+  });
+
+  describe("fetchBouts", () => {
+    it("GETs bouts and returns ok:true with bouts", async () => {
+      const bouts = [
+        {
+          id: "b1",
+          poolId: "p1",
+          nominationId: "n1",
+          roundNumber: 1,
+          sequenceNumber: 1,
+          fighterA: { fighterId: "f1", name: "A", club: "" },
+          fighterB: { fighterId: "f2", name: "B", club: "" },
+        },
+      ];
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ bouts }) });
+
+      const result = await fetchBouts("n1");
+
+      expect(result).toEqual({ ok: true, bouts });
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/bouts", { method: "GET" });
+    });
+
+    it("returns empty bouts when response omits the field (proto3-omitted)", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+      const result = await fetchBouts("n1");
+      expect(result).toEqual({ ok: true, bouts: [] });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "forbidden" }) });
+      const result = await fetchBouts("n1");
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+      const result = await fetchBouts("n1");
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 });

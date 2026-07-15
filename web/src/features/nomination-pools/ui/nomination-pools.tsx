@@ -20,6 +20,8 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import type { Bout } from "@/entities/bout/lib/types";
+import { groupBoutsByPool } from "@/entities/bout/lib/types";
 import { useLayout } from "../api/use-layout";
 import { useCreatePool } from "../api/use-create-pool";
 import { useDeletePool } from "../api/use-delete-pool";
@@ -29,6 +31,7 @@ import { useUnassignFighter } from "../api/use-unassign-fighter";
 import { useAutoDistribute } from "../api/use-auto-distribute";
 import { useUndo } from "../api/use-undo";
 import { useSetLayoutStatus } from "../api/use-set-layout-status";
+import { useBouts } from "../api/use-bouts";
 
 const UNASSIGNED_ZONE = "zone:unassigned";
 const poolZoneId = (poolId: string) => `zone:pool:${poolId}`;
@@ -49,6 +52,7 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
   const autoDistribute = useAutoDistribute(nominationId);
   const undo = useUndo(nominationId);
   const setStatus = useSetLayoutStatus(nominationId);
+  const { data: bouts } = useBouts(nominationId, layout?.status);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
 
@@ -68,6 +72,7 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
   }
 
   const readOnly = layout.status === "POOL_LAYOUT_STATUS_READY";
+  const boutsByPool = groupBoutsByPool(bouts ?? []);
   const mutationError =
     createPool.error?.message ??
     deletePool.error?.message ??
@@ -138,6 +143,7 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
                 key={pool.id}
                 pool={pool}
                 readOnly={readOnly}
+                bouts={boutsByPool[pool.id] ?? []}
                 onDelete={() => deletePool.mutate(pool.id)}
                 deletePending={deletePool.isPending}
               />
@@ -276,11 +282,13 @@ function UnassignedColumn({ fighters, readOnly }: { fighters: FighterRef[]; read
 function PoolColumn({
   pool,
   readOnly,
+  bouts,
   onDelete,
   deletePending,
 }: {
   pool: Pool;
   readOnly: boolean;
+  bouts: Bout[];
   onDelete: () => void;
   deletePending: boolean;
 }) {
@@ -328,9 +336,33 @@ function PoolColumn({
               )}
             </Col>
           </div>
+          {readOnly && <BoutList bouts={bouts} />}
         </Col>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * BoutList — бои пула, сформированные round-robin при фиксации раскладки
+ * (спека 0010, AC-5): показываются только в `ready` (readOnly), исчезают
+ * при возврате в `draft`. Порядок — `sequenceNumber` (FR-3a/FR-3b),
+ * гарантирован `groupBoutsByPool`.
+ */
+function BoutList({ bouts }: { bouts: Bout[] }) {
+  if (bouts.length === 0) return null;
+
+  return (
+    <Col gap={1} className="border-t pt-2">
+      <span className="text-xs font-medium text-muted-foreground">Бои</span>
+      <Col gap={1}>
+        {bouts.map((bout) => (
+          <span key={bout.id} className="text-xs">
+            Тур {bout.roundNumber}: {bout.fighterA.name} — {bout.fighterB.name}
+          </span>
+        ))}
+      </Col>
+    </Col>
   );
 }
 
