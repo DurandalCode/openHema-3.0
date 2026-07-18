@@ -18,6 +18,7 @@ import (
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
 	"github.com/hema/server/internal/platform"
 	"github.com/hema/server/internal/testdb"
+	"github.com/hema/server/modules/arena"
 	"github.com/hema/server/modules/auth"
 	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/fighter"
@@ -41,6 +42,7 @@ type clients struct {
 	fighter hemav1connect.FighterAdminServiceClient
 	nom     hemav1connect.NominationAdminServiceClient
 	bout    hemav1connect.BoutAdminServiceClient
+	arena   hemav1connect.ArenaAdminServiceClient
 }
 
 // setup поднимает PG (testdb.Postgres), применяет миграции всех модулей,
@@ -73,10 +75,16 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 
 	boutmodule.Register(mux, boutmodule.Deps{Pool: pool}, baseOpts, adminOpts)
 
+	arena.Register(mux, arena.Deps{
+		Pool:        pool,
+		Tournaments: activeTournaments,
+	}, baseOpts, adminOpts)
+
 	poolmodule.Register(mux, poolmodule.Deps{
 		Pool:     pool,
 		Fighters: platform.NewPoolActiveFightersProvider(pool),
 		Bouts:    platform.NewPoolBoutGenerator(pool), // real adapter, not fake (spec 0010, T19)
+		Arenas:   platform.NewPoolArenaProvider(pool, activeTournaments), // real adapter, spec 0011
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -88,6 +96,7 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 		fighter: hemav1connect.NewFighterAdminServiceClient(httpClient, server.URL),
 		nom:     hemav1connect.NewNominationAdminServiceClient(httpClient, server.URL),
 		bout:    hemav1connect.NewBoutAdminServiceClient(httpClient, server.URL),
+		arena:   hemav1connect.NewArenaAdminServiceClient(httpClient, server.URL),
 	}, pool
 }
 
@@ -513,5 +522,96 @@ func TestIntegration_ReadyAgain_RegeneratesForChangedComposition(t *testing.T) {
 	bouts := listBoutsForNomination(t, c, nomID)
 	if len(bouts) != 3 { // C(3,2), не старый C(2,2)
 		t.Fatalf("expected 3 bouts after regenerate with 3 fighters, got %d: %+v", len(bouts), bouts)
+	}
+}
+
+func createArena(t *testing.T, c clients, name string) string {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.CreateArenaRequest{
+		TournamentId: seedTournamentID,
+		Name:         name,
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.arena.CreateArena(context.Background(), req)
+	if err != nil {
+		t.Fatalf("CreateArena(%s): %v", name, err)
+	}
+	return res.Msg.Arena.Id
+}
+
+// readyPoolWithOneFighter создаёт номинацию (с уникальным title — заголовок
+// номинации уникален в пределах турнира) с одним пулом, одним бойцом в нём и
+// фиксирует раскладку (ready) — минимальный «готовый» пул для постановки на
+// арену.
+func readyPoolWithOneFighter(t *testing.T, c clients, nominationTitle string) (nominationID, poolID string) {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.CreateNominationRequest{
+		TournamentId: seedTournamentID,
+		Title:        nominationTitle,
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	nomRes, err := c.nom.CreateNomination(context.Background(), req)
+	if err != nil {
+		t.Fatalf("CreateNomination(%s): %v", nominationTitle, err)
+	}
+	nomID := nomRes.Msg.Nomination.Id
+	fID := createFighter(t, c, nomID, "Иван", "")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID = created.Msg.Layout.Pools[0].Id
+
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fID, PoolId: poolID})
+	assignReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+		t.Fatalf("AssignFighter: %v", err)
+	}
+
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+	return nomID, poolID
+}
+
+// TestIntegration_SeatPoolOnArena_UniqueIndexBlocksSecondPool проверяет
+// инвариант «одна арена ↔ один пул за раз» (спека 0011, FR-6, NFR-4) на
+// уровне данных: partial unique index uq_pools_arena. Два готовых пула
+// пытаются встать на одну и ту же арену — второй запрос отклоняется, первый
+// пул остаётся на площадке.
+func TestIntegration_SeatPoolOnArena_UniqueIndexBlocksSecondPool(t *testing.T) {
+	c, _ := setup(t)
+	arenaID := createArena(t, c, "Ристалище 1")
+
+	_, pool1 := readyPoolWithOneFighter(t, c, "Лонгсорд")
+	_, pool2 := readyPoolWithOneFighter(t, c, "Меч-баклер")
+
+	seat := func(poolID string) error {
+		req := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: poolID, ArenaId: arenaID})
+		req.Header().Set("Authorization", adminBearer(t))
+		_, err := c.pool.SeatPoolOnArena(context.Background(), req)
+		return err
+	}
+
+	if err := seat(pool1); err != nil {
+		t.Fatalf("SeatPoolOnArena(pool1): %v", err)
+	}
+	err := seat(pool2)
+	if err == nil {
+		t.Fatal("expected SeatPoolOnArena(pool2) to fail: arena already occupied by pool1")
+	}
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %v: %v", connect.CodeOf(err), err)
+	}
+
+	getReq := connect.NewRequest(&hemav1.GetPoolsForArenaRequest{ArenaId: arenaID})
+	getReq.Header().Set("Authorization", adminBearer(t))
+	got, err := c.pool.GetPoolsForArena(context.Background(), getReq)
+	if err != nil {
+		t.Fatalf("GetPoolsForArena: %v", err)
+	}
+	if got.Msg.Seated == nil || got.Msg.Seated.Id != pool1 {
+		t.Fatalf("expected pool1 (%s) still seated on arena, got %+v", pool1, got.Msg.Seated)
 	}
 }
