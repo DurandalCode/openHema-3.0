@@ -22,6 +22,7 @@ type poolRow struct {
 	nominationID string
 	number       int
 	memberIDs    []string
+	arenaID      string
 }
 
 // FakeRepo — in-memory реализация domain.Repository для тестов.
@@ -291,6 +292,92 @@ func (r *FakeRepo) SetStatus(_ context.Context, nominationID string, status doma
 	return nil
 }
 
+// SeatPool закрепляет пул за площадкой (спека 0011, FR-7). Повторяет
+// инвариант partial unique index uq_pools_arena (FR-6/NFR-4): вторая
+// постановка на ту же арену — domain.ErrArenaBusy.
+func (r *FakeRepo) SeatPool(_ context.Context, poolID, arenaID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, ok := r.pools[poolID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	for _, other := range r.pools {
+		if other.id != poolID && other.arenaID == arenaID {
+			return domain.ErrArenaBusy
+		}
+	}
+	p.arenaID = arenaID
+	return nil
+}
+
+// UnseatPool снимает пул с площадки (FR-8). Идемпотентно.
+func (r *FakeRepo) UnseatPool(_ context.Context, poolID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, ok := r.pools[poolID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	p.arenaID = ""
+	return nil
+}
+
+// PoolsForArena возвращает пул, стоящий на арене (found=false — арена
+// свободна, FR-9).
+func (r *FakeRepo) PoolsForArena(_ context.Context, arenaID string) (domain.Pool, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, p := range r.pools {
+		if p.arenaID == arenaID {
+			return toDomainPool(p), true, nil
+		}
+	}
+	return domain.Pool{}, false, nil
+}
+
+// ReadyUnseatedPools возвращает пулы в статусе «готов» (раскладка ready),
+// ещё не поставленные ни на одну арену (FR-9).
+func (r *FakeRepo) ReadyUnseatedPools(_ context.Context) ([]domain.Pool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.Pool, 0)
+	for _, p := range r.pools {
+		if p.arenaID != "" {
+			continue
+		}
+		if row, ok := r.layouts[p.nominationID]; !ok || row.status != domain.LayoutReady {
+			continue
+		}
+		out = append(out, toDomainPool(p))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NominationID != out[j].NominationID {
+			return out[i].NominationID < out[j].NominationID
+		}
+		return out[i].Number < out[j].Number
+	})
+	return out, nil
+}
+
+// AnySeatedInNomination — стоит ли хотя бы один пул номинации на арене
+// (гейт FR-3).
+func (r *FakeRepo) AnySeatedInNomination(_ context.Context, nominationID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, p := range r.pools {
+		if p.nominationID == nominationID && p.arenaID != "" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *FakeRepo) listPoolsLocked(nominationID string) []domain.Pool {
 	out := make([]domain.Pool, 0)
 	for _, p := range r.pools {
@@ -325,7 +412,10 @@ func toDomainPool(p *poolRow) domain.Pool {
 	for _, fid := range p.memberIDs {
 		members = append(members, domain.FighterRef{ID: fid})
 	}
-	return domain.Pool{ID: p.id, NominationID: p.nominationID, Number: p.number, Members: members}
+	return domain.Pool{
+		ID: p.id, NominationID: p.nominationID, Number: p.number, Members: members,
+		ArenaID: p.arenaID,
+	}
 }
 
 func removeString(list []string, s string) []string {
@@ -346,4 +436,3 @@ func containsString(list []string, s string) bool {
 	}
 	return false
 }
-

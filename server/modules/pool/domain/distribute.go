@@ -20,11 +20,20 @@ type FighterRef struct {
 // раскладки). Members заполняется службой (service) после обогащения сырых
 // членств (fighter_id) данными из ActiveFightersProvider — до обогащения
 // Name/Club у элементов Members пусты.
+//
+// ArenaID/ArenaName/Status — спека 0011: ArenaID хранится репозиторием
+// (пусто, если пул не на арене); ArenaName резолвится службой через
+// ArenaProvider при сборке (не хранится в БД, план «Обзор решения» —
+// «резолв имени арены — live, не снапшот»); Status вычисляется службой
+// через ComputePoolStatus(layoutStatus, ArenaID).
 type Pool struct {
 	ID           string
 	NominationID string
 	Number       int
 	Members      []FighterRef
+	ArenaID      string
+	ArenaName    string
+	Status       PoolStatus
 }
 
 // Assignment — результат автораспределения: бойца — в пул.
@@ -202,4 +211,3 @@ func filterMinPairs(pools []*poolState, club string) []*poolState {
 	}
 	return out
 }
-

@@ -22,8 +22,17 @@ const n1 = "11111111-1111-1111-1111-111111111111"
 
 // setup поднимает реальный Connect-хендлер BoutAdminService с fake-репо.
 // Конфигурация повторяет прод-сетап: глобально Auth (валидация Bearer), на
-// сервис — RequireAdmin (FR-8).
+// сервис — RequireAdmin (FR-8). Тонкая обёртка над setupFull — для
+// существующих (0010) тестов, которым не нужен публичный клиент.
 func setup(t *testing.T) (hemav1connect.BoutAdminServiceClient, *testutil.FakeRepo) {
+	t.Helper()
+	admin, _, repo := setupFull(t)
+	return admin, repo
+}
+
+// setupFull — как setup, но дополнительно монтирует BoutPublicService (без
+// RequireAdmin, спека 0011, FR-11) и возвращает публичный клиент.
+func setupFull(t *testing.T) (hemav1connect.BoutAdminServiceClient, hemav1connect.BoutPublicServiceClient, *testutil.FakeRepo) {
 	t.Helper()
 
 	repo := testutil.NewFakeRepo()
@@ -38,17 +47,20 @@ func setup(t *testing.T) (hemav1connect.BoutAdminServiceClient, *testutil.FakeRe
 		connect.WithInterceptors(connectutil.RequireAdmin()),
 	}
 
-	path, h := hemav1connect.NewBoutAdminServiceHandler(handler, append(baseOpts, adminOpts...)...)
+	adminPath, adminH := hemav1connect.NewBoutAdminServiceHandler(handler, append(baseOpts, adminOpts...)...)
+	publicPath, publicH := hemav1connect.NewBoutPublicServiceHandler(handler, baseOpts...)
 
 	mux := http.NewServeMux()
-	mux.Handle(path, h)
+	mux.Handle(adminPath, adminH)
+	mux.Handle(publicPath, publicH)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
 	client := server.Client()
 	adminClient := hemav1connect.NewBoutAdminServiceClient(client, server.URL)
-	return adminClient, repo
+	publicClient := hemav1connect.NewBoutPublicServiceClient(client, server.URL)
+	return adminClient, publicClient, repo
 }
 
 func adminBearer(t *testing.T) string {
@@ -147,5 +159,39 @@ func TestListBoutsByNomination_E2E_NonAdminReturnsPermissionDenied(t *testing.T)
 	_, err := admin.ListBoutsByNomination(context.Background(), req)
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+// Спека 0011, FR-11: BoutPublicService — тот же набор боёв, доступен без
+// авторизации (AC-15), в отличие от BoutAdminService.
+func TestListPublicBoutsByNomination_E2E_AvailableWithoutAuth(t *testing.T) {
+	_, public, repo := setupFull(t)
+	repo.SeedBouts(n1,
+		domain.Bout{
+			ID: "b1", PoolID: "p1", NominationID: n1, RoundNumber: 1, SequenceNumber: 1,
+			FighterA: domain.FighterRef{ID: "a", Name: "Alice", Club: "X"},
+			FighterB: domain.FighterRef{ID: "e", Name: "Eve", Club: "X"},
+		},
+	)
+
+	// Без Authorization: PoolPublicService смонтирован под baseOpts (без
+	// RequireAdmin) и в allowlist глобального Auth-интерсептора.
+	req := connect.NewRequest(&hemav1.ListBoutsByNominationRequest{NominationId: n1})
+	res, err := public.ListPublicBoutsByNomination(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListPublicBoutsByNomination: %v", err)
+	}
+	if len(res.Msg.Bouts) != 1 || res.Msg.Bouts[0].Id != "b1" {
+		t.Fatalf("expected bout b1, got %v", res.Msg.Bouts)
+	}
+}
+
+func TestListPublicBoutsByNomination_E2E_EmptyNominationIDReturnsInvalidArgument(t *testing.T) {
+	_, public, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.ListBoutsByNominationRequest{NominationId: ""})
+	_, err := public.ListPublicBoutsByNomination(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
 	}
 }

@@ -13,11 +13,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hema/server/modules/pool/domain"
 	"github.com/hema/server/modules/pool/repo/sqlc"
 )
+
+// uniqueViolation — код ошибки PostgreSQL при нарушении unique-констрейнта
+// (23505), в частности partial unique index uq_pools_arena (спека 0011,
+// FR-6/NFR-4).
+const uniqueViolation = "23505"
+
+// constraintPoolsArena — имя partial unique index, защищающего инвариант
+// «одна арена ↔ один пул» на уровне данных (см. migrations/00003_pool_arena.sql).
+const constraintPoolsArena = "uq_pools_arena"
 
 // Repo — адаптер к PostgreSQL для модуля pool.
 type Repo struct {
@@ -42,7 +53,7 @@ var _ domain.Repository = (*Repo)(nil)
 type undoDataJSON struct {
 	FighterIDs []string       `json:"fighter_ids,omitempty"`
 	Number     int            `json:"number,omitempty"`
-	Pools      []undoPoolJSON  `json:"pools,omitempty"`
+	Pools      []undoPoolJSON `json:"pools,omitempty"`
 }
 
 // undoPoolJSON — один пул в снапшоте undo-reset: номер + бойцы.
@@ -99,13 +110,13 @@ func (r *Repo) listPools(ctx context.Context, nid uuid.UUID) ([]domain.Pool, err
 	for _, p := range poolRows {
 		out = append(out, domain.Pool{
 			ID: p.ID.String(), NominationID: p.NominationID.String(), Number: int(p.Number),
-			Members: byPool[p.ID],
+			Members: byPool[p.ID], ArenaID: fromNullableUUID(p.ArenaID),
 		})
 	}
 	return out, nil
 }
 
-// GetPool возвращает один пул по id.
+// GetPool возвращает один пул по id (включая ArenaID, спека 0011).
 func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) {
 	pid, err := uuid.Parse(poolID)
 	if err != nil {
@@ -128,6 +139,7 @@ func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) 
 	}
 	return domain.Pool{
 		ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number), Members: members,
+		ArenaID: fromNullableUUID(row.ArenaID),
 	}, nil
 }
 
@@ -529,6 +541,111 @@ func (r *Repo) SetStatus(ctx context.Context, nominationID string, status domain
 	return nil
 }
 
+// SeatPool закрепляет пул за площадкой (спека 0011, FR-7). Нарушение
+// partial unique index uq_pools_arena (арена уже занята другим пулом,
+// гонка параллельной постановки) мапится в domain.ErrArenaBusy (NFR-4).
+func (r *Repo) SeatPool(ctx context.Context, poolID, arenaID string) error {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	aid, err := uuid.Parse(arenaID)
+	if err != nil {
+		return fmt.Errorf("parse arena id: %w", err)
+	}
+	if _, err := r.q.SeatPool(ctx, sqlc.SeatPoolParams{
+		ID: pid, ArenaID: pgtype.UUID{Bytes: [16]byte(aid), Valid: true},
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if isUniqueViolation(err, constraintPoolsArena) {
+			return domain.ErrArenaBusy
+		}
+		return fmt.Errorf("seat pool: %w", err)
+	}
+	return nil
+}
+
+// UnseatPool снимает пул с площадки (FR-8). Идемпотентно.
+func (r *Repo) UnseatPool(ctx context.Context, poolID string) error {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	if err := r.q.UnseatPool(ctx, pid); err != nil {
+		return fmt.Errorf("unseat pool: %w", err)
+	}
+	return nil
+}
+
+// PoolsForArena возвращает пул, стоящий на арене (found=false — арена
+// свободна, FR-9).
+func (r *Repo) PoolsForArena(ctx context.Context, arenaID string) (domain.Pool, bool, error) {
+	aid, err := uuid.Parse(arenaID)
+	if err != nil {
+		return domain.Pool{}, false, fmt.Errorf("parse arena id: %w", err)
+	}
+	row, err := r.q.GetPoolByArena(ctx, pgtype.UUID{Bytes: [16]byte(aid), Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Pool{}, false, nil
+		}
+		return domain.Pool{}, false, fmt.Errorf("get pool by arena: %w", err)
+	}
+	memberIDs, err := r.q.ListMembersByPool(ctx, row.ID)
+	if err != nil {
+		return domain.Pool{}, false, fmt.Errorf("list members by pool: %w", err)
+	}
+	members := make([]domain.FighterRef, len(memberIDs))
+	for i, id := range memberIDs {
+		members[i] = domain.FighterRef{ID: id.String()}
+	}
+	return domain.Pool{
+		ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number), Members: members,
+		ArenaID: fromNullableUUID(row.ArenaID),
+	}, true, nil
+}
+
+// ReadyUnseatedPools возвращает пулы в статусе «готов», ещё не поставленные
+// ни на одну арену (FR-9).
+func (r *Repo) ReadyUnseatedPools(ctx context.Context) ([]domain.Pool, error) {
+	rows, err := r.q.ListReadyUnseatedPools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list ready unseated pools: %w", err)
+	}
+	out := make([]domain.Pool, 0, len(rows))
+	for _, p := range rows {
+		memberIDs, err := r.q.ListMembersByPool(ctx, p.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list members by pool: %w", err)
+		}
+		members := make([]domain.FighterRef, len(memberIDs))
+		for i, id := range memberIDs {
+			members[i] = domain.FighterRef{ID: id.String()}
+		}
+		out = append(out, domain.Pool{
+			ID: p.ID.String(), NominationID: p.NominationID.String(), Number: int(p.Number), Members: members,
+			ArenaID: fromNullableUUID(p.ArenaID),
+		})
+	}
+	return out, nil
+}
+
+// AnySeatedInNomination — стоит ли хотя бы один пул номинации на арене
+// (гейт FR-3).
+func (r *Repo) AnySeatedInNomination(ctx context.Context, nominationID string) (bool, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return false, fmt.Errorf("parse nomination id: %w", err)
+	}
+	exists, err := r.q.ExistsSeatedInNomination(ctx, nid)
+	if err != nil {
+		return false, fmt.Errorf("exists seated in nomination: %w", err)
+	}
+	return exists, nil
+}
+
 func decodeUndo(kind string, data []byte) (domain.UndoState, error) {
 	if kind == "" {
 		return domain.UndoState{}, nil
@@ -579,4 +696,23 @@ func uuidsToStrings(ids []uuid.UUID) []string {
 		out[i] = id.String()
 	}
 	return out
+}
+
+// fromNullableUUID конвертирует nullable UUID-колонку (arena_id) в строку:
+// "" — NULL (пул не на арене), иначе строковое представление (спека 0011).
+func fromNullableUUID(id pgtype.UUID) string {
+	if !id.Valid {
+		return ""
+	}
+	return uuid.UUID(id.Bytes).String()
+}
+
+// isUniqueViolation определяет, что ошибка PG — нарушение unique-констрейнта
+// (или partial unique index) с заданным именем.
+func isUniqueViolation(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == uniqueViolation && pgErr.ConstraintName == constraintName
 }

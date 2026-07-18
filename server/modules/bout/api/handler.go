@@ -1,5 +1,8 @@
-// Package api реализует Connect BoutAdminService: маппинг proto ↔ domain и
-// ошибок. Домен админский — публичного сервиса нет (спека 0010, FR-8).
+// Package api реализует Connect-хендлеры модуля bout: маппинг proto ↔
+// domain и ошибок. Домен/сервис/репо не различают admin/public — оба
+// сервиса читают один и тот же набор боёв (спека 0010, FR-8, урезано
+// спекой 0011, FR-11: BoutPublicService — тот же read-хендлер, смонтирован
+// без RequireAdmin).
 package api
 
 import (
@@ -14,18 +17,24 @@ import (
 	"github.com/hema/server/modules/bout/service"
 )
 
-// AdminHandler реализует BoutAdminServiceHandler (чтение боёв, сформированных
-// внутри пулов номинации). Доступ ограничен интерсептором RequireAdmin.
+// AdminHandler реализует и BoutAdminServiceHandler (RequireAdmin), и
+// BoutPublicServiceHandler (спека 0011, без RequireAdmin) — один и тот же
+// read-хендлер, module.go монтирует его под обоими именами сервисов с
+// разными наборами опций (план «Обзор решения»: «переиспользовать один и
+// тот же handler-объект для обоих сервисов»).
 type AdminHandler struct {
 	svc *service.Service
 }
 
-// NewAdminHandler создаёт Connect-обработчик admin-операций боёв.
+// NewAdminHandler создаёт Connect-обработчик операций боёв (admin+public).
 func NewAdminHandler(svc *service.Service) *AdminHandler {
 	return &AdminHandler{svc: svc}
 }
 
-var _ hemav1connect.BoutAdminServiceHandler = (*AdminHandler)(nil)
+var (
+	_ hemav1connect.BoutAdminServiceHandler  = (*AdminHandler)(nil)
+	_ hemav1connect.BoutPublicServiceHandler = (*AdminHandler)(nil)
+)
 
 // ListBoutsByNomination возвращает бои всех пулов номинации, отсортированные
 // по pool_id, затем sequence_number.
@@ -38,6 +47,17 @@ func (h *AdminHandler) ListBoutsByNomination(
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.ListBoutsByNominationResponse{Bouts: toProtoBouts(bouts)}), nil
+}
+
+// ListPublicBoutsByNomination — публичное чтение (спека 0011, FR-11): тот
+// же набор боёв, что и ListBoutsByNomination (см. BoutPublicService в
+// bout.proto — публичная видимость регулируется PoolPublicService, не
+// здесь).
+func (h *AdminHandler) ListPublicBoutsByNomination(
+	ctx context.Context,
+	req *connect.Request[hemav1.ListBoutsByNominationRequest],
+) (*connect.Response[hemav1.ListBoutsByNominationResponse], error) {
+	return h.ListBoutsByNomination(ctx, req)
 }
 
 // mapError переводит доменные ошибки в connect.Code.
