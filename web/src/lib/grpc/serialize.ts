@@ -17,7 +17,7 @@ import {
   type RosterEntry,
 } from "@/gen/hema/v1/fighter_pb";
 import { ArenaSchema, type Arena } from "@/gen/hema/v1/arena_pb";
-import { PoolLayoutSchema, type PoolLayout } from "@/gen/hema/v1/pool_pb";
+import { PoolLayoutSchema, PoolSchema, type PoolLayout, type Pool } from "@/gen/hema/v1/pool_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
@@ -43,6 +43,7 @@ import type {
 import type {
   PoolLayout as PoolLayoutDto,
   PoolLayoutStatus as PoolLayoutStatusDto,
+  PoolStatus as PoolStatusDto,
   FighterRef as PoolFighterRefDto,
   Pool as PoolDto,
 } from "@/entities/pool/lib/types";
@@ -266,9 +267,29 @@ function poolFighterRefToJson(raw: Partial<PoolFighterRefDto> | undefined): Pool
 }
 
 /**
+ * poolRawToDto нормализует уже toJson-сериализованный (plain JSON, не proto
+ * Message) объект пула — общая часть между `poolLayoutToJson` (пулы вложены
+ * в `PoolLayout`) и `poolToJson` (пул как отдельное proto-сообщение).
+ * `status`/`arenaId`/`arenaName` — спека 0011.
+ */
+function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
+  return {
+    id: raw?.id ?? "",
+    nominationId: raw?.nominationId ?? "",
+    number: raw?.number ?? 0,
+    name: raw?.name ?? "",
+    members: Array.isArray(raw?.members) ? raw.members.map(poolFighterRefToJson) : [],
+    status: (raw?.status as PoolStatusDto) ?? "POOL_STATUS_UNSPECIFIED",
+    arenaId: raw?.arenaId ?? "",
+    arenaName: raw?.arenaName ?? "",
+  };
+}
+
+/**
  * poolLayoutToJson превращает protobuf-сообщение PoolLayout в обычный
  * JSON-объект (спека 0009). `status` — строковый литерал; `pools`/
- * `unassigned` — нормализованные массивы (без undefined-полей).
+ * `unassigned` — нормализованные массивы (без undefined-полей). Каждый пул
+ * несёт свой статус/площадку (спека 0011).
  */
 export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto | null {
   if (!layout) return null;
@@ -277,19 +298,26 @@ export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto 
     nominationId: raw.nominationId ?? "",
     status: (raw.status as PoolLayoutStatusDto) ?? "POOL_LAYOUT_STATUS_UNSPECIFIED",
     unassigned: Array.isArray(raw.unassigned) ? raw.unassigned.map(poolFighterRefToJson) : [],
-    pools: Array.isArray(raw.pools)
-      ? raw.pools.map(
-          (p): PoolDto => ({
-            id: p.id ?? "",
-            nominationId: p.nominationId ?? "",
-            number: p.number ?? 0,
-            name: p.name ?? "",
-            members: Array.isArray(p.members) ? p.members.map(poolFighterRefToJson) : [],
-          }),
-        )
-      : [],
+    pools: Array.isArray(raw.pools) ? raw.pools.map(poolRawToDto) : [],
     canUndo: raw.canUndo ?? false,
   };
+}
+
+/**
+ * poolToJson превращает protobuf-сообщение Pool (отдельное, не вложенное в
+ * PoolLayout) в обычный JSON-объект — используется для `GetPoolsForArena`
+ * (seated/available) и `ListPublicPools` (спека 0011).
+ */
+export function poolToJson(pool: Pool | undefined): PoolDto | null {
+  if (!pool) return null;
+  const raw = toJson(PoolSchema, pool) as Partial<PoolDto>;
+  return poolRawToDto(raw);
+}
+
+/** poolsToJson превращает массив protobuf Pool в массив DTO (спека 0011). */
+export function poolsToJson(pools: Pool[] | undefined): PoolDto[] {
+  if (!pools) return [];
+  return pools.map((p) => poolToJson(p)).filter((p): p is PoolDto => p !== null);
 }
 
 function boutFighterRefToJson(raw: Partial<BoutFighterRefDto> | undefined): BoutFighterRefDto {

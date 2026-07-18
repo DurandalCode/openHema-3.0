@@ -5,6 +5,7 @@ import { Button } from "@/shared/ui/button";
 import { Col, Row } from "@/shared/ui/stack";
 import { getArena } from "@/entities/arena/model/get-arena";
 import { arenaStatusLabel } from "@/entities/arena/lib/types";
+import { PoolSeating } from "@/features/pool-seating/ui/pool-seating";
 import { AdminHeader } from "../../admin-header";
 
 export const runtime = "nodejs";
@@ -15,11 +16,12 @@ type PageProps = { params: Promise<{ id: string }> };
 /**
  * /admin/arenas/[id] — стабильный URL страницы управления площадкой (FR-9).
  * Серверный компонент: SSR `getArena` по id; показывает реквизиты площадки
- * (имя, описание, статус) и плейсхолдер-секцию «Управление боями появится
- * позже». Идентификатор = id (uuid), поэтому URL не рвётся при переименовании
- * и архивации (FR-8) без дополнительной логики.
+ * (имя, описание, статус) и секцию постановки/снятия пула (спека 0011,
+ * FR-9): виджет `PoolSeating` (клиентский, TanStack Query) поверх
+ * `/api/arenas/[id]/pools`. Идентификатор = id (uuid), поэтому URL не
+ * рвётся при переименовании и архивации (FR-8) без дополнительной логики.
  *
- * Каркас: бои наполнят эту страницу отдельной будущей фичей.
+ * Ход боя (текущий бой, результат) — вне скоупа 0011, будущий инкремент.
  */
 export default async function AdminArenaPage({ params }: PageProps) {
   const { id } = await params;
@@ -69,15 +71,15 @@ export default async function AdminArenaPage({ params }: PageProps) {
 
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>Управление боями</CardTitle>
+            <CardTitle>Постановка пула на арену</CardTitle>
             <CardDescription>
-              Здесь появится управление боями этой площадки. Бои наполнят
-              эту страницу отдельной будущей фичей — пока площадка лишь
-              предоставляет стабильный URL (FR-9).
+              Пул, готовящийся к запуску на этой площадке — с составом и
+              боями по порядку, либо список готовых пулов для постановки
+              (спека 0011, FR-9). Сам ход боя — будущий инкремент.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Пока нет боёв.</p>
+            <PoolSeating arenaId={arena.id} />
           </CardContent>
         </Card>
       </div>

@@ -303,9 +303,14 @@ function PoolColumn({
       <CardContent className="pt-6">
         <Col gap={3}>
           <Row align="center" justify="between">
-            <Row align="center" gap={2}>
+            <Row align="center" gap={2} className="flex-wrap">
               <span className="font-medium">{pool.name}</span>
               <Badge variant="secondary">{pool.members.length}</Badge>
+              {pool.status === "POOL_STATUS_PREPARING" && (
+                <Badge title={pool.arenaName ? `Площадка: ${pool.arenaName}` : undefined}>
+                  готовится к запуску
+                </Badge>
+              )}
             </Row>
             {!readOnly && (
               <Button
