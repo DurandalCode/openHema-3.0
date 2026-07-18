@@ -358,7 +358,7 @@ function BoutList({ bouts }: { bouts: Bout[] }) {
       <Col gap={1}>
         {bouts.map((bout) => (
           <span key={bout.id} className="text-xs">
-            Тур {bout.roundNumber}: {bout.fighterA.name} — {bout.fighterB.name}
+            Бой {bout.sequenceNumber}: {bout.fighterA.name} — {bout.fighterB.name}
           </span>
         ))}
       </Col>
