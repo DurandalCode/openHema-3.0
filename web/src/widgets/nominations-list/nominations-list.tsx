@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CheckCircle2, FileText, Swords, Users } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -114,6 +115,13 @@ export function NominationsList({
                         </Col>
                       )
                     )}
+                    <Link
+                      href={`/nominations/${n.id}`}
+                      className="flex items-center gap-2 underline underline-offset-2 hover:text-foreground"
+                    >
+                      <Swords className="size-4" />
+                      Пулы и бои
+                    </Link>
                     {isAuthenticated && <SubmitApplicationButton nominationId={n.id} />}
                   </Col>
                 </CardContent>
