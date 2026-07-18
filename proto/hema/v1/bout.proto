@@ -18,6 +18,16 @@ service BoutAdminService {
   rpc ListBoutsByNomination(ListBoutsByNominationRequest) returns (ListBoutsByNominationResponse);
 }
 
+// BoutPublicService — публичное чтение боёв номинации (спека 0011, FR-11).
+// Не требует роли ADMIN. Тот же набор боёв, что и
+// BoutAdminService.ListBoutsByNomination (бои формируются только для пулов
+// готовой раскладки — фильтровать по готовности отдельно не нужно, публичная
+// видимость раскладки/пула регулируется PoolPublicService).
+service BoutPublicService {
+  // ListPublicBoutsByNomination — см. BoutAdminService.ListBoutsByNomination.
+  rpc ListPublicBoutsByNomination(ListBoutsByNominationRequest) returns (ListBoutsByNominationResponse);
+}
+
 // BoutFighterRef — снапшот бойца на момент формирования боя (имя/клуб не
 // перечитываются из модуля fighter при чтении — спека, решение №5).
 // Название с префиксом Bout — в пакете hema.v1 уже есть pool.FighterRef
