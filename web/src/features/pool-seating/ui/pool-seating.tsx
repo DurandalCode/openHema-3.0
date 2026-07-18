@@ -82,6 +82,9 @@ function SeatedPoolCard({
           <Row align="center" justify="between" gap={3} className="flex-wrap">
             <Row align="center" gap={2}>
               <span className="font-medium">{pool.name}</span>
+              {pool.nominationName && (
+                <Badge variant="outline">{pool.nominationName}</Badge>
+              )}
               <Badge>готовится к запуску</Badge>
             </Row>
             <Button type="button" variant="outline" size="sm" onClick={onUnseat} loading={unseatPending}>
@@ -152,6 +155,9 @@ function AvailablePools({
             <Row align="center" justify="between" gap={3} className="flex-wrap">
               <Row align="center" gap={2}>
                 <span className="font-medium">{pool.name}</span>
+                {pool.nominationName && (
+                  <Badge variant="outline">{pool.nominationName}</Badge>
+                )}
                 <Badge variant="secondary">{pool.members.length}</Badge>
               </Row>
               <Button

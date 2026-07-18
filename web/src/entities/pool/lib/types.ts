@@ -40,11 +40,14 @@ export type FighterRef = {
 
 /**
  * Pool — пул номинации. `arenaId`/`arenaName` пусты, если пул не поставлен
- * на арену (спека 0011).
+ * на арену (спека 0011). `nominationName` — резолвленное на чтение название
+ * номинации пула (denormalized, FR-9: список «готовых пулов» на экране арены
+ * собран из разных номинаций — без имени они неразличимы).
  */
 export type Pool = {
   id: string;
   nominationId: string;
+  nominationName: string;
   number: number;
   name: string;
   members: FighterRef[];

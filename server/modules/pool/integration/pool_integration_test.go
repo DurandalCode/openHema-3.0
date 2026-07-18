@@ -81,10 +81,11 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 	}, baseOpts, adminOpts)
 
 	poolmodule.Register(mux, poolmodule.Deps{
-		Pool:     pool,
-		Fighters: platform.NewPoolActiveFightersProvider(pool),
-		Bouts:    platform.NewPoolBoutGenerator(pool), // real adapter, not fake (spec 0010, T19)
-		Arenas:   platform.NewPoolArenaProvider(pool, activeTournaments), // real adapter, spec 0011
+		Pool:        pool,
+		Fighters:    platform.NewPoolActiveFightersProvider(pool),
+		Bouts:       platform.NewPoolBoutGenerator(pool),                             // real adapter, not fake (spec 0010, T19)
+		Arenas:      platform.NewPoolArenaProvider(pool, activeTournaments),         // real adapter, spec 0011
+		Nominations: platform.NewPoolNominationProvider(pool, activeTournaments),   // real adapter, FR-9 (имя номинации пула)
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)

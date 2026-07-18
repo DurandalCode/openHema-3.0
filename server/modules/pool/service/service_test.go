@@ -16,7 +16,8 @@ func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFig
 	fighters := testutil.NewFakeActiveFightersProvider()
 	bouts := testutil.NewFakeBoutGenerator()
 	arenas := testutil.NewFakeArenaProvider()
-	return service.New(repo, fighters, bouts, arenas), repo, fighters, bouts
+	nominations := testutil.NewFakeNominationProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts
 }
 
 // newServiceWithArenas — как newService, но также возвращает
@@ -26,7 +27,20 @@ func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.Fak
 	fighters := testutil.NewFakeActiveFightersProvider()
 	bouts := testutil.NewFakeBoutGenerator()
 	arenas := testutil.NewFakeArenaProvider()
-	return service.New(repo, fighters, bouts, arenas), repo, fighters, bouts, arenas
+	nominations := testutil.NewFakeNominationProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts, arenas
+}
+
+// newServiceWithNominations — как newServiceWithArenas, но также возвращает
+// FakeNominationProvider (резолв имени номинации пула для экрана арены,
+// FR-9).
+func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutGenerator, *testutil.FakeArenaProvider, *testutil.FakeNominationProvider) {
+	repo := testutil.NewFakeRepo()
+	fighters := testutil.NewFakeActiveFightersProvider()
+	bouts := testutil.NewFakeBoutGenerator()
+	arenas := testutil.NewFakeArenaProvider()
+	nominations := testutil.NewFakeNominationProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts, arenas, nominations
 }
 
 func poolNumbers(pools []domain.Pool) []int {
@@ -1295,4 +1309,114 @@ func TestPoolOnArena_EmptyInputsReturnInvalidInput(t *testing.T) {
 	if _, err := svc.ListPublicPools(ctx, ""); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("ListPublicPools empty nominationID: expected ErrInvalidInput, got %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------
+// Резолв имени номинации пула (FR-9: список «готовых пулов для постановки»
+// собран из разных номинаций — без имени они неразличимы на экране арены).
+// ---------------------------------------------------------------------
+
+// GetPoolsForArena обогащает пулы именем их номинации (FR-9): и seated, и
+// каждый available несут NominationName, резолвленную через
+// NominationProvider. Пулы одной номинации не порождают повторных запросов
+// к провайдеру.
+func TestGetPoolsForArena_EnrichesNominationName(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, arenas, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	fighters.Set("n2", domain.FighterRef{ID: "f2"})
+	p1 := repo.SeedPool("n1", 1, "f1")
+	_ = repo.SeedPool("n2", 1, "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	repo.SeedStatus("n2", domain.LayoutReady)
+	arenas.Set(domain.ArenaRef{ID: "a1", Name: "R1", Active: true})
+	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
+	nominations.Set(domain.NominationRef{ID: "n2", Title: "Сабля"})
+	if _, err := svc.SeatPoolOnArena(ctx, p1, "a1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result, err := svc.GetPoolsForArena(ctx, "a1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Seated == nil || result.Seated.NominationName != "Длинный меч" {
+		t.Fatalf("seated.NominationName = %q, want Длинный меч", poolOrEmpty(result.Seated))
+	}
+	if len(result.Available) != 1 || result.Available[0].NominationName != "Сабля" {
+		t.Fatalf("available.NominationName = %q, want Сабля", result.Available[0].NominationName)
+	}
+}
+
+// GetPoolsForArena: пулы неизвестной провайдеру номинации получают пустое
+// имя (не падаем — контракт порта разрешает отсутствующие id в карте).
+func TestGetPoolsForArena_UnknownNominationLeavesNameEmpty(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	repo.SeedPool("n1", 1, "f1")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	// nominations — пустой: NominationName должна остаться ""
+
+	result, err := svc.GetPoolsForArena(ctx, "empty-arena")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Available) != 1 {
+		t.Fatalf("expected 1 available pool, got %d", len(result.Available))
+	}
+	if result.Available[0].NominationName != "" {
+		t.Fatalf("expected empty NominationName for unknown nomination, got %q", result.Available[0].NominationName)
+	}
+	// Sanity: провайдер действительно не содержал n1.
+	got, _ := nominations.NominationsByIDs(ctx, []string{"n1"})
+	if _, ok := got["n1"]; ok {
+		t.Fatalf("fake should not contain n1")
+	}
+}
+
+// ListPublicPools обогащает пулы именем номинации (один batched call для
+// одной номинации — все пулы раскладки разделяют nominationID).
+func TestListPublicPools_EnrichesNominationName(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "f1", Name: "A", Club: "X"})
+	repo.SeedPool("n1", 1, "f1")
+	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pools, err := svc.ListPublicPools(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pools) != 1 || pools[0].NominationName != "Длинный меч" {
+		t.Fatalf("pools[0].NominationName = %q, want Длинный меч", poolOrEmpty(&pools[0]))
+	}
+}
+
+// GetLayout также резолвит имя номинации (loadLayout → applyArenaAndStatus).
+func TestGetLayout_EnrichesNominationName(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	p1 := repo.SeedPool("n1", 1, "f1")
+	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
+
+	layout, err := svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := poolByID(layout.Pools, p1)
+	if got.NominationName != "Длинный меч" {
+		t.Fatalf("NominationName = %q, want Длинный меч", got.NominationName)
+	}
+}
+
+func poolOrEmpty(p *domain.Pool) string {
+	if p == nil {
+		return "<nil>"
+	}
+	return p.NominationName
 }

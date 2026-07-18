@@ -9,6 +9,7 @@ function pool(id: string, members: FighterRef[]): Pool {
   return {
     id,
     nominationId: "n1",
+    nominationName: "",
     number: 1,
     name: "Пул 1",
     members,

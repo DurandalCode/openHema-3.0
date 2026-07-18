@@ -270,12 +270,15 @@ function poolFighterRefToJson(raw: Partial<PoolFighterRefDto> | undefined): Pool
  * poolRawToDto нормализует уже toJson-сериализованный (plain JSON, не proto
  * Message) объект пула — общая часть между `poolLayoutToJson` (пулы вложены
  * в `PoolLayout`) и `poolToJson` (пул как отдельное proto-сообщение).
- * `status`/`arenaId`/`arenaName` — спека 0011.
+ * `status`/`arenaId`/`arenaName` — спека 0011; `nominationName` — резолв
+ * имени номинации пула (FR-9: «готовые пулы» на экране арены собраны из
+ * разных номинаций).
  */
 function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
   return {
     id: raw?.id ?? "",
     nominationId: raw?.nominationId ?? "",
+    nominationName: raw?.nominationName ?? "",
     number: raw?.number ?? 0,
     name: raw?.name ?? "",
     members: Array.isArray(raw?.members) ? raw.members.map(poolFighterRefToJson) : [],

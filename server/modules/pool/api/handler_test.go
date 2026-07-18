@@ -27,19 +27,20 @@ const n1 = "11111111-1111-1111-1111-111111111111"
 // нужен публичный клиент/fake-арены.
 func setup(t *testing.T) (hemav1connect.PoolAdminServiceClient, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider) {
 	t.Helper()
-	admin, _, repo, fighters, _ := setupFull(t)
+	admin, _, repo, fighters, _, _ := setupFull(t)
 	return admin, repo, fighters
 }
 
 // setupFull — как setup, но дополнительно монтирует PoolPublicService (без
-// RequireAdmin, спека 0011) и возвращает публичный клиент и
-// fake-провайдер арен.
+// RequireAdmin, спека 0011) и возвращает публичный клиент, fake-провайдер
+// арен и fake-провайдер номинаций (резолв имени номинации пула, FR-9).
 func setupFull(t *testing.T) (
 	hemav1connect.PoolAdminServiceClient,
 	hemav1connect.PoolPublicServiceClient,
 	*testutil.FakeRepo,
 	*testutil.FakeActiveFightersProvider,
 	*testutil.FakeArenaProvider,
+	*testutil.FakeNominationProvider,
 ) {
 	t.Helper()
 
@@ -47,8 +48,9 @@ func setupFull(t *testing.T) (
 	fighters := testutil.NewFakeActiveFightersProvider()
 	bouts := testutil.NewFakeBoutGenerator()
 	arenas := testutil.NewFakeArenaProvider()
+	nominations := testutil.NewFakeNominationProvider()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo, fighters, bouts, arenas)
+	svc := service.New(repo, fighters, bouts, arenas, nominations)
 	adminHandler := NewAdminHandler(svc)
 	publicHandler := NewPublicHandler(svc)
 
@@ -72,7 +74,7 @@ func setupFull(t *testing.T) (
 	client := server.Client()
 	adminClient := hemav1connect.NewPoolAdminServiceClient(client, server.URL)
 	publicClient := hemav1connect.NewPoolPublicServiceClient(client, server.URL)
-	return adminClient, publicClient, repo, fighters, arenas
+	return adminClient, publicClient, repo, fighters, arenas, nominations
 }
 
 func adminBearer(t *testing.T) string {
@@ -405,7 +407,7 @@ func TestSetLayoutStatus_E2E_InvalidTargetReturnsInvalidArgument(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestSeatPoolOnArena_E2E(t *testing.T) {
-	admin, _, repo, fighters, arenas := setupFull(t)
+	admin, _, repo, fighters, arenas, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -428,7 +430,7 @@ func TestSeatPoolOnArena_E2E(t *testing.T) {
 }
 
 func TestSeatPoolOnArena_E2E_NotReadyReturnsFailedPrecondition(t *testing.T) {
-	admin, _, repo, fighters, arenas := setupFull(t)
+	admin, _, repo, fighters, arenas, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1") // status по умолчанию — draft
 	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true})
@@ -443,7 +445,7 @@ func TestSeatPoolOnArena_E2E_NotReadyReturnsFailedPrecondition(t *testing.T) {
 }
 
 func TestSeatPoolOnArena_E2E_ArenaNotAvailableReturnsFailedPrecondition(t *testing.T) {
-	admin, _, repo, fighters, _ := setupFull(t)
+	admin, _, repo, fighters, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -458,7 +460,7 @@ func TestSeatPoolOnArena_E2E_ArenaNotAvailableReturnsFailedPrecondition(t *testi
 }
 
 func TestSeatPoolOnArena_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
-	admin, _, _, _, _ := setupFull(t)
+	admin, _, _, _, _, _ := setupFull(t)
 
 	req := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: "p1", ArenaId: "a1"})
 	_, err := admin.SeatPoolOnArena(context.Background(), req)
@@ -468,7 +470,7 @@ func TestSeatPoolOnArena_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestSeatPoolOnArena_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
-	admin, _, _, _, _ := setupFull(t)
+	admin, _, _, _, _, _ := setupFull(t)
 
 	req := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: "p1", ArenaId: "a1"})
 	req.Header().Set("Authorization", userBearer(t))
@@ -479,7 +481,7 @@ func TestSeatPoolOnArena_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
 }
 
 func TestUnseatPool_E2E(t *testing.T) {
-	admin, _, repo, fighters, arenas := setupFull(t)
+	admin, _, repo, fighters, arenas, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -504,7 +506,7 @@ func TestUnseatPool_E2E(t *testing.T) {
 }
 
 func TestGetPoolsForArena_E2E(t *testing.T) {
-	admin, _, repo, fighters, arenas := setupFull(t)
+	admin, _, repo, fighters, arenas, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	p1 := repo.SeedPool(n1, 1, "f1")
 	p2 := repo.SeedPool(n1, 2, "f2")
@@ -532,7 +534,7 @@ func TestGetPoolsForArena_E2E(t *testing.T) {
 }
 
 func TestListPublicPools_E2E_ReadyShowsPools(t *testing.T) {
-	_, public, repo, fighters, _ := setupFull(t)
+	_, public, repo, fighters, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A", Club: "X"})
 	repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -554,7 +556,7 @@ func TestListPublicPools_E2E_ReadyShowsPools(t *testing.T) {
 
 // AC-14: пока раскладка draft, публичный список пуст (не ошибка).
 func TestListPublicPools_E2E_DraftReturnsEmpty(t *testing.T) {
-	_, public, repo, fighters, _ := setupFull(t)
+	_, public, repo, fighters, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	repo.SeedPool(n1, 1, "f1") // статус по умолчанию — draft
 
@@ -565,5 +567,49 @@ func TestListPublicPools_E2E_DraftReturnsEmpty(t *testing.T) {
 	}
 	if len(res.Msg.Pools) != 0 {
 		t.Errorf("expected empty pools while draft, got %d", len(res.Msg.Pools))
+	}
+}
+
+// Pool.NominationName резолвится сервисом и доходит до proto-ответа
+// (FR-9: экран арены показывает пулы из разных номинаций — без имени они
+// неразличимы). Проверяем на GetPoolsForArena: и seated, и available несут
+// адресов NominationName.
+func TestGetPoolsForArena_E2E_NominationNameInResponse(t *testing.T) {
+	admin, _, repo, fighters, arenas, nominations := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"})
+	fighters.Set("nom-sable", domain.FighterRef{ID: "f2"})
+	p1 := repo.SeedPool(n1, 1, "f1")
+	_ = repo.SeedPool("nom-sable", 1, "f2")
+	repo.SeedStatus(n1, domain.LayoutReady)
+	repo.SeedStatus("nom-sable", domain.LayoutReady)
+	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true})
+	nominations.Set(domain.NominationRef{ID: n1, Title: "Длинный меч"})
+	nominations.Set(domain.NominationRef{ID: "nom-sable", Title: "Сабля"})
+
+	seatReq := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: p1, ArenaId: "arena-1"})
+	seatReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.SeatPoolOnArena(context.Background(), seatReq); err != nil {
+		t.Fatalf("SeatPoolOnArena: %v", err)
+	}
+
+	req := connect.NewRequest(&hemav1.GetPoolsForArenaRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetPoolsForArena(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetPoolsForArena: %v", err)
+	}
+	if res.Msg.Seated == nil || res.Msg.Seated.NominationName != "Длинный меч" {
+		got := "<nil>"
+		if res.Msg.Seated != nil {
+			got = res.Msg.Seated.NominationName
+		}
+		t.Errorf("seated.NominationName = %q, want Длинный меч", got)
+	}
+	if len(res.Msg.Available) != 1 || res.Msg.Available[0].NominationName != "Сабля" {
+		got := "<missing>"
+		if len(res.Msg.Available) == 1 {
+			got = res.Msg.Available[0].NominationName
+		}
+		t.Errorf("available.NominationName = %q, want Сабля", got)
 	}
 }

@@ -253,14 +253,15 @@ func toProtoPools(pools []domain.Pool) []*hemav1.Pool {
 
 func toProtoPool(p domain.Pool) *hemav1.Pool {
 	return &hemav1.Pool{
-		Id:           p.ID,
-		NominationId: p.NominationID,
-		Number:       int32(p.Number),
-		Name:         poolName(p.Number),
-		Members:      toProtoFighterRefs(p.Members),
-		Status:       toProtoPoolStatus(p.Status),
-		ArenaId:      p.ArenaID,
-		ArenaName:    p.ArenaName,
+		Id:             p.ID,
+		NominationId:   p.NominationID,
+		Number:         int32(p.Number),
+		Name:           poolName(p.Number),
+		Members:        toProtoFighterRefs(p.Members),
+		Status:         toProtoPoolStatus(p.Status),
+		ArenaId:        p.ArenaID,
+		ArenaName:      p.ArenaName,
+		NominationName: p.NominationName,
 	}
 }
 

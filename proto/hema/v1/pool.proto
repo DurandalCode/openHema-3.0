@@ -105,6 +105,9 @@ message FighterRef {
 // status/arena_id/arena_name — спека 0011: статус отдельного пула и, если он
 // поставлен на арену, идентификатор и (резолвленное на момент чтения) имя
 // площадки. arena_id/arena_name пусты, если пул не на арене.
+// nomination_name — резолвленное на момент чтения название номинации пула
+// (denormalized на чтении, по аналогии с arena_name): для экрана арены, где
+// список «готовых пулов для постановки» собран из разных номинаций.
 message Pool {
   string id = 1;
   string nomination_id = 2;
@@ -114,6 +117,7 @@ message Pool {
   PoolStatus status = 6;
   string arena_id = 7;
   string arena_name = 8;
+  string nomination_name = 9;
 }
 
 // PoolLayout — раскладка номинации целиком: статус, нераспределённые,

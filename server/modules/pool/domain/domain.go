@@ -255,3 +255,22 @@ type ArenaProvider interface {
 	// просто не встречаются в карте.
 	ArenasByIDs(ctx context.Context, ids []string) (map[string]ArenaRef, error)
 }
+
+// NominationRef — проекция номинации для обогащения пулов именем номинации
+// (по аналогии с ArenaRef, спека 0011, FR-9: список «готовых пулов для
+// постановки» собран из разных номинаций — без имени номинации на экране
+// арены пулы с одинаковым номером неотличимы).
+type NominationRef struct {
+	ID    string
+	Title string
+}
+
+// NominationProvider — межмодульная зависимость: резолв названий номинаций
+// через API модуля nomination (без прямого доступа к его PG-схеме, ADR
+// 0002). Направление зависимости — только pool → nomination.
+type NominationProvider interface {
+	// NominationsByIDs — батч-резолв имён номинаций (для обогащения списков
+	// пулов). Отсутствующие id в ответе просто не встречаются в карте —
+	// service оставляет NominationName пустым, не падая.
+	NominationsByIDs(ctx context.Context, ids []string) (map[string]NominationRef, error)
+}

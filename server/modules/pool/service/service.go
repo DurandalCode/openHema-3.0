@@ -12,15 +12,16 @@ import (
 // Service реализует юзкейсы раскладки бойцов по пулам. Зависит от портов,
 // не от pg/proto.
 type Service struct {
-	repo     domain.Repository
-	fighters domain.ActiveFightersProvider
-	bouts    domain.BoutGenerator
-	arenas   domain.ArenaProvider
+	repo         domain.Repository
+	fighters     domain.ActiveFightersProvider
+	bouts        domain.BoutGenerator
+	arenas       domain.ArenaProvider
+	nominations  domain.NominationProvider
 }
 
 // New создаёт сервис pool.
-func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutGenerator, arenas domain.ArenaProvider) *Service {
-	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas}
+func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutGenerator, arenas domain.ArenaProvider, nominations domain.NominationProvider) *Service {
+	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations}
 }
 
 // GetLayout возвращает раскладку номинации (lazy-init + реконсиляция с
@@ -465,17 +466,24 @@ func (s *Service) loadLayout(ctx context.Context, nominationID string) (domain.L
 
 // applyArenaAndStatus заполняет ArenaName (батч-резолв через ArenaProvider)
 // и Status (ComputePoolStatus) для пулов, чей LayoutStatus уже известен
-// (все пулы одной номинации/раскладки — спека 0011).
+// (все пулы одной номинации/раскладки — спека 0011). Дополнительно резолвит
+// имя номинации (NominationName) — все пулы одной раскладки разделяют
+// nominationID, резолв идёт одним батчем.
 func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, layoutStatus domain.LayoutStatus) ([]domain.Pool, error) {
-	names, err := s.resolveArenaNames(ctx, pools)
+	arenaNames, err := s.resolveArenaNames(ctx, pools)
+	if err != nil {
+		return nil, err
+	}
+	nomNames, err := s.resolveNominationNames(ctx, pools)
 	if err != nil {
 		return nil, err
 	}
 	for i := range pools {
 		pools[i].Status = domain.ComputePoolStatus(layoutStatus, pools[i].ArenaID)
 		if pools[i].ArenaID != "" {
-			pools[i].ArenaName = names[pools[i].ArenaID].Name
+			pools[i].ArenaName = arenaNames[pools[i].ArenaID].Name
 		}
+		pools[i].NominationName = nomNames[pools[i].NominationID].Title
 	}
 	return pools, nil
 }
@@ -530,16 +538,41 @@ func (s *Service) enrichPools(ctx context.Context, rawPools []domain.Pool) ([]do
 		out[i] = enriched
 	}
 
-	names, err := s.resolveArenaNames(ctx, out)
+	arenaNames, err := s.resolveArenaNames(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	nomNames, err := s.resolveNominationNames(ctx, out)
 	if err != nil {
 		return nil, err
 	}
 	for i := range out {
 		if out[i].ArenaID != "" {
-			out[i].ArenaName = names[out[i].ArenaID].Name
+			out[i].ArenaName = arenaNames[out[i].ArenaID].Name
 		}
+		out[i].NominationName = nomNames[out[i].NominationID].Title
 	}
 	return out, nil
+}
+
+// resolveNominationNames собирает уникальные NominationID пулов и
+// батч-резолвит их названия через NominationProvider. Пулы с дублирующимся
+// nominationID не увеличивают запрос. Отсутствующие id просто не попадают
+// в карту — NominationName остаётся пустым (не падаем).
+func (s *Service) resolveNominationNames(ctx context.Context, pools []domain.Pool) (map[string]domain.NominationRef, error) {
+	seen := make(map[string]bool)
+	ids := make([]string, 0, len(pools))
+	for _, p := range pools {
+		if p.NominationID == "" || seen[p.NominationID] {
+			continue
+		}
+		seen[p.NominationID] = true
+		ids = append(ids, p.NominationID)
+	}
+	if len(ids) == 0 {
+		return map[string]domain.NominationRef{}, nil
+	}
+	return s.nominations.NominationsByIDs(ctx, ids)
 }
 
 // resolveArenaNames собирает уникальные ArenaID пулов и батч-резолвит их

@@ -26,14 +26,21 @@ type FighterRef struct {
 // ArenaProvider при сборке (не хранится в БД, план «Обзор решения» —
 // «резолв имени арены — live, не снапшот»); Status вычисляется службой
 // через ComputePoolStatus(layoutStatus, ArenaID).
+//
+// NominationName — резолвленное на момент чтения название номинации пула
+// (по аналогии с ArenaName): заполняется службой через NominationProvider
+// при сборке. Не хранится в схеме pool — берётся live из модуля nomination.
+// Полезно на экранах, где пулы собраны из разных номинаций (GetPoolsForArena,
+// спека 0011, FR-9).
 type Pool struct {
-	ID           string
-	NominationID string
-	Number       int
-	Members      []FighterRef
-	ArenaID      string
-	ArenaName    string
-	Status       PoolStatus
+	ID             string
+	NominationID   string
+	NominationName string
+	Number          int
+	Members        []FighterRef
+	ArenaID        string
+	ArenaName      string
+	Status         PoolStatus
 }
 
 // Assignment — результат автораспределения: бойца — в пул.

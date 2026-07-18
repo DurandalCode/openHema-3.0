@@ -21,18 +21,20 @@ import (
 )
 
 // Deps — явные зависимости модуля pool (DI через конструктор). Fighters,
-// Bouts и Arenas — межмодульные зависимости (порты, не прямой доступ к чужим
-// PG-схемам, ADR 0002); направления зависимостей — только pool → fighter,
-// pool → bout (спека 0010) и pool → arena (спека 0011, «Обзор решения»).
-// Arenas — реальный адаптер поверх arena-сервиса подключается отдельной
-// join-волной в internal/platform (см. tasks.md T8); до этого поле может
-// быть nil при локальной сборке composition root — модуль сам этим не
+// Bouts, Arenas и Nominations — межмодульные зависимости (порты, не прямой
+// доступ к чужим PG-схемам, ADR 0002); направления зависимостей — только
+// pool → fighter, pool → bout (спека 0010), pool → arena (спека 0011,
+// «Обзор решения») и pool → nomination (резолв имени номинации пула для
+// экрана арены, FR-9). Arenas/Nominations — реальные адаптеры подключаются
+// отдельной join-волной в internal/platform (см. tasks.md T8); до этого поле
+// может быть nil при локальной сборке composition root — модуль сам этим не
 // управляет.
 type Deps struct {
-	Pool     *pgxpool.Pool
-	Fighters domain.ActiveFightersProvider
-	Bouts    domain.BoutGenerator
-	Arenas   domain.ArenaProvider
+	Pool         *pgxpool.Pool
+	Fighters     domain.ActiveFightersProvider
+	Bouts        domain.BoutGenerator
+	Arenas       domain.ArenaProvider
+	Nominations  domain.NominationProvider
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
@@ -41,7 +43,7 @@ type Deps struct {
 // PoolPublicService — только baseOpts, без adminOpts (публичный доступ).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Fighters, deps.Bouts, deps.Arenas)
+	svc := service.New(r, deps.Fighters, deps.Bouts, deps.Arenas, deps.Nominations)
 
 	adminHandler := api.NewAdminHandler(svc)
 	publicHandler := api.NewPublicHandler(svc)
