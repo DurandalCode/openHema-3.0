@@ -19,6 +19,7 @@ import (
 	"github.com/hema/server/internal/platform"
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/auth"
+	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
 	poolmodule "github.com/hema/server/modules/pool"
@@ -39,6 +40,7 @@ type clients struct {
 	pool    hemav1connect.PoolAdminServiceClient
 	fighter hemav1connect.FighterAdminServiceClient
 	nom     hemav1connect.NominationAdminServiceClient
+	bout    hemav1connect.BoutAdminServiceClient
 }
 
 // setup поднимает PG (testdb.Postgres), применяет миграции всех модулей,
@@ -69,9 +71,12 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 		Tournaments: activeTournaments,
 	}, baseOpts, adminOpts)
 
+	boutmodule.Register(mux, boutmodule.Deps{Pool: pool}, baseOpts, adminOpts)
+
 	poolmodule.Register(mux, poolmodule.Deps{
 		Pool:     pool,
 		Fighters: platform.NewPoolActiveFightersProvider(pool),
+		Bouts:    platform.NewPoolBoutGenerator(pool), // real adapter, not fake (spec 0010, T19)
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -82,6 +87,7 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 		pool:    hemav1connect.NewPoolAdminServiceClient(httpClient, server.URL),
 		fighter: hemav1connect.NewFighterAdminServiceClient(httpClient, server.URL),
 		nom:     hemav1connect.NewNominationAdminServiceClient(httpClient, server.URL),
+		bout:    hemav1connect.NewBoutAdminServiceClient(httpClient, server.URL),
 	}, pool
 }
 
@@ -354,5 +360,158 @@ func TestIntegration_NoToken(t *testing.T) {
 		connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: seedTournamentID}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated without token, got %v", connect.CodeOf(err))
+	}
+}
+
+// ── pool × bout — сквозной путь через internal/platform-адаптер, не через
+// fake (spec 0010, T19). Единственное место, реально проверяющее связку
+// pool.SetLayoutStatus → PoolBoutGenerator → bout-схема через живой PG. ──
+
+func setLayoutStatus(t *testing.T, c clients, nominationID string, status hemav1.PoolLayoutStatus) *hemav1.PoolLayout {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{NominationId: nominationID, Status: status})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.pool.SetLayoutStatus(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SetLayoutStatus(%v): %v", status, err)
+	}
+	return res.Msg.Layout
+}
+
+func listBoutsForNomination(t *testing.T, c clients, nominationID string) []*hemav1.Bout {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.ListBoutsByNominationRequest{NominationId: nominationID})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.bout.ListBoutsByNomination(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListBoutsByNomination: %v", err)
+	}
+	return res.Msg.Bouts
+}
+
+// TestIntegration_SetLayoutStatusReady_GeneratesBouts проверяет, что
+// перевод раскладки в ready реально формирует бои в схеме bout (через
+// живой PoolBoutGenerator, не fake) — round-robin по каждому пулу.
+func TestIntegration_SetLayoutStatusReady_GeneratesBouts(t *testing.T) {
+	c, _ := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+	f3 := createFighter(t, c, nomID, "Сидор", "")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID := created.Msg.Layout.Pools[0].Id
+
+	for _, fid := range []string{f1, f2, f3} {
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq.Header().Set("Authorization", adminBearer(t))
+		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+			t.Fatalf("AssignFighter(%s): %v", fid, err)
+		}
+	}
+
+	// До ready — боёв нет.
+	if got := listBoutsForNomination(t, c, nomID); len(got) != 0 {
+		t.Fatalf("expected 0 bouts before ready, got %d", len(got))
+	}
+
+	layout := setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+	if layout.Status != hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY {
+		t.Fatalf("expected layout status READY, got %v", layout.Status)
+	}
+
+	bouts := listBoutsForNomination(t, c, nomID)
+	if len(bouts) != 3 { // C(3,2)
+		t.Fatalf("expected 3 bouts (round-robin of 3 fighters), got %d: %+v", len(bouts), bouts)
+	}
+	for _, b := range bouts {
+		if b.PoolId != poolID {
+			t.Errorf("bout %s has pool_id=%s, want %s", b.Id, b.PoolId, poolID)
+		}
+	}
+}
+
+// TestIntegration_SetLayoutStatusDraft_ClearsBouts проверяет, что возврат
+// раскладки в draft удаляет все ранее сформированные бои номинации (FR-5).
+func TestIntegration_SetLayoutStatusDraft_ClearsBouts(t *testing.T) {
+	c, _ := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID := created.Msg.Layout.Pools[0].Id
+	for _, fid := range []string{f1, f2} {
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq.Header().Set("Authorization", adminBearer(t))
+		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+			t.Fatalf("AssignFighter(%s): %v", fid, err)
+		}
+	}
+
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+	if got := listBoutsForNomination(t, c, nomID); len(got) != 1 {
+		t.Fatalf("expected 1 bout after ready, got %d", len(got))
+	}
+
+	layout := setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT)
+	if layout.Status != hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT {
+		t.Fatalf("expected layout status DRAFT, got %v", layout.Status)
+	}
+	if got := listBoutsForNomination(t, c, nomID); len(got) != 0 {
+		t.Fatalf("expected 0 bouts after draft, got %d: %+v", len(got), got)
+	}
+}
+
+// TestIntegration_ReadyAgain_RegeneratesForChangedComposition проверяет
+// AC-6: после возврата в draft и правки состава пула повторный ready
+// формирует новый набор боёв по актуальному составу, не по старому.
+func TestIntegration_ReadyAgain_RegeneratesForChangedComposition(t *testing.T) {
+	c, _ := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+	f3 := createFighter(t, c, nomID, "Сидор", "")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID := created.Msg.Layout.Pools[0].Id
+
+	assign := func(fid string) {
+		req := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		req.Header().Set("Authorization", adminBearer(t))
+		if _, err := c.pool.AssignFighter(context.Background(), req); err != nil {
+			t.Fatalf("AssignFighter(%s): %v", fid, err)
+		}
+	}
+	assign(f1)
+	assign(f2)
+
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+	if got := listBoutsForNomination(t, c, nomID); len(got) != 1 { // C(2,2)
+		t.Fatalf("expected 1 bout for 2 fighters, got %d", len(got))
+	}
+
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT)
+	assign(f3) // состав пула изменился: теперь 3 бойца
+
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+	bouts := listBoutsForNomination(t, c, nomID)
+	if len(bouts) != 3 { // C(3,2), не старый C(2,2)
+		t.Fatalf("expected 3 bouts after regenerate with 3 fighters, got %d: %+v", len(bouts), bouts)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/hema/server/modules/application"
 	"github.com/hema/server/modules/arena"
 	"github.com/hema/server/modules/auth"
+	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
 	poolmodule "github.com/hema/server/modules/pool"
@@ -97,9 +98,13 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	}
 	arena.Register(mux, arenaDeps, baseOpts, adminOpts)
 
+	boutDeps := boutmodule.Deps{Pool: pool}
+	boutmodule.Register(mux, boutDeps, baseOpts, adminOpts)
+
 	poolDeps := poolmodule.Deps{
 		Pool:     pool,
 		Fighters: NewPoolActiveFightersProvider(pool),
+		Bouts:    NewPoolBoutGenerator(pool),
 	}
 	poolmodule.Register(mux, poolDeps, baseOpts, adminOpts)
 

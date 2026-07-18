@@ -20,12 +20,14 @@ import (
 	"github.com/hema/server/modules/pool/service"
 )
 
-// Deps — явные зависимости модуля pool (DI через конструктор). Fighters —
-// межмодульная зависимость (порт, не прямой доступ к схеме fighter,
-// ADR 0002); направление зависимости — только pool → fighter.
+// Deps — явные зависимости модуля pool (DI через конструктор). Fighters и
+// Bouts — межмодульные зависимости (порты, не прямой доступ к чужим PG-схемам,
+// ADR 0002); направления зависимостей — только pool → fighter и pool → bout
+// (спека 0010, «Обзор решения»).
 type Deps struct {
 	Pool     *pgxpool.Pool
 	Fighters domain.ActiveFightersProvider
+	Bouts    domain.BoutGenerator
 }
 
 // Register монтирует Connect-хендлер модуля на переданный mux. baseOpts
@@ -33,7 +35,7 @@ type Deps struct {
 // накладываются на PoolAdminService (require-admin).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Fighters)
+	svc := service.New(r, deps.Fighters, deps.Bouts)
 
 	adminHandler := api.NewAdminHandler(svc)
 

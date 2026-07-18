@@ -18,6 +18,7 @@ import {
 } from "@/gen/hema/v1/fighter_pb";
 import { ArenaSchema, type Arena } from "@/gen/hema/v1/arena_pb";
 import { PoolLayoutSchema, type PoolLayout } from "@/gen/hema/v1/pool_pb";
+import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
 import type {
@@ -45,6 +46,10 @@ import type {
   FighterRef as PoolFighterRefDto,
   Pool as PoolDto,
 } from "@/entities/pool/lib/types";
+import type {
+  Bout as BoutDto,
+  FighterRef as BoutFighterRefDto,
+} from "@/entities/bout/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -285,4 +290,33 @@ export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto 
       : [],
     canUndo: raw.canUndo ?? false,
   };
+}
+
+function boutFighterRefToJson(raw: Partial<BoutFighterRefDto> | undefined): BoutFighterRefDto {
+  return { fighterId: raw?.fighterId ?? "", name: raw?.name ?? "", club: raw?.club ?? "" };
+}
+
+/**
+ * boutToJson превращает protobuf-сообщение Bout в обычный JSON-объект
+ * (спека 0010). `fighterA`/`fighterB` — снапшот бойца на момент формирования,
+ * нормализуются как pool.FighterRef (пустая строка вместо undefined).
+ */
+export function boutToJson(bout: Bout | undefined): BoutDto | null {
+  if (!bout) return null;
+  const raw = toJson(BoutSchema, bout) as Partial<BoutDto>;
+  return {
+    id: raw.id ?? "",
+    poolId: raw.poolId ?? "",
+    nominationId: raw.nominationId ?? "",
+    roundNumber: raw.roundNumber ?? 0,
+    sequenceNumber: raw.sequenceNumber ?? 0,
+    fighterA: boutFighterRefToJson(raw.fighterA),
+    fighterB: boutFighterRefToJson(raw.fighterB),
+  };
+}
+
+/** boutsToJson превращает массив protobuf Bout в массив DTO. */
+export function boutsToJson(bouts: Bout[] | undefined): BoutDto[] {
+  if (!bouts) return [];
+  return bouts.map((b) => boutToJson(b)).filter((b): b is BoutDto => b !== null);
 }

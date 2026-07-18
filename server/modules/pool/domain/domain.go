@@ -136,3 +136,22 @@ type ActiveFightersProvider interface {
 	ActiveFightersByNomination(ctx context.Context, nominationID string) ([]FighterRef, error)
 }
 
+// BoutPoolInput — состав одного пула на момент фиксации раскладки
+// (`draft → ready`), вход генерации боёв (спека 0010). Fighters — уже
+// обогащённые активные бойцы пула (то, что loadLayout кладёт в
+// Layout.Pools[i].Members).
+type BoutPoolInput struct {
+	PoolID   string
+	Fighters []FighterRef
+}
+
+// BoutGenerator — межмодульная зависимость: формирование/очистка боёв пулов
+// номинации через API модуля bout (без прямого доступа к его PG-схеме,
+// ADR 0002). Направление зависимости — только pool → bout (спека 0010,
+// «Обзор решения»). SetStatus вызывает GenerateForNomination на переходе
+// draft → ready, ClearForNomination — на переходе ready → draft.
+type BoutGenerator interface {
+	GenerateForNomination(ctx context.Context, nominationID string, pools []BoutPoolInput) error
+	ClearForNomination(ctx context.Context, nominationID string) error
+}
+
