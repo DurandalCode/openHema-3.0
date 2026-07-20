@@ -39,23 +39,23 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 
 ## Server — Трек A: модуль `bout` (event-sourced)
 
-- [ ] T2. **domain — состояние/счёт/исход** — `bout/domain/domain.go`: тип
+- [x] T2. **domain — состояние/счёт/исход** — `bout/domain/domain.go`: тип
       `BoutState`, поля `State/ScoreA/ScoreB/Version` в `Bout`, `Outcome()`.
       Тест `domain_test.go`: `Outcome` A/B/draw (AC-2/3).
-- [ ] T3. **domain — события и команды (red→green)** — `bout/domain/`: `EventType`,
+- [x] T3. **domain — события и команды (red→green)** — `bout/domain/`: `EventType`,
       `Event/Payload`, `Rebuild`/`apply`, команды `Scheduled/Start/Score/Finish/
       Reopen/Reset` + доменные ошибки (`ErrInvalidTransition/ErrInvalidInput/
       ErrConcurrency/ErrNotFound`). Тест: свёртка каждого события; допустимые/
       недопустимые переходы; `Score` отвергает отрицательные (AC-4).
-- [ ] T4. **testutil** — `bout/testutil/fake_repo.go`: in-memory event store +
+- [x] T4. **testutil** — `bout/testutil/fake_repo.go`: in-memory event store +
       проекция (`var _ domain.Repository`); эмуляция `uq(bout_id,version)`
       (конфликт → `ErrConcurrency`) для теста повтора.
-- [ ] T5. **service (red→green)** — `bout/service/service_test.go` + `service.go`:
+- [x] T5. **service (red→green)** — `bout/service/service_test.go` + `service.go`:
       `Start/Score/Finish/Reopen/Reset` (Load→Rebuild→decide→Append), прозрачный
       повтор при `ErrConcurrency` (один retry → успех; повторный → ошибка);
       `Generate/Clear` (проекция + `scheduled`-события); чтения
       `BoutsByPool/PoolProgress/AnyStartedInNomination`.
-- [ ] T6. **repo + migrations** — `bout/migrations/00002_bout_lifecycle.sql`
+- [x] T6. **repo + migrations** — `bout/migrations/00002_bout_lifecycle.sql`
       (колонки state/score/version на `bouts`; таблица `bout_events` с
       `UNIQUE(bout_id,version)` + FK cascade); `bout/repo/queries/bout.sql`
       (`AppendEvent/UpsertProjection/LoadEvents/BoutsByPool/PoolProgress/
