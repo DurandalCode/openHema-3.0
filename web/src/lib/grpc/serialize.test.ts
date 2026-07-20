@@ -165,6 +165,7 @@ type NominationJson = {
   fighterCapacity: number | null;
   metadata: { rulesUrl: string };
   position: number;
+  status: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -179,6 +180,7 @@ describe("nominationToJson", () => {
       fighterCapacity: 16,
       metadata: { rulesUrl: "https://example.com/rules" },
       position: 0,
+      status: "NOMINATION_STATUS_OPEN",
       createdAt: "2026-01-01T00:00:00Z",
       updatedAt: "2026-07-07T00:00:00Z",
     });
@@ -192,6 +194,7 @@ describe("nominationToJson", () => {
     expect(json.fighterCapacity).toBe(16);
     expect(json.metadata).toEqual({ rulesUrl: "https://example.com/rules" });
     expect(json.position).toBe(0);
+    expect(json.status).toBe("NOMINATION_STATUS_OPEN");
   });
 
   it("returns null for undefined", () => {
@@ -239,8 +242,37 @@ describe("nominationToJson", () => {
     expect(json.description).toBe("");
     expect(json.metadata).toEqual({ rulesUrl: "" });
     expect(json.position).toBe(0);
+    expect(json.status).toBe("NOMINATION_STATUS_UNSPECIFIED");
     expect(json.createdAt).toBe("");
     expect(json.updatedAt).toBe("");
+  });
+
+  // Регрессия proto3-enum-omitted (спека 0012, FR-8): статус не задан →
+  // enum-дефолт 0 (UNSPECIFIED), toJson опускает поле совсем — consumer
+  // (бейдж статуса) ждёт строковый литерал, не undefined.
+  it("normalizes unset status to NOMINATION_STATUS_UNSPECIFIED", () => {
+    const n = fromJson(NominationSchema, {
+      id: "n1",
+      tournamentId: "t1",
+      title: "T",
+    });
+
+    const json = nominationToJson(n) as NominationJson;
+
+    expect(json.status).toBe("NOMINATION_STATUS_UNSPECIFIED");
+  });
+
+  it("preserves NOMINATION_STATUS_CLOSED", () => {
+    const n = fromJson(NominationSchema, {
+      id: "n1",
+      tournamentId: "t1",
+      title: "T",
+      status: "NOMINATION_STATUS_CLOSED",
+    });
+
+    const json = nominationToJson(n) as NominationJson;
+
+    expect(json.status).toBe("NOMINATION_STATUS_CLOSED");
   });
 });
 

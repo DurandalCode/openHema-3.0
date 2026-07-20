@@ -20,9 +20,15 @@ const statusMap: Record<SetStatusBody["status"], PoolLayoutStatus> = {
 
 /**
  * GET /api/nominations/[id]/pool-status — тонкий срез раскладки для списка
- * номинаций: только `status` + `canUndo` (без пулов/бойцов, чтобы не тянуть
- * лишний payload). Маппит на тот же gRPC `GetLayout` и обрезает на BFF.
- * Только admin (требует access-токен; pool-layout — служебный).
+ * номинаций: `status` + `canUndo` + `hasDistributedFighters` (без пулов/
+ * бойцов целиком, чтобы не тянуть лишний payload). Маппит на тот же gRPC
+ * `GetLayout` и обрезает на BFF. Только admin (требует access-токен;
+ * pool-layout — служебный).
+ *
+ * `hasDistributedFighters` (спека 0012, FR-9/AC-12/AC-16) — вычисляется на
+ * BFF из уже полученного `layout.pools` (`.some(p => p.members.length > 0)`),
+ * без нового gRPC-вызова: нужен `nomination-management`, чтобы решить
+ * доступность кнопок «Закрыть/Открыть приём» (`canReopen`).
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   const accessToken = await getAccessToken();
@@ -40,6 +46,7 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
     return NextResponse.json({
       status: layout?.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED",
       canUndo: layout?.canUndo ?? false,
+      hasDistributedFighters: (layout?.pools ?? []).some((p) => p.members.length > 0),
     });
   } catch (err) {
     return errorResponse(err);
