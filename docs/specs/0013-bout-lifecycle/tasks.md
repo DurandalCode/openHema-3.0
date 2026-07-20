@@ -92,15 +92,15 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 
 ## Web — Трек C
 
-- [ ] T12. **entities** — `entities/pool/lib/types.ts`: `BoutState`, `BoardBout`,
+- [x] T12. **entities** — `entities/pool/lib/types.ts`: `BoutState`, `BoardBout`,
       `BoutBoard`, `outcomeOf`, метки `PoolStatus` (идёт/завершён). Тест
       `outcomeOf` (A/B/draw).
-- [ ] T13. **BFF (red→green)** — `app/api/arenas/[id]/board/route.ts`,
+- [x] T13. **BFF (red→green)** — `app/api/arenas/[id]/board/route.ts`,
       `app/api/pools/[poolId]/current-bout/route.ts`,
       `app/api/pools/[poolId]/bout/route.ts` (action-диспатч) + `*.test.ts`
       (мок grpc, `connect.Code`→HTTP: FailedPrecondition/Aborted→409,
       InvalidArgument→400).
-- [ ] T14. **feature `bout-board`** — `features/bout-board/{api,model,ui}`:
+- [x] T14. **feature `bout-board`** — `features/bout-board/{api,model,ui}`:
       RQ-хуки мутаций/доски; чистая функция шагов `±1/±2/±3/±5` с клампом к 0
       (тест — AC-2a); `BoutBoard` ui (счёт, кнопки шагов + ручной ввод, кнопки
       ЖЦ по состоянию, исход, список боёв с циркуляцией). Тест хуков/функции.
