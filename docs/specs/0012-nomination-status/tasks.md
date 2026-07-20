@@ -113,15 +113,15 @@
 
 ## Server — трек C (`application`)
 
-- [ ] T11. **domain** — `application/domain/domain.go`:
+- [x] T11. **domain** — `application/domain/domain.go`:
       `NominationInfo.RegistrationOpen bool`; `ErrRegistrationClosed`.
-- [ ] T12. **service (red→green)** — `application/service/service_test.go`:
+- [x] T12. **service (red→green)** — `application/service/service_test.go`:
       `Submit` в номинацию с `RegistrationOpen=false` → `ErrRegistrationClosed`
       до `ActiveExists`/repo-записи (AC-6); `DeclarePayment`/`ConfirmPayment`/
       `Register`/`Withdraw` не читают `RegistrationOpen`, работают как раньше
       (AC-15). Затем `application/service/service.go`, `Submit` — гейт сразу
       после резолва `NominationInfo`.
-- [ ] T13. **api (red→green)** — `application/api/handler_test.go`:
+- [x] T13. **api (red→green)** — `application/api/handler_test.go`:
       `SubmitApplication` → `FailedPrecondition` при закрытой номинации (через
       fake `NominationProvider`). Затем `application/api/handler.go`,
       `mapError`: `ErrRegistrationClosed → connect.CodeFailedPrecondition`.

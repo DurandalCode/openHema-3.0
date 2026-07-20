@@ -39,7 +39,7 @@ func setup(t *testing.T) clients {
 
 	repo := testutil.NewFakeRepo()
 	nominations := testutil.NewFakeNominationProvider()
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantUserID, "Applicant Name")
 	users.Set(adminUserID, "Admin Name")
@@ -248,12 +248,29 @@ func TestErrorMapping_NominationNotFound(t *testing.T) {
 	}
 }
 
+// AC-6/FR-7 (спека 0012): подача заявки в номинацию с закрытым приёмом
+// (NominationProvider отдаёт RegistrationOpen=false) мапится в
+// connect.CodeFailedPrecondition.
+func TestErrorMapping_RegistrationClosed(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	c.nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: false})
+
+	_, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationID,
+	}, applicantUserID, "user"))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition, got %v (%v)", connect.CodeOf(err), err)
+	}
+}
+
 func TestListApplications_AdminOverviewWithFilters(t *testing.T) {
 	c := setup(t)
 	ctx := context.Background()
 
 	const otherNomination = "00000000-0000-0000-0000-00000000b002"
-	c.nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID})
+	c.nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	c.users.Set(otherUserID, "Other Name")
 
 	submitResp, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
@@ -286,7 +303,7 @@ func TestListNominationParticipants_Public(t *testing.T) {
 	ctx := context.Background()
 
 	capacity := int32(1)
-	c.nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, FighterCapacity: &capacity})
+	c.nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, FighterCapacity: &capacity, RegistrationOpen: true})
 
 	submitResp, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
 		NominationId: nominationID,
