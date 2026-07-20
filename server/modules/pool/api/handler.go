@@ -1,8 +1,8 @@
 // Package api реализует Connect-хендлеры модуля pool: маппинг proto ↔
-// domain и ошибок. PoolAdminService — управление раскладкой (спека 0009) и
-// постановкой/снятием пула с арены (спека 0011, RequireAdmin);
-// PoolPublicService — публичное чтение готовых пулов номинации (спека 0011,
-// FR-11, без RequireAdmin).
+// domain и ошибок. PoolAdminService — управление раскладкой (спека 0009),
+// постановкой/снятием пула с арены (спека 0011) и ведением текущего боя
+// (спека 0013, RequireAdmin); PoolPublicService — публичное чтение готовых
+// пулов номинации (спека 0011, FR-11, без RequireAdmin).
 package api
 
 import (
@@ -16,6 +16,7 @@ import (
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
 	"github.com/hema/server/modules/pool/domain"
 	"github.com/hema/server/modules/pool/service"
+	"github.com/hema/server/pkg/connectutil"
 )
 
 // AdminHandler реализует PoolAdminServiceHandler (управление раскладкой
@@ -185,6 +186,101 @@ func (h *AdminHandler) GetPoolsForArena(
 	return connect.NewResponse(resp), nil
 }
 
+// ---------------------------------------------------------------------
+// Спека 0013: ведение текущего боя пула на арене (доска ведения).
+// ---------------------------------------------------------------------
+
+// GetBoutBoard возвращает доску ведения боёв арены (спека 0013, FR-14):
+// board пуст, если на арене никто не стоит.
+func (h *AdminHandler) GetBoutBoard(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetBoutBoardRequest],
+) (*connect.Response[hemav1.GetBoutBoardResponse], error) {
+	board, err := h.svc.GetBoutBoard(ctx, req.Msg.ArenaId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetBoutBoardResponse{Board: toProtoBoard(board)}), nil
+}
+
+// SetCurrentBout назначает текущим любой бой пула — циркуляция (спека
+// 0013, FR-8).
+func (h *AdminHandler) SetCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.SetCurrentBoutRequest],
+) (*connect.Response[hemav1.SetCurrentBoutResponse], error) {
+	board, err := h.svc.SetCurrentBout(ctx, req.Msg.PoolId, req.Msg.BoutId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SetCurrentBoutResponse{Board: toProtoBoard(board)}), nil
+}
+
+// StartCurrentBout переводит текущий бой пула не начат → идёт (спека 0013,
+// FR-4).
+func (h *AdminHandler) StartCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.StartCurrentBoutRequest],
+) (*connect.Response[hemav1.StartCurrentBoutResponse], error) {
+	board, err := h.svc.StartCurrentBout(ctx, req.Msg.PoolId, connectutil.CallerID(ctx))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.StartCurrentBoutResponse{Board: toProtoBoard(board)}), nil
+}
+
+// ScoreCurrentBout задаёт абсолютный счёт текущего боя (спека 0013,
+// FR-2/FR-2a).
+func (h *AdminHandler) ScoreCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.ScoreCurrentBoutRequest],
+) (*connect.Response[hemav1.ScoreCurrentBoutResponse], error) {
+	board, err := h.svc.ScoreCurrentBout(ctx, req.Msg.PoolId, connectutil.CallerID(ctx), int(req.Msg.ScoreA), int(req.Msg.ScoreB))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ScoreCurrentBoutResponse{Board: toProtoBoard(board)}), nil
+}
+
+// FinishCurrentBout переводит текущий бой идёт → завершён и автоматически
+// продвигает текущий указатель пула (спека 0013, FR-5/FR-9).
+func (h *AdminHandler) FinishCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.FinishCurrentBoutRequest],
+) (*connect.Response[hemav1.FinishCurrentBoutResponse], error) {
+	board, err := h.svc.FinishCurrentBout(ctx, req.Msg.PoolId, connectutil.CallerID(ctx))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.FinishCurrentBoutResponse{Board: toProtoBoard(board)}), nil
+}
+
+// ReopenCurrentBout переводит текущий бой завершён → идёт для правки счёта
+// (спека 0013, FR-6).
+func (h *AdminHandler) ReopenCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.ReopenCurrentBoutRequest],
+) (*connect.Response[hemav1.ReopenCurrentBoutResponse], error) {
+	board, err := h.svc.ReopenCurrentBout(ctx, req.Msg.PoolId, connectutil.CallerID(ctx))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ReopenCurrentBoutResponse{Board: toProtoBoard(board)}), nil
+}
+
+// ResetCurrentBout переводит текущий бой идёт → не начат, счёт обнуляется
+// (спека 0013, FR-6).
+func (h *AdminHandler) ResetCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.ResetCurrentBoutRequest],
+) (*connect.Response[hemav1.ResetCurrentBoutResponse], error) {
+	board, err := h.svc.ResetCurrentBout(ctx, req.Msg.PoolId, connectutil.CallerID(ctx))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ResetCurrentBoutResponse{Board: toProtoBoard(board)}), nil
+}
+
 // PublicHandler реализует PoolPublicServiceHandler (спека 0011, FR-11):
 // публичное чтение пулов готовой раскладки номинации. Без RequireAdmin.
 type PublicHandler struct {
@@ -212,13 +308,17 @@ func (h *PublicHandler) ListPublicPools(
 	return connect.NewResponse(&hemav1.ListPublicPoolsResponse{Pools: toProtoPools(pools)}), nil
 }
 
-// mapError переводит доменные ошибки в connect.Code.
+// mapError переводит доменные ошибки в connect.Code (спека 0013 добавляет
+// ErrPoolNotSeated/ErrNoCurrentBout/ErrHasResults/ErrInvalidTransition →
+// FailedPrecondition, ErrConcurrency → Aborted).
 func mapError(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, domain.ErrInvalidInput):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrConcurrency):
+		return connect.NewError(connect.CodeAborted, err)
 	case errors.Is(err, domain.ErrNotDraft),
 		errors.Is(err, domain.ErrNoPools),
 		errors.Is(err, domain.ErrNothingToUndo),
@@ -226,7 +326,11 @@ func mapError(err error) error {
 		errors.Is(err, domain.ErrArenaBusy),
 		errors.Is(err, domain.ErrAlreadySeated),
 		errors.Is(err, domain.ErrPoolSeated),
-		errors.Is(err, domain.ErrArenaNotAvailable):
+		errors.Is(err, domain.ErrArenaNotAvailable),
+		errors.Is(err, domain.ErrPoolNotSeated),
+		errors.Is(err, domain.ErrNoCurrentBout),
+		errors.Is(err, domain.ErrHasResults),
+		errors.Is(err, domain.ErrInvalidTransition):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
@@ -301,7 +405,8 @@ func fromProtoStatus(s hemav1.PoolLayoutStatus) domain.LayoutStatus {
 	}
 }
 
-// toProtoPoolStatus маппит статус отдельного пула (спека 0011, FR-1).
+// toProtoPoolStatus маппит статус отдельного пула (спека 0011, FR-1;
+// active/finished наполнены спекой 0013, FR-10).
 func toProtoPoolStatus(s domain.PoolStatus) hemav1.PoolStatus {
 	switch s {
 	case domain.PoolStatusNotReady:
@@ -316,5 +421,48 @@ func toProtoPoolStatus(s domain.PoolStatus) hemav1.PoolStatus {
 		return hemav1.PoolStatus_POOL_STATUS_FINISHED
 	default:
 		return hemav1.PoolStatus_POOL_STATUS_UNSPECIFIED
+	}
+}
+
+// toProtoBoard маппит доску ведения (спека 0013, FR-14). Пустой
+// domain.BoutBoard (Pool.ID пуст — на арене никто не стоит) даёт нулевой
+// *hemav1.BoutBoard{} (Pool=nil, Bouts=[], CurrentBoutId="") — proto-поле
+// board в ответе присутствует, но без содержимого.
+func toProtoBoard(b domain.BoutBoard) *hemav1.BoutBoard {
+	out := &hemav1.BoutBoard{Bouts: toProtoBoardBouts(b.Bouts), CurrentBoutId: b.CurrentBoutID}
+	if b.Pool.ID != "" {
+		out.Pool = toProtoPool(b.Pool)
+	}
+	return out
+}
+
+func toProtoBoardBouts(bouts []domain.BoutRef) []*hemav1.BoardBout {
+	out := make([]*hemav1.BoardBout, 0, len(bouts))
+	for _, b := range bouts {
+		out = append(out, &hemav1.BoardBout{
+			Id:             b.ID,
+			RoundNumber:    int32(b.RoundNumber),
+			SequenceNumber: int32(b.SequenceNumber),
+			FighterA:       &hemav1.FighterRef{FighterId: b.FighterA.ID, Name: b.FighterA.Name, Club: b.FighterA.Club},
+			FighterB:       &hemav1.FighterRef{FighterId: b.FighterB.ID, Name: b.FighterB.Name, Club: b.FighterB.Club},
+			State:          toProtoBoutState(b.State),
+			ScoreA:         int32(b.ScoreA),
+			ScoreB:         int32(b.ScoreB),
+		})
+	}
+	return out
+}
+
+// toProtoBoutState маппит состояние боя доски ведения (спека 0013, FR-1).
+func toProtoBoutState(s domain.BoutState) hemav1.BoutState {
+	switch s {
+	case domain.BoutStateNotStarted:
+		return hemav1.BoutState_BOUT_STATE_NOT_STARTED
+	case domain.BoutStateInProgress:
+		return hemav1.BoutState_BOUT_STATE_IN_PROGRESS
+	case domain.BoutStateFinished:
+		return hemav1.BoutState_BOUT_STATE_FINISHED
+	default:
+		return hemav1.BoutState_BOUT_STATE_UNSPECIFIED
 	}
 }

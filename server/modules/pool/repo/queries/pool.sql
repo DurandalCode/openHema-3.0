@@ -4,7 +4,7 @@ FROM pool.pool_layouts
 WHERE nomination_id = $1;
 
 -- name: ListPoolsByNomination :many
-SELECT id, nomination_id, number, arena_id
+SELECT id, nomination_id, number, arena_id, current_bout_id
 FROM pool.pools
 WHERE nomination_id = $1
 ORDER BY number;
@@ -15,7 +15,7 @@ FROM pool.pool_members
 WHERE nomination_id = $1;
 
 -- name: GetPoolByID :one
-SELECT id, nomination_id, number, arena_id
+SELECT id, nomination_id, number, arena_id, current_bout_id
 FROM pool.pools
 WHERE id = $1;
 
@@ -85,14 +85,14 @@ WHERE id = $1;
 
 -- name: GetPoolByArena :one
 -- Пул, стоящий на арене (не более одного, инвариант uq_pools_arena).
-SELECT id, nomination_id, number, arena_id
+SELECT id, nomination_id, number, arena_id, current_bout_id
 FROM pool.pools
 WHERE arena_id = $1;
 
 -- name: ListReadyUnseatedPools :many
 -- Пулы в статусе «готов» (раскладка ready), ещё не поставленные ни на одну
 -- арену — кандидаты для постановки на странице арены (FR-9).
-SELECT p.id, p.nomination_id, p.number, p.arena_id
+SELECT p.id, p.nomination_id, p.number, p.arena_id, p.current_bout_id
 FROM pool.pools p
 JOIN pool.pool_layouts l ON l.nomination_id = p.nomination_id
 WHERE l.status = 'ready' AND p.arena_id IS NULL
@@ -104,3 +104,12 @@ ORDER BY p.nomination_id, p.number;
 SELECT EXISTS (
     SELECT 1 FROM pool.pools WHERE nomination_id = $1 AND arena_id IS NOT NULL
 );
+
+-- Спека 0013: ведение текущего боя пула на арене.
+
+-- name: SetCurrentBout :exec
+-- Записывает указатель текущего боя пула (FR-7/FR-8/FR-9). bout_id может
+-- быть NULL (авто-продвижение после завершения последнего боя пула, AC-10) —
+-- sqlc.narg допускает явный NULL.
+UPDATE pool.pools SET current_bout_id = sqlc.narg(bout_id), updated_at = now()
+WHERE id = $1;

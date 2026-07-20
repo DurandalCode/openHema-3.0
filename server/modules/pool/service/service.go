@@ -1,9 +1,11 @@
 // Package service содержит бизнес-логику модуля pool (юзкейсы, спека 0009,
-// расширено спекой 0011 — постановка пула на арену).
+// расширено спекой 0011 — постановка пула на арену, спекой 0013 — ведение
+// текущего боя).
 package service
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/hema/server/modules/pool/domain"
@@ -12,15 +14,15 @@ import (
 // Service реализует юзкейсы раскладки бойцов по пулам. Зависит от портов,
 // не от pg/proto.
 type Service struct {
-	repo         domain.Repository
-	fighters     domain.ActiveFightersProvider
-	bouts        domain.BoutGenerator
-	arenas       domain.ArenaProvider
-	nominations  domain.NominationProvider
+	repo        domain.Repository
+	fighters    domain.ActiveFightersProvider
+	bouts       domain.BoutConductor
+	arenas      domain.ArenaProvider
+	nominations domain.NominationProvider
 }
 
 // New создаёт сервис pool.
-func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutGenerator, arenas domain.ArenaProvider, nominations domain.NominationProvider) *Service {
+func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider) *Service {
 	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations}
 }
 
@@ -203,13 +205,16 @@ func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout,
 //
 // Переход draft → ready формирует бои каждого пула (спека 0010, FR-2);
 // переход ready → draft удаляет ранее сформированные бои (FR-5), но только
-// если ни один пул номинации не стоит на арене — иначе исчезли бы бои,
-// которые «готовятся к запуску» (спека 0011, FR-3, AC-3): ErrPoolSeated,
-// статус не меняется. Порядок для собственно перехода — сначала эффект в
-// bout (generate/clear), только потом статус в pool (план «Обзор решения»):
-// если bout-шаг упал, статус раскладки не меняется. Повторный вызов с уже
-// текущим статусом (draft→draft, ready→ready) — не переход, BoutGenerator
-// не вызывается.
+// если ни один пул номинации не стоит на арене (спека 0011, FR-3, AC-3:
+// ErrPoolSeated) и ни один бой номинации ещё не начат/проведён (спека 0013,
+// FR-13, AC-12: ErrHasResults — пересборка состава не должна стирать
+// результаты). Проверка результатов идёт первой (план «Модуль pool»): даже
+// если пул уже снят с арены (снятие результаты сохраняет, FR-11), но у него
+// есть проведённые бои, расфиксация всё равно отклоняется. Порядок для
+// собственно перехода — сначала эффект в bout (generate/clear), только
+// потом статус в pool (план «Обзор решения»): если bout-шаг упал, статус
+// раскладки не меняется. Повторный вызов с уже текущим статусом
+// (draft→draft, ready→ready) — не переход, BoutConductor не вызывается.
 func (s *Service) SetStatus(ctx context.Context, nominationID string, status domain.LayoutStatus) (domain.Layout, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
@@ -228,6 +233,13 @@ func (s *Service) SetStatus(ctx context.Context, nominationID string, status dom
 			return domain.Layout{}, err
 		}
 	case current.Status == domain.LayoutReady && status == domain.LayoutDraft:
+		started, err := s.bouts.AnyStartedInNomination(ctx, nominationID)
+		if err != nil {
+			return domain.Layout{}, err
+		}
+		if started {
+			return domain.Layout{}, domain.ErrHasResults
+		}
 		seated, err := s.repo.AnySeatedInNomination(ctx, nominationID)
 		if err != nil {
 			return domain.Layout{}, err
@@ -314,6 +326,256 @@ func (s *Service) UnseatPool(ctx context.Context, poolID string) (domain.Layout,
 	return s.loadLayout(ctx, pool.NominationID)
 }
 
+// ---------------------------------------------------------------------
+// Спека 0013: ведение текущего боя пула на арене (доска ведения).
+// ---------------------------------------------------------------------
+
+// GetBoutBoard возвращает доску ведения боёв арены (FR-14): пул, стоящий
+// на ней (обогащённый, со статусом), его бои по порядку и эффективный
+// текущий бой. Пустая доска (нулевое значение), если на арене никто не
+// стоит — не ошибка (экран арены показывает плейсхолдер).
+func (s *Service) GetBoutBoard(ctx context.Context, arenaID string) (domain.BoutBoard, error) {
+	arenaID = strings.TrimSpace(arenaID)
+	if arenaID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	seated, found, err := s.repo.PoolsForArena(ctx, arenaID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if !found {
+		return domain.BoutBoard{}, nil
+	}
+	return s.boardForPool(ctx, seated.ID)
+}
+
+// SetCurrentBout назначает текущим любой бой пула — циркуляция (FR-8),
+// включая уже завершённые бои (AC-6). Как и остальные действия ведения,
+// требует, чтобы пул стоял на арене (FR-12).
+func (s *Service) SetCurrentBout(ctx context.Context, poolID, boutID string) (domain.BoutBoard, error) {
+	poolID = strings.TrimSpace(poolID)
+	boutID = strings.TrimSpace(boutID)
+	if poolID == "" || boutID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	pool, err := s.repo.GetPool(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if strings.TrimSpace(pool.ArenaID) == "" {
+		return domain.BoutBoard{}, domain.ErrPoolNotSeated
+	}
+	bouts, err := s.bouts.BoutsByPool(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	found := false
+	for _, b := range bouts {
+		if b.ID == boutID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return domain.BoutBoard{}, domain.ErrNotFound
+	}
+	if err := s.repo.SetCurrentBout(ctx, poolID, boutID); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	return s.boardForPool(ctx, poolID)
+}
+
+// StartCurrentBout переводит текущий бой пула не начат → идёт (FR-4).
+func (s *Service) StartCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
+	poolID = strings.TrimSpace(poolID)
+	if poolID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if err := s.bouts.StartBout(ctx, currentID, actorID); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	return s.boardForPool(ctx, poolID)
+}
+
+// ScoreCurrentBout задаёт абсолютный счёт текущего боя (FR-2/FR-2a: быстрые
+// шаги и ручной ввод — арифметика клиента поверх счёта из доски). Допустимо
+// только пока бой идёт — гейт на стороне BoutConductor (AC-4).
+func (s *Service) ScoreCurrentBout(ctx context.Context, poolID, actorID string, scoreA, scoreB int) (domain.BoutBoard, error) {
+	poolID = strings.TrimSpace(poolID)
+	if poolID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if err := s.bouts.ScoreBout(ctx, currentID, actorID, scoreA, scoreB); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	return s.boardForPool(ctx, poolID)
+}
+
+// FinishCurrentBout переводит текущий бой идёт → завершён (FR-5) и
+// автоматически продвигает текущий указатель пула на следующий
+// непроведённый бой по порядку после только что завершённого (FR-9,
+// AC-5); если такого нет (последний бой пула, AC-10) — указатель
+// очищается, эффективный текущий бой резолвится в пустоту при следующем
+// чтении доски.
+func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
+	poolID = strings.TrimSpace(poolID)
+	if poolID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	_, bouts, currentID, err := s.currentBoutFor(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if err := s.bouts.FinishBout(ctx, currentID, actorID); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	next := nextUnfinishedAfter(bouts, currentID)
+	if err := s.repo.SetCurrentBout(ctx, poolID, next); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	return s.boardForPool(ctx, poolID)
+}
+
+// ReopenCurrentBout переводит текущий бой завершён → идёт для правки счёта
+// (FR-6).
+func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
+	poolID = strings.TrimSpace(poolID)
+	if poolID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if err := s.bouts.ReopenBout(ctx, currentID, actorID); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	return s.boardForPool(ctx, poolID)
+}
+
+// ResetCurrentBout переводит текущий бой идёт → не начат, счёт обнуляется
+// (FR-6).
+func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
+	poolID = strings.TrimSpace(poolID)
+	if poolID == "" {
+		return domain.BoutBoard{}, domain.ErrInvalidInput
+	}
+	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if err := s.bouts.ResetBout(ctx, currentID, actorID); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	return s.boardForPool(ctx, poolID)
+}
+
+// currentBoutFor гейтит «вести можно только на арене» (ErrPoolNotSeated,
+// FR-12, AC-13), резолвит эффективный текущий бой пула (ErrNoCurrentBout,
+// если у пула нет боёв) — общая часть всех действий ведения кроме
+// SetCurrentBout/GetBoutBoard (у них своя форма гейта/резолва).
+func (s *Service) currentBoutFor(ctx context.Context, poolID string) (domain.Pool, []domain.BoutRef, string, error) {
+	pool, err := s.repo.GetPool(ctx, poolID)
+	if err != nil {
+		return domain.Pool{}, nil, "", err
+	}
+	if strings.TrimSpace(pool.ArenaID) == "" {
+		return domain.Pool{}, nil, "", domain.ErrPoolNotSeated
+	}
+	bouts, err := s.bouts.BoutsByPool(ctx, poolID)
+	if err != nil {
+		return domain.Pool{}, nil, "", err
+	}
+	currentID := effectiveCurrentBoutID(pool, bouts)
+	if currentID == "" {
+		return domain.Pool{}, nil, "", domain.ErrNoCurrentBout
+	}
+	return pool, bouts, currentID, nil
+}
+
+// boardForPool собирает BoutBoard для пула: обогащённый пул (через
+// enrichPools — Members/Status/ArenaName/NominationName, с прогрессом
+// боёв), его бои по порядку и эффективный текущий бой.
+func (s *Service) boardForPool(ctx context.Context, poolID string) (domain.BoutBoard, error) {
+	pool, err := s.repo.GetPool(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	bouts, err := s.bouts.BoutsByPool(ctx, poolID)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	enriched, err := s.enrichPools(ctx, []domain.Pool{pool})
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	sorted := sortedBySequence(bouts)
+	current := effectiveCurrentBoutID(pool, sorted)
+	return domain.BoutBoard{Pool: enriched[0], Bouts: sorted, CurrentBoutID: current}, nil
+}
+
+// effectiveCurrentBoutID резолвит текущий бой пула (спека 0013, FR-7/FR-9):
+// если pool.CurrentBoutID задан и принадлежит списку боёв пула — он;
+// иначе — первый непроведённый (state ≠ finished) по порядку (sequence);
+// если такого нет (все завершены или боёв нет) — пусто.
+func effectiveCurrentBoutID(pool domain.Pool, bouts []domain.BoutRef) string {
+	if pool.CurrentBoutID != "" {
+		for _, b := range bouts {
+			if b.ID == pool.CurrentBoutID {
+				return pool.CurrentBoutID
+			}
+		}
+	}
+	for _, b := range sortedBySequence(bouts) {
+		if b.State != domain.BoutStateFinished {
+			return b.ID
+		}
+	}
+	return ""
+}
+
+// nextUnfinishedAfter — первый непроведённый (state ≠ finished) бой по
+// sequence строго после boutID (авто-продвижение при завершении, FR-9,
+// AC-5); пусто, если такого нет (boutID — последний непроведённый, AC-10)
+// или boutID не найден в списке.
+func nextUnfinishedAfter(bouts []domain.BoutRef, boutID string) string {
+	sorted := sortedBySequence(bouts)
+	idx := -1
+	for i, b := range sorted {
+		if b.ID == boutID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return ""
+	}
+	for _, b := range sorted[idx+1:] {
+		if b.State != domain.BoutStateFinished {
+			return b.ID
+		}
+	}
+	return ""
+}
+
+// sortedBySequence возвращает копию bouts, отсортированную по
+// SequenceNumber (порядок проведения, спека 0010, FR-3a/FR-3b) — не
+// полагается на порядок, в котором BoutConductor.BoutsByPool вернул срез.
+func sortedBySequence(bouts []domain.BoutRef) []domain.BoutRef {
+	out := make([]domain.BoutRef, len(bouts))
+	copy(out, bouts)
+	sort.Slice(out, func(i, j int) bool { return out[i].SequenceNumber < out[j].SequenceNumber })
+	return out
+}
+
 // GetPoolsForArena возвращает данные для страницы конкретной арены (спека
 // 0011, FR-9): пул, стоящий на ней сейчас (если есть), и список готовых
 // пулов (любых номинаций), доступных для постановки.
@@ -377,7 +639,7 @@ func (s *Service) ListPublicPools(ctx context.Context, nominationID string) ([]d
 
 // toBoutPools маппит пулы раскладки во вход генерации боёв: loadLayout уже
 // отдаёт Pool.Members обогащёнными и отфильтрованными до активных (FR-12,
-// спека 0009) — ровно то, что нужно на вход BoutGenerator.
+// спека 0009) — ровно то, что нужно на вход BoutConductor.GenerateForNomination.
 func toBoutPools(pools []domain.Pool) []domain.BoutPoolInput {
 	out := make([]domain.BoutPoolInput, len(pools))
 	for i, p := range pools {
@@ -493,10 +755,12 @@ func (s *Service) loadLayout(ctx context.Context, nominationID string) (domain.L
 }
 
 // applyArenaAndStatus заполняет ArenaName (батч-резолв через ArenaProvider)
-// и Status (ComputePoolStatus) для пулов, чей LayoutStatus уже известен
-// (все пулы одной номинации/раскладки — спека 0011). Дополнительно резолвит
-// имя номинации (NominationName) — все пулы одной раскладки разделяют
-// nominationID, резолв идёт одним батчем.
+// и Status (ComputePoolStatus, с прогрессом боёв — спека 0013, FR-10) для
+// пулов, чей LayoutStatus уже известен (все пулы одной номинации/раскладки —
+// спека 0011). Дополнительно резолвит имя номинации (NominationName) — все
+// пулы одной раскладки разделяют nominationID, резолв идёт одним батчем.
+// PoolProgress вызывается по одному разу на пул (пулы уже уникальны по ID
+// в списке одной раскладки) — не N+1 относительно бойцов.
 func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, layoutStatus domain.LayoutStatus) ([]domain.Pool, error) {
 	arenaNames, err := s.resolveArenaNames(ctx, pools)
 	if err != nil {
@@ -507,7 +771,11 @@ func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, 
 		return nil, err
 	}
 	for i := range pools {
-		pools[i].Status = domain.ComputePoolStatus(layoutStatus, pools[i].ArenaID)
+		total, started, finished, err := s.bouts.PoolProgress(ctx, pools[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		pools[i].Status = domain.ComputePoolStatus(layoutStatus, pools[i].ArenaID, started, finished, total)
 		if pools[i].ArenaID != "" {
 			pools[i].ArenaName = arenaNames[pools[i].ArenaID].Name
 		}
@@ -556,13 +824,18 @@ func (s *Service) enrichPools(ctx context.Context, rawPools []domain.Pool) ([]do
 
 		enriched := domain.Pool{
 			ID: p.ID, NominationID: p.NominationID, Number: p.Number, ArenaID: p.ArenaID,
+			CurrentBoutID: p.CurrentBoutID,
 		}
 		for _, m := range p.Members {
 			if ref, ok := activeByID[m.ID]; ok {
 				enriched.Members = append(enriched.Members, ref)
 			}
 		}
-		enriched.Status = domain.ComputePoolStatus(layoutStatus, p.ArenaID)
+		total, started, finished, err := s.bouts.PoolProgress(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		enriched.Status = domain.ComputePoolStatus(layoutStatus, p.ArenaID, started, finished, total)
 		out[i] = enriched
 	}
 
