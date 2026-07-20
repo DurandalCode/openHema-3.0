@@ -110,7 +110,7 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 - [ ] T15. **wiring** — `internal/platform/pool_bout_conductor.go`
       (`PoolBoutConductor` над `bout` service, реализует `pool/domain.
       BoutConductor`); `platform.go`: `poolDeps.Bouts = NewPoolBoutConductor(...)`.
-- [ ] T16. **arena page** — `app/(admin)/admin/arenas/[id]/page.tsx` +
+- [x] T16. **arena page** — `app/(admin)/admin/arenas/[id]/page.tsx` +
       `features/pool-seating`: заменить плейсхолдер «ход боя» на `BoutBoard`,
       когда арена занята.
 - [ ] T17. **integration (testcontainers)** — `bout`: конфликт версии реально
