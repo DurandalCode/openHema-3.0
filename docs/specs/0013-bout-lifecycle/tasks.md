@@ -116,7 +116,7 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 - [x] T17. **integration (testcontainers)** — `bout`: конфликт версии реально
       ловится (AC-15), append+projection атомарны, regen каскадит events;
       `pool` (по возможности): доска/статус на реальном пути pool×bout.
-- [ ] T18. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
+- [x] T18. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
       (менялись protobuf-моки); `go build ./...` + `pnpm build`.
 - [ ] T19. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
       (draft→done по мере); строка 0013 в `docs/specs/README.md`; пометить 0010/
