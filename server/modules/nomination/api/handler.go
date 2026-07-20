@@ -143,6 +143,36 @@ func (h *AdminHandler) ReorderNominations(
 	}), nil
 }
 
+// CloseRegistration закрывает приём заявок в номинацию вручную (спека 0012,
+// FR-3).
+func (h *AdminHandler) CloseRegistration(
+	ctx context.Context,
+	req *connect.Request[hemav1.CloseRegistrationRequest],
+) (*connect.Response[hemav1.CloseRegistrationResponse], error) {
+	n, err := h.svc.CloseRegistration(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.CloseRegistrationResponse{
+		Nomination: toProtoNomination(n),
+	}), nil
+}
+
+// ReopenRegistration открывает приём заявок обратно после ручного закрытия
+// (спека 0012, FR-3/FR-4).
+func (h *AdminHandler) ReopenRegistration(
+	ctx context.Context,
+	req *connect.Request[hemav1.ReopenRegistrationRequest],
+) (*connect.Response[hemav1.ReopenRegistrationResponse], error) {
+	n, err := h.svc.ReopenRegistration(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ReopenRegistrationResponse{
+		Nomination: toProtoNomination(n),
+	}), nil
+}
+
 // mapError переводит доменные ошибки в connect.Code.
 func mapError(err error) error {
 	switch {
@@ -152,6 +182,8 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, domain.ErrConflict):
 		return connect.NewError(connect.CodeAlreadyExists, err)
+	case errors.Is(err, domain.ErrCannotReopen):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -175,11 +207,30 @@ func toProtoNomination(n domain.Nomination) *hemav1.Nomination {
 		Position:     n.Position,
 		CreatedAt:    timestamppb.New(n.CreatedAt),
 		UpdatedAt:    timestamppb.New(n.UpdatedAt),
+		Status:       toProtoStatus(n.Status),
 	}
 	if n.HasFighterCapacity {
 		out.FighterCapacity = &n.FighterCapacity
 	}
 	return out
+}
+
+// toProtoStatus мапит внутренний Status в публичный NominationStatus (спека
+// 0012, FR-1/FR-8). ClosedReason/HasDistributedFighters — не публичны, этим
+// маппером не читаются вообще (не существуют в proto).
+func toProtoStatus(s domain.Status) hemav1.NominationStatus {
+	switch s {
+	case domain.StatusOpen:
+		return hemav1.NominationStatus_NOMINATION_STATUS_OPEN
+	case domain.StatusClosed:
+		return hemav1.NominationStatus_NOMINATION_STATUS_CLOSED
+	case domain.StatusActive:
+		return hemav1.NominationStatus_NOMINATION_STATUS_ACTIVE
+	case domain.StatusFinished:
+		return hemav1.NominationStatus_NOMINATION_STATUS_FINISHED
+	default:
+		return hemav1.NominationStatus_NOMINATION_STATUS_UNSPECIFIED
+	}
 }
 
 func toProtoMetadata(m domain.Metadata) *hemav1.NominationMetadata {

@@ -46,20 +46,20 @@
 
 ## Server — трек A (`nomination`)
 
-- [ ] T2. **migrations** — `nomination/migrations/00002_registration_status.sql`:
+- [x] T2. **migrations** — `nomination/migrations/00002_registration_status.sql`:
       колонки `status TEXT NOT NULL DEFAULT 'open'`, `closed_reason TEXT NULL`,
       `has_distributed_fighters BOOLEAN NOT NULL DEFAULT false`; констрейнты
       `chk_nominations_status`, `chk_nominations_closed_reason`,
       `chk_nominations_closed_reason_presence` (см. `plan.md`). Down —
       дропнуть три колонки + констрейнты.
-- [ ] T3. **domain** — `nomination/domain/domain.go`: `Status`/`ClosedReason`
+- [x] T3. **domain** — `nomination/domain/domain.go`: `Status`/`ClosedReason`
       типы+константы; `Nomination.{Status,ClosedReason,HasDistributedFighters}`;
       `ErrCannotReopen`; `Repository.SetRegistrationState(ctx, id, status,
       reason, hasDistributed) (Nomination, error)`.
-- [ ] T4. **testutil** — `nomination/testutil/fake_repo.go`: реализовать
+- [x] T4. **testutil** — `nomination/testutil/fake_repo.go`: реализовать
       `SetRegistrationState` (in-memory), `var _ domain.Repository = …` не
       ломается.
-- [ ] T5. **service (red→green)** — `nomination/service/service_test.go`:
+- [x] T5. **service (red→green)** — `nomination/service/service_test.go`:
       - `Create` → `Status == StatusOpen` (AC-1);
       - `CloseRegistration`: open→closed(manual) (AC-3); идемпотентный no-op
         на уже closed **любой** причины, `ClosedReason` не перезаписывается
@@ -74,13 +74,13 @@
         (AC-11); closed(manual)+true — то же с `true` (AC-16 сценарий).
       Затем `nomination/service/service.go`: `CloseRegistration`,
       `ReopenRegistration`, `SyncRegistrationState`.
-- [ ] T6. **repo (red→green)** — `nomination/repo/queries/nomination.sql`:
+- [x] T6. **repo (red→green)** — `nomination/repo/queries/nomination.sql`:
       добавить `status, closed_reason, has_distributed_fighters` в
       `ListNominationsByTournament`/`GetNomination`/`CreateNomination`
       (SELECT/RETURNING); новый `SetRegistrationState :one`. `make sqlc`;
       `nomination/repo/repo.go` — implement `SetRegistrationState`, обновить
       `toDomain`.
-- [ ] T7. **api (red→green)** — `nomination/api/handler_test.go`:
+- [x] T7. **api (red→green)** — `nomination/api/handler_test.go`:
       `CloseRegistration`/`ReopenRegistration` (счастливый путь + маппинг
       `ErrCannotReopen → FailedPrecondition`); `RequireAdmin` на обоих
       (AC-13); `ListNominations`/`GetNomination` отдают `status` без токена

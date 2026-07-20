@@ -97,6 +97,7 @@ func (r *FakeRepo) Create(_ context.Context, tournamentID string, in domain.Crea
 		Position:           maxPosition + 1,
 		CreatedAt:          now,
 		UpdatedAt:          now,
+		Status:             domain.StatusOpen,
 	}
 	r.nominations[n.ID] = n
 	return n, nil
@@ -163,6 +164,25 @@ func (r *FakeRepo) Reorder(_ context.Context, _ string, orderedIDs []string) ([]
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// SetRegistrationState записывает статус, причину закрытия и снапшот
+// «раскладка активна» существующей номинации.
+func (r *FakeRepo) SetRegistrationState(_ context.Context, id string, status domain.Status, reason domain.ClosedReason, hasDistributed bool) (domain.Nomination, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.nominations[id]
+	if !ok {
+		return domain.Nomination{}, domain.ErrNotFound
+	}
+
+	existing.Status = status
+	existing.ClosedReason = reason
+	existing.HasDistributedFighters = hasDistributed
+	existing.UpdatedAt = time.Now().UTC()
+	r.nominations[id] = existing
+	return existing, nil
 }
 
 func sortByPosition(nominations []domain.Nomination) {

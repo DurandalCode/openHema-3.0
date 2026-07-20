@@ -442,3 +442,234 @@ func TestReorder_EmptyTournamentID(t *testing.T) {
 		t.Errorf("expected ErrInvalidInput, got %v", err)
 	}
 }
+
+// --- Спека 0012: статусная модель номинации ---
+
+func TestCreate_DefaultStatusOpen(t *testing.T) {
+	svc, _ := testService()
+
+	got, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Title: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got.Status != domain.StatusOpen {
+		t.Errorf("Status = %q, want %q (AC-1)", got.Status, domain.StatusOpen)
+	}
+}
+
+// seedWithState создаёт fake-репо с одной номинацией в заданном состоянии
+// статусной модели (спека 0012), минуя Create (который всегда ставит open).
+func seedWithState(id string, status domain.Status, reason domain.ClosedReason, hasDistributed bool) (*Service, *testutil.FakeRepo) {
+	repo := testutil.NewFakeRepoWithNominations(domain.Nomination{
+		ID:                     id,
+		TournamentID:           activeTournamentID,
+		Title:                  "T",
+		Status:                 status,
+		ClosedReason:           reason,
+		HasDistributedFighters: hasDistributed,
+	})
+	provider := testutil.NewFakeActiveTournamentProvider(activeTournamentID)
+	return New(repo, provider), repo
+}
+
+func TestCloseRegistration_OpenToClosedManual(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusOpen, domain.ClosedReasonNone, false)
+
+	got, err := svc.CloseRegistration(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("CloseRegistration: %v", err)
+	}
+	if got.Status != domain.StatusClosed {
+		t.Errorf("Status = %q, want closed (AC-3)", got.Status)
+	}
+	if got.ClosedReason != domain.ClosedReasonManual {
+		t.Errorf("ClosedReason = %q, want manual", got.ClosedReason)
+	}
+}
+
+func TestCloseRegistration_IdempotentOnAlreadyClosedManual(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonManual, false)
+
+	got, err := svc.CloseRegistration(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("CloseRegistration: %v", err)
+	}
+	if got.Status != domain.StatusClosed || got.ClosedReason != domain.ClosedReasonManual {
+		t.Errorf("got = %+v, want unchanged closed/manual", got)
+	}
+}
+
+// Регрессия из «Риски» plan.md: CloseRegistration на уже closed(drawing) —
+// идемпотентный no-op, ClosedReason не перезаписывается в manual.
+func TestCloseRegistration_IdempotentOnAlreadyClosedDrawing_ReasonNotOverwritten(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonDrawing, true)
+
+	got, err := svc.CloseRegistration(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("CloseRegistration: %v", err)
+	}
+	if got.Status != domain.StatusClosed {
+		t.Errorf("Status = %q, want closed", got.Status)
+	}
+	if got.ClosedReason != domain.ClosedReasonDrawing {
+		t.Errorf("ClosedReason = %q, want drawing (not overwritten to manual)", got.ClosedReason)
+	}
+}
+
+func TestCloseRegistration_NotFound(t *testing.T) {
+	svc, _ := testService()
+
+	_, err := svc.CloseRegistration(context.Background(), "does-not-exist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestReopenRegistration_ManualNotDistributed_ToOpen(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonManual, false)
+
+	got, err := svc.ReopenRegistration(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("ReopenRegistration: %v", err)
+	}
+	if got.Status != domain.StatusOpen {
+		t.Errorf("Status = %q, want open (AC-4)", got.Status)
+	}
+	if got.ClosedReason != domain.ClosedReasonNone {
+		t.Errorf("ClosedReason = %q, want none", got.ClosedReason)
+	}
+}
+
+func TestReopenRegistration_IdempotentOnAlreadyOpen(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusOpen, domain.ClosedReasonNone, false)
+
+	got, err := svc.ReopenRegistration(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("ReopenRegistration: %v", err)
+	}
+	if got.Status != domain.StatusOpen {
+		t.Errorf("Status = %q, want open", got.Status)
+	}
+}
+
+// AC-9: закрыто от раскладки — Reopen заблокирован.
+func TestReopenRegistration_ErrCannotReopen_ClosedDrawing(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonDrawing, true)
+
+	_, err := svc.ReopenRegistration(context.Background(), "n1")
+	if !errors.Is(err, domain.ErrCannotReopen) {
+		t.Errorf("expected ErrCannotReopen, got %v", err)
+	}
+}
+
+// AC-16 (ключевой тест ревалидации): закрыто вручную, но раскладка всё же
+// началась (HasDistributedFighters=true) — Reopen заблокирован, несмотря на
+// причину "manual".
+func TestReopenRegistration_ErrCannotReopen_ManualButDistributed(t *testing.T) {
+	svc, _ := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonManual, true)
+
+	_, err := svc.ReopenRegistration(context.Background(), "n1")
+	if !errors.Is(err, domain.ErrCannotReopen) {
+		t.Errorf("expected ErrCannotReopen, got %v", err)
+	}
+}
+
+func TestReopenRegistration_NotFound(t *testing.T) {
+	svc, _ := testService()
+
+	_, err := svc.ReopenRegistration(context.Background(), "does-not-exist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// AC-7 (серверная часть): первый посад бойца в пул переводит открытую
+// номинацию в closed(drawing).
+func TestSyncRegistrationState_OpenTrueToClosedDrawing(t *testing.T) {
+	svc, repo := seedWithState("n1", domain.StatusOpen, domain.ClosedReasonNone, false)
+
+	if err := svc.SyncRegistrationState(context.Background(), "n1", true); err != nil {
+		t.Fatalf("SyncRegistrationState: %v", err)
+	}
+	got, err := repo.GetByID(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != domain.StatusClosed || got.ClosedReason != domain.ClosedReasonDrawing {
+		t.Errorf("got = %+v, want closed(drawing)", got)
+	}
+	if !got.HasDistributedFighters {
+		t.Errorf("HasDistributedFighters = false, want true")
+	}
+}
+
+// AC-10: раскладка полностью удалена (0 распределённых) — авто-откат
+// closed(drawing) -> open.
+func TestSyncRegistrationState_ClosedDrawingFalseToOpen(t *testing.T) {
+	svc, repo := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonDrawing, true)
+
+	if err := svc.SyncRegistrationState(context.Background(), "n1", false); err != nil {
+		t.Fatalf("SyncRegistrationState: %v", err)
+	}
+	got, err := repo.GetByID(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != domain.StatusOpen || got.ClosedReason != domain.ClosedReasonNone {
+		t.Errorf("got = %+v, want open/none", got)
+	}
+	if got.HasDistributedFighters {
+		t.Errorf("HasDistributedFighters = true, want false")
+	}
+}
+
+// AC-11: ручное закрытие не откатывается пустой раскладкой — статус/причина
+// не меняются, но HasDistributedFighters всё равно обновляется.
+func TestSyncRegistrationState_ClosedManualFalse_StatusUnchangedFlagUpdated(t *testing.T) {
+	svc, repo := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonManual, true)
+
+	if err := svc.SyncRegistrationState(context.Background(), "n1", false); err != nil {
+		t.Fatalf("SyncRegistrationState: %v", err)
+	}
+	got, err := repo.GetByID(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != domain.StatusClosed || got.ClosedReason != domain.ClosedReasonManual {
+		t.Errorf("got = %+v, want closed/manual unchanged", got)
+	}
+	if got.HasDistributedFighters {
+		t.Errorf("HasDistributedFighters = true, want false (updated)")
+	}
+}
+
+// AC-16 сценарий (серверная часть): номинация уже закрыта вручную, раскладка
+// всё же началась (hasDistributed=true застаёт уже Closed) — no-op для
+// status/reason (не апгрейдится в drawing), но флаг обновляется — нужен для
+// гейта ReopenRegistration.
+func TestSyncRegistrationState_ClosedManualTrue_StatusUnchangedFlagUpdated(t *testing.T) {
+	svc, repo := seedWithState("n1", domain.StatusClosed, domain.ClosedReasonManual, false)
+
+	if err := svc.SyncRegistrationState(context.Background(), "n1", true); err != nil {
+		t.Fatalf("SyncRegistrationState: %v", err)
+	}
+	got, err := repo.GetByID(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != domain.StatusClosed || got.ClosedReason != domain.ClosedReasonManual {
+		t.Errorf("got = %+v, want closed/manual unchanged (no upgrade to drawing)", got)
+	}
+	if !got.HasDistributedFighters {
+		t.Errorf("HasDistributedFighters = false, want true (updated)")
+	}
+}
+
+func TestSyncRegistrationState_NotFound(t *testing.T) {
+	svc, _ := testService()
+
+	err := svc.SyncRegistrationState(context.Background(), "does-not-exist", true)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}

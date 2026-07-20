@@ -120,6 +120,90 @@ func (s *Service) Reorder(ctx context.Context, tournamentID string, orderedIDs [
 	return s.repo.Reorder(ctx, tid, orderedIDs)
 }
 
+// CloseRegistration закрывает приём заявок в номинацию вручную (FR-3, AC-3).
+// Идемпотентна: если номинация уже закрыта (любой причиной), возвращает
+// текущее значение без записи — ClosedReason не перезаписывается, иначе
+// повторный клик «Закрыть» на уже закрытой от раскладки номинации тихо
+// перепривязал бы причину и сломал бы гейты FR-4/FR-6 (см. «Риски» plan.md).
+func (s *Service) CloseRegistration(ctx context.Context, id string) (domain.Nomination, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return domain.Nomination{}, domain.ErrInvalidInput
+	}
+	current, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return domain.Nomination{}, err
+	}
+	if current.Status == domain.StatusClosed {
+		return current, nil
+	}
+	return s.repo.SetRegistrationState(ctx, id, domain.StatusClosed, domain.ClosedReasonManual, current.HasDistributedFighters)
+}
+
+// ReopenRegistration открывает приём заявок обратно после ручного закрытия
+// (FR-3, AC-4). Идемпотентна на уже open. Разрешена только если оба условия
+// верны: закрытие было ручным (ClosedReason == Manual) и сейчас нет
+// распределённых бойцов (HasDistributedFighters == false) — иначе
+// ErrCannotReopen (FR-4, AC-9/AC-16).
+func (s *Service) ReopenRegistration(ctx context.Context, id string) (domain.Nomination, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return domain.Nomination{}, domain.ErrInvalidInput
+	}
+	current, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return domain.Nomination{}, err
+	}
+	if current.Status == domain.StatusOpen {
+		return current, nil
+	}
+	if current.ClosedReason != domain.ClosedReasonManual || current.HasDistributedFighters {
+		return domain.Nomination{}, domain.ErrCannotReopen
+	}
+	return s.repo.SetRegistrationState(ctx, id, domain.StatusOpen, domain.ClosedReasonNone, false)
+}
+
+// SyncRegistrationState синхронизирует статус номинации с фактическим
+// состоянием раскладки пулов (FR-5/FR-6/FR-10, push из модуля pool после
+// мутирующих операций). hasDistributed — есть ли сейчас ≥1 распределённый
+// боец номинации.
+//
+// Правила перехода:
+//   - hasDistributed && Status == Open → (Closed, Drawing) — автозакрытие
+//     при первом посаде бойца (AC-7);
+//   - !hasDistributed && Status == Closed && ClosedReason == Drawing →
+//     (Open, None) — автооткат при полном удалении раскладки (AC-10);
+//   - иначе — статус/причина не меняются (в частности Closed+Manual не
+//     трогается ни в какую сторону — FR-6/AC-11/AC-16).
+//
+// В любом случае HasDistributedFighters обновляется до hasDistributed —
+// нужно ReopenRegistration'у для гейта AC-16, даже когда status/reason не
+// меняются. Идемпотентна.
+func (s *Service) SyncRegistrationState(ctx context.Context, nominationID string, hasDistributed bool) error {
+	nominationID = strings.TrimSpace(nominationID)
+	if nominationID == "" {
+		return domain.ErrInvalidInput
+	}
+	current, err := s.repo.GetByID(ctx, nominationID)
+	if err != nil {
+		return err
+	}
+
+	status := current.Status
+	reason := current.ClosedReason
+	switch {
+	case hasDistributed && current.Status == domain.StatusOpen:
+		status = domain.StatusClosed
+		reason = domain.ClosedReasonDrawing
+	case !hasDistributed && current.Status == domain.StatusClosed && current.ClosedReason == domain.ClosedReasonDrawing:
+		status = domain.StatusOpen
+		reason = domain.ClosedReasonNone
+	}
+
+	_, err = s.repo.SetRegistrationState(ctx, nominationID, status, reason, hasDistributed)
+	return err
+}
+
 // resolveTournament проверяет, что tournamentID непустой и указывает на
 // активный турнир (в MVP — единственный способ существования турнира).
 // Любая ошибка провайдера (в т.ч. «активного турнира нет») мапится в
