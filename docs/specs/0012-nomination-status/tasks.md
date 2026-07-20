@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: in progress
+- Статус: done
 - Дата: 2026-07-20
 - План: `./plan.md`
 
@@ -36,7 +36,7 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/nomination.proto`:
+- [x] T1. `proto/hema/v1/nomination.proto`:
       - новый enum `NominationStatus` (`UNSPECIFIED/OPEN/CLOSED/ACTIVE/
         FINISHED` — последние два зарезервированы, без переходов);
       - `Nomination.status` (поле 10);
@@ -171,11 +171,11 @@
 
 ## Проверка (волна 3)
 
-- [ ] T22. `make test-all` зелёный.
-- [ ] T23. `pnpm exec tsc --noEmit` (менялись protobuf-моки/типы).
-- [ ] T24. `go build ./...` + `pnpm build`; миграция `nomination` проверена в
+- [x] T22. `make test-all` зелёный.
+- [x] T23. `pnpm exec tsc --noEmit` (менялись protobuf-моки/типы).
+- [x] T24. `go build ./...` + `pnpm build`; миграция `nomination` проверена в
       полном докеризованном стеке (`docker compose up --build`).
-- [ ] T25. Обновить статусы `spec.md`/`plan.md`/`tasks.md` на `done`; строка
+- [x] T25. Обновить статусы `spec.md`/`plan.md`/`tasks.md` на `done`; строка
       0012 в `docs/specs/README.md`.
 
 _Порядок сохранён: контракты → server снизу вверх (по трекам) → web →
