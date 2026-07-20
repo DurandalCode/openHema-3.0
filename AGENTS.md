@@ -92,6 +92,11 @@ Claude Code — `.claude/skills/` + `.claude/commands/spec.md` (см. `CLAUDE.md
 Мелкие правки (рефактор, баг-фикс, косметика) спеки не требуют — только
 инкремент с тестами.
 
+Параллельные треки `tasks.md` выполняются в изолированных `git worktree`
+(см. `tdd-cycle`). После мержа трека в рабочую ветку — сразу `git worktree
+remove` и `git branch -d` за собой; не копить смерженные worktree/ветки
+(`.claude/worktrees/worktree-agent-*`).
+
 > Event-Driven Design (межмодульные события) появится отдельным ADR вместе с
 > первой событийной фичей. До этого секция «События» в `plan.md` — placeholder.
 

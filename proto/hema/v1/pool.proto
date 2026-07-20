@@ -36,19 +36,60 @@ service PoolAdminService {
   // Undo откатывает последнее mutating-действие среди двух классов:
   // автораспределение или удаление пула (FR-7a). Только в draft.
   rpc Undo(UndoRequest) returns (UndoResponse);
-  // SetLayoutStatus переключает статус раскладки draft↔ready (FR-9).
+  // SetLayoutStatus переключает статус раскладки draft↔ready (FR-9, спека
+  // 0009). draft→ready фиксирует состав и формирует бои всех пулов
+  // номинации (спека 0010); ready→draft отклоняется, если хотя бы один пул
+  // номинации стоит на арене (спека 0011, FR-3).
   rpc SetLayoutStatus(SetLayoutStatusRequest) returns (SetLayoutStatusResponse);
+  // SeatPoolOnArena ставит готовый пул (PoolStatus READY) на активную
+  // свободную площадку целиком, вместе с его боями (спека 0011, FR-7).
+  // Пул переходит в PREPARING. Отклоняется, если пул не готов, уже стоит на
+  // арене, либо арена занята/архивна/не найдена.
+  rpc SeatPoolOnArena(SeatPoolOnArenaRequest) returns (SeatPoolOnArenaResponse);
+  // UnseatPool снимает пул с арены (спека 0011, FR-8): PREPARING → READY,
+  // привязка к площадке очищается, площадка освобождается. Бои пула
+  // сохраняются.
+  rpc UnseatPool(UnseatPoolRequest) returns (UnseatPoolResponse);
+  // GetPoolsForArena возвращает для страницы конкретной арены (спека 0011,
+  // FR-9): пул, который сейчас на ней стоит (если есть), и список готовых
+  // пулов, доступных для постановки (PoolStatus READY, ни на одной арене).
+  rpc GetPoolsForArena(GetPoolsForArenaRequest) returns (GetPoolsForArenaResponse);
 }
 
-// PoolLayoutStatus — статус раскладки номинации целиком. В этой фиче
-// реализованы переходы только draft↔ready; active/finished — в контракте
-// для целостности (бои — будущая фича, спека 0009 «Вне скоупа»).
+// PoolPublicService — публичное чтение пулов номинации (спека 0011, FR-11).
+// Не требует роли ADMIN. Показывает пулы только при готовой (ready)
+// раскладке номинации; пока раскладка draft — пустой список.
+service PoolPublicService {
+  // ListPublicPools возвращает пулы номинации с составом (имя/клуб бойцов),
+  // статусом и, если пул на арене — площадкой (спека 0011, FR-11/FR-12).
+  rpc ListPublicPools(ListPublicPoolsRequest) returns (ListPublicPoolsResponse);
+}
+
+// PoolLayoutStatus — статус раскладки номинации целиком (спека 0009).
+// Реализованы переходы только draft↔ready. Значения 3 (ACTIVE) и
+// 4 (FINISHED) существовали как задел под будущие бои и упразднены спекой
+// 0011: исполнительная фаза (готовится к запуску/идёт/завершён) — свойство
+// отдельного пула (см. PoolStatus), не раскладки целиком.
 enum PoolLayoutStatus {
   POOL_LAYOUT_STATUS_UNSPECIFIED = 0;
   POOL_LAYOUT_STATUS_DRAFT = 1;
   POOL_LAYOUT_STATUS_READY = 2;
-  POOL_LAYOUT_STATUS_ACTIVE = 3;
-  POOL_LAYOUT_STATUS_FINISHED = 4;
+  reserved 3, 4;
+  reserved "POOL_LAYOUT_STATUS_ACTIVE", "POOL_LAYOUT_STATUS_FINISHED";
+}
+
+// PoolStatus — статус отдельного пула (спека 0011, FR-1). NOT_READY/READY
+// синхронны со статусом раскладки номинации (переходят вместе при
+// SetLayoutStatus); PREPARING — пул поставлен на арену (SeatPoolOnArena).
+// ACTIVE/FINISHED — задел под будущий ЖЦ боя (ЕДД), переходы в них в этом
+// инкременте не реализованы.
+enum PoolStatus {
+  POOL_STATUS_UNSPECIFIED = 0;
+  POOL_STATUS_NOT_READY = 1;
+  POOL_STATUS_READY = 2;
+  POOL_STATUS_PREPARING = 3;
+  POOL_STATUS_ACTIVE = 4;
+  POOL_STATUS_FINISHED = 5;
 }
 
 // FighterRef — проекция бойца для экрана управления пулами (DnD): id для
@@ -61,12 +102,22 @@ message FighterRef {
 
 // Pool — пул (группа) номинации с его бойцами. Имя не редактируется
 // (генерируется системой из номера, спека 0009 «Вне скоупа»).
+// status/arena_id/arena_name — спека 0011: статус отдельного пула и, если он
+// поставлен на арену, идентификатор и (резолвленное на момент чтения) имя
+// площадки. arena_id/arena_name пусты, если пул не на арене.
+// nomination_name — резолвленное на момент чтения название номинации пула
+// (denormalized на чтении, по аналогии с arena_name): для экрана арены, где
+// список «готовых пулов для постановки» собран из разных номинаций.
 message Pool {
   string id = 1;
   string nomination_id = 2;
   int32 number = 3;
   string name = 4;
   repeated FighterRef members = 5;
+  PoolStatus status = 6;
+  string arena_id = 7;
+  string arena_name = 8;
+  string nomination_name = 9;
 }
 
 // PoolLayout — раскладка номинации целиком: статус, нераспределённые,
@@ -155,4 +206,40 @@ message SetLayoutStatusRequest {
 
 message SetLayoutStatusResponse {
   PoolLayout layout = 1;
+}
+
+message SeatPoolOnArenaRequest {
+  string pool_id = 1;
+  string arena_id = 2;
+}
+
+message SeatPoolOnArenaResponse {
+  PoolLayout layout = 1;
+}
+
+message UnseatPoolRequest {
+  string pool_id = 1;
+}
+
+message UnseatPoolResponse {
+  PoolLayout layout = 1;
+}
+
+message GetPoolsForArenaRequest {
+  string arena_id = 1;
+}
+
+// GetPoolsForArenaResponse — seated пуст, если на арене сейчас никто не
+// стоит (спека 0011, FR-9).
+message GetPoolsForArenaResponse {
+  Pool seated = 1;
+  repeated Pool available = 2;
+}
+
+message ListPublicPoolsRequest {
+  string nomination_id = 1;
+}
+
+message ListPublicPoolsResponse {
+  repeated Pool pools = 1;
 }

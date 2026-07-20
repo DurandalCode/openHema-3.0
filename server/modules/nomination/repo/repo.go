@@ -216,6 +216,29 @@ func (r *Repo) Reorder(ctx context.Context, tournamentID string, orderedIDs []st
 	return out, nil
 }
 
+// SetRegistrationState записывает статус, причину закрытия и снапшот
+// «раскладка активна» существующей номинации (спека 0012).
+func (r *Repo) SetRegistrationState(ctx context.Context, id string, status domain.Status, reason domain.ClosedReason, hasDistributed bool) (domain.Nomination, error) {
+	nid, err := uuid.Parse(id)
+	if err != nil {
+		return domain.Nomination{}, domain.ErrNotFound
+	}
+
+	row, err := r.q.SetRegistrationState(ctx, sqlc.SetRegistrationStateParams{
+		ID:                     nid,
+		Status:                 string(status),
+		ClosedReason:           closedReasonPtr(reason),
+		HasDistributedFighters: hasDistributed,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Nomination{}, domain.ErrNotFound
+		}
+		return domain.Nomination{}, fmt.Errorf("set registration state: %w", err)
+	}
+	return toDomain(row)
+}
+
 func toDomain(row sqlc.NominationNomination) (domain.Nomination, error) {
 	meta, err := unmarshalMetadata(row.Metadata)
 	if err != nil {
@@ -230,7 +253,12 @@ func toDomain(row sqlc.NominationNomination) (domain.Nomination, error) {
 		Position:     row.Position,
 		CreatedAt:    row.CreatedAt,
 		UpdatedAt:    row.UpdatedAt,
+		Status:       domain.Status(row.Status),
 	}
+	if row.ClosedReason != nil {
+		out.ClosedReason = domain.ClosedReason(*row.ClosedReason)
+	}
+	out.HasDistributedFighters = row.HasDistributedFighters
 	if row.FighterCapacity != nil {
 		out.FighterCapacity = *row.FighterCapacity
 		out.HasFighterCapacity = true
@@ -265,6 +293,16 @@ func capacityPtr(v int32, has bool) *int32 {
 		return nil
 	}
 	return &v
+}
+
+// closedReasonPtr преобразует domain.ClosedReason в *string для колонки
+// closed_reason (NULL, когда причина не задана — ClosedReasonNone).
+func closedReasonPtr(r domain.ClosedReason) *string {
+	if r == domain.ClosedReasonNone {
+		return nil
+	}
+	s := string(r)
+	return &s
 }
 
 func isUniqueViolation(err error) bool {

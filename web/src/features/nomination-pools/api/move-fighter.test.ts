@@ -6,7 +6,17 @@ function fighter(id: string, club = ""): FighterRef {
   return { fighterId: id, name: id, club };
 }
 function pool(id: string, members: FighterRef[]): Pool {
-  return { id, nominationId: "n1", number: 1, name: "Пул 1", members };
+  return {
+    id,
+    nominationId: "n1",
+    nominationName: "",
+    number: 1,
+    name: "Пул 1",
+    members,
+    status: "POOL_STATUS_NOT_READY",
+    arenaId: "",
+    arenaName: "",
+  };
 }
 function layout(pools: Pool[], unassigned: FighterRef[] = [], canUndo = false): PoolLayout {
   return { nominationId: "n1", status: "POOL_LAYOUT_STATUS_DRAFT", unassigned, pools, canUndo };

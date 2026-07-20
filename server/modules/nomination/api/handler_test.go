@@ -90,7 +90,18 @@ func seedNomination(id, title string, position int32) domain.Nomination {
 		HasFighterCapacity: true,
 		Metadata:           domain.Metadata{RulesURL: "https://example.com/rules"},
 		Position:           position,
+		Status:             domain.StatusOpen,
 	}
+}
+
+// seedNominationWithState — как seedNomination, но с явным статусом/причиной
+// закрытия/снапшотом раскладки (спека 0012).
+func seedNominationWithState(id, title string, position int32, status domain.Status, reason domain.ClosedReason, hasDistributed bool) domain.Nomination {
+	n := seedNomination(id, title, position)
+	n.Status = status
+	n.ClosedReason = reason
+	n.HasDistributedFighters = hasDistributed
+	return n
 }
 
 func TestListNominations_E2E(t *testing.T) {
@@ -438,6 +449,168 @@ func TestReorderNominations_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
 		connect.NewRequest(&hemav1.ReorderNominationsRequest{TournamentId: activeTournamentID, OrderedIds: []string{"n1"}}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+// --- Спека 0012: статусная модель номинации ---
+
+func TestGetNomination_E2E_StatusOpen_NoToken(t *testing.T) {
+	pub, _, _ := setup(t, seedNomination("n1", "T", 0))
+
+	res, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: "n1"}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if res.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_OPEN {
+		t.Errorf("Status = %v, want OPEN (AC-2)", res.Msg.Nomination.Status)
+	}
+}
+
+func TestListNominations_E2E_StatusClosed_NoToken(t *testing.T) {
+	pub, _, _ := setup(t,
+		seedNominationWithState("n1", "A", 0, domain.StatusClosed, domain.ClosedReasonManual, false),
+	)
+
+	res, err := pub.ListNominations(context.Background(), connect.NewRequest(&hemav1.ListNominationsRequest{
+		TournamentId: activeTournamentID,
+	}))
+	if err != nil {
+		t.Fatalf("ListNominations: %v", err)
+	}
+	if len(res.Msg.Nominations) != 1 {
+		t.Fatalf("len = %d, want 1", len(res.Msg.Nominations))
+	}
+	if res.Msg.Nominations[0].Status != hemav1.NominationStatus_NOMINATION_STATUS_CLOSED {
+		t.Errorf("Status = %v, want CLOSED (AC-2)", res.Msg.Nominations[0].Status)
+	}
+}
+
+func TestCloseRegistration_E2E(t *testing.T) {
+	pub, admin, _ := setup(t, seedNomination("n1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.CloseRegistrationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := admin.CloseRegistration(context.Background(), req)
+	if err != nil {
+		t.Fatalf("CloseRegistration: %v", err)
+	}
+	if res.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_CLOSED {
+		t.Errorf("Status = %v, want CLOSED (AC-3)", res.Msg.Nomination.Status)
+	}
+
+	got, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: "n1"}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if got.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_CLOSED {
+		t.Errorf("persisted status = %v, want CLOSED", got.Msg.Nomination.Status)
+	}
+}
+
+func TestCloseRegistration_E2E_NotFound(t *testing.T) {
+	_, admin, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.CloseRegistrationRequest{Id: "does-not-exist"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.CloseRegistration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestCloseRegistration_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	_, admin, _ := setup(t, seedNomination("n1", "T", 0))
+
+	_, err := admin.CloseRegistration(context.Background(),
+		connect.NewRequest(&hemav1.CloseRegistrationRequest{Id: "n1"}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestCloseRegistration_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	_, admin, _ := setup(t, seedNomination("n1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.CloseRegistrationRequest{Id: "n1"})
+	req.Header().Set("Authorization", userBearer(t))
+
+	_, err := admin.CloseRegistration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestReopenRegistration_E2E(t *testing.T) {
+	pub, admin, _ := setup(t, seedNominationWithState("n1", "T", 0, domain.StatusClosed, domain.ClosedReasonManual, false))
+
+	req := connect.NewRequest(&hemav1.ReopenRegistrationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := admin.ReopenRegistration(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ReopenRegistration: %v", err)
+	}
+	if res.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_OPEN {
+		t.Errorf("Status = %v, want OPEN (AC-4)", res.Msg.Nomination.Status)
+	}
+
+	got, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: "n1"}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if got.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_OPEN {
+		t.Errorf("persisted status = %v, want OPEN", got.Msg.Nomination.Status)
+	}
+}
+
+// AC-9: закрыто от раскладки — ReopenRegistration -> FailedPrecondition.
+func TestReopenRegistration_E2E_ClosedByDrawingReturnsFailedPrecondition(t *testing.T) {
+	_, admin, _ := setup(t, seedNominationWithState("n1", "T", 0, domain.StatusClosed, domain.ClosedReasonDrawing, true))
+
+	req := connect.NewRequest(&hemav1.ReopenRegistrationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.ReopenRegistration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+}
+
+// AC-16: закрыто вручную, но раскладка всё же началась (has_distributed) —
+// ReopenRegistration всё равно заблокирован, несмотря на причину "manual".
+func TestReopenRegistration_E2E_ManualButDistributedReturnsFailedPrecondition(t *testing.T) {
+	_, admin, _ := setup(t, seedNominationWithState("n1", "T", 0, domain.StatusClosed, domain.ClosedReasonManual, true))
+
+	req := connect.NewRequest(&hemav1.ReopenRegistrationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.ReopenRegistration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestReopenRegistration_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	_, admin, _ := setup(t, seedNominationWithState("n1", "T", 0, domain.StatusClosed, domain.ClosedReasonManual, false))
+
+	_, err := admin.ReopenRegistration(context.Background(),
+		connect.NewRequest(&hemav1.ReopenRegistrationRequest{Id: "n1"}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestReopenRegistration_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	_, admin, _ := setup(t, seedNominationWithState("n1", "T", 0, domain.StatusClosed, domain.ClosedReasonManual, false))
+
+	req := connect.NewRequest(&hemav1.ReopenRegistrationRequest{Id: "n1"})
+	req.Header().Set("Authorization", userBearer(t))
+
+	_, err := admin.ReopenRegistration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
 	}
 }
 

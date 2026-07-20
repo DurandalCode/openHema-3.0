@@ -1,5 +1,8 @@
-// Package api реализует Connect PoolAdminService: маппинг proto ↔ domain и
-// ошибок. Домен админский — публичного сервиса нет (спека 0009, FR-13).
+// Package api реализует Connect-хендлеры модуля pool: маппинг proto ↔
+// domain и ошибок. PoolAdminService — управление раскладкой (спека 0009) и
+// постановкой/снятием пула с арены (спека 0011, RequireAdmin);
+// PoolPublicService — публичное чтение готовых пулов номинации (спека 0011,
+// FR-11, без RequireAdmin).
 package api
 
 import (
@@ -16,7 +19,8 @@ import (
 )
 
 // AdminHandler реализует PoolAdminServiceHandler (управление раскладкой
-// бойцов по пулам). Доступ ограничен интерсептором RequireAdmin.
+// бойцов по пулам, постановка/снятие пула с арены). Доступ ограничен
+// интерсептором RequireAdmin.
 type AdminHandler struct {
 	svc *service.Service
 }
@@ -138,6 +142,76 @@ func (h *AdminHandler) SetLayoutStatus(
 	return connect.NewResponse(&hemav1.SetLayoutStatusResponse{Layout: toProtoLayout(layout)}), nil
 }
 
+// SeatPoolOnArena ставит готовый пул на активную площадку целиком (спека
+// 0011, FR-7).
+func (h *AdminHandler) SeatPoolOnArena(
+	ctx context.Context,
+	req *connect.Request[hemav1.SeatPoolOnArenaRequest],
+) (*connect.Response[hemav1.SeatPoolOnArenaResponse], error) {
+	layout, err := h.svc.SeatPoolOnArena(ctx, req.Msg.PoolId, req.Msg.ArenaId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SeatPoolOnArenaResponse{Layout: toProtoLayout(layout)}), nil
+}
+
+// UnseatPool снимает пул с площадки (спека 0011, FR-8).
+func (h *AdminHandler) UnseatPool(
+	ctx context.Context,
+	req *connect.Request[hemav1.UnseatPoolRequest],
+) (*connect.Response[hemav1.UnseatPoolResponse], error) {
+	layout, err := h.svc.UnseatPool(ctx, req.Msg.PoolId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.UnseatPoolResponse{Layout: toProtoLayout(layout)}), nil
+}
+
+// GetPoolsForArena возвращает данные для страницы конкретной арены (спека
+// 0011, FR-9): пул, стоящий на ней сейчас (если есть), и список готовых
+// пулов, доступных для постановки.
+func (h *AdminHandler) GetPoolsForArena(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetPoolsForArenaRequest],
+) (*connect.Response[hemav1.GetPoolsForArenaResponse], error) {
+	pools, err := h.svc.GetPoolsForArena(ctx, req.Msg.ArenaId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	resp := &hemav1.GetPoolsForArenaResponse{Available: toProtoPools(pools.Available)}
+	if pools.Seated != nil {
+		resp.Seated = toProtoPool(*pools.Seated)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// PublicHandler реализует PoolPublicServiceHandler (спека 0011, FR-11):
+// публичное чтение пулов готовой раскладки номинации. Без RequireAdmin.
+type PublicHandler struct {
+	svc *service.Service
+}
+
+// NewPublicHandler создаёт Connect-обработчик публичного чтения пулов.
+func NewPublicHandler(svc *service.Service) *PublicHandler {
+	return &PublicHandler{svc: svc}
+}
+
+var _ hemav1connect.PoolPublicServiceHandler = (*PublicHandler)(nil)
+
+// ListPublicPools возвращает пулы готовой раскладки номинации с составом,
+// статусом и (если поставлен) площадкой; пустой список, пока раскладка
+// draft (AC-14).
+func (h *PublicHandler) ListPublicPools(
+	ctx context.Context,
+	req *connect.Request[hemav1.ListPublicPoolsRequest],
+) (*connect.Response[hemav1.ListPublicPoolsResponse], error) {
+	pools, err := h.svc.ListPublicPools(ctx, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ListPublicPoolsResponse{Pools: toProtoPools(pools)}), nil
+}
+
 // mapError переводит доменные ошибки в connect.Code.
 func mapError(err error) error {
 	switch {
@@ -147,7 +221,12 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, domain.ErrNotDraft),
 		errors.Is(err, domain.ErrNoPools),
-		errors.Is(err, domain.ErrNothingToUndo):
+		errors.Is(err, domain.ErrNothingToUndo),
+		errors.Is(err, domain.ErrNotReady),
+		errors.Is(err, domain.ErrArenaBusy),
+		errors.Is(err, domain.ErrAlreadySeated),
+		errors.Is(err, domain.ErrPoolSeated),
+		errors.Is(err, domain.ErrArenaNotAvailable):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
@@ -174,11 +253,15 @@ func toProtoPools(pools []domain.Pool) []*hemav1.Pool {
 
 func toProtoPool(p domain.Pool) *hemav1.Pool {
 	return &hemav1.Pool{
-		Id:           p.ID,
-		NominationId: p.NominationID,
-		Number:       int32(p.Number),
-		Name:         poolName(p.Number),
-		Members:      toProtoFighterRefs(p.Members),
+		Id:             p.ID,
+		NominationId:   p.NominationID,
+		Number:         int32(p.Number),
+		Name:           poolName(p.Number),
+		Members:        toProtoFighterRefs(p.Members),
+		Status:         toProtoPoolStatus(p.Status),
+		ArenaId:        p.ArenaID,
+		ArenaName:      p.ArenaName,
+		NominationName: p.NominationName,
 	}
 }
 
@@ -202,10 +285,6 @@ func toProtoStatus(s domain.LayoutStatus) hemav1.PoolLayoutStatus {
 		return hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT
 	case domain.LayoutReady:
 		return hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY
-	case domain.LayoutActive:
-		return hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_ACTIVE
-	case domain.LayoutFinished:
-		return hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_FINISHED
 	default:
 		return hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_UNSPECIFIED
 	}
@@ -217,11 +296,25 @@ func fromProtoStatus(s hemav1.PoolLayoutStatus) domain.LayoutStatus {
 		return domain.LayoutDraft
 	case hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY:
 		return domain.LayoutReady
-	case hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_ACTIVE:
-		return domain.LayoutActive
-	case hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_FINISHED:
-		return domain.LayoutFinished
 	default:
 		return ""
+	}
+}
+
+// toProtoPoolStatus маппит статус отдельного пула (спека 0011, FR-1).
+func toProtoPoolStatus(s domain.PoolStatus) hemav1.PoolStatus {
+	switch s {
+	case domain.PoolStatusNotReady:
+		return hemav1.PoolStatus_POOL_STATUS_NOT_READY
+	case domain.PoolStatusReady:
+		return hemav1.PoolStatus_POOL_STATUS_READY
+	case domain.PoolStatusPreparing:
+		return hemav1.PoolStatus_POOL_STATUS_PREPARING
+	case domain.PoolStatusActive:
+		return hemav1.PoolStatus_POOL_STATUS_ACTIVE
+	case domain.PoolStatusFinished:
+		return hemav1.PoolStatus_POOL_STATUS_FINISHED
+	default:
+		return hemav1.PoolStatus_POOL_STATUS_UNSPECIFIED
 	}
 }

@@ -102,9 +102,11 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	boutmodule.Register(mux, boutDeps, baseOpts, adminOpts)
 
 	poolDeps := poolmodule.Deps{
-		Pool:     pool,
-		Fighters: NewPoolActiveFightersProvider(pool),
-		Bouts:    NewPoolBoutGenerator(pool),
+		Pool:        pool,
+		Fighters:    NewPoolActiveFightersProvider(pool),
+		Bouts:       NewPoolBoutGenerator(pool),
+		Arenas:      NewPoolArenaProvider(pool, activeTournaments),
+		Nominations: NewPoolNominationProvider(pool, activeTournaments),
 	}
 	poolmodule.Register(mux, poolDeps, baseOpts, adminOpts)
 

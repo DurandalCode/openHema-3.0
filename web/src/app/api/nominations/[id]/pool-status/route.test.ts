@@ -61,16 +61,61 @@ describe("app/api/nominations/[id]/pool-status route", () => {
         nominationId: "n1",
         status: "POOL_LAYOUT_STATUS_READY",
         canUndo: true,
+        pools: [],
       } as never);
 
       const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data).toEqual({ status: "POOL_LAYOUT_STATUS_READY", canUndo: true });
+      expect(data).toEqual({
+        status: "POOL_LAYOUT_STATUS_READY",
+        canUndo: true,
+        hasDistributedFighters: false,
+      });
       expect(poolAdminClient.getLayout).toHaveBeenCalledWith(
         { nominationId: "n1" },
         { headers: { Authorization: "Bearer token" } },
       );
+    });
+
+    // Спека 0012, FR-9/AC-12: hasDistributedFighters вычисляется из
+    // layout.pools без нового gRPC-вызова — истина, если хотя бы один пул
+    // непустой.
+    it("returns hasDistributedFighters:true when a pool has members", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("token");
+      vi.mocked(poolAdminClient.getLayout).mockResolvedValue({
+        layout: { nominationId: "n1" },
+      } as never);
+      vi.mocked(poolLayoutToJson).mockReturnValue({
+        nominationId: "n1",
+        status: "POOL_LAYOUT_STATUS_DRAFT",
+        canUndo: true,
+        pools: [
+          { id: "p1", members: [] },
+          { id: "p2", members: [{ fighterId: "f1", name: "A", club: "" }] },
+        ],
+      } as never);
+
+      const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
+      const data = await res.json();
+      expect(data.hasDistributedFighters).toBe(true);
+    });
+
+    it("returns hasDistributedFighters:false when pools are empty", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("token");
+      vi.mocked(poolAdminClient.getLayout).mockResolvedValue({
+        layout: { nominationId: "n1" },
+      } as never);
+      vi.mocked(poolLayoutToJson).mockReturnValue({
+        nominationId: "n1",
+        status: "POOL_LAYOUT_STATUS_DRAFT",
+        canUndo: false,
+        pools: [{ id: "p1", members: [] }],
+      } as never);
+
+      const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
+      const data = await res.json();
+      expect(data.hasDistributedFighters).toBe(false);
     });
 
     it("maps ConnectError PermissionDenied → 403", async () => {

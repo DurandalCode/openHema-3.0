@@ -21,7 +21,7 @@ const (
 func newTestService() (*service.Service, *testutil.FakeRepo, *testutil.FakeNominationProvider, *testutil.FakeUserProvider) {
 	repo := testutil.NewFakeRepo()
 	nominations := testutil.NewFakeNominationProvider()
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantID, "Applicant Name")
 	users.Set(adminID, "Admin Name")
@@ -106,6 +106,93 @@ func TestSubmit_AllowedAfterWithdraw(t *testing.T) {
 	}
 	if _, err := svc.Submit(ctx, applicantID, nominationID, "", false); err != nil {
 		t.Fatalf("Submit after withdraw should succeed, got %v", err)
+	}
+}
+
+// AC-6/FR-7 (спека 0012): подача заявки в номинацию с закрытым приёмом
+// отклоняется ErrRegistrationClosed до ActiveExists/записи в repo (дешёвый
+// fail-fast).
+func TestSubmit_RegistrationClosed_Rejected(t *testing.T) {
+	svc, repo, nominations, _ := newTestService()
+	ctx := context.Background()
+
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: false})
+
+	_, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if !errors.Is(err, domain.ErrRegistrationClosed) {
+		t.Fatalf("expected ErrRegistrationClosed, got %v", err)
+	}
+
+	exists, err := repo.ActiveExists(ctx, applicantID, nominationID)
+	if err != nil {
+		t.Fatalf("ActiveExists: %v", err)
+	}
+	if exists {
+		t.Fatalf("expected no application to have been written on rejected Submit")
+	}
+}
+
+// AC-15 (спека 0012): закрытие приёма влияет только на новую подачу — уже
+// существующая заявка проходит обычный флоу 0005 (оплата/отзыв/регистрация)
+// без изменений, даже если номинация теперь закрыта.
+func TestLifecycle_UnaffectedByClosedRegistration(t *testing.T) {
+	svc, _, nominations, _ := newTestService()
+	ctx := context.Background()
+
+	app, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Приём закрывается ПОСЛЕ подачи — существующая заявка не должна это
+	// заметить ни на одном из шагов её флоу.
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: false})
+
+	app, err = svc.DeclarePayment(ctx, applicantID, app.ID)
+	if err != nil {
+		t.Fatalf("DeclarePayment on closed nomination should succeed, got %v", err)
+	}
+	if app.State != domain.StateAwaitingPaymentConfirmation {
+		t.Fatalf("expected AwaitingPaymentConfirmation, got %s", app.State)
+	}
+
+	app, err = svc.ConfirmPayment(ctx, adminID, app.ID)
+	if err != nil {
+		t.Fatalf("ConfirmPayment on closed nomination should succeed, got %v", err)
+	}
+	if app.State != domain.StatePaid {
+		t.Fatalf("expected StatePaid, got %s", app.State)
+	}
+
+	app, _, err = svc.Register(ctx, adminID, app.ID)
+	if err != nil {
+		t.Fatalf("Register on closed nomination should succeed, got %v", err)
+	}
+	if app.State != domain.StateRegistered {
+		t.Fatalf("expected StateRegistered, got %s", app.State)
+	}
+}
+
+// AC-15: отзыв (Withdraw) заявки в закрытой номинации тоже проходит обычным
+// флоу — отдельно от Register/ConfirmPayment, т.к. Withdraw требует
+// нетерминального состояния и владельца-заявителя.
+func TestWithdraw_UnaffectedByClosedRegistration(t *testing.T) {
+	svc, _, nominations, _ := newTestService()
+	ctx := context.Background()
+
+	app, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: false})
+
+	app, err = svc.Withdraw(ctx, applicantID, app.ID)
+	if err != nil {
+		t.Fatalf("Withdraw on closed nomination should succeed, got %v", err)
+	}
+	if app.State != domain.StateWithdrawn {
+		t.Fatalf("expected StateWithdrawn, got %s", app.State)
 	}
 }
 
@@ -291,7 +378,7 @@ func TestGetApplication_HistoryFullPath(t *testing.T) {
 func TestRegister_NotifiesFighterSink(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	nominations := testutil.NewFakeNominationProvider()
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantID, "Applicant Name")
 	users.Set(adminID, "Admin Name")
@@ -346,7 +433,7 @@ func TestRegister_NotifiesFighterSink(t *testing.T) {
 func TestRegister_FighterSinkError_PropagatesAsError(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	nominations := testutil.NewFakeNominationProvider()
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantID, "Applicant Name")
 	users.Set(adminID, "Admin Name")
@@ -368,7 +455,7 @@ func TestRegister_CapacityExceeded_SoftWarning(t *testing.T) {
 	ctx := context.Background()
 
 	capacity := int32(1)
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, FighterCapacity: &capacity})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, FighterCapacity: &capacity, RegistrationOpen: true})
 
 	// First fighter fills capacity exactly — no warning yet.
 	users.Set("user-1", "Fighter One")
@@ -451,7 +538,7 @@ func (r *flakyRepo) Append(ctx context.Context, appID string, expectedVersion in
 
 func TestConcurrency_OneRetryThenSuccess(t *testing.T) {
 	nominations := testutil.NewFakeNominationProvider()
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantID, "Applicant Name")
 
@@ -480,7 +567,7 @@ func TestConcurrency_OneRetryThenSuccess(t *testing.T) {
 
 func TestConcurrency_ExhaustedThenAborted(t *testing.T) {
 	nominations := testutil.NewFakeNominationProvider()
-	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users := testutil.NewFakeUserProvider()
 	users.Set(applicantID, "Applicant Name")
 
@@ -509,7 +596,7 @@ func TestListApplications_Filters(t *testing.T) {
 	ctx := context.Background()
 
 	const otherNomination = "nomination-2"
-	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 	users.Set(otherUserID, "Other Name")
 
 	app1, err := svc.Submit(ctx, applicantID, nominationID, "", false)
@@ -718,7 +805,7 @@ func TestEditApplication_TransferToDuplicate_Rejected(t *testing.T) {
 	svc, _, nominations, _ := newTestService()
 	ctx := context.Background()
 	const otherNomination = "nomination-2"
-	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID})
+	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
 
 	appA, err := svc.Submit(ctx, applicantID, nominationID, "", false)
 	if err != nil {

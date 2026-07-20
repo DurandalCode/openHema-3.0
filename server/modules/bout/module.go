@@ -2,9 +2,11 @@
 // (спека 0010).
 //
 // Модуль экспортирует единую точку входа Register, которую вызывает
-// composition root (internal/platform). Единственный сервис
-// BoutAdminService монтируется под RequireAdmin — публичного чтения нет
-// (FR-8). bout ни от кого не зависит (никаких межмодульных портов) — pool
+// composition root (internal/platform). BoutAdminService монтируется под
+// RequireAdmin (FR-8); BoutPublicService (спека 0011, FR-11) — тот же
+// read-хендлер, смонтированный под baseOpts без admin-опций (публичное
+// чтение боёв номинации). Домен/сервис/репо этой спекой не затронуты — bout
+// по-прежнему ни от кого не зависит (никаких межмодульных портов); pool
 // вызывает генерацию/очистку боёв через собственный порт
 // pool/domain.BoutGenerator, реализованный адаптером в internal/platform
 // (plan.md «Обзор решения»).
@@ -27,18 +29,24 @@ type Deps struct {
 	Pool *pgxpool.Pool
 }
 
-// Register монтирует Connect-хендлер модуля на переданный mux. baseOpts
-// применяются к сервису (recovery/logging/auth); adminOpts дополнительно
-// накладываются на BoutAdminService (require-admin).
+// Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
+// применяются ко всем сервисам (recovery/logging/auth); adminOpts
+// дополнительно накладываются на BoutAdminService (require-admin).
+// BoutPublicService — только baseOpts, без adminOpts (публичный доступ);
+// оба сервиса используют один и тот же handler-объект (api.AdminHandler
+// реализует оба интерфейса).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
 	svc := service.New(r)
 
-	adminHandler := api.NewAdminHandler(svc)
+	handler := api.NewAdminHandler(svc)
 
 	adminAll := make([]connect.HandlerOption, 0, len(baseOpts)+len(adminOpts))
 	adminAll = append(adminAll, baseOpts...)
 	adminAll = append(adminAll, adminOpts...)
-	adminPath, adminH := hemav1connect.NewBoutAdminServiceHandler(adminHandler, adminAll...)
+	adminPath, adminH := hemav1connect.NewBoutAdminServiceHandler(handler, adminAll...)
 	mux.Handle(adminPath, adminH)
+
+	publicPath, publicH := hemav1connect.NewBoutPublicServiceHandler(handler, baseOpts...)
+	mux.Handle(publicPath, publicH)
 }

@@ -17,6 +17,11 @@ import {
   ReorderArenasResponseSchema,
   type Arena,
 } from "@/gen/hema/v1/arena_pb";
+import {
+  PoolAdminService,
+  PoolSchema,
+  GetPoolsForArenaResponseSchema,
+} from "@/gen/hema/v1/pool_pb";
 
 // E2E-тест BFF route.ts: реальный arenaToJson + реальная proto
 // binary-сериализация через createRouterTransport (in-process). НЕ мокаем
@@ -94,6 +99,24 @@ vi.mock("@/lib/grpc/client", async () => {
         });
       }),
     ),
+    // poolAdminClient — минимальный in-process mock только для GetPoolsForArena
+    // (используется гейтом FR-10 в POST [id]/archive, спека 0011). Остальные
+    // RPC PoolAdminService этому набору e2e-тестов не нужны.
+    poolAdminClient: createClient(
+      PoolAdminService,
+      createRouterTransport((router) => {
+        router.service(PoolAdminService, {
+          getPoolsForArena: async () => {
+            return create(GetPoolsForArenaResponseSchema, {
+              seated: currentMockSeatedPoolID
+                ? create(PoolSchema, { id: currentMockSeatedPoolID, nominationId: "n1" })
+                : undefined,
+              available: [],
+            });
+          },
+        });
+      }),
+    ),
   };
 });
 
@@ -106,12 +129,16 @@ import { POST as reorderPost } from "./reorder/route";
 
 // Состояние mock-сервера между запросами (эмуляция PG).
 let currentMockArenas: Arena[] = [];
+// Спека 0011, FR-10: id пула, «сидящего» на арене — null, если ни одна
+// арена не занята (дефолт для тестов, не относящихся к гейту архивации).
+let currentMockSeatedPoolID: string | null = null;
 
 describe("app/api/admin/arenas routes (e2e — real proto serialize)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
     currentMockArenas = [];
+    currentMockSeatedPoolID = null;
   });
 
   function makeArena(id: string, name: string, position: number, status: ArenaStatus = ArenaStatus.ACTIVE): Arena {
@@ -275,6 +302,17 @@ describe("app/api/admin/arenas routes (e2e — real proto serialize)", () => {
       const req = new NextRequest("http://localhost/api/admin/arenas/x/archive", { method: "POST" });
       const res = await archivePost(req, { params: Promise.resolve({ id: "x" }) });
       expect(res.status).toBe(404);
+    });
+
+    // Спека 0011, FR-10/AC-10: нельзя архивировать арену, на которой стоит пул.
+    it("returns 409 and does not archive when arena has a seated pool", async () => {
+      currentMockArenas = [makeArena("a1", "T", 0, ArenaStatus.ACTIVE)];
+      currentMockSeatedPoolID = "p1";
+
+      const req = new NextRequest("http://localhost/api/admin/arenas/a1/archive", { method: "POST" });
+      const res = await archivePost(req, { params: Promise.resolve({ id: "a1" }) });
+      expect(res.status).toBe(409);
+      expect(currentMockArenas[0].status).toBe(ArenaStatus.ACTIVE);
     });
   });
 

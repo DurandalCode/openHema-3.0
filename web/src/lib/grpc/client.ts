@@ -8,10 +8,10 @@ import {
 } from "@/gen/hema/v1/application_pb";
 import { ArenaAdminService } from "@/gen/hema/v1/arena_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
-import { BoutAdminService } from "@/gen/hema/v1/bout_pb";
+import { BoutAdminService, BoutPublicService } from "@/gen/hema/v1/bout_pb";
 import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
-import { PoolAdminService } from "@/gen/hema/v1/pool_pb";
+import { PoolAdminService, PoolPublicService } from "@/gen/hema/v1/pool_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
 
 // Адрес Go-сервера (gRPC/Connect). Задаётся через окружение.
@@ -146,6 +146,17 @@ export const poolAdminClient: Client<typeof PoolAdminService> = createClient(
 );
 
 /**
+ * poolPublicClient — публичный клиент PoolPublicService (чтение пулов
+ * номинации: состав, статус, площадка, спека 0011, FR-11). Не требует
+ * access-токена; показывает пулы только при готовой (ready) раскладке.
+ * Только на сервере (Node runtime).
+ */
+export const poolPublicClient: Client<typeof PoolPublicService> = createClient(
+  PoolPublicService,
+  transport,
+);
+
+/**
  * boutAdminClient — клиент BoutAdminService (чтение боёв, сформированных
  * внутри пулов номинации при фиксации раскладки, спека 0010). Все RPC
  * требуют роль ADMIN; публичного чтения нет (спека 0010, FR-8). Только на
@@ -153,5 +164,15 @@ export const poolAdminClient: Client<typeof PoolAdminService> = createClient(
  */
 export const boutAdminClient: Client<typeof BoutAdminService> = createClient(
   BoutAdminService,
+  transport,
+);
+
+/**
+ * boutPublicClient — публичный клиент BoutPublicService (чтение боёв
+ * номинации: пары бойцов + порядок проведения, спека 0011, FR-11). Не
+ * требует access-токена. Только на сервере (Node runtime).
+ */
+export const boutPublicClient: Client<typeof BoutPublicService> = createClient(
+  BoutPublicService,
   transport,
 );

@@ -12,14 +12,18 @@ import (
 // обновление сессии). Имена процедур в каноническом Connect-виде
 // "/<package>.<Service>/<Method>".
 var publicProcedures = map[string]struct{}{
-	"/hema.v1.AuthService/Register":                  {},
-	"/hema.v1.AuthService/Login":                     {},
-	"/hema.v1.AuthService/Refresh":                   {},
-	"/hema.v1.TournamentService/GetActiveTournament": {},
-	"/hema.v1.NominationService/ListNominations":     {},
-	"/hema.v1.NominationService/GetNomination":       {},
+	"/hema.v1.AuthService/Register":                                {},
+	"/hema.v1.AuthService/Login":                                   {},
+	"/hema.v1.AuthService/Refresh":                                 {},
+	"/hema.v1.TournamentService/GetActiveTournament":               {},
+	"/hema.v1.NominationService/ListNominations":                   {},
+	"/hema.v1.NominationService/GetNomination":                     {},
 	"/hema.v1.ApplicationPublicService/ListNominationParticipants": {},
 	"/hema.v1.FighterPublicService/ListNominationRoster":           {},
+	// Спека 0011: публичный экран номинации (пулы готовой раскладки + их
+	// бои) — read-only, доступен без авторизации (FR-11/FR-13, AC-15).
+	"/hema.v1.PoolPublicService/ListPublicPools":             {},
+	"/hema.v1.BoutPublicService/ListPublicBoutsByNomination": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт
