@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  closeRegistrationRequest,
   createNominationRequest,
   deleteNominationRequest,
   getPoolLayoutStatusRequest,
   listNominationsRequest,
+  reopenRegistrationRequest,
   reorderNominationsRequest,
   updateNominationRequest,
 } from "./requests";
@@ -139,17 +141,43 @@ describe("features/nomination-management/api/requests", () => {
     it("GETs /api/nominations/[id]/pool-status and returns status slice on 2xx", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
-        json: async () => ({ status: "POOL_LAYOUT_STATUS_READY", canUndo: true }),
+        json: async () => ({
+          status: "POOL_LAYOUT_STATUS_READY",
+          canUndo: true,
+          hasDistributedFighters: true,
+        }),
       });
 
       const result = await getPoolLayoutStatusRequest("n1");
 
       expect(result).toEqual({
         ok: true,
-        status: { status: "POOL_LAYOUT_STATUS_READY", canUndo: true },
+        status: {
+          status: "POOL_LAYOUT_STATUS_READY",
+          canUndo: true,
+          hasDistributedFighters: true,
+        },
       });
       expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-status", {
         method: "GET",
+      });
+    });
+
+    it("defaults hasDistributedFighters to false when omitted", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: "POOL_LAYOUT_STATUS_DRAFT", canUndo: false }),
+      });
+
+      const result = await getPoolLayoutStatusRequest("n1");
+
+      expect(result).toEqual({
+        ok: true,
+        status: {
+          status: "POOL_LAYOUT_STATUS_DRAFT",
+          canUndo: false,
+          hasDistributedFighters: false,
+        },
       });
     });
 
@@ -165,6 +193,80 @@ describe("features/nomination-management/api/requests", () => {
       fetchMock.mockRejectedValue(new Error("network"));
 
       const result = await getPoolLayoutStatusRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("closeRegistrationRequest", () => {
+    it("POSTs /api/nominations/[id]/close-registration and returns nomination on 2xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ nomination: { id: "n1", status: "NOMINATION_STATUS_CLOSED" } }),
+      });
+
+      const result = await closeRegistrationRequest("n1");
+
+      expect(result).toEqual({
+        ok: true,
+        nomination: { id: "n1", status: "NOMINATION_STATUS_CLOSED" },
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/close-registration", {
+        method: "POST",
+      });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "forbidden" }) });
+
+      const result = await closeRegistrationRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await closeRegistrationRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("reopenRegistrationRequest", () => {
+    it("POSTs /api/nominations/[id]/reopen-registration and returns nomination on 2xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ nomination: { id: "n1", status: "NOMINATION_STATUS_OPEN" } }),
+      });
+
+      const result = await reopenRegistrationRequest("n1");
+
+      expect(result).toEqual({
+        ok: true,
+        nomination: { id: "n1", status: "NOMINATION_STATUS_OPEN" },
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/reopen-registration", {
+        method: "POST",
+      });
+    });
+
+    // Спека 0012, AC-9/AC-16: сервер отвечает 409, если раскладка активна.
+    it("returns ok:false with server error on 409", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "cannot reopen registration" }),
+      });
+
+      const result = await reopenRegistrationRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "cannot reopen registration" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await reopenRegistrationRequest("n1");
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });

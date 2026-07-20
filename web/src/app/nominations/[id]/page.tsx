@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getNomination } from "@/entities/nomination/model/get-nomination";
+import { nominationStatusLabel } from "@/entities/nomination/lib/types";
 import { getPublicPools } from "@/entities/pool/model/get-public-pools";
 import { getPublicBouts } from "@/entities/bout/model/get-public-bouts";
-import { Col } from "@/shared/ui/stack";
+import { Badge } from "@/shared/ui/badge";
+import { Col, Row } from "@/shared/ui/stack";
 import { NominationPoolsPublic } from "@/widgets/nomination-pools-public/nomination-pools-public";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +23,10 @@ type PageProps = { params: Promise<{ id: string }> };
  *
  * SSR: `getNomination`/`getPublicPools`/`getPublicBouts` — публичные gRPC,
  * без access-токена (как публичный ростер 0007).
+ *
+ * Статус приёма заявок (спека 0012, FR-8/AC-14): бейдж рядом с `<h1>` при
+ * `status !== OPEN` — гость должен видеть статус и на этом экране, не
+ * только на главной.
  */
 export default async function PublicNominationPage({ params }: PageProps) {
   const { id } = await params;
@@ -37,7 +43,12 @@ export default async function PublicNominationPage({ params }: PageProps) {
         <Link href="/" className="text-sm text-muted-foreground underline underline-offset-2">
           ← На главную
         </Link>
-        <h1 className="text-3xl font-semibold tracking-tight">{nomination.title}</h1>
+        <Row align="center" gap={2}>
+          <h1 className="text-3xl font-semibold tracking-tight">{nomination.title}</h1>
+          {nomination.status !== "NOMINATION_STATUS_OPEN" && (
+            <Badge variant="secondary">{nominationStatusLabel(nomination.status)}</Badge>
+          )}
+        </Row>
         {nomination.description && (
           <p className="text-muted-foreground">{nomination.description}</p>
         )}

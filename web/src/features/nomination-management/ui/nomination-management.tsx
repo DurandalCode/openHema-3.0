@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ClipboardList, Pencil, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardList, Lock, LockOpen, Pencil, Trash2, Users, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -17,8 +17,12 @@ import { useUpdateNomination } from "../api/use-update-nomination";
 import { useDeleteNomination } from "../api/use-delete-nomination";
 import { useReorderNominations } from "../api/use-reorder-nominations";
 import { usePoolLayoutStatus } from "../api/use-pool-layout-status";
+import { useCloseRegistration } from "../api/use-close-registration";
+import { useReopenRegistration } from "../api/use-reopen-registration";
+import { canClose, canReopen } from "../api/registration-gate";
 import type { NominationInput } from "../api/requests";
-import type { Nomination } from "@/entities/nomination/lib/types";
+import type { Nomination, NominationStatus } from "@/entities/nomination/lib/types";
+import { nominationStatusLabel } from "@/entities/nomination/lib/types";
 import { poolLayoutStatusLabel } from "@/entities/pool/lib/types";
 
 type FormState = {
@@ -173,6 +177,8 @@ function NominationRow({
   const update = useUpdateNomination(tournamentId);
   const del = useDeleteNomination(tournamentId);
   const poolStatus = usePoolLayoutStatus(nomination.id);
+  const closeRegistration = useCloseRegistration(tournamentId);
+  const reopenRegistration = useReopenRegistration(tournamentId);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>({
     title: nomination.title,
@@ -193,7 +199,22 @@ function NominationRow({
     del.mutate(nomination.id);
   }
 
-  const error = update.error?.message ?? del.error?.message ?? null;
+  function onCloseRegistration() {
+    closeRegistration.mutate(nomination.id);
+  }
+
+  function onReopenRegistration() {
+    reopenRegistration.mutate(nomination.id);
+  }
+
+  const hasDistributedFighters = poolStatus.data?.hasDistributedFighters ?? false;
+
+  const error =
+    update.error?.message ??
+    del.error?.message ??
+    closeRegistration.error?.message ??
+    reopenRegistration.error?.message ??
+    null;
 
   if (editing) {
     return (
@@ -270,6 +291,7 @@ function NominationRow({
               <p className="text-sm text-muted-foreground">{nomination.description}</p>
             )}
             <Row gap={3} className="text-xs text-muted-foreground">
+              <NominationStatusBadge status={nomination.status} />
               {poolStatus.data && (
                 <PoolStatusBadge status={poolStatus.data.status} canUndo={poolStatus.data.canUndo} />
               )}
@@ -323,6 +345,30 @@ function NominationRow({
               type="button"
               variant="ghost"
               size="icon-sm"
+              disabled={!canClose(nomination.status)}
+              loading={closeRegistration.isPending}
+              onClick={onCloseRegistration}
+              aria-label="Закрыть приём"
+              title="Закрыть приём"
+            >
+              <Lock />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={!canReopen(nomination.status, hasDistributedFighters)}
+              loading={reopenRegistration.isPending}
+              onClick={onReopenRegistration}
+              aria-label="Открыть приём"
+              title="Открыть приём"
+            >
+              <LockOpen />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setEditing(true)}
               aria-label="Редактировать"
             >
@@ -348,6 +394,17 @@ function NominationRow({
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * NominationStatusBadge — бейдж статуса приёма заявок номинации (спека 0012,
+ * FR-9): «приём заявок открыт» (default) / «приём заявок завершён»
+ * (secondary). Причина закрытия (ручное/от раскладки) не различается на UI
+ * (см. plan.md «Обзор решения») — только сам факт open/closed.
+ */
+function NominationStatusBadge({ status }: { status: NominationStatus }) {
+  const variant: "default" | "secondary" = status === "NOMINATION_STATUS_OPEN" ? "default" : "secondary";
+  return <Badge variant={variant}>{nominationStatusLabel(status)}</Badge>;
 }
 
 /**

@@ -20,7 +20,10 @@ import { ArenaSchema, type Arena } from "@/gen/hema/v1/arena_pb";
 import { PoolLayoutSchema, PoolSchema, type PoolLayout, type Pool } from "@/gen/hema/v1/pool_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
-import type { Nomination as NominationDto } from "@/entities/nomination/lib/types";
+import type {
+  Nomination as NominationDto,
+  NominationStatus as NominationStatusDto,
+} from "@/entities/nomination/lib/types";
 import type {
   Application as ApplicationDto,
   ApplicationEvent as ApplicationEventDto,
@@ -96,7 +99,9 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
  *
  * Нормализует proto3-дефолты аналогично tournamentToJson. `fighterCapacity`
  * (proto3 `optional int32`) сохраняет presence: `null` = не задано, отличимо
- * от явного 0 (FR-10 в спеке номинаций).
+ * от явного 0 (FR-10 в спеке номинаций). `status` — статус жизненного цикла
+ * номинации (спека 0012, FR-8); proto3-дефолт (enum 0) нормализуется в
+ * `NOMINATION_STATUS_UNSPECIFIED`.
  */
 export function nominationToJson(nomination: Nomination | undefined): NominationDto | null {
   if (!nomination) return null;
@@ -111,6 +116,7 @@ export function nominationToJson(nomination: Nomination | undefined): Nomination
     fighterCapacity: typeof raw.fighterCapacity === "number" ? raw.fighterCapacity : null,
     metadata: { rulesUrl: raw.metadata?.rulesUrl ?? "" },
     position: raw.position ?? 0,
+    status: (raw.status as NominationStatusDto) ?? "NOMINATION_STATUS_UNSPECIFIED",
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
   };

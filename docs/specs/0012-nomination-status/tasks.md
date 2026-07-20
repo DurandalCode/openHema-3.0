@@ -128,11 +128,11 @@
 
 ## Web — трек D (на моках BFF)
 
-- [ ] T14. **entities + serialize** — `entities/nomination/lib/types.ts`:
+- [x] T14. **entities + serialize** — `entities/nomination/lib/types.ts`:
       `NominationStatus` тип, `nominationStatusLabel()`, `Nomination.status`.
       `lib/grpc/serialize.ts`, `nominationToJson` — маппинг `status`
       (+ тест-кейс в `lib/grpc/serialize.test.ts`).
-- [ ] T15. **BFF (red→green)** — новые роуты + тесты:
+- [x] T15. **BFF (red→green)** — новые роуты + тесты:
       `app/api/nominations/[id]/close-registration/route.ts`,
       `.../reopen-registration/route.ts` (`POST`, только admin, по образцу
       `app/api/admin/arenas/[id]/archive/route.ts`) + `*.test.ts` (мок grpc,
@@ -140,19 +140,19 @@
       `app/api/nominations/[id]/pool-status/route.ts` GET: посчитать
       `hasDistributedFighters` из уже полученного `layout.pools` (без нового
       gRPC-вызова) + обновить `route.test.ts`.
-- [ ] T16. **features/nomination-management api** — `api/requests.ts`:
+- [x] T16. **features/nomination-management api** — `api/requests.ts`:
       `closeRegistrationRequest`/`reopenRegistrationRequest`; расширить
       `getPoolLayoutStatusRequest`/`PoolLayoutStatus` полем
       `hasDistributedFighters` (+ тесты `requests.test.ts`). Новые
       `api/use-close-registration.ts`/`api/use-reopen-registration.ts`
       (мутации, инвалидируют `nominationManagementKeys.list`).
-- [ ] T17. **features/nomination-management ui** — `ui/nomination-management.tsx`:
+- [x] T17. **features/nomination-management ui** — `ui/nomination-management.tsx`:
       `NominationStatusBadge`; чистые функции `canClose(status)`/
       `canReopen(status, hasDistributedFighters)` (+ юнит-тест таблицей
       истинности, FR-9/AC-12/AC-16) — вынести в `api/requests.ts` или соседний
       файл, чтобы тестировать без рендера компонента; кнопки «Закрыть/Открыть
       приём» в `NominationRow`.
-- [ ] T18. **публичные экраны** — `widgets/nominations-list/nominations-list.tsx`:
+- [x] T18. **публичные экраны** — `widgets/nominations-list/nominations-list.tsx`:
       бейдж статуса при `status !== OPEN`; `SubmitApplicationButton` — условие
       `status === OPEN`, иначе текст «Приём заявок завершён» для
       аутентифицированных (AC-14). `app/nominations/[id]/page.tsx`: тот же

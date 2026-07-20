@@ -10,6 +10,7 @@ import {
 } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { nominationStatusLabel } from "@/entities/nomination/lib/types";
 import type { NominationParticipants } from "@/entities/application/lib/types";
 import type { RosterEntry } from "@/entities/fighter/lib/types";
 import { SubmitApplicationButton } from "@/features/my-applications/ui/submit-application-button";
@@ -22,6 +23,11 @@ import { NominationRoster } from "@/widgets/nomination-roster/nomination-roster"
  * Стартовый лист (имена заявленных/подтверждённых) и счётчик
  * «заявлено · подтверждено / лимит» — публичны (FR-15/FR-16). Кнопка «Подать
  * заявку» видна только аутентифицированному пользователю (FR-1/FR-11).
+ *
+ * Статус приёма заявок (спека 0012, FR-8/AC-14): бейдж рядом с заголовком
+ * карточки при `status !== OPEN`; аутентифицированному пользователю вместо
+ * кнопки «Подать заявку» показывается текст «Приём заявок завершён» —
+ * недоступность видима, а не тихое скрытие.
  *
  * Ростер бойцов (спека 0007) — отдельный список, появляется после первой
  * регистрации. Пока он пуст, показывается воронка заявок (0005); когда
@@ -63,7 +69,12 @@ export function NominationsList({
             return (
               <Card key={n.id}>
                 <CardHeader>
-                  <CardTitle>{n.title}</CardTitle>
+                  <Row align="center" gap={2}>
+                    <CardTitle>{n.title}</CardTitle>
+                    {n.status !== "NOMINATION_STATUS_OPEN" && (
+                      <Badge variant="secondary">{nominationStatusLabel(n.status)}</Badge>
+                    )}
+                  </Row>
                   {n.description && <CardDescription>{n.description}</CardDescription>}
                 </CardHeader>
                 <CardContent>
@@ -122,7 +133,12 @@ export function NominationsList({
                       <Swords className="size-4" />
                       Пулы и бои
                     </Link>
-                    {isAuthenticated && <SubmitApplicationButton nominationId={n.id} />}
+                    {isAuthenticated &&
+                      (n.status === "NOMINATION_STATUS_OPEN" ? (
+                        <SubmitApplicationButton nominationId={n.id} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Приём заявок завершён</p>
+                      ))}
                   </Col>
                 </CardContent>
               </Card>

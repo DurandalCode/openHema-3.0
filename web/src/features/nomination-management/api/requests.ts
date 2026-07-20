@@ -20,6 +20,10 @@ export type DeleteResult = { ok: true } | { ok: false; error: string };
 export type PoolLayoutStatus = {
   status: string;
   canUndo: boolean;
+  // hasDistributedFighters — есть ли хотя бы один распределённый боец в
+  // раскладке (спека 0012, FR-9/AC-12/AC-16) — определяет доступность
+  // кнопки «Открыть приём» (canReopen) независимо от status раскладки.
+  hasDistributedFighters: boolean;
 };
 
 export type PoolLayoutStatusResult =
@@ -43,10 +47,18 @@ export async function getPoolLayoutStatusRequest(
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? "Ошибка запроса" };
     }
-    const data = (await res.json().catch(() => ({}))) as { status?: string; canUndo?: boolean };
+    const data = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      canUndo?: boolean;
+      hasDistributedFighters?: boolean;
+    };
     return {
       ok: true,
-      status: { status: data.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED", canUndo: data.canUndo ?? false },
+      status: {
+        status: data.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED",
+        canUndo: data.canUndo ?? false,
+        hasDistributedFighters: data.hasDistributedFighters ?? false,
+      },
     };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
@@ -122,6 +134,24 @@ export async function reorderNominationsRequest(
   }
 }
 
+/**
+ * closeRegistrationRequest — POST /api/nominations/[id]/close-registration
+ * (только admin, спека 0012, FR-3). Вручную закрывает приём заявок.
+ */
+export async function closeRegistrationRequest(id: string): Promise<NominationResult> {
+  return postNominationAction(`/api/nominations/${encodeURIComponent(id)}/close-registration`);
+}
+
+/**
+ * reopenRegistrationRequest — POST /api/nominations/[id]/reopen-registration
+ * (только admin, спека 0012, FR-3/FR-4). Сервер отклоняет `FailedPrecondition`
+ * (→ 409), если закрытие было не ручным или раскладка сейчас активна
+ * (AC-9/AC-16).
+ */
+export async function reopenRegistrationRequest(id: string): Promise<NominationResult> {
+  return postNominationAction(`/api/nominations/${encodeURIComponent(id)}/reopen-registration`);
+}
+
 async function sendNomination(
   url: string,
   method: "POST" | "PUT",
@@ -133,6 +163,21 @@ async function sendNomination(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { nomination?: Nomination };
+    return { ok: true, nomination: data.nomination as Nomination };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+/** postNominationAction — POST без тела (close/reopen-registration). */
+async function postNominationAction(url: string): Promise<NominationResult> {
+  try {
+    const res = await fetch(url, { method: "POST" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? "Ошибка запроса" };
