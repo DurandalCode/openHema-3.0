@@ -36,7 +36,10 @@ func (p *NominationInfoProvider) Nomination(ctx context.Context, nominationID st
 		}
 		return appdomain.NominationInfo{}, err
 	}
-	info := appdomain.NominationInfo{TournamentID: n.TournamentID}
+	info := appdomain.NominationInfo{
+		TournamentID:     n.TournamentID,
+		RegistrationOpen: n.Status == nomdomain.StatusOpen,
+	}
 	if n.HasFighterCapacity {
 		capacity := n.FighterCapacity
 		info.FighterCapacity = &capacity

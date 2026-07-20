@@ -160,12 +160,12 @@
 
 ## Join — трек platform (волна 2)
 
-- [ ] T19. **`internal/platform/nomination_provider.go`** (адаптер для
+- [x] T19. **`internal/platform/nomination_provider.go`** (адаптер для
       `application`): `info.RegistrationOpen = n.Status == nomdomain.StatusOpen`.
-- [ ] T20. **`internal/platform/pool_nomination_provider.go`** (адаптер для
+- [x] T20. **`internal/platform/pool_nomination_provider.go`** (адаптер для
       `pool`): реализовать `SyncRegistrationState`, проксируя на
       `nomservice.Service.SyncRegistrationState`.
-- [ ] T21. **интеграционный** — `nomination/integration`: миграция
+- [x] T21. **интеграционный** — `nomination/integration`: миграция
       применяется; `chk_nominations_closed_reason_presence` реально блокирует
       рассинхрон `status`/`closed_reason` на уровне PG (testcontainers).
 

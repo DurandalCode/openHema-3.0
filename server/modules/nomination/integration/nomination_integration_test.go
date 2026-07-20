@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	hemav1 "github.com/hema/server/gen/hema/v1"
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
@@ -36,7 +37,7 @@ const (
 // setup поднимает PG (testdb.Postgres), применяет миграции auth+tournament+
 // nomination, собирает composition root (реальный пул БД) и возвращает
 // Connect-клиенты для публичного и admin-сервисов номинаций.
-func setup(t *testing.T) (hemav1connect.NominationServiceClient, hemav1connect.NominationAdminServiceClient) {
+func setup(t *testing.T) (hemav1connect.NominationServiceClient, hemav1connect.NominationAdminServiceClient, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.Postgres(t)
 
@@ -67,7 +68,7 @@ func setup(t *testing.T) (hemav1connect.NominationServiceClient, hemav1connect.N
 	client := server.Client()
 	pub := hemav1connect.NewNominationServiceClient(client, server.URL)
 	admin := hemav1connect.NewNominationAdminServiceClient(client, server.URL)
-	return pub, admin
+	return pub, admin, pool
 }
 
 func adminBearer(t *testing.T) string {
@@ -87,7 +88,7 @@ func TestIntegration_MigrationsApplied(t *testing.T) {
 }
 
 func TestIntegration_CreateAndListNominations(t *testing.T) {
-	pub, admin := setup(t)
+	pub, admin, _ := setup(t)
 
 	fc := int32(20)
 	req := connect.NewRequest(&hemav1.CreateNominationRequest{
@@ -129,7 +130,7 @@ func TestIntegration_CreateAndListNominations(t *testing.T) {
 }
 
 func TestIntegration_ListNominations_NoTokenAllowed(t *testing.T) {
-	pub, _ := setup(t)
+	pub, _, _ := setup(t)
 
 	_, err := pub.ListNominations(context.Background(), connect.NewRequest(&hemav1.ListNominationsRequest{
 		TournamentId: seedTournamentID,
@@ -140,7 +141,7 @@ func TestIntegration_ListNominations_NoTokenAllowed(t *testing.T) {
 }
 
 func TestIntegration_CreateNomination_DuplicateTitleUniqueIndex(t *testing.T) {
-	_, admin := setup(t)
+	_, admin, _ := setup(t)
 
 	create := func(title string) error {
 		req := connect.NewRequest(&hemav1.CreateNominationRequest{
@@ -163,7 +164,7 @@ func TestIntegration_CreateNomination_DuplicateTitleUniqueIndex(t *testing.T) {
 }
 
 func TestIntegration_CreateNomination_NonActiveTournamentReturnsNotFound(t *testing.T) {
-	_, admin := setup(t)
+	_, admin, _ := setup(t)
 
 	req := connect.NewRequest(&hemav1.CreateNominationRequest{
 		TournamentId: "99999999-9999-9999-9999-999999999999",
@@ -178,7 +179,7 @@ func TestIntegration_CreateNomination_NonActiveTournamentReturnsNotFound(t *test
 }
 
 func TestIntegration_ReorderNominations_TransactionalAndPersisted(t *testing.T) {
-	pub, admin := setup(t)
+	pub, admin, _ := setup(t)
 
 	createNomination := func(title string) *hemav1.Nomination {
 		req := connect.NewRequest(&hemav1.CreateNominationRequest{
@@ -227,7 +228,7 @@ func TestIntegration_ReorderNominations_TransactionalAndPersisted(t *testing.T) 
 }
 
 func TestIntegration_UpdateNomination_HappyPathAndPersisted(t *testing.T) {
-	pub, admin := setup(t)
+	pub, admin, _ := setup(t)
 
 	createReq := connect.NewRequest(&hemav1.CreateNominationRequest{
 		TournamentId: seedTournamentID,
@@ -266,7 +267,7 @@ func TestIntegration_UpdateNomination_HappyPathAndPersisted(t *testing.T) {
 }
 
 func TestIntegration_DeleteNomination_Persisted(t *testing.T) {
-	pub, admin := setup(t)
+	pub, admin, _ := setup(t)
 
 	createReq := connect.NewRequest(&hemav1.CreateNominationRequest{
 		TournamentId: seedTournamentID,
@@ -295,12 +296,118 @@ func TestIntegration_DeleteNomination_Persisted(t *testing.T) {
 // TestIntegration_CreateNomination_NoToken — ловит регрессию authentication:
 // admin-RPC без токена должен отказать.
 func TestIntegration_CreateNomination_NoToken(t *testing.T) {
-	_, admin := setup(t)
+	_, admin, _ := setup(t)
 
 	_, err := admin.CreateNomination(context.Background(),
 		connect.NewRequest(&hemav1.CreateNominationRequest{TournamentId: seedTournamentID, Title: "T"}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated without token, got %v", connect.CodeOf(err))
+	}
+}
+
+// TestIntegration_RegistrationStatus_CloseAndReopen — сквозной прогон
+// CloseRegistration/ReopenRegistration через реальный Connect-путь + PG
+// (спека 0012): проверяет, что миграция 00002_registration_status.sql
+// применилась (новые колонки читаются/пишутся через sqlc), default-статус
+// при создании — OPEN (AC-1), ручное закрытие/открытие работает end-to-end
+// (AC-3/AC-4), а publichnoe чтение отдаёт статус без токена (AC-2).
+func TestIntegration_RegistrationStatus_CloseAndReopen(t *testing.T) {
+	pub, admin, _ := setup(t)
+
+	createReq := connect.NewRequest(&hemav1.CreateNominationRequest{
+		TournamentId: seedTournamentID,
+		Title:        "Registration Status",
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := admin.CreateNomination(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateNomination: %v", err)
+	}
+	if created.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_OPEN {
+		t.Fatalf("default status = %v, want OPEN", created.Msg.Nomination.Status)
+	}
+
+	closeReq := connect.NewRequest(&hemav1.CloseRegistrationRequest{Id: created.Msg.Nomination.Id})
+	closeReq.Header().Set("Authorization", adminBearer(t))
+	closed, err := admin.CloseRegistration(context.Background(), closeReq)
+	if err != nil {
+		t.Fatalf("CloseRegistration: %v", err)
+	}
+	if closed.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_CLOSED {
+		t.Fatalf("status after close = %v, want CLOSED", closed.Msg.Nomination.Status)
+	}
+
+	// Публичное чтение (без токена) отдаёт статус, персистентно из PG.
+	got, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{
+		Id: created.Msg.Nomination.Id,
+	}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if got.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_CLOSED {
+		t.Fatalf("persisted status = %v, want CLOSED", got.Msg.Nomination.Status)
+	}
+
+	reopenReq := connect.NewRequest(&hemav1.ReopenRegistrationRequest{Id: created.Msg.Nomination.Id})
+	reopenReq.Header().Set("Authorization", adminBearer(t))
+	reopened, err := admin.ReopenRegistration(context.Background(), reopenReq)
+	if err != nil {
+		t.Fatalf("ReopenRegistration: %v", err)
+	}
+	if reopened.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_OPEN {
+		t.Fatalf("status after reopen = %v, want OPEN", reopened.Msg.Nomination.Status)
+	}
+}
+
+// TestIntegration_RegistrationStatus_ClosedReasonConstraint — констрейнт
+// chk_nominations_closed_reason_presence должен реально блокировать
+// рассинхрон status/closed_reason на уровне PG, не только в Go (спека 0012,
+// plan.md T21): status='open' с непустым closed_reason, и наоборот.
+func TestIntegration_RegistrationStatus_ClosedReasonConstraint(t *testing.T) {
+	_, admin, pool := setup(t)
+
+	createReq := connect.NewRequest(&hemav1.CreateNominationRequest{
+		TournamentId: seedTournamentID,
+		Title:        "Constraint Check",
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := admin.CreateNomination(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateNomination: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// open (по умолчанию) + непустой closed_reason — нарушение.
+	_, err = pool.Exec(ctx,
+		`UPDATE nomination.nominations SET closed_reason = 'manual' WHERE id = $1`,
+		created.Msg.Nomination.Id)
+	if err == nil {
+		t.Error("expected constraint violation: status=open with non-null closed_reason")
+	}
+
+	// closed + closed_reason IS NULL — тоже нарушение.
+	_, err = pool.Exec(ctx,
+		`UPDATE nomination.nominations SET status = 'closed', closed_reason = NULL WHERE id = $1`,
+		created.Msg.Nomination.Id)
+	if err == nil {
+		t.Error("expected constraint violation: status=closed with null closed_reason")
+	}
+
+	// closed_reason вне допустимого набора значений — тоже нарушение.
+	_, err = pool.Exec(ctx,
+		`UPDATE nomination.nominations SET status = 'closed', closed_reason = 'bogus' WHERE id = $1`,
+		created.Msg.Nomination.Id)
+	if err == nil {
+		t.Error("expected constraint violation: closed_reason not in ('manual','drawing')")
+	}
+
+	// Согласованная пара — проходит.
+	_, err = pool.Exec(ctx,
+		`UPDATE nomination.nominations SET status = 'closed', closed_reason = 'manual' WHERE id = $1`,
+		created.Msg.Nomination.Id)
+	if err != nil {
+		t.Errorf("consistent (closed, manual) pair should be accepted: %v", err)
 	}
 }
 

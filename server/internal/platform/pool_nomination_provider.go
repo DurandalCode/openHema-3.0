@@ -48,3 +48,10 @@ func (p *PoolNominationProvider) NominationsByIDs(ctx context.Context, ids []str
 	}
 	return out, nil
 }
+
+// SyncRegistrationState синхронизирует статус приёма заявок номинации с
+// фактом наличия распределённых бойцов (спека 0012, FR-10) — прямой Go-вызов
+// nomination-сервиса, без сетевого RPC (монолит).
+func (p *PoolNominationProvider) SyncRegistrationState(ctx context.Context, nominationID string, hasDistributedFighters bool) error {
+	return p.svc.SyncRegistrationState(ctx, nominationID, hasDistributedFighters)
+}
