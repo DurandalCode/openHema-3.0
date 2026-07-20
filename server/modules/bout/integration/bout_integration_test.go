@@ -10,8 +10,10 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -232,5 +234,221 @@ func TestIntegration_NoToken(t *testing.T) {
 		connect.NewRequest(&hemav1.ListBoutsByNominationRequest{NominationId: uuid.NewString()}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated without token, got %v", connect.CodeOf(err))
+	}
+}
+
+// generateSingleBout — тестовый хелпер: генерирует один бой (2 бойца, 1 пул)
+// для новой номинации и возвращает его ID.
+func generateSingleBout(t *testing.T, svc *boutservice.Service, poolID string) string {
+	t.Helper()
+	nomID := uuid.NewString()
+	fa, fb := uuid.NewString(), uuid.NewString()
+	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: fa, Name: "A"}, {ID: fb, Name: "B"}}},
+	}); err != nil {
+		t.Fatalf("GenerateForNomination: %v", err)
+	}
+	bouts, err := svc.ListByNomination(context.Background(), nomID)
+	if err != nil {
+		t.Fatalf("ListByNomination: %v", err)
+	}
+	if len(bouts) != 1 {
+		t.Fatalf("expected 1 bout, got %d", len(bouts))
+	}
+	return bouts[0].ID
+}
+
+// TestIntegration_ConcurrentAppend_OnlyOneSucceeds проверяет AC-15/ADR 0011
+// п.3 на реальной БД: два параллельных Append из одной и той же
+// expectedVersion — только один вставляется, второй ловит нарушение
+// UNIQUE(bout_id, version) и получает ErrConcurrency. Итоговая версия потока
+// продвигается ровно на одно событие, не на два.
+func TestIntegration_ConcurrentAppend_OnlyOneSucceeds(t *testing.T) {
+	_, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+	boutID := generateSingleBout(t, svc, uuid.NewString())
+
+	events, err := repo.Load(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	scheduled, err := domain.Rebuild(boutID, events)
+	if err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+
+	evA, err := scheduled.Start("secretary-a", time.Unix(1, 0))
+	if err != nil {
+		t.Fatalf("Start (a): %v", err)
+	}
+	viewA, err := domain.Rebuild(boutID, append(events, evA))
+	if err != nil {
+		t.Fatalf("Rebuild (a): %v", err)
+	}
+
+	evB, err := scheduled.Start("secretary-b", time.Unix(2, 0))
+	if err != nil {
+		t.Fatalf("Start (b): %v", err)
+	}
+	viewB, err := domain.Rebuild(boutID, append(events, evB))
+	if err != nil {
+		t.Fatalf("Rebuild (b): %v", err)
+	}
+
+	var wg sync.WaitGroup
+	results := make([]error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		results[0] = repo.Append(context.Background(), boutID, scheduled.Version, evA, viewA)
+	}()
+	go func() {
+		defer wg.Done()
+		results[1] = repo.Append(context.Background(), boutID, scheduled.Version, evB, viewB)
+	}()
+	wg.Wait()
+
+	successes, conflicts := 0, 0
+	for _, err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, domain.ErrConcurrency):
+			conflicts++
+		default:
+			t.Fatalf("unexpected error from concurrent Append: %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("expected exactly 1 success and 1 ErrConcurrency, got %d successes, %d conflicts (results=%v)", successes, conflicts, results)
+	}
+
+	finalEvents, err := repo.Load(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("Load after concurrent append: %v", err)
+	}
+	if len(finalEvents) != 2 {
+		t.Fatalf("expected stream length 2 (scheduled + one started), got %d", len(finalEvents))
+	}
+}
+
+// TestIntegration_Append_ProjectionAtomicWithEvent проверяет ADR 0011 п.4:
+// после Append проекция (bout.bouts) отражает ровно то состояние, которое
+// было передано вместе с событием, в той же транзакции.
+func TestIntegration_Append_ProjectionAtomicWithEvent(t *testing.T) {
+	_, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+	boutID := generateSingleBout(t, svc, uuid.NewString())
+
+	events, err := repo.Load(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	current, err := domain.Rebuild(boutID, events)
+	if err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	startEv, err := current.Start("secretary", time.Unix(1, 0))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	afterStart, err := domain.Rebuild(boutID, append(events, startEv))
+	if err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	if err := repo.Append(context.Background(), boutID, current.Version, startEv, afterStart); err != nil {
+		t.Fatalf("Append (start): %v", err)
+	}
+
+	scoreEv, err := afterStart.Score("secretary", 5, 3, time.Unix(2, 0))
+	if err != nil {
+		t.Fatalf("Score: %v", err)
+	}
+	afterScore, err := domain.Rebuild(boutID, append(events, startEv, scoreEv))
+	if err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	if err := repo.Append(context.Background(), boutID, afterStart.Version, scoreEv, afterScore); err != nil {
+		t.Fatalf("Append (score): %v", err)
+	}
+
+	got, err := repo.GetBout(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("GetBout: %v", err)
+	}
+	if got.State != domain.StateInProgress {
+		t.Fatalf("State = %v, want StateInProgress", got.State)
+	}
+	if got.ScoreA != 5 || got.ScoreB != 3 {
+		t.Fatalf("projection score = %d:%d, want 5:3", got.ScoreA, got.ScoreB)
+	}
+	if got.Version != 3 {
+		t.Fatalf("projection version = %d, want 3 (scheduled+started+scored)", got.Version)
+	}
+
+	total, started, finished, err := repo.PoolProgress(context.Background(), got.PoolID)
+	if err != nil {
+		t.Fatalf("PoolProgress: %v", err)
+	}
+	if total != 1 || started != 1 || finished != 0 {
+		t.Fatalf("PoolProgress = %d/%d/%d, want 1/1/0", total, started, finished)
+	}
+
+	anyStarted, err := repo.AnyStartedInNomination(context.Background(), got.NominationID)
+	if err != nil {
+		t.Fatalf("AnyStartedInNomination: %v", err)
+	}
+	if !anyStarted {
+		t.Fatal("expected AnyStartedInNomination to be true")
+	}
+}
+
+// TestIntegration_Regenerate_CascadesEventDeletion проверяет, что
+// регенерация боёв номинации (ReplaceForNomination, вызывается при
+// draft→ready, спека 0010) удаляет старые строки bouts вместе с их
+// потоками событий каскадом FK (ON DELETE CASCADE, миграция 00002) — а не
+// только явным DELETE в коде.
+func TestIntegration_Regenerate_CascadesEventDeletion(t *testing.T) {
+	_, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+	nomID := uuid.NewString()
+	poolID := uuid.NewString()
+
+	f1, f2, f3 := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: f1, Name: "A"}, {ID: f2, Name: "B"}}},
+	}); err != nil {
+		t.Fatalf("GenerateForNomination (first): %v", err)
+	}
+	first, err := svc.ListByNomination(context.Background(), nomID)
+	if err != nil {
+		t.Fatalf("ListByNomination: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("expected 1 bout, got %d", len(first))
+	}
+	oldBoutID := first[0].ID
+
+	oldEvents, err := repo.Load(context.Background(), oldBoutID)
+	if err != nil {
+		t.Fatalf("Load (before regen): %v", err)
+	}
+	if len(oldEvents) != 1 {
+		t.Fatalf("expected 1 scheduled event before regen, got %d", len(oldEvents))
+	}
+
+	// Регенерация другим составом — старая строка bouts удаляется и должна
+	// каскадно удалить её события.
+	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: f1, Name: "A"}, {ID: f2, Name: "B"}, {ID: f3, Name: "C"}}},
+	}); err != nil {
+		t.Fatalf("GenerateForNomination (second): %v", err)
+	}
+
+	if _, err := repo.Load(context.Background(), oldBoutID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for old bout's events after cascade, got %v", err)
+	}
+	if _, err := repo.GetBout(context.Background(), oldBoutID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for old bout's projection after regen, got %v", err)
 	}
 }
