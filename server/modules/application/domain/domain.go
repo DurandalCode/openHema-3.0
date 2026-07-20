@@ -33,6 +33,10 @@ var (
 	// ErrConcurrency — конфликт версии потока при добавлении события
 	// (оптимистичная конкуренция).
 	ErrConcurrency = errors.New("application: concurrent modification")
+	// ErrRegistrationClosed — приём заявок в номинацию закрыт (спека 0012,
+	// FR-7). Гейтит только новую подачу (Submit, AC-6); уже поданные заявки
+	// продолжают обычный флоу без изменений (AC-15).
+	ErrRegistrationClosed = errors.New("application: nomination registration is closed")
 )
 
 // State — состояние заявки, вычисленное сверткой потока событий.
@@ -368,6 +372,10 @@ type NominationInfo struct {
 	TournamentID string
 	// FighterCapacity — soft cap номинации; nil = не задан.
 	FighterCapacity *int32
+	// RegistrationOpen — приём заявок в номинацию открыт (спека 0012, FR-7).
+	// Гейтит только Submit; остальной флоу существующей заявки (оплата,
+	// регистрация, отзыв) на это поле не смотрит (AC-15).
+	RegistrationOpen bool
 }
 
 // NominationProvider — межмодульная зависимость: резолв сведений о номинации

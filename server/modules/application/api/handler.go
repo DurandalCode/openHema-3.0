@@ -248,6 +248,8 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, domain.ErrNominationNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, domain.ErrRegistrationClosed):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, domain.ErrConcurrency):
 		return connect.NewError(connect.CodeAborted, err)
 	default:

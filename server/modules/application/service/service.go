@@ -81,9 +81,11 @@ func New(repo domain.Repository, nominations domain.NominationProvider, users do
 }
 
 // Submit подаёт заявку callerID в номинацию. Резолвит tournament_id номинации
-// через NominationProvider; предпроверяет активный дубль (быстрый отказ —
-// финальный арбитр гонки — partial unique index в Append). club и
-// needsEquipment — детали, указанные бойцом при подаче (FR-1, спека 0006).
+// через NominationProvider; проверяет, что приём заявок в номинацию открыт
+// (FR-7, спека 0012, дешёвый fail-fast до ActiveExists/записи); предпроверяет
+// активный дубль (быстрый отказ — финальный арбитр гонки — partial unique
+// index в Append). club и needsEquipment — детали, указанные бойцом при
+// подаче (FR-1, спека 0006).
 func (s *Service) Submit(ctx context.Context, callerID, nominationID, club string, needsEquipment bool) (Application, error) {
 	callerID = strings.TrimSpace(callerID)
 	nominationID = strings.TrimSpace(nominationID)
@@ -94,6 +96,9 @@ func (s *Service) Submit(ctx context.Context, callerID, nominationID, club strin
 	info, err := s.nominations.Nomination(ctx, nominationID)
 	if err != nil {
 		return Application{}, domain.ErrNominationNotFound
+	}
+	if !info.RegistrationOpen {
+		return Application{}, domain.ErrRegistrationClosed
 	}
 
 	exists, err := s.repo.ActiveExists(ctx, callerID, nominationID)
