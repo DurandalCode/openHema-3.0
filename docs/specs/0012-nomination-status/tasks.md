@@ -91,13 +91,13 @@
 
 ## Server — трек B (`pool`)
 
-- [ ] T8. **domain** — `pool/domain/domain.go`: добавить в `NominationProvider`
+- [x] T8. **domain** — `pool/domain/domain.go`: добавить в `NominationProvider`
       `SyncRegistrationState(ctx, nominationID string, hasDistributedFighters
       bool) error`.
-- [ ] T9. **testutil** — `pool/testutil/fake_nomination_provider.go`:
+- [x] T9. **testutil** — `pool/testutil/fake_nomination_provider.go`:
       реализовать `SyncRegistrationState` (пишет в map) + `LastSynced(nominationID)
       (value bool, called bool)` для ассертов.
-- [ ] T10. **service (red→green)** — `pool/service/service_test.go`: спай
+- [x] T10. **service (red→green)** — `pool/service/service_test.go`: спай
       `SyncRegistrationState` получает `true` после первого `AssignFighter`
       на пустой раскладке (AC-7), не вызывается на `CreatePool` пустых пулов
       (AC-8); `false` после `UnassignFighter`/`DeletePool`/`ResetLayout`,

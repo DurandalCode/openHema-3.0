@@ -14,11 +14,19 @@ import (
 type FakeNominationProvider struct {
 	mu          sync.Mutex
 	nominations map[string]domain.NominationRef
+	// synced — последнее значение hasDistributedFighters, полученное
+	// SyncRegistrationState по каждой номинации (спека 0012, T9). Ключ
+	// отсутствует, если SyncRegistrationState для этой номинации ещё не
+	// вызывался — отличается от значения false (LastSynced).
+	synced map[string]bool
 }
 
 // NewFakeNominationProvider создаёт пустой fake-провайдер номинаций.
 func NewFakeNominationProvider() *FakeNominationProvider {
-	return &FakeNominationProvider{nominations: make(map[string]domain.NominationRef)}
+	return &FakeNominationProvider{
+		nominations: make(map[string]domain.NominationRef),
+		synced:      make(map[string]bool),
+	}
 }
 
 var _ domain.NominationProvider = (*FakeNominationProvider)(nil)
@@ -42,4 +50,23 @@ func (p *FakeNominationProvider) NominationsByIDs(_ context.Context, ids []strin
 		}
 	}
 	return out, nil
+}
+
+// SyncRegistrationState записывает последнее значение hasDistributedFighters
+// для номинации (спека 0012, FR-10) — спай для юнит-тестов service.
+func (p *FakeNominationProvider) SyncRegistrationState(_ context.Context, nominationID string, hasDistributedFighters bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.synced[nominationID] = hasDistributedFighters
+	return nil
+}
+
+// LastSynced возвращает последнее значение, переданное SyncRegistrationState
+// для номинации (value), и вызывался ли он вообще для неё (called) —
+// позволяет тестам различить «не вызывался» от «вызывался с false».
+func (p *FakeNominationProvider) LastSynced(nominationID string) (value bool, called bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	value, called = p.synced[nominationID]
+	return value, called
 }

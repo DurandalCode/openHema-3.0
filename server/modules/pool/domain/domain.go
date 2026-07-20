@@ -273,4 +273,10 @@ type NominationProvider interface {
 	// пулов). Отсутствующие id в ответе просто не встречаются в карте —
 	// service оставляет NominationName пустым, не падая.
 	NominationsByIDs(ctx context.Context, ids []string) (map[string]NominationRef, error)
+	// SyncRegistrationState уведомляет nomination о текущем факте «есть ли у
+	// номинации хотя бы один распределённый по пулам боец» (спека 0012,
+	// FR-5/FR-6/FR-10). Вызывается после каждой pool-мутирующей операции,
+	// способной изменить число распределённых бойцов — сервис сам решает,
+	// когда звать (по результирующему состоянию, не по имени RPC).
+	SyncRegistrationState(ctx context.Context, nominationID string, hasDistributedFighters bool) error
 }
