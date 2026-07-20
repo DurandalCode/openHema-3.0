@@ -27,6 +27,27 @@ service NominationAdminService {
   // ReorderNominations задаёт порядок номинаций турнира целиком (полный
   // упорядоченный список id).
   rpc ReorderNominations(ReorderNominationsRequest) returns (ReorderNominationsResponse);
+  // CloseRegistration вручную закрывает приём заявок номинации (спека 0012,
+  // FR-3). Идемпотентно: повторный вызов на уже закрытой номинации не
+  // меняет причину закрытия.
+  rpc CloseRegistration(CloseRegistrationRequest) returns (CloseRegistrationResponse);
+  // ReopenRegistration открывает приём заявок обратно — только если
+  // закрытие было ручным и сейчас нет распределённых по пулам бойцов (спека
+  // 0012, FR-4).
+  rpc ReopenRegistration(ReopenRegistrationRequest) returns (ReopenRegistrationResponse);
+}
+
+// NominationStatus — статус жизненного цикла номинации (спека 0012, FR-1).
+// Причина закрытия (ручная/от раскладки) — внутренняя деталь реализации, на
+// проводе не появляется нигде. ACTIVE/FINISHED — закладки под будущую фазу
+// боёв (как active/finished в 0009/0010): в этом инкременте не реализуются,
+// не назначаются.
+enum NominationStatus {
+  NOMINATION_STATUS_UNSPECIFIED = 0;
+  NOMINATION_STATUS_OPEN = 1;
+  NOMINATION_STATUS_CLOSED = 2;
+  NOMINATION_STATUS_ACTIVE = 3;
+  NOMINATION_STATUS_FINISHED = 4;
 }
 
 // NominationMetadata — типизированная закрытая схема прочих данных номинации.
@@ -51,6 +72,8 @@ message Nomination {
   int32 position = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+  // status — статус жизненного цикла номинации (спека 0012).
+  NominationStatus status = 10;
 }
 
 message ListNominationsRequest {
@@ -114,4 +137,20 @@ message ReorderNominationsRequest {
 
 message ReorderNominationsResponse {
   repeated Nomination nominations = 1;
+}
+
+message CloseRegistrationRequest {
+  string id = 1;
+}
+
+message CloseRegistrationResponse {
+  Nomination nomination = 1;
+}
+
+message ReopenRegistrationRequest {
+  string id = 1;
+}
+
+message ReopenRegistrationResponse {
+  Nomination nomination = 1;
 }
