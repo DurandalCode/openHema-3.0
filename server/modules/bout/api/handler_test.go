@@ -176,7 +176,7 @@ func TestListPublicBoutsByNomination_E2E_AvailableWithoutAuth(t *testing.T) {
 
 	// Без Authorization: PoolPublicService смонтирован под baseOpts (без
 	// RequireAdmin) и в allowlist глобального Auth-интерсептора.
-	req := connect.NewRequest(&hemav1.ListBoutsByNominationRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.ListPublicBoutsByNominationRequest{NominationId: n1})
 	res, err := public.ListPublicBoutsByNomination(context.Background(), req)
 	if err != nil {
 		t.Fatalf("ListPublicBoutsByNomination: %v", err)
@@ -189,7 +189,7 @@ func TestListPublicBoutsByNomination_E2E_AvailableWithoutAuth(t *testing.T) {
 func TestListPublicBoutsByNomination_E2E_EmptyNominationIDReturnsInvalidArgument(t *testing.T) {
 	_, public, _ := setupFull(t)
 
-	req := connect.NewRequest(&hemav1.ListBoutsByNominationRequest{NominationId: ""})
+	req := connect.NewRequest(&hemav1.ListPublicBoutsByNominationRequest{NominationId: ""})
 	_, err := public.ListPublicBoutsByNomination(context.Background(), req)
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))

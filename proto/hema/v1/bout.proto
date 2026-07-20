@@ -25,7 +25,7 @@ service BoutAdminService {
 // видимость раскладки/пула регулируется PoolPublicService).
 service BoutPublicService {
   // ListPublicBoutsByNomination — см. BoutAdminService.ListBoutsByNomination.
-  rpc ListPublicBoutsByNomination(ListBoutsByNominationRequest) returns (ListBoutsByNominationResponse);
+  rpc ListPublicBoutsByNomination(ListPublicBoutsByNominationRequest) returns (ListPublicBoutsByNominationResponse);
 }
 
 // BoutFighterRef — снапшот бойца на момент формирования боя (имя/клуб не
@@ -58,5 +58,16 @@ message ListBoutsByNominationRequest {
 }
 
 message ListBoutsByNominationResponse {
+  repeated Bout bouts = 1;
+}
+
+// ListPublicBoutsByNominationRequest/Response — отдельные от admin-пары
+// сообщения (buf lint: одно сообщение не переиспользуется между RPC разных
+// сервисов), хотя по форме идентичны ListBoutsByNominationRequest/Response.
+message ListPublicBoutsByNominationRequest {
+  string nomination_id = 1;
+}
+
+message ListPublicBoutsByNominationResponse {
   repeated Bout bouts = 1;
 }

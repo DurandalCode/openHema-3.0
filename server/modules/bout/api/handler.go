@@ -52,12 +52,18 @@ func (h *AdminHandler) ListBoutsByNomination(
 // ListPublicBoutsByNomination — публичное чтение (спека 0011, FR-11): тот
 // же набор боёв, что и ListBoutsByNomination (см. BoutPublicService в
 // bout.proto — публичная видимость регулируется PoolPublicService, не
-// здесь).
+// здесь). Отдельные proto-сообщения от admin-пары (buf lint: сообщение не
+// переиспользуется между RPC разных сервисов) — структурно идентичны,
+// маппинг тот же.
 func (h *AdminHandler) ListPublicBoutsByNomination(
 	ctx context.Context,
-	req *connect.Request[hemav1.ListBoutsByNominationRequest],
-) (*connect.Response[hemav1.ListBoutsByNominationResponse], error) {
-	return h.ListBoutsByNomination(ctx, req)
+	req *connect.Request[hemav1.ListPublicBoutsByNominationRequest],
+) (*connect.Response[hemav1.ListPublicBoutsByNominationResponse], error) {
+	bouts, err := h.svc.ListByNomination(ctx, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ListPublicBoutsByNominationResponse{Bouts: toProtoBouts(bouts)}), nil
 }
 
 // mapError переводит доменные ошибки в connect.Code.
