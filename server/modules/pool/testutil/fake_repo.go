@@ -18,11 +18,12 @@ type layoutRow struct {
 }
 
 type poolRow struct {
-	id           string
-	nominationID string
-	number       int
-	memberIDs    []string
-	arenaID      string
+	id            string
+	nominationID  string
+	number        int
+	memberIDs     []string
+	arenaID       string
+	currentBoutID string
 }
 
 // FakeRepo — in-memory реализация domain.Repository для тестов.
@@ -34,7 +35,7 @@ type FakeRepo struct {
 	pools   map[string]*poolRow
 
 	// SetStatusCalls — счётчик вызовов SetStatus (спека 0010, T12): позволяет
-	// тестам service убедиться, что при ошибке BoutGenerator статус в repo не
+	// тестам service убедиться, что при ошибке BoutConductor статус в repo не
 	// меняется (порядок «эффект в bout → потом статус»).
 	SetStatusCalls int
 }
@@ -378,6 +379,20 @@ func (r *FakeRepo) AnySeatedInNomination(_ context.Context, nominationID string)
 	return false, nil
 }
 
+// SetCurrentBout записывает указатель текущего боя пула (спека 0013,
+// FR-7/FR-8/FR-9).
+func (r *FakeRepo) SetCurrentBout(_ context.Context, poolID, boutID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, ok := r.pools[poolID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	p.currentBoutID = boutID
+	return nil
+}
+
 func (r *FakeRepo) listPoolsLocked(nominationID string) []domain.Pool {
 	out := make([]domain.Pool, 0)
 	for _, p := range r.pools {
@@ -414,7 +429,7 @@ func toDomainPool(p *poolRow) domain.Pool {
 	}
 	return domain.Pool{
 		ID: p.id, NominationID: p.nominationID, Number: p.number, Members: members,
-		ArenaID: p.arenaID,
+		ArenaID: p.arenaID, CurrentBoutID: p.currentBoutID,
 	}
 }
 

@@ -36,11 +36,15 @@ type Pool struct {
 	ID             string
 	NominationID   string
 	NominationName string
-	Number          int
+	Number         int
 	Members        []FighterRef
 	ArenaID        string
 	ArenaName      string
 	Status         PoolStatus
+	// CurrentBoutID — указатель текущего боя пула (спека 0013, FR-7/FR-8):
+	// пусто, если пул без боёв или указатель не задан (эффективный текущий
+	// бой резолвится службой — см. service.effectiveCurrentBoutID).
+	CurrentBoutID string
 }
 
 // Assignment — результат автораспределения: бойца — в пул.

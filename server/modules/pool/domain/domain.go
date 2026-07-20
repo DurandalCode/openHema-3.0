@@ -36,6 +36,31 @@ var (
 	// ErrArenaNotAvailable — арена не найдена или архивна: постановку не
 	// принимает (FR-7/FR-9).
 	ErrArenaNotAvailable = errors.New("pool: arena is not available")
+
+	// Спека 0013: ведение текущего боя пула на арене.
+
+	// ErrPoolNotSeated — ведение боя отклонено: пул не стоит на арене
+	// (FR-12, AC-13). Начать/вести бой, циркулировать по пулу можно только
+	// у пула на арене.
+	ErrPoolNotSeated = errors.New("pool: pool is not seated on an arena")
+	// ErrNoCurrentBout — у пула нет текущего боя, вести нечего (пул без
+	// боёв — <2 бойцов, спека 0010 FR-4).
+	ErrNoCurrentBout = errors.New("pool: no current bout to conduct")
+	// ErrHasResults — расфиксация раскладки (ready → draft) отклонена: хотя
+	// бы один бой номинации уже начат/проведён — есть результат, который
+	// пересборка состава сотрёт (FR-13, AC-12).
+	ErrHasResults = errors.New("pool: nomination has bouts with results")
+	// ErrInvalidTransition — запрошенный переход ЖЦ боя недопустим в его
+	// текущем состоянии (например, ввести счёт боя, который не идёт, AC-4).
+	// Пул-локальный сентинел, соответствующий по смыслу одноимённой ошибке
+	// модуля bout (план «Модуль pool»): адаптер BoutConductor в
+	// internal/platform (join-волна) мапит ошибку bout в эту — api модуля
+	// pool не зависит от типов ошибок модуля bout (ADR 0002).
+	ErrInvalidTransition = errors.New("pool: invalid bout state transition")
+	// ErrConcurrency — конфликт версии потока боя при параллельном ведении
+	// (ADR 0011 п.3, AC-15): после прозрачного повтора на стороне
+	// bout/adapter конфликт остался неустранимым.
+	ErrConcurrency = errors.New("pool: concurrent bout modification conflict")
 )
 
 // LayoutStatus — статус раскладки номинации целиком (FR-9). Урезан спекой
@@ -65,18 +90,35 @@ const (
 )
 
 // ComputePoolStatus вычисляет статус отдельного пула из статуса раскладки
-// номинации и факта постановки на арену (спека 0011, план «Обзор решения»):
-// «готовится к запуску» ⟺ arenaID непуст (пул поставлен на арену), иначе
-// «готов»/«не готов» синхронны со статусом раскладки. Чистая функция —
-// юнит-тестируется без fake-портов.
-func ComputePoolStatus(layout LayoutStatus, arenaID string) PoolStatus {
+// номинации, факта постановки на арену и прогресса его боёв (спека 0011,
+// наполнено спекой 0013 FR-10, план «Модуль pool», решение 4). Порядок
+// правил:
+//  1. layout draft -> not_ready — независимо от прогресса/арены;
+//  2. total>0 && finished==total -> finished — независимо от arenaID: снятие
+//     пула с арены сохраняет результаты боёв (FR-11), поэтому завершённый
+//     пул остаётся finished даже будучи снятым;
+//  3. started>0 (и не все бои завершены) -> active;
+//  4. arenaID непуст (started==0) -> preparing — пул на арене, ведение ещё
+//     не начиналось (в т.ч. пул с total==0: вести нечего, но статус остаётся
+//     preparing, а не finished — «Пул с 0 боёв на арене остаётся готовится к
+//     запуску»);
+//  5. иначе (ready, не на арене, started==0) -> ready.
+//
+// Чистая функция — юнит-тестируется без fake-портов.
+func ComputePoolStatus(layout LayoutStatus, arenaID string, started, finished, total int) PoolStatus {
+	if layout != LayoutReady {
+		return PoolStatusNotReady
+	}
+	if total > 0 && finished == total {
+		return PoolStatusFinished
+	}
+	if started > 0 {
+		return PoolStatusActive
+	}
 	if strings.TrimSpace(arenaID) != "" {
 		return PoolStatusPreparing
 	}
-	if layout == LayoutReady {
-		return PoolStatusReady
-	}
-	return PoolStatusNotReady
+	return PoolStatusReady
 }
 
 // UndoKind — вид последнего mutating-действия, доступного для отката (FR-7a).
@@ -205,6 +247,10 @@ type Repository interface {
 	// AnySeatedInNomination — стоит ли хотя бы один пул номинации на арене
 	// (гейт FR-3: расфиксация раскладки запрещена, пока пул на арене).
 	AnySeatedInNomination(ctx context.Context, nominationID string) (bool, error)
+	// SetCurrentBout записывает указатель текущего боя пула (спека 0013,
+	// FR-7/FR-8/FR-9): boutID пуст — указатель сбрасывается (нет
+	// непроведённых боёв после авто-продвижения, AC-10).
+	SetCurrentBout(ctx context.Context, poolID, boutID string) error
 }
 
 // ActiveFightersProvider — межмодульная зависимость: активный ростер
@@ -223,14 +269,85 @@ type BoutPoolInput struct {
 	Fighters []FighterRef
 }
 
-// BoutGenerator — межмодульная зависимость: формирование/очистка боёв пулов
-// номинации через API модуля bout (без прямого доступа к его PG-схеме,
-// ADR 0002). Направление зависимости — только pool → bout (спека 0010,
-// «Обзор решения»). SetStatus вызывает GenerateForNomination на переходе
-// draft → ready, ClearForNomination — на переходе ready → draft.
-type BoutGenerator interface {
+// BoutState — состояние отдельного боя, проекция для доски ведения (спека
+// 0013, FR-1). Собственный тип pool (не переиспользует bout.domain.BoutState
+// — модули не делят типы напрямую, ADR 0002).
+type BoutState string
+
+const (
+	BoutStateNotStarted BoutState = "not_started"
+	BoutStateInProgress BoutState = "in_progress"
+	BoutStateFinished   BoutState = "finished"
+)
+
+// BoutRef — проекция одного боя пула для оркестрации ведения (спека 0013):
+// то, что нужно pool, чтобы собрать доску ведения (BoardBout в proto) и
+// резолвить текущий бой — без доступа к PG-схеме bout (ADR 0002).
+type BoutRef struct {
+	ID             string
+	RoundNumber    int
+	SequenceNumber int
+	FighterA       FighterRef
+	FighterB       FighterRef
+	State          BoutState
+	ScoreA         int
+	ScoreB         int
+}
+
+// BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
+// на ней пул (обогащённый — Status/ArenaName/NominationName/Members), его
+// бои по порядку проведения (0010, отсортированы по SequenceNumber) и
+// эффективный текущий бой. CurrentBoutID пуст, если у пула нет боёв (0010,
+// FR-4) или все бои завершены без последующего непроведённого (AC-10).
+type BoutBoard struct {
+	Pool          Pool
+	Bouts         []BoutRef
+	CurrentBoutID string
+}
+
+// BoutConductor — межмодульная зависимость: жизненный цикл боя и
+// формирование/очистка боёв пулов номинации через API модуля bout (без
+// прямого доступа к его PG-схеме, ADR 0002). Направление зависимости —
+// только pool → bout (спека 0010, «Обзор решения», расширено спекой 0013).
+//
+// GenerateForNomination/ClearForNomination — как в спеке 0010: SetStatus
+// вызывает GenerateForNomination на переходе draft → ready,
+// ClearForNomination — на переходе ready → draft (теперь гейтится
+// AnyStartedInNomination, FR-13).
+//
+// Start/Score/Finish/Reopen/ResetBout — лайфсайкл-команды текущего боя
+// (спека 0013, FR-1/FR-4..FR-6): делегируются сервисом pool после резолва
+// эффективного текущего боя пула. actorID — кто выполнил действие (для
+// журнала боя, ADR 0011, NFR-1). ScoreBout принимает абсолютные значения
+// счёта (план «Способ выражения счёта»: команда идемпотентна, шаги ±N —
+// клиентская арифметика поверх текущего счёта из доски).
+//
+// BoutsByPool/PoolProgress/AnyStartedInNomination — чтения для доски и
+// вычисляемого статуса пула (FR-10).
+//
+// Ошибки: реализация мапит доменные ошибки bout в ErrInvalidTransition/
+// ErrConcurrency этого пакета (см. комментарий у этих сентинелов) либо в
+// ErrNotFound (boutID не существует).
+type BoutConductor interface {
 	GenerateForNomination(ctx context.Context, nominationID string, pools []BoutPoolInput) error
 	ClearForNomination(ctx context.Context, nominationID string) error
+
+	StartBout(ctx context.Context, boutID, actorID string) error
+	ScoreBout(ctx context.Context, boutID, actorID string, scoreA, scoreB int) error
+	FinishBout(ctx context.Context, boutID, actorID string) error
+	ReopenBout(ctx context.Context, boutID, actorID string) error
+	ResetBout(ctx context.Context, boutID, actorID string) error
+
+	// BoutsByPool возвращает бои пула (id/раунд/порядок/пара/состояние/
+	// счёт), порядок не гарантирован — сервис pool сортирует по
+	// SequenceNumber сам (см. service.sortedBySequence).
+	BoutsByPool(ctx context.Context, poolID string) ([]BoutRef, error)
+	// PoolProgress — сколько всего боёв у пула, сколько начато (state ≠
+	// not_started) и сколько завершено (FR-10).
+	PoolProgress(ctx context.Context, poolID string) (total, started, finished int, err error)
+	// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
+	// state ≠ not_started (гейт FR-13, AC-12).
+	AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error)
 }
 
 // ArenaRef — проекция площадки для постановки пула (спека 0011, план

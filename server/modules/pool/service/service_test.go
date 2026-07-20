@@ -11,10 +11,10 @@ import (
 	"github.com/hema/server/modules/pool/testutil"
 )
 
-func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutGenerator) {
+func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
-	bouts := testutil.NewFakeBoutGenerator()
+	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts
@@ -22,10 +22,10 @@ func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFig
 
 // newServiceWithArenas — как newService, но также возвращает
 // FakeArenaProvider (спека 0011: тесты постановки/снятия пула на арену).
-func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutGenerator, *testutil.FakeArenaProvider) {
+func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeArenaProvider) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
-	bouts := testutil.NewFakeBoutGenerator()
+	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts, arenas
@@ -34,10 +34,10 @@ func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.Fak
 // newServiceWithNominations — как newServiceWithArenas, но также возвращает
 // FakeNominationProvider (резолв имени номинации пула для экрана арены,
 // FR-9).
-func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutGenerator, *testutil.FakeArenaProvider, *testutil.FakeNominationProvider) {
+func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeArenaProvider, *testutil.FakeNominationProvider) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
-	bouts := testutil.NewFakeBoutGenerator()
+	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts, arenas, nominations
@@ -1693,5 +1693,366 @@ func TestSync_AssignFighterMove_StaysAboveBoundary(t *testing.T) {
 	}
 	if !value {
 		t.Fatalf("expected sync value true, got false")
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0013: ведение текущего боя пула на арене (доска ведения).
+// ---------------------------------------------------------------------
+
+func seedBoutBoardPool(t *testing.T, repo *testutil.FakeRepo, bouts *testutil.FakeBoutConductor, arenaID string) string {
+	t.Helper()
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if arenaID != "" {
+		if err := repo.SeatPool(context.Background(), poolID, arenaID); err != nil {
+			t.Fatalf("seat pool: %v", err)
+		}
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b2", RoundNumber: 1, SequenceNumber: 2,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b3", RoundNumber: 1, SequenceNumber: 3,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	return poolID
+}
+
+// GetBoutBoard возвращает пустую доску (не ошибку), если на арене никто не
+// стоит.
+func TestGetBoutBoard_EmptyWhenArenaFree(t *testing.T) {
+	svc, _, _, _ := newService()
+	board, err := svc.GetBoutBoard(context.Background(), "arena-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if board.Pool.ID != "" || len(board.Bouts) != 0 || board.CurrentBoutID != "" {
+		t.Fatalf("expected empty board, got %+v", board)
+	}
+}
+
+// По умолчанию текущий бой — первый непроведённый по порядку (FR-9).
+func TestGetBoutBoard_DefaultsCurrentToFirstUnfinished(t *testing.T) {
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	board, err := svc.GetBoutBoard(context.Background(), "arena-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if board.CurrentBoutID != "b1" {
+		t.Fatalf("CurrentBoutID = %q, want b1", board.CurrentBoutID)
+	}
+	if len(board.Bouts) != 3 {
+		t.Fatalf("Bouts len = %d, want 3", len(board.Bouts))
+	}
+}
+
+// AC-13: ведение (начать/счёт/завершить/переоткрыть/сбросить/циркуляция)
+// отклонено, если пул не стоит на арене.
+func TestConducting_AC13_NotSeatedRejected(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "")
+
+	if _, err := svc.StartCurrentBout(ctx, poolID, "admin-1"); !errors.Is(err, domain.ErrPoolNotSeated) {
+		t.Errorf("StartCurrentBout: expected ErrPoolNotSeated, got %v", err)
+	}
+	if _, err := svc.ScoreCurrentBout(ctx, poolID, "admin-1", 5, 3); !errors.Is(err, domain.ErrPoolNotSeated) {
+		t.Errorf("ScoreCurrentBout: expected ErrPoolNotSeated, got %v", err)
+	}
+	if _, err := svc.FinishCurrentBout(ctx, poolID, "admin-1"); !errors.Is(err, domain.ErrPoolNotSeated) {
+		t.Errorf("FinishCurrentBout: expected ErrPoolNotSeated, got %v", err)
+	}
+	if _, err := svc.ReopenCurrentBout(ctx, poolID, "admin-1"); !errors.Is(err, domain.ErrPoolNotSeated) {
+		t.Errorf("ReopenCurrentBout: expected ErrPoolNotSeated, got %v", err)
+	}
+	if _, err := svc.ResetCurrentBout(ctx, poolID, "admin-1"); !errors.Is(err, domain.ErrPoolNotSeated) {
+		t.Errorf("ResetCurrentBout: expected ErrPoolNotSeated, got %v", err)
+	}
+	if _, err := svc.SetCurrentBout(ctx, poolID, "b2"); !errors.Is(err, domain.ErrPoolNotSeated) {
+		t.Errorf("SetCurrentBout: expected ErrPoolNotSeated, got %v", err)
+	}
+}
+
+// Пул без боёв (0 бойцов/1 боец, спека 0010 FR-4) на арене — вести нечего.
+func TestConducting_NoBoutsReturnsErrNoCurrentBout(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	poolID := repo.SeedPool("n1", 1, "f1")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+
+	if _, err := svc.StartCurrentBout(ctx, poolID, "admin-1"); !errors.Is(err, domain.ErrNoCurrentBout) {
+		t.Errorf("expected ErrNoCurrentBout, got %v", err)
+	}
+}
+
+// AC-1/AC-2: начать текущий бой, ввести счёт, завершить — исход из счёта.
+func TestStartScoreFinishCurrentBout_AC1_AC2_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	board, err := svc.StartCurrentBout(ctx, poolID, "admin-1")
+	if err != nil {
+		t.Fatalf("StartCurrentBout: %v", err)
+	}
+	if len(bouts.StartCalls) != 1 || bouts.StartCalls[0].BoutID != "b1" || bouts.StartCalls[0].ActorID != "admin-1" {
+		t.Fatalf("unexpected StartCalls: %+v", bouts.StartCalls)
+	}
+	if board.Pool.Status != domain.PoolStatusActive {
+		t.Errorf("Pool.Status = %q, want active", board.Pool.Status)
+	}
+
+	if _, err := svc.ScoreCurrentBout(ctx, poolID, "admin-1", 5, 3); err != nil {
+		t.Fatalf("ScoreCurrentBout: %v", err)
+	}
+	if len(bouts.ScoreCalls) != 1 || bouts.ScoreCalls[0] != (testutil.ScoreCall{BoutID: "b1", ActorID: "admin-1", ScoreA: 5, ScoreB: 3}) {
+		t.Fatalf("unexpected ScoreCalls: %+v", bouts.ScoreCalls)
+	}
+
+	board, err = svc.FinishCurrentBout(ctx, poolID, "admin-1")
+	if err != nil {
+		t.Fatalf("FinishCurrentBout: %v", err)
+	}
+	if len(bouts.FinishCalls) != 1 || bouts.FinishCalls[0].BoutID != "b1" {
+		t.Fatalf("unexpected FinishCalls: %+v", bouts.FinishCalls)
+	}
+	finished, _ := bouts.Bout("b1")
+	if finished.State != domain.BoutStateFinished || finished.ScoreA != 5 || finished.ScoreB != 3 {
+		t.Fatalf("b1 = %+v, want finished 5:3", finished)
+	}
+	// AC-5: авто-продвижение — текущим становится b2 (первый непроведённый).
+	if board.CurrentBoutID != "b2" {
+		t.Fatalf("CurrentBoutID = %q, want b2 (auto-advance)", board.CurrentBoutID)
+	}
+}
+
+// AC-5: явная проверка авто-продвижения текущего боя после завершения.
+func TestFinishCurrentBout_AC5_AutoAdvance(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	if _, err := svc.StartCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	board, err := svc.FinishCurrentBout(ctx, poolID, "a1")
+	if err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if board.CurrentBoutID != "b2" {
+		t.Fatalf("CurrentBoutID = %q, want b2", board.CurrentBoutID)
+	}
+}
+
+// AC-10: когда завершён последний бой пула, авто-продвижение не находит
+// следующего — указатель очищается, пул → finished.
+func TestFinishCurrentBout_AC10_LastBoutFinishesPool(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "only", SequenceNumber: 1, State: domain.BoutStateInProgress})
+
+	board, err := svc.FinishCurrentBout(ctx, poolID, "a1")
+	if err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if board.CurrentBoutID != "" {
+		t.Fatalf("CurrentBoutID = %q, want empty (no more bouts)", board.CurrentBoutID)
+	}
+	if board.Pool.Status != domain.PoolStatusFinished {
+		t.Fatalf("Pool.Status = %q, want finished", board.Pool.Status)
+	}
+}
+
+// AC-6: циркуляция — секретарь может назначить текущим любой бой пула, в
+// т.ч. уже завершённый.
+func TestSetCurrentBout_AC6_CirculateToFinished(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 3})
+
+	board, err := svc.SetCurrentBout(ctx, poolID, "b2")
+	if err != nil {
+		t.Fatalf("SetCurrentBout: %v", err)
+	}
+	if board.CurrentBoutID != "b2" {
+		t.Fatalf("CurrentBoutID = %q, want b2", board.CurrentBoutID)
+	}
+
+	// Циркуляция назад, на завершённый бой b1 — разрешена (AC-6).
+	board, err = svc.SetCurrentBout(ctx, poolID, "b1")
+	if err != nil {
+		t.Fatalf("SetCurrentBout back to finished: %v", err)
+	}
+	if board.CurrentBoutID != "b1" {
+		t.Fatalf("CurrentBoutID = %q, want b1", board.CurrentBoutID)
+	}
+}
+
+// SetCurrentBout отклоняет boutID, не принадлежащий пулу.
+func TestSetCurrentBout_UnknownBoutIDNotFound(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	_, err := svc.SetCurrentBout(ctx, poolID, "does-not-exist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// AC-7: переоткрыть завершённый бой для правки, AC-8: сбросить начатый.
+func TestReopenResetCurrentBout(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 3})
+	if err := repo.SetCurrentBout(ctx, poolID, "b1"); err != nil {
+		t.Fatalf("seed current: %v", err)
+	}
+
+	if _, err := svc.ReopenCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("ReopenCurrentBout: %v", err)
+	}
+	if len(bouts.ReopenCalls) != 1 || bouts.ReopenCalls[0].BoutID != "b1" {
+		t.Fatalf("unexpected ReopenCalls: %+v", bouts.ReopenCalls)
+	}
+
+	if _, err := svc.ResetCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("ResetCurrentBout: %v", err)
+	}
+	if len(bouts.ResetCalls) != 1 || bouts.ResetCalls[0].BoutID != "b1" {
+		t.Fatalf("unexpected ResetCalls: %+v", bouts.ResetCalls)
+	}
+	b, _ := bouts.Bout("b1")
+	if b.State != domain.BoutStateNotStarted || b.ScoreA != 0 || b.ScoreB != 0 {
+		t.Fatalf("b1 = %+v, want not_started 0:0", b)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0013: статус пула (active/finished) и защита результатов.
+// ---------------------------------------------------------------------
+
+// AC-9/AC-10: статус пула active/finished отражается в существующих
+// read-путях (loadLayout — через GetLayout) при прогрессе боёв.
+func TestGetLayout_AC9AC10_StatusReflectsBoutProgress(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateInProgress})
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "b2", SequenceNumber: 2, State: domain.BoutStateNotStarted})
+
+	layout, err := svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := poolByID(layout.Pools, poolID)
+	if pool.Status != domain.PoolStatusActive {
+		t.Fatalf("Status = %q, want active", pool.Status)
+	}
+
+	// Завершаем оба боя — пул должен стать finished.
+	if err := repo.SetCurrentBout(ctx, poolID, "b1"); err != nil {
+		t.Fatalf("set current: %v", err)
+	}
+	if _, err := svc.FinishCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("finish b1: %v", err)
+	}
+	if _, err := svc.FinishCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("finish b2: %v", err)
+	}
+	layout, err = svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool = poolByID(layout.Pools, poolID)
+	if pool.Status != domain.PoolStatusFinished {
+		t.Fatalf("Status = %q, want finished", pool.Status)
+	}
+}
+
+// AC-11: снятие пула с арены после проведённых боёв сохраняет статус
+// finished/active (не откатывает к ready).
+func TestUnseatPool_AC11_PreservesFinishedStatus(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateFinished})
+
+	layout, err := svc.UnseatPool(ctx, poolID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := poolByID(layout.Pools, poolID)
+	if pool.ArenaID != "" {
+		t.Fatalf("expected pool freed from arena, got ArenaID=%q", pool.ArenaID)
+	}
+	if pool.Status != domain.PoolStatusFinished {
+		t.Fatalf("Status = %q, want finished (results preserved after unseat)", pool.Status)
+	}
+}
+
+// AC-12: расфиксация раскладки отклонена, если хотя бы один бой номинации
+// уже начат/проведён — даже если ни один пул сейчас не стоит на арене
+// (результаты сохраняются после снятия, FR-11).
+func TestSetStatus_AC12_CannotUnfixWhileBoutsStarted(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	repo.SeedPool("n1", 1, "f1")
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	bouts.SetAnyStarted("n1", true)
+
+	_, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	if !errors.Is(err, domain.ErrHasResults) {
+		t.Fatalf("expected ErrHasResults, got %v", err)
+	}
+	status, _, _, err := repo.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != domain.LayoutReady {
+		t.Fatalf("expected status to remain ready, got %s", status)
 	}
 }
