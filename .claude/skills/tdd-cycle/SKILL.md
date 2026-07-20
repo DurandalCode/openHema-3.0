@@ -47,6 +47,9 @@ description: Use when implementing tasks from a feature's tasks.md in the HEMA p
    разобраться и поправить `tasks.md`, не подавлять `--no-verify` и не решать
    силовым мерджем. После мержа — `make generate && make sqlc` один раз в
    основной рабочей копии (перегенерация с учётом всех смерженных контрактов).
+   Затем сразу убрать за собой смерженные worktree и ветки: `git worktree
+   remove <path>` + `git branch -d <branch>` на каждый трек волны — не
+   копить их в `.claude/worktrees/` до конца фичи.
 4. Продолжить со следующей join-задачи `tasks.md` строго последовательно —
    до следующей волны с треками (если есть), затем повторить шаги 2–3.
 
