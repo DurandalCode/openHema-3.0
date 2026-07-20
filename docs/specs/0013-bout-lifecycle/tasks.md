@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-07-20
 - План: `./plan.md`
 
@@ -65,26 +65,26 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 
 ## Server — Трек B: модуль `pool` (оркестрация ведения, на fake-кондукторе)
 
-- [ ] T7. **domain — статус/указатель/порт** — `pool/domain/domain.go`:
+- [x] T7. **domain — статус/указатель/порт** — `pool/domain/domain.go`:
       `Pool.CurrentBoutID`; расширить `ComputePoolStatus(layout, arenaID,
       started, finished, total)`; расширить порт `BoutGenerator`→`BoutConductor`
       (лайфсайкл-команды + `BoutsByPool/PoolProgress/AnyStartedInNomination`);
       ошибки `ErrPoolNotSeated/ErrNoCurrentBout/ErrHasResults`. Тест
       `domain_test.go`: таблица `ComputePoolStatus` (not_ready/ready/preparing/
       active/finished, вкл. снятый пул с результатами — AC-9/10/11).
-- [ ] T8. **testutil** — обновить `pool/testutil/fake_bout_generator.go` →
+- [x] T8. **testutil** — обновить `pool/testutil/fake_bout_generator.go` →
       `fake_bout_conductor.go`: spy лайфсайкл-вызовов + настраиваемые состояния
       боёв пула/прогресс (`var _ domain.BoutConductor`).
-- [ ] T9. **service — ведение (red→green)** — `pool/service/service_test.go` +
+- [x] T9. **service — ведение (red→green)** — `pool/service/service_test.go` +
       `service.go`: `GetBoutBoard` (сборка доски, резолв текущего);
       `StartCurrentBout/ScoreCurrentBout/FinishCurrentBout(+авто-продвижение)/
       ReopenCurrentBout/ResetCurrentBout` c гейтом `arena_id` (AC-13) и
       `ErrNoCurrentBout`; `SetCurrentBout` (циркуляция, AC-6). Тесты AC-5/6/13.
-- [ ] T10. **service — статус и гейт расфиксации** — расширить `SetStatus`
+- [x] T10. **service — статус и гейт расфиксации** — расширить `SetStatus`
       (`ready→draft` + `AnyStartedInNomination` → `ErrHasResults`, AC-12);
       `loadLayout/ListPublicPools/GetPoolsForArena` — статус через `PoolProgress`
       (AC-9/10). Тесты на статусы и гейт.
-- [ ] T11. **api + repo + migrations** — `pool/api/handler_test.go` + `handler.go`:
+- [x] T11. **api + repo + migrations** — `pool/api/handler_test.go` + `handler.go`:
       новые RPC + маппинг ошибок (`FailedPrecondition/Aborted/InvalidArgument`),
       admin-only (AC-14), прокид `actorID`; `pool/migrations/00004_pool_current_
       bout.sql` (`current_bout_id`); `pool/repo/queries/pool.sql`
@@ -107,7 +107,7 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 
 ## Волна 2 — join (после мержа A+B+C)
 
-- [ ] T15. **wiring** — `internal/platform/pool_bout_conductor.go`
+- [x] T15. **wiring** — `internal/platform/pool_bout_conductor.go`
       (`PoolBoutConductor` над `bout` service, реализует `pool/domain.
       BoutConductor`); `platform.go`: `poolDeps.Bouts = NewPoolBoutConductor(...)`.
 - [x] T16. **arena page** — `app/(admin)/admin/arenas/[id]/page.tsx` +
@@ -118,7 +118,7 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
       `pool` (по возможности): доска/статус на реальном пути pool×bout.
 - [x] T18. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
       (менялись protobuf-моки); `go build ./...` + `pnpm build`.
-- [ ] T19. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
+- [x] T19. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
       (draft→done по мере); строка 0013 в `docs/specs/README.md`; пометить 0010/
       0011 «изменён 0013».
 
