@@ -75,7 +75,7 @@ func (s *Service) DeletePool(ctx context.Context, poolID string) (domain.Layout,
 	if err := s.repo.DeletePool(ctx, poolID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayout(ctx, pool.NominationID)
+	return s.loadLayoutAndSync(ctx, pool.NominationID)
 }
 
 // ResetLayout удаляет все пулы номинации и возвращает всех бойцов в
@@ -99,7 +99,7 @@ func (s *Service) ResetLayout(ctx context.Context, nominationID string) (domain.
 	if err := s.repo.ResetLayout(ctx, nominationID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, nominationID)
 }
 
 // AssignFighter кладёт бойца в пул: из нераспределённых либо из другого
@@ -117,7 +117,7 @@ func (s *Service) AssignFighter(ctx context.Context, nominationID, fighterID, po
 	if err := s.repo.AssignFighter(ctx, nominationID, fighterID, poolID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, nominationID)
 }
 
 // UnassignFighter возвращает бойца из пула в нераспределённые (FR-5).
@@ -134,7 +134,7 @@ func (s *Service) UnassignFighter(ctx context.Context, nominationID, fighterID s
 	if err := s.repo.UnassignFighter(ctx, nominationID, fighterID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, nominationID)
 }
 
 // AutoDistribute раскладывает нераспределённых бойцов по существующим
@@ -162,7 +162,7 @@ func (s *Service) AutoDistribute(ctx context.Context, nominationID string) (doma
 	if err := s.repo.ApplyAutoDistribute(ctx, nominationID, assignments); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, nominationID)
 }
 
 // Undo откатывает последнее mutating-действие среди трёх классов:
@@ -195,7 +195,7 @@ func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout,
 	default:
 		return domain.Layout{}, domain.ErrNothingToUndo
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, nominationID)
 }
 
 // SetStatus переключает статус раскладки draft↔ready (FR-9). Другие целевые
@@ -397,6 +397,34 @@ func (s *Service) requireDraft(ctx context.Context, nominationID string) error {
 		return domain.ErrNotDraft
 	}
 	return nil
+}
+
+// loadLayoutAndSync — loadLayout плюс синхронизация «есть ли у номинации
+// распределённые бойцы» с модулем nomination (спека 0012, FR-5/FR-6/FR-10).
+// Вызывается вместо loadLayout из шести pool-мутирующих методов, реально
+// меняющих членство (DeletePool/ResetLayout/AssignFighter/UnassignFighter/
+// AutoDistribute/Undo) — после того, как мутация уже применена в repo, чтобы
+// вычислить hasDistributed по результирующему состоянию, а не по имени RPC.
+func (s *Service) loadLayoutAndSync(ctx context.Context, nominationID string) (domain.Layout, error) {
+	layout, err := s.loadLayout(ctx, nominationID)
+	if err != nil {
+		return domain.Layout{}, err
+	}
+	if err := s.nominations.SyncRegistrationState(ctx, nominationID, hasDistributed(layout)); err != nil {
+		return domain.Layout{}, err
+	}
+	return layout, nil
+}
+
+// hasDistributed — есть ли в раскладке хотя бы один боец, распределённый по
+// пулам (спека 0012, FR-5/FR-6: триггер перехода OPEN↔CLOSED номинации).
+func hasDistributed(l domain.Layout) bool {
+	for _, p := range l.Pools {
+		if len(p.Members) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // loadLayout собирает Layout: обогащает сырые членства пулов данными из

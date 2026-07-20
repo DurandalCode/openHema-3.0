@@ -1420,3 +1420,278 @@ func poolOrEmpty(p *domain.Pool) string {
 	}
 	return p.NominationName
 }
+
+// ---------------------------------------------------------------------
+// Спека 0012, трек B: синхронизация pool → nomination
+// (SyncRegistrationState, FR-5/FR-6/FR-10). Спай — FakeNominationProvider.
+// ---------------------------------------------------------------------
+
+// AC-7: первый AssignFighter на пустой раскладке — граница 0→1, спай
+// получает sync(nominationID, true).
+func TestSync_AC7_FirstAssignSyncsTrue(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	poolID := repo.SeedPool("n1", 1)
+
+	if _, err := svc.AssignFighter(ctx, "n1", "b1", poolID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if !value {
+		t.Fatalf("expected sync value true, got false")
+	}
+}
+
+// AC-8: CreatePool на пустой раскладке — не меняет число распределённых,
+// спай не вызывается.
+func TestSync_AC8_CreatePoolDoesNotSync(t *testing.T) {
+	ctx := context.Background()
+	svc, _, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1")
+
+	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, called := nominations.LastSynced("n1"); called {
+		t.Fatalf("expected SyncRegistrationState not to be called for CreatePool")
+	}
+}
+
+// UnassignFighter последнего распределённого бойца — граница 1→0, sync(false).
+func TestSync_UnassignFighterLastFighterSyncsFalse(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+
+	if _, err := svc.UnassignFighter(ctx, "n1", "b1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if value {
+		t.Fatalf("expected sync value false, got true")
+	}
+}
+
+// DeletePool последнего непустого пула, опустошающий раскладку — sync(false).
+func TestSync_DeletePoolEmptyingLayoutSyncsFalse(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	poolID := repo.SeedPool("n1", 1, "b1")
+
+	if _, err := svc.DeletePool(ctx, poolID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if value {
+		t.Fatalf("expected sync value false, got true")
+	}
+}
+
+// DeletePool пустого пула (раскладка и без того пуста от бойцов) — sync
+// вызывается безопасно с false (звать можно даже если значение не менялось,
+// см. plan.md/tasks.md — идемпотентно на стороне nomination).
+func TestSync_DeletePoolOnEmptyPoolStillSyncsFalse(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1")
+	poolID := repo.SeedPool("n1", 1)
+
+	if _, err := svc.DeletePool(ctx, poolID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if value {
+		t.Fatalf("expected sync value false, got true")
+	}
+}
+
+// ResetLayout опустошающий непустую раскладку — sync(false).
+func TestSync_ResetLayoutEmptyingLayoutSyncsFalse(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+
+	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if value {
+		t.Fatalf("expected sync value false, got true")
+	}
+}
+
+// ResetLayout no-op ветка (пулов нет вовсе) — состояние не менялось, спай не
+// вызывается.
+func TestSync_ResetLayoutNoopDoesNotSync(t *testing.T) {
+	ctx := context.Background()
+	svc, _, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1")
+
+	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, called := nominations.LastSynced("n1"); called {
+		t.Fatalf("expected SyncRegistrationState not to be called for no-op ResetLayout")
+	}
+}
+
+// Первый AutoDistribute на пустой раскладке — граница 0→1, sync(true).
+func TestSync_FirstAutoDistributeSyncsTrue(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1)
+
+	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if !value {
+		t.Fatalf("expected sync value true, got false")
+	}
+}
+
+// AutoDistribute no-op ветка (нет нераспределённых) — состояние не менялось,
+// спай не вызывается.
+func TestSync_AutoDistributeNoopDoesNotSync(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+
+	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, called := nominations.LastSynced("n1"); called {
+		t.Fatalf("expected SyncRegistrationState not to be called for no-op AutoDistribute")
+	}
+}
+
+// Undo(auto), пересекающий границу 1→0: авто расставило единственного
+// нераспределённого бойца (sync(true)), undo возвращает его обратно
+// (sync(false)).
+func TestSync_UndoAuto_CrossesBoundaryDownward(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1)
+
+	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if value, called := nominations.LastSynced("n1"); !called || !value {
+		t.Fatalf("expected sync(true) after auto-distribute, got value=%v called=%v", value, called)
+	}
+
+	if _, err := svc.Undo(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called after undo")
+	}
+	if value {
+		t.Fatalf("expected sync value false after undo-auto empties layout, got true")
+	}
+}
+
+// Undo(delete_pool), пересекающий границу 0→1: раскладка полностью пуста
+// после DeletePool (sync(false)), undo восстанавливает удалённый пул с
+// бойцами (sync(true)).
+func TestSync_UndoDeletePool_CrossesBoundaryUpward(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	poolID := repo.SeedPool("n1", 1, "b1")
+
+	if _, err := svc.DeletePool(ctx, poolID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if value, called := nominations.LastSynced("n1"); !called || value {
+		t.Fatalf("expected sync(false) after DeletePool empties layout, got value=%v called=%v", value, called)
+	}
+
+	if _, err := svc.Undo(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called after undo")
+	}
+	if !value {
+		t.Fatalf("expected sync value true after undo-delete_pool restores fighters, got false")
+	}
+}
+
+// Undo(reset), пересекающий границу 0→1: ResetLayout опустошает раскладку
+// (sync(false)), undo восстанавливает все пулы с их бойцами (sync(true)).
+func TestSync_UndoReset_CrossesBoundaryUpward(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
+	repo.SeedPool("n1", 1, "b1")
+	repo.SeedPool("n1", 2, "b2")
+
+	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if value, called := nominations.LastSynced("n1"); !called || value {
+		t.Fatalf("expected sync(false) after ResetLayout, got value=%v called=%v", value, called)
+	}
+
+	if _, err := svc.Undo(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called after undo")
+	}
+	if !value {
+		t.Fatalf("expected sync value true after undo-reset restores fighters, got false")
+	}
+}
+
+// AssignFighter типа «move» (пул→пул, боец уже был распределён) — граница не
+// пересекается (было 1, осталось 1), но sync вызывается с верным значением
+// true (звать безопасно и не обязательно избегать — идемпотентно на стороне
+// nomination, см. plan.md «Тестирование»).
+func TestSync_AssignFighterMove_StaysAboveBoundary(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+	p2 := repo.SeedPool("n1", 2)
+
+	if _, err := svc.AssignFighter(ctx, "n1", "b1", p2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if !value {
+		t.Fatalf("expected sync value true, got false")
+	}
+}
