@@ -17,7 +17,14 @@ import {
   type RosterEntry,
 } from "@/gen/hema/v1/fighter_pb";
 import { ArenaSchema, type Arena } from "@/gen/hema/v1/arena_pb";
-import { PoolLayoutSchema, PoolSchema, type PoolLayout, type Pool } from "@/gen/hema/v1/pool_pb";
+import {
+  PoolLayoutSchema,
+  PoolSchema,
+  BoutBoardSchema,
+  type PoolLayout,
+  type Pool,
+  type BoutBoard,
+} from "@/gen/hema/v1/pool_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type {
@@ -49,6 +56,9 @@ import type {
   PoolStatus as PoolStatusDto,
   FighterRef as PoolFighterRefDto,
   Pool as PoolDto,
+  BoutBoard as BoutBoardDto,
+  BoardBout as BoardBoutDto,
+  BoutState as BoutStateDto,
 } from "@/entities/pool/lib/types";
 import type {
   Bout as BoutDto,
@@ -356,4 +366,34 @@ export function boutToJson(bout: Bout | undefined): BoutDto | null {
 export function boutsToJson(bouts: Bout[] | undefined): BoutDto[] {
   if (!bouts) return [];
   return bouts.map((b) => boutToJson(b)).filter((b): b is BoutDto => b !== null);
+}
+
+function boardBoutRawToDto(raw: Partial<BoardBoutDto> | undefined): BoardBoutDto {
+  return {
+    id: raw?.id ?? "",
+    roundNumber: raw?.roundNumber ?? 0,
+    sequenceNumber: raw?.sequenceNumber ?? 0,
+    fighterA: poolFighterRefToJson(raw?.fighterA),
+    fighterB: poolFighterRefToJson(raw?.fighterB),
+    state: (raw?.state as BoutStateDto) ?? "BOUT_STATE_UNSPECIFIED",
+    scoreA: raw?.scoreA ?? 0,
+    scoreB: raw?.scoreB ?? 0,
+  };
+}
+
+/**
+ * boutBoardToJson превращает protobuf-сообщение BoutBoard в обычный
+ * JSON-объект (спека 0013, FR-14): доска ведения боёв арены. `pool` — `null`,
+ * если на арене никто не стоит (собственная проекция pool, не entities/bout).
+ */
+export function boutBoardToJson(board: BoutBoard | undefined): BoutBoardDto | null {
+  if (!board) return null;
+  const raw = toJson(BoutBoardSchema, board) as Partial<BoutBoardDto> & {
+    pool?: Partial<PoolDto>;
+  };
+  return {
+    pool: raw.pool ? poolRawToDto(raw.pool) : null,
+    bouts: Array.isArray(raw.bouts) ? raw.bouts.map(boardBoutRawToDto) : [],
+    currentBoutId: raw.currentBoutId ?? "",
+  };
 }
