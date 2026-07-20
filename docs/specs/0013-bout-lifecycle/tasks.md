@@ -113,7 +113,7 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 - [x] T16. **arena page** — `app/(admin)/admin/arenas/[id]/page.tsx` +
       `features/pool-seating`: заменить плейсхолдер «ход боя» на `BoutBoard`,
       когда арена занята.
-- [ ] T17. **integration (testcontainers)** — `bout`: конфликт версии реально
+- [x] T17. **integration (testcontainers)** — `bout`: конфликт версии реально
       ловится (AC-15), append+projection атомарны, regen каскадит events;
       `pool` (по возможности): доска/статус на реальном пути pool×bout.
 - [ ] T18. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
