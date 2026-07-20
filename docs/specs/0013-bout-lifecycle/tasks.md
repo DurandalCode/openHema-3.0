@@ -29,11 +29,12 @@ join: wiring в `internal/platform` (адаптер conductor) + сквозны�
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/pool.proto` — добавить `enum BoutState`, сообщения
+- [x] T1. `proto/hema/v1/pool.proto` — добавить `enum BoutState`, сообщения
       `BoardBout`/`BoutBoard`, RPC `GetBoutBoard/SetCurrentBout/StartCurrentBout/
       ScoreCurrentBout/FinishCurrentBout/ReopenCurrentBout/ResetCurrentBout` +
-      их Request/Response (общий `BoutBoardResponse`); уточнить док `UnseatPool`
-      (снятие в любой фазе). `bout.proto`/`arena.proto` — без изменений.
+      их Request/Response (своя пара на каждый RPC, buf lint
+      `RPC_REQUEST_RESPONSE_UNIQUE`); уточнить док `UnseatPool` (снятие в любой
+      фазе). `bout.proto`/`arena.proto` — без изменений.
       `make generate`. _(контракты — не TDD-шаг, идут первыми.)_
 
 ## Server — Трек A: модуль `bout` (event-sourced)

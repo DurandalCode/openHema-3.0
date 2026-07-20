@@ -78,20 +78,26 @@ pool` (это создало бы цикл) — вся координация с
     string current_bout_id = 3;    // текущий бой (пусто, если боёв нет)
   }
   ```
-- **`PoolAdminService`** — новые RPC (все pool-scoped, под RequireAdmin):
+- **`PoolAdminService`** — новые RPC (все pool-scoped, под RequireAdmin). Каждый
+  RPC — своя пара Request/Response (buf lint `RPC_REQUEST_RESPONSE_UNIQUE`:
+  сообщение не переиспользуется между разными RPC, как в `bout.proto`); все
+  ответы по форме одинаковы — `{ BoutBoard board = 1; }`, возвращают
+  обновлённую доску после мутации (клиенту не нужен второй round-trip):
   - `GetBoutBoard(GetBoutBoardRequest{arena_id}) → GetBoutBoardResponse{BoutBoard board}` —
     доска арены; `board` пуст, если на арене никто не стоит.
-  - `SetCurrentBout(SetCurrentBoutRequest{pool_id, bout_id}) → BoutBoardResponse` —
-    циркуляция (FR-8): назначить текущим любой бой пула.
-  - `StartCurrentBout(PoolActionRequest{pool_id}) → BoutBoardResponse` — FR-4.
+  - `SetCurrentBout(SetCurrentBoutRequest{pool_id, bout_id}) →
+    SetCurrentBoutResponse` — циркуляция (FR-8): назначить текущим любой бой
+    пула.
+  - `StartCurrentBout(StartCurrentBoutRequest{pool_id}) →
+    StartCurrentBoutResponse` — FR-4.
   - `ScoreCurrentBout(ScoreCurrentBoutRequest{pool_id, score_a, score_b}) →
-    BoutBoardResponse` — FR-2/FR-2a (абсолютная установка).
-  - `FinishCurrentBout(PoolActionRequest{pool_id}) → BoutBoardResponse` — FR-5
-    (+ авто-продвижение текущего, FR-9).
-  - `ReopenCurrentBout(PoolActionRequest{pool_id}) → BoutBoardResponse` — FR-6.
-  - `ResetCurrentBout(PoolActionRequest{pool_id}) → BoutBoardResponse` — FR-6.
-  - Общий `BoutBoardResponse{BoutBoard board}` — возвращаем обновлённую доску
-    после каждой мутации (клиенту не нужен второй round-trip).
+    ScoreCurrentBoutResponse` — FR-2/FR-2a (абсолютная установка).
+  - `FinishCurrentBout(FinishCurrentBoutRequest{pool_id}) →
+    FinishCurrentBoutResponse` — FR-5 (+ авто-продвижение текущего, FR-9).
+  - `ReopenCurrentBout(ReopenCurrentBoutRequest{pool_id}) →
+    ReopenCurrentBoutResponse` — FR-6.
+  - `ResetCurrentBout(ResetCurrentBoutRequest{pool_id}) →
+    ResetCurrentBoutResponse` — FR-6.
 - Заметка в комментарии `UnseatPool`: снятие разрешено в любой исполнительной
   фазе (FR-11) — enum-ограничений нет, меняется только серверная логика/док.
 
