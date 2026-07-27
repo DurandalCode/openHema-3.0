@@ -24,6 +24,15 @@ var publicProcedures = map[string]struct{}{
 	// бои) — read-only, доступен без авторизации (FR-11/FR-13, AC-15).
 	"/hema.v1.PoolPublicService/ListPublicPools":             {},
 	"/hema.v1.BoutPublicService/ListPublicBoutsByNomination": {},
+	// Спека 0014: живой снапшот номинации (bout state/score/outcome +
+	// исполнительный статус пула) — публичный экран, без авторизации.
+	// GetNominationLive — unary (проходит через этот интерсептор);
+	// WatchNominationLive — server-streaming (Auth — connect.UnaryInterceptorFunc,
+	// streaming-вызовы им не оборачиваются в принципе), но procedure всё
+	// равно перечислена здесь — документирует публичный контракт RPC и не
+	// зависит от того, как реализован Auth сейчас.
+	"/hema.v1.PoolPublicService/GetNominationLive":   {},
+	"/hema.v1.PoolPublicService/WatchNominationLive": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт
