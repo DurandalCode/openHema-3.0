@@ -34,7 +34,7 @@ wiring `livebus` в composition root + сквозные проверки.
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/pool.proto` — в **`PoolPublicService`** добавить:
+- [x] T1. `proto/hema/v1/pool.proto` — в **`PoolPublicService`** добавить:
       `rpc GetNominationLive(GetNominationLiveRequest) returns (GetNominationLiveResponse);`
       (unary) и `rpc WatchNominationLive(WatchNominationLiveRequest) returns
       (stream WatchNominationLiveResponse);` (server-streaming). Сообщения:
