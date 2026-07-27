@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-07-27
 - План: `./plan.md`
 
@@ -49,7 +49,7 @@ wiring `livebus` в composition root + сквозные проверки.
 
 ## Server — Трек A: `pkg/livebus` (примитив оповещения)
 
-- [ ] T2. **`pkg/livebus` (red→green)** — `server/pkg/livebus/livebus_test.go` +
+- [x] T2. **`pkg/livebus` (red→green)** — `server/pkg/livebus/livebus_test.go` +
       `livebus.go`: `Bus` с `Subscribe(topic) (<-chan struct{}, func())` и
       `Publish(topic)`; канал подписчика буфер 1, **неблокирующая** отправка;
       `cancel` снимает подписку и удаляет опустевший топик; потокобезопасно
@@ -60,7 +60,7 @@ wiring `livebus` в composition root + сквозные проверки.
 
 ## Server — Трек B: модуль `pool` (снапшот + публикация + стриминг)
 
-- [ ] T3. **domain — порты + типы снапшота** — `pool/domain/domain.go`: порт
+- [x] T3. **domain — порты + типы снапшота** — `pool/domain/domain.go`: порт
       `LiveNotifier interface { PublishNominationChanged(nominationID string) }`
       (сторона публикации, зависит `service`); порт `LiveSubscriber interface
       { SubscribeNomination(nominationID string) (<-chan struct{}, func()) }`
@@ -68,11 +68,11 @@ wiring `livebus` в composition root + сквозные проверки.
       string; Pools []LivePool }`, `LivePool{ Pool; Bouts []BoutRef;
       CurrentBoutID string }` (переиспользуют `domain.Pool`/`domain.BoutRef`).
       Компиляционный red — через T5/T6.
-- [ ] T4. **testutil** — `pool/testutil/fake_live_bus.go`: in-memory реализация
+- [x] T4. **testutil** — `pool/testutil/fake_live_bus.go`: in-memory реализация
       `LiveNotifier`+`LiveSubscriber` (`var _` обоих) — spy опубликованных
       топиков (для service-теста) + управляемый канал (для api-стриминг-теста,
       чтобы «толкнуть» сигнал).
-- [ ] T5. **service — снапшот + публикация (red→green)** —
+- [x] T5. **service — снапшот + публикация (red→green)** —
       `pool/service/service_test.go` + `service.go`: метод `NominationLive(ctx,
       nominationID) (domain.NominationSnapshot, error)` — `draft` ⇒ `{Pools:[]}`
       (FR-12/AC-9); `ready` ⇒ по каждому пулу `LivePool` через существующую
@@ -85,7 +85,7 @@ wiring `livebus` в composition root + сквозные проверки.
       снапшота (fake-репо/кондуктор); publish вызван с верным `nominationID` в
       каждой из 9 команд; read-методы (`GetNominationLive`/`GetBoutBoard`/
       `ListPublicPools`) — **не** публикуют.
-- [ ] T6. **api — unary + streaming (red→green)** — `pool/api/handler_test.go` +
+- [x] T6. **api — unary + streaming (red→green)** — `pool/api/handler_test.go` +
       `handler.go`: `GetNominationLive` (unary → `toProtoNominationSnapshot`/
       `toProtoLivePool`, переиспользуют `toProtoPool`/`toProtoBoardBouts`);
       `WatchNominationLive` (server-streaming: (1) сразу шлёт текущий снапшот;
@@ -102,7 +102,7 @@ wiring `livebus` в composition root + сквозные проверки.
 
 ## Web — Трек C (на моках grpc)
 
-- [ ] T7. **entities + сериализация** — `entities/nomination-live/lib/types.ts`
+- [x] T7. **entities + сериализация** — `entities/nomination-live/lib/types.ts`
       (DTO `NominationLiveSnapshotDto`, `LivePoolDto{ pool: PoolDto; bouts:
       BoardBoutDto[]; currentBoutId: string }`, переиспользуют
       `PoolDto`/`BoardBoutDto` из `entities/pool`) + `boutOutcome(state,
@@ -113,7 +113,7 @@ wiring `livebus` в composition root + сквозные проверки.
       по образцу `boutBoardToJson`) + `lib/grpc/client.ts` — `poolPublicClient`
       уже есть (регенерён с новыми RPC). Тесты: `boutOutcome`;
       `nominationLiveToJson` round-trip; `pnpm exec tsc --noEmit`.
-- [ ] T8. **BFF (red→green)** — `app/api/nominations/[id]/live/route.ts` — SSE:
+- [x] T8. **BFF (red→green)** — `app/api/nominations/[id]/live/route.ts` — SSE:
       `Response(ReadableStream, headers text/event-stream + no-cache,no-transform)`;
       внутри `poolPublicClient.watchNominationLive({nominationId},{signal:
       req.signal})` (AsyncIterable) → `data: ${JSON.stringify(nominationLiveToJson
@@ -122,7 +122,7 @@ wiring `livebus` в composition root + сквозные проверки.
       (unary `getNominationLive` → JSON того же shape, для fallback/SSR). Тесты
       `*.test.ts`: мок connect-стрима (AsyncIterable снапшотов) → SSE-фрейминг
       (`data: …\n\n`), heartbeat, cleanup по abort; unary → JSON.
-- [ ] T9. **feature `nomination-live` (хук)** — `features/nomination-live/api/
+- [x] T9. **feature `nomination-live` (хук)** — `features/nomination-live/api/
       use-nomination-live.ts`: `useNominationLive(nominationId, initialSnapshot)`
       — открывает `EventSource('/api/nominations/{id}/live')`, `onmessage` →
       `setSnapshot`; авто-reconnect ES нативный (FR-8); при `typeof EventSource
@@ -131,7 +131,7 @@ wiring `livebus` в composition root + сквозные проверки.
       кастомный хук (`useReducer`/`useState`), не RQ (ADR 0006). Тест: фейковый
       `EventSource` применяет снапшоты; серия ошибок/undefined → переход на
       polling (мок `fetch`); cleanup.
-- [ ] T10. **widget + page** — `widgets/nomination-pools-public/
+- [x] T10. **widget + page** — `widgets/nomination-pools-public/
       nomination-pools-public.tsx` → **client**-композиция, засеянная
       SSR-снапшотом и подписанная через `useNominationLive`; по каждому пулу:
       имя, бейдж исполнительного статуса (`готовится/идёт/завершён`), площадка,
@@ -144,21 +144,21 @@ wiring `livebus` в composition root + сквозные проверки.
 
 ## Волна 2 — join (после мержа A+B+C)
 
-- [ ] T11. **wiring** — `internal/platform/pool_live_bus.go`: адаптер
+- [x] T11. **wiring** — `internal/platform/pool_live_bus.go`: адаптер
       `PoolLiveBus` над `*livebus.Bus`, реализует `pool/domain.LiveNotifier`
       (`PublishNominationChanged`→`Publish`) и `pool/domain.LiveSubscriber`
       (`SubscribeNomination`→`Subscribe`); `platform.go`: `bus := livebus.New()`,
       `poolDeps.LiveBus = NewPoolLiveBus(bus)`. Проверить, что интерсепторы
       (recovery/logging) корректно оборачивают server-streaming RPC.
-- [ ] T12. **integration (testcontainers)** — `pool/integration`: по
+- [x] T12. **integration (testcontainers)** — `pool/integration`: по
       возможности — `GetNominationLive` через реальный Connect × реальный PG на
       готовой раскладке (переиспользует сценарий 0013: посадка + ведение → в
       снапшоте виден счёт/состояние/текущий). Стриминг покрыт e2e без БД (T6).
-- [ ] T13. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
+- [x] T13. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
       (менялись protobuf-моки); `go build ./...` + `pnpm build`; ручной прогон:
       открыть публичный `/nominations/[id]`, на арене вести бой из админки →
       счёт/состояние обновляются на публичном экране без перезагрузки.
-- [ ] T14. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
+- [x] T14. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
       (→done по мере); строка 0014 в `docs/specs/README.md` (`tasks`→`done`);
       пометки «изменён 0014» у 0011/0013 уже проставлены.
 
