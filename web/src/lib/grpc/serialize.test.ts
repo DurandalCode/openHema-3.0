@@ -9,6 +9,7 @@ import {
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
 import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
+import { NominationLiveSnapshotSchema } from "@/gen/hema/v1/pool_pb";
 import {
   applicationHistoryToJson,
   applicationsToJson,
@@ -18,6 +19,7 @@ import {
   nominationParticipantsToJson,
   nominationsToJson,
   nominationToJson,
+  nominationLiveToJson,
   tournamentToJson,
   userToJson,
 } from "@/lib/grpc/serialize";
@@ -475,5 +477,84 @@ describe("arenasToJson", () => {
 
   it("returns empty array for undefined", () => {
     expect(arenasToJson(undefined)).toEqual([]);
+  });
+});
+
+describe("nominationLiveToJson", () => {
+  it("converts a filled protobuf NominationLiveSnapshot to plain JSON (nested Pool/BoardBout)", () => {
+    const snapshot = fromJson(NominationLiveSnapshotSchema, {
+      nominationId: "nom-1",
+      pools: [
+        {
+          pool: {
+            id: "pool-1",
+            nominationId: "nom-1",
+            nominationName: "Longsword",
+            number: 1,
+            name: "Пул 1",
+            members: [{ fighterId: "f1", name: "Fighter One", club: "Sokol" }],
+            status: "POOL_STATUS_ACTIVE",
+            arenaId: "arena-1",
+            arenaName: "Ристалище 1",
+          },
+          bouts: [
+            {
+              id: "bout-1",
+              roundNumber: 1,
+              sequenceNumber: 1,
+              fighterA: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+              fighterB: { fighterId: "f2", name: "Fighter Two", club: "Berkut" },
+              state: "BOUT_STATE_FINISHED",
+              scoreA: 5,
+              scoreB: 3,
+            },
+            {
+              id: "bout-2",
+              roundNumber: 1,
+              sequenceNumber: 2,
+              fighterA: { fighterId: "f3", name: "Fighter Three", club: "" },
+              fighterB: { fighterId: "f4", name: "Fighter Four", club: "" },
+              state: "BOUT_STATE_IN_PROGRESS",
+              scoreA: 1,
+              scoreB: 0,
+            },
+          ],
+          currentBoutId: "bout-2",
+        },
+      ],
+    });
+
+    const json = nominationLiveToJson(snapshot);
+
+    expect(json).not.toBeNull();
+    expect(json?.nominationId).toBe("nom-1");
+    expect(json?.pools).toHaveLength(1);
+
+    const lp = json!.pools[0];
+    expect(lp.pool.id).toBe("pool-1");
+    expect(lp.pool.status).toBe("POOL_STATUS_ACTIVE");
+    expect(lp.pool.arenaName).toBe("Ристалище 1");
+    expect(lp.pool.members).toEqual([{ fighterId: "f1", name: "Fighter One", club: "Sokol" }]);
+    expect(lp.currentBoutId).toBe("bout-2");
+    expect(lp.bouts).toHaveLength(2);
+    expect(lp.bouts[0].state).toBe("BOUT_STATE_FINISHED");
+    expect(lp.bouts[0].scoreA).toBe(5);
+    expect(lp.bouts[0].scoreB).toBe(3);
+    expect(lp.bouts[1].state).toBe("BOUT_STATE_IN_PROGRESS");
+    expect(lp.bouts[1].fighterA.name).toBe("Fighter Three");
+    // proto3-omitted defaults normalized (empty club, not undefined)
+    expect(lp.bouts[1].fighterA.club).toBe("");
+  });
+
+  it("returns null for undefined", () => {
+    expect(nominationLiveToJson(undefined)).toBeNull();
+  });
+
+  it("normalizes an empty snapshot (draft raskladka, FR-12) to an empty pools array", () => {
+    const snapshot = fromJson(NominationLiveSnapshotSchema, { nominationId: "nom-2" });
+
+    const json = nominationLiveToJson(snapshot);
+
+    expect(json).toEqual({ nominationId: "nom-2", pools: [] });
   });
 });

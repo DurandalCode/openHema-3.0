@@ -21,9 +21,11 @@ import {
   PoolLayoutSchema,
   PoolSchema,
   BoutBoardSchema,
+  NominationLiveSnapshotSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
+  type NominationLiveSnapshot,
 } from "@/gen/hema/v1/pool_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -64,6 +66,10 @@ import type {
   Bout as BoutDto,
   FighterRef as BoutFighterRefDto,
 } from "@/entities/bout/lib/types";
+import type {
+  NominationLiveSnapshotDto,
+  LivePoolDto,
+} from "@/entities/nomination-live/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -395,5 +401,33 @@ export function boutBoardToJson(board: BoutBoard | undefined): BoutBoardDto | nu
     pool: raw.pool ? poolRawToDto(raw.pool) : null,
     bouts: Array.isArray(raw.bouts) ? raw.bouts.map(boardBoutRawToDto) : [],
     currentBoutId: raw.currentBoutId ?? "",
+  };
+}
+
+/**
+ * nominationLiveToJson превращает protobuf-сообщение NominationLiveSnapshot
+ * в обычный JSON-объект (спека 0014): живой снапшот номинации — пулы готовой
+ * раскладки (пусто при `draft`, FR-12) с их боями (состояние/счёт/текущий
+ * бой). По образцу `boutBoardToJson`, нормализует вложенные `Pool`/`BoardBout`
+ * теми же приватными хелперами.
+ */
+export function nominationLiveToJson(
+  snapshot: NominationLiveSnapshot | undefined,
+): NominationLiveSnapshotDto | null {
+  if (!snapshot) return null;
+  const raw = toJson(NominationLiveSnapshotSchema, snapshot) as Partial<NominationLiveSnapshotDto> & {
+    pools?: Array<{ pool?: Partial<PoolDto>; bouts?: unknown[]; currentBoutId?: string }>;
+  };
+  return {
+    nominationId: raw.nominationId ?? "",
+    pools: Array.isArray(raw.pools)
+      ? raw.pools.map(
+          (p): LivePoolDto => ({
+            pool: poolRawToDto(p.pool),
+            bouts: Array.isArray(p.bouts) ? (p.bouts as Partial<BoardBoutDto>[]).map(boardBoutRawToDto) : [],
+            currentBoutId: p.currentBoutId ?? "",
+          }),
+        )
+      : [],
   };
 }
