@@ -2,8 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getNomination } from "@/entities/nomination/model/get-nomination";
 import { nominationStatusLabel } from "@/entities/nomination/lib/types";
-import { getPublicPools } from "@/entities/pool/model/get-public-pools";
-import { getPublicBouts } from "@/entities/bout/model/get-public-bouts";
+import { getNominationLive } from "@/entities/nomination-live/model/get-nomination-live";
 import { Badge } from "@/shared/ui/badge";
 import { Col, Row } from "@/shared/ui/stack";
 import { NominationPoolsPublic } from "@/widgets/nomination-pools-public/nomination-pools-public";
@@ -21,8 +20,11 @@ type PageProps = { params: Promise<{ id: string }> };
  * решает сервер (`PoolPublicService`), страница лишь рендерит пустой
  * список через `NominationPoolsPublic`.
  *
- * SSR: `getNomination`/`getPublicPools`/`getPublicBouts` — публичные gRPC,
- * без access-токена (как публичный ростер 0007).
+ * SSR: `getNomination`/`getNominationLive` — публичные gRPC, без
+ * access-токена (как публичный ростер 0007). `getNominationLive` (спека
+ * 0014) сеет живой снапшот пулов/боёв (состав, статус, счёт, состояние) —
+ * «живость» после гидратации ведёт клиентский `useNominationLive` внутри
+ * `NominationPoolsPublic` (SSE + polling-fallback).
  *
  * Статус приёма заявок (спека 0012, FR-8/AC-14): бейдж рядом с `<h1>` при
  * `status !== OPEN` — гость должен видеть статус и на этом экране, не
@@ -35,7 +37,7 @@ export default async function PublicNominationPage({ params }: PageProps) {
     notFound();
   }
 
-  const [pools, bouts] = await Promise.all([getPublicPools(id), getPublicBouts(id)]);
+  const snapshot = await getNominationLive(id);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-16">
@@ -53,7 +55,7 @@ export default async function PublicNominationPage({ params }: PageProps) {
           <p className="text-muted-foreground">{nomination.description}</p>
         )}
       </Col>
-      <NominationPoolsPublic pools={pools} bouts={bouts} />
+      <NominationPoolsPublic nominationId={id} initialSnapshot={snapshot} />
     </div>
   );
 }

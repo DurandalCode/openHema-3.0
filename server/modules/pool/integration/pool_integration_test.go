@@ -27,6 +27,7 @@ import (
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
+	"github.com/hema/server/pkg/livebus"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -38,11 +39,12 @@ const (
 )
 
 type clients struct {
-	pool    hemav1connect.PoolAdminServiceClient
-	fighter hemav1connect.FighterAdminServiceClient
-	nom     hemav1connect.NominationAdminServiceClient
-	bout    hemav1connect.BoutAdminServiceClient
-	arena   hemav1connect.ArenaAdminServiceClient
+	pool       hemav1connect.PoolAdminServiceClient
+	poolPublic hemav1connect.PoolPublicServiceClient
+	fighter    hemav1connect.FighterAdminServiceClient
+	nom        hemav1connect.NominationAdminServiceClient
+	bout       hemav1connect.BoutAdminServiceClient
+	arena      hemav1connect.ArenaAdminServiceClient
 }
 
 // setup поднимает PG (testdb.Postgres), применяет миграции всех модулей,
@@ -86,6 +88,7 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 		Bouts:       platform.NewPoolBoutConductor(pool),                            // real adapter, not fake (spec 0010/0013)
 		Arenas:      platform.NewPoolArenaProvider(pool, activeTournaments),         // real adapter, spec 0011
 		Nominations: platform.NewPoolNominationProvider(pool, activeTournaments),   // real adapter, FR-9 (имя номинации пула)
+		LiveBus:     platform.NewPoolLiveBus(livebus.New()),                        // real adapter, spec 0014
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -93,11 +96,12 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 
 	httpClient := server.Client()
 	return clients{
-		pool:    hemav1connect.NewPoolAdminServiceClient(httpClient, server.URL),
-		fighter: hemav1connect.NewFighterAdminServiceClient(httpClient, server.URL),
-		nom:     hemav1connect.NewNominationAdminServiceClient(httpClient, server.URL),
-		bout:    hemav1connect.NewBoutAdminServiceClient(httpClient, server.URL),
-		arena:   hemav1connect.NewArenaAdminServiceClient(httpClient, server.URL),
+		pool:       hemav1connect.NewPoolAdminServiceClient(httpClient, server.URL),
+		poolPublic: hemav1connect.NewPoolPublicServiceClient(httpClient, server.URL),
+		fighter:    hemav1connect.NewFighterAdminServiceClient(httpClient, server.URL),
+		nom:        hemav1connect.NewNominationAdminServiceClient(httpClient, server.URL),
+		bout:       hemav1connect.NewBoutAdminServiceClient(httpClient, server.URL),
+		arena:      hemav1connect.NewArenaAdminServiceClient(httpClient, server.URL),
 	}, pool
 }
 
@@ -738,5 +742,112 @@ func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
 	}
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("expected FailedPrecondition, got %v: %v", connect.CodeOf(err), err)
+	}
+}
+
+// TestIntegration_GetNominationLive_ReflectsConductedBout прогоняет тот же
+// сценарий ведения боя, что и TestIntegration_ConductBout_FullLifecycle
+// (спека 0013), но проверяет публичный живой снапшот (спека 0014,
+// PoolPublicService.GetNominationLive) через реальный Connect × реальный
+// PG: draft ⇒ пустой снапшот (FR-12); после постановки на арену и
+// проведения боя — снапшот несёт состояние/счёт/исход боя и исполнительный
+// статус/площадку пула, без токена (публичный сервис).
+func TestIntegration_GetNominationLive_ReflectsConductedBout(t *testing.T) {
+	c, _ := setup(t)
+	arenaID := createArena(t, c, "Ристалище 1")
+
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID := created.Msg.Layout.Pools[0].Id
+	for _, fid := range []string{f1, f2} {
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq.Header().Set("Authorization", adminBearer(t))
+		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+			t.Fatalf("AssignFighter(%s): %v", fid, err)
+		}
+	}
+
+	// draft: живой снапшот пуст (FR-12), как и ListPublicPools.
+	live := func() *hemav1.NominationLiveSnapshot {
+		req := connect.NewRequest(&hemav1.GetNominationLiveRequest{NominationId: nomID})
+		res, err := c.poolPublic.GetNominationLive(context.Background(), req)
+		if err != nil {
+			t.Fatalf("GetNominationLive: %v", err)
+		}
+		return res.Msg.Snapshot
+	}
+	if got := live(); len(got.Pools) != 0 {
+		t.Fatalf("expected empty live snapshot while draft, got %d pools", len(got.Pools))
+	}
+
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+
+	seatReq := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: poolID, ArenaId: arenaID})
+	seatReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.SeatPoolOnArena(context.Background(), seatReq); err != nil {
+		t.Fatalf("SeatPoolOnArena: %v", err)
+	}
+
+	snap := live()
+	if len(snap.Pools) != 1 {
+		t.Fatalf("expected 1 live pool after seating, got %d", len(snap.Pools))
+	}
+	lp := snap.Pools[0]
+	if lp.Pool.Status != hemav1.PoolStatus_POOL_STATUS_PREPARING || lp.Pool.ArenaId != arenaID {
+		t.Fatalf("expected PREPARING pool seated on %s, got status=%v arena=%q", arenaID, lp.Pool.Status, lp.Pool.ArenaId)
+	}
+	if len(lp.Bouts) != 1 || lp.Bouts[0].State != hemav1.BoutState_BOUT_STATE_NOT_STARTED {
+		t.Fatalf("expected 1 not-started bout in live snapshot, got %+v", lp.Bouts)
+	}
+	boutID := lp.CurrentBoutId
+	if boutID == "" {
+		t.Fatal("expected a current bout in the live snapshot")
+	}
+
+	startReq := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: poolID})
+	startReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.StartCurrentBout(context.Background(), startReq); err != nil {
+		t.Fatalf("StartCurrentBout: %v", err)
+	}
+	scoreReq := connect.NewRequest(&hemav1.ScoreCurrentBoutRequest{PoolId: poolID, ScoreA: 5, ScoreB: 3})
+	scoreReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.ScoreCurrentBout(context.Background(), scoreReq); err != nil {
+		t.Fatalf("ScoreCurrentBout: %v", err)
+	}
+
+	// Пока бой идёт: живой снапшот несёт актуальный счёт и статус пула ACTIVE.
+	mid := live().Pools[0]
+	if mid.Pool.Status != hemav1.PoolStatus_POOL_STATUS_ACTIVE {
+		t.Fatalf("expected ACTIVE while bout in progress, got %v", mid.Pool.Status)
+	}
+	if mid.Bouts[0].State != hemav1.BoutState_BOUT_STATE_IN_PROGRESS || mid.Bouts[0].ScoreA != 5 || mid.Bouts[0].ScoreB != 3 {
+		t.Fatalf("expected in-progress bout with live score 5:3, got %+v", mid.Bouts[0])
+	}
+
+	finishReq := connect.NewRequest(&hemav1.FinishCurrentBoutRequest{PoolId: poolID})
+	finishReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.FinishCurrentBout(context.Background(), finishReq); err != nil {
+		t.Fatalf("FinishCurrentBout: %v", err)
+	}
+
+	final := live().Pools[0]
+	if final.Pool.Status != hemav1.PoolStatus_POOL_STATUS_FINISHED {
+		t.Fatalf("expected FINISHED pool once its only bout is finished, got %v", final.Pool.Status)
+	}
+	if final.CurrentBoutId != "" {
+		t.Fatalf("expected no current bout left, got %q", final.CurrentBoutId)
+	}
+	if len(final.Bouts) != 1 || final.Bouts[0].Id != boutID ||
+		final.Bouts[0].State != hemav1.BoutState_BOUT_STATE_FINISHED ||
+		final.Bouts[0].ScoreA != 5 || final.Bouts[0].ScoreB != 3 {
+		t.Fatalf("expected the finished bout to keep score 5:3 in the live snapshot, got %+v", final.Bouts)
 	}
 }

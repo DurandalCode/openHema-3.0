@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 
@@ -308,6 +309,68 @@ func (h *PublicHandler) ListPublicPools(
 	return connect.NewResponse(&hemav1.ListPublicPoolsResponse{Pools: toProtoPools(pools)}), nil
 }
 
+// ---------------------------------------------------------------------
+// Спека 0014: публичный живой снапшот номинации (bout state/score/outcome +
+// исполнительный статус пула, экран номинации).
+// ---------------------------------------------------------------------
+
+// GetNominationLive возвращает живой снапшот номинации (спека 0014, FR-1..
+// FR-3): пустой список пулов, пока раскладка draft (FR-12).
+func (h *PublicHandler) GetNominationLive(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetNominationLiveRequest],
+) (*connect.Response[hemav1.GetNominationLiveResponse], error) {
+	snap, err := h.svc.NominationLive(ctx, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetNominationLiveResponse{Snapshot: toProtoNominationSnapshot(snap)}), nil
+}
+
+// WatchNominationLive — server-streaming живой канал (спека 0014, FR-6/FR-8):
+// первый кадр — текущий снапшот (как GetNominationLive), далее — по одному
+// кадру на каждый сигнал шины (ADR 0012: сигнал без payload, «топик мог
+// измениться» — перечитываем снапшот целиком, не полагаемся на порядок/
+// накопление сигналов). Завершается без ошибки, когда клиент отменяет
+// контекст запроса (обрыв соединения — штатный путь для watch-стримов, не
+// ошибка).
+func (h *PublicHandler) WatchNominationLive(
+	ctx context.Context,
+	req *connect.Request[hemav1.WatchNominationLiveRequest],
+	stream *connect.ServerStream[hemav1.WatchNominationLiveResponse],
+) error {
+	nominationID := strings.TrimSpace(req.Msg.NominationId)
+	if nominationID == "" {
+		return mapError(domain.ErrInvalidInput)
+	}
+
+	snap, err := h.svc.NominationLive(ctx, nominationID)
+	if err != nil {
+		return mapError(err)
+	}
+	if err := stream.Send(&hemav1.WatchNominationLiveResponse{Snapshot: toProtoNominationSnapshot(snap)}); err != nil {
+		return err
+	}
+
+	ch, cancel := h.svc.SubscribeNomination(nominationID)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ch:
+			snap, err := h.svc.NominationLive(ctx, nominationID)
+			if err != nil {
+				return mapError(err)
+			}
+			if err := stream.Send(&hemav1.WatchNominationLiveResponse{Snapshot: toProtoNominationSnapshot(snap)}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // mapError переводит доменные ошибки в connect.Code (спека 0013 добавляет
 // ErrPoolNotSeated/ErrNoCurrentBout/ErrHasResults/ErrInvalidTransition →
 // FailedPrecondition, ErrConcurrency → Aborted).
@@ -451,6 +514,27 @@ func toProtoBoardBouts(bouts []domain.BoutRef) []*hemav1.BoardBout {
 		})
 	}
 	return out
+}
+
+// toProtoNominationSnapshot маппит живой снапшот номинации (спека 0014,
+// FR-1..FR-3).
+func toProtoNominationSnapshot(s domain.NominationSnapshot) *hemav1.NominationLiveSnapshot {
+	out := &hemav1.NominationLiveSnapshot{NominationId: s.NominationID, Pools: make([]*hemav1.LivePool, 0, len(s.Pools))}
+	for _, p := range s.Pools {
+		out.Pools = append(out.Pools, toProtoLivePool(p))
+	}
+	return out
+}
+
+// toProtoLivePool маппит один пул живого снапшота (спека 0014): переиспользует
+// toProtoPool/toProtoBoardBouts — та же композиция/бои, что и на доске
+// ведения (BoutBoard), просто без обёртки в одну арену.
+func toProtoLivePool(p domain.LivePool) *hemav1.LivePool {
+	return &hemav1.LivePool{
+		Pool:          toProtoPool(p.Pool),
+		Bouts:         toProtoBoardBouts(p.Bouts),
+		CurrentBoutId: p.CurrentBoutID,
+	}
 }
 
 // toProtoBoutState маппит состояние боя доски ведения (спека 0013, FR-1).

@@ -21,6 +21,7 @@ import (
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
+	"github.com/hema/server/pkg/livebus"
 	"github.com/hema/server/pkg/pgxutil"
 )
 
@@ -107,6 +108,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		Bouts:       NewPoolBoutConductor(pool),
 		Arenas:      NewPoolArenaProvider(pool, activeTournaments),
 		Nominations: NewPoolNominationProvider(pool, activeTournaments),
+		LiveBus:     NewPoolLiveBus(livebus.New()),
 	}
 	poolmodule.Register(mux, poolDeps, baseOpts, adminOpts)
 

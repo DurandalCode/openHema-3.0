@@ -11,36 +11,39 @@ import (
 	"github.com/hema/server/modules/pool/testutil"
 )
 
-func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor) {
+func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeLiveBus) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
 	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
-	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts
+	liveBus := testutil.NewFakeLiveBus()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, liveBus
 }
 
 // newServiceWithArenas — как newService, но также возвращает
 // FakeArenaProvider (спека 0011: тесты постановки/снятия пула на арену).
-func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeArenaProvider) {
+func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeArenaProvider, *testutil.FakeLiveBus) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
 	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
-	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts, arenas
+	liveBus := testutil.NewFakeLiveBus()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, arenas, liveBus
 }
 
 // newServiceWithNominations — как newServiceWithArenas, но также возвращает
 // FakeNominationProvider (резолв имени номинации пула для экрана арены,
 // FR-9).
-func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeArenaProvider, *testutil.FakeNominationProvider) {
+func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider, *testutil.FakeBoutConductor, *testutil.FakeArenaProvider, *testutil.FakeNominationProvider, *testutil.FakeLiveBus) {
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
 	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
-	return service.New(repo, fighters, bouts, arenas, nominations), repo, fighters, bouts, arenas, nominations
+	liveBus := testutil.NewFakeLiveBus()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, arenas, nominations, liveBus
 }
 
 func poolNumbers(pools []domain.Pool) []int {
@@ -80,7 +83,7 @@ func memberIDs(p domain.Pool) map[string]bool {
 // AC-1: начальный экран — draft, все активные бойцы в нераспределённых,
 // пулов нет.
 func TestGetLayout_AC1_InitialLazyDraft(t *testing.T) {
-	svc, _, fighters, _ := newService()
+	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "f1", Name: "A", Club: "X"},
 		domain.FighterRef{ID: "f2", Name: "B", Club: "Y"},
@@ -101,7 +104,7 @@ func TestGetLayout_AC1_InitialLazyDraft(t *testing.T) {
 }
 
 func TestGetLayout_EmptyNominationID(t *testing.T) {
-	svc, _, _, _ := newService()
+	svc, _, _, _, _ := newService()
 	_, err := svc.GetLayout(context.Background(), "")
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
@@ -110,7 +113,7 @@ func TestGetLayout_EmptyNominationID(t *testing.T) {
 
 // AC-2: создание пула — свободный номер, переиспользование после удаления.
 func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
-	svc, _, fighters, _ := newService()
+	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1")
 	ctx := context.Background()
 
@@ -153,7 +156,7 @@ func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
 }
 
 func TestCreatePool_ForbiddenInReady(t *testing.T) {
-	svc, _, fighters, _ := newService()
+	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1")
 	ctx := context.Background()
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -166,7 +169,7 @@ func TestCreatePool_ForbiddenInReady(t *testing.T) {
 
 // AC-3: удаление пула возвращает бойцов в нераспределённые.
 func TestDeletePool_AC3_ReturnsFightersToUnassigned(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "b1"},
 		domain.FighterRef{ID: "b2"},
@@ -186,7 +189,7 @@ func TestDeletePool_AC3_ReturnsFightersToUnassigned(t *testing.T) {
 }
 
 func TestDeletePool_NotFound(t *testing.T) {
-	svc, _, _, _ := newService()
+	svc, _, _, _, _ := newService()
 	_, err := svc.DeletePool(context.Background(), "missing")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
@@ -198,7 +201,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("AC-4 unassigned to pool", func(t *testing.T) {
-		svc, repo, fighters, _ := newService()
+		svc, repo, fighters, _, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		poolID := repo.SeedPool("n1", 1)
 		layout, err := svc.AssignFighter(ctx, "n1", "b1", poolID)
@@ -214,7 +217,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 	})
 
 	t.Run("AC-5 pool to unassigned", func(t *testing.T) {
-		svc, repo, fighters, _ := newService()
+		svc, repo, fighters, _, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		repo.SeedPool("n1", 1, "b1")
 		layout, err := svc.UnassignFighter(ctx, "n1", "b1")
@@ -230,7 +233,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 	})
 
 	t.Run("AC-6/7 pool to pool moves, does not duplicate", func(t *testing.T) {
-		svc, repo, fighters, _ := newService()
+		svc, repo, fighters, _, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		p1 := repo.SeedPool("n1", 1, "b1")
 		p2 := repo.SeedPool("n1", 2)
@@ -252,7 +255,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 
 // AC-8: автораспределение без пулов отклоняется.
 func TestAutoDistribute_AC8_NoPools(t *testing.T) {
-	svc, _, fighters, _ := newService()
+	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	_, err := svc.AutoDistribute(context.Background(), "n1")
 	if !errors.Is(err, domain.ErrNoPools) {
@@ -262,7 +265,7 @@ func TestAutoDistribute_AC8_NoPools(t *testing.T) {
 
 // AC-9: автораспределение без нераспределённых — no-op.
 func TestAutoDistribute_AC9_NoUnassignedIsNoop(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	layout, err := svc.AutoDistribute(context.Background(), "n1")
@@ -287,7 +290,7 @@ func redBlueFighters() []domain.FighterRef {
 
 // AC-10: основной сценарий автораспределения — P={B1,R1,R3}, Q={B2,R2,X}.
 func TestAutoDistribute_AC10_BasicScenario(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", redBlueFighters()...)
 	p := repo.SeedPool("n1", 1)
 	q := repo.SeedPool("n1", 2)
@@ -314,7 +317,7 @@ func TestAutoDistribute_AC10_BasicScenario(t *testing.T) {
 
 // AC-11: автораспределение не трогает уже расставленных.
 func TestAutoDistribute_AC11_DoesNotTouchAlreadyAssigned(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", redBlueFighters()...)
 	p := repo.SeedPool("n1", 1, "R1")
 	q := repo.SeedPool("n1", 2)
@@ -335,7 +338,7 @@ func TestAutoDistribute_AC11_DoesNotTouchAlreadyAssigned(t *testing.T) {
 
 // AC-12: пустой клуб не считается общим — все попадают в единственный пул.
 func TestAutoDistribute_AC12_EmptyClubNotCommon(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "x1"}, domain.FighterRef{ID: "x2"},
 		domain.FighterRef{ID: "x3"}, domain.FighterRef{ID: "x4"},
@@ -355,7 +358,7 @@ func TestAutoDistribute_AC12_EmptyClubNotCommon(t *testing.T) {
 // дают идентичный результат.
 func TestAutoDistribute_AC13_Deterministic(t *testing.T) {
 	run := func() map[string]bool {
-		svc, repo, fighters, _ := newService()
+		svc, repo, fighters, _, _ := newService()
 		fighters.Set("n1", redBlueFighters()...)
 		p := repo.SeedPool("n1", 1)
 		repo.SeedPool("n1", 2)
@@ -375,7 +378,7 @@ func TestAutoDistribute_AC13_Deterministic(t *testing.T) {
 // AC-13a: undo автораспределения возвращает только расставленных авто,
 // ручная раскладка сохраняется.
 func TestUndo_AC13a_UndoAutoPreservesManual(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", redBlueFighters()...)
 	p := repo.SeedPool("n1", 1, "R1") // R1 расставлен вручную
 	q := repo.SeedPool("n1", 2)
@@ -401,7 +404,7 @@ func TestUndo_AC13a_UndoAutoPreservesManual(t *testing.T) {
 
 // AC-13a2: undo удаления пула восстанавливает пул со всеми бойцами.
 func TestUndo_AC13a2_UndoDeletePool(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	poolID := repo.SeedPool("n1", 3, "b1", "b2")
 	ctx := context.Background()
@@ -427,7 +430,7 @@ func TestUndo_AC13a2_UndoDeletePool(t *testing.T) {
 
 // AC-13a3: если авто идёт после удаления пула — undo относится к авто.
 func TestUndo_AC13a3_LatestActionWins(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1, "b1")
 	ctx := context.Background()
@@ -460,7 +463,7 @@ func TestUndo_AC13a3_LatestActionWins(t *testing.T) {
 
 // AC-13b: undo одноразовый — любая иная мутация обнуляет его.
 func TestUndo_AC13b_AnyMutationClearsUndo(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 	ctx := context.Background()
@@ -483,7 +486,7 @@ func TestUndo_AC13b_AnyMutationClearsUndo(t *testing.T) {
 
 // AC-13c: undo без предыдущего mutating-действия отклоняется.
 func TestUndo_AC13c_NothingToUndo(t *testing.T) {
-	svc, _, fighters, _ := newService()
+	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1")
 	_, err := svc.Undo(context.Background(), "n1")
 	if !errors.Is(err, domain.ErrNothingToUndo) {
@@ -493,7 +496,7 @@ func TestUndo_AC13c_NothingToUndo(t *testing.T) {
 
 // AC-13d: undo запрещён в ready.
 func TestUndo_AC13d_ForbiddenInReady(t *testing.T) {
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 	ctx := context.Background()
@@ -511,7 +514,7 @@ func TestUndo_AC13d_ForbiddenInReady(t *testing.T) {
 
 // AC-14: переход draft → ready.
 func TestSetStatus_AC14_DraftToReady(t *testing.T) {
-	svc, _, fighters, _ := newService()
+	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1")
 	layout, err := svc.SetStatus(context.Background(), "n1", domain.LayoutReady)
 	if err != nil {
@@ -523,7 +526,7 @@ func TestSetStatus_AC14_DraftToReady(t *testing.T) {
 }
 
 func TestSetStatus_InvalidTarget(t *testing.T) {
-	svc, _, _, _ := newService()
+	svc, _, _, _, _ := newService()
 	// active/finished убраны спекой 0011 — статус раскладки урезан до
 	// draft/ready; любое иное значение отклоняется как невалидный вход.
 	_, err := svc.SetStatus(context.Background(), "n1", domain.LayoutStatus("active"))
@@ -535,7 +538,7 @@ func TestSetStatus_InvalidTarget(t *testing.T) {
 // AC-15: ready блокирует изменения раскладки.
 func TestReadyBlocksMutations_AC15(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1)
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -565,7 +568,7 @@ func TestReadyBlocksMutations_AC15(t *testing.T) {
 // AC-16: возврат ready → draft, состав пулов не меняется.
 func TestSetStatus_AC16_ReadyToDraftPreservesPools(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -588,7 +591,7 @@ func TestSetStatus_AC16_ReadyToDraftPreservesPools(t *testing.T) {
 // Layout.Pools[i].Members; осиротевшие членства (withdrawn) не передаются.
 func TestSetStatus_T12_DraftToReadyGeneratesBouts(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "f1", Name: "A", Club: "X"},
 		domain.FighterRef{ID: "f2", Name: "B", Club: "Y"},
@@ -630,7 +633,7 @@ func TestSetStatus_T12_DraftToReadyGeneratesBouts(t *testing.T) {
 // T12: ready → draft вызывает BoutGenerator.ClearForNomination.
 func TestSetStatus_T12_ReadyToDraftClearsBouts(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -661,7 +664,7 @@ func TestSetStatus_T12_SameStatusDoesNotTouchBoutGenerator(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("draft to draft", func(t *testing.T) {
-		svc, _, fighters, bouts := newService()
+		svc, _, fighters, bouts, _ := newService()
 		fighters.Set("n1")
 		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -672,7 +675,7 @@ func TestSetStatus_T12_SameStatusDoesNotTouchBoutGenerator(t *testing.T) {
 	})
 
 	t.Run("ready to ready", func(t *testing.T) {
-		svc, _, fighters, bouts := newService()
+		svc, _, fighters, bouts, _ := newService()
 		fighters.Set("n1")
 		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -697,7 +700,7 @@ func TestSetStatus_T12_SameStatusDoesNotTouchBoutGenerator(t *testing.T) {
 // статус» из plan «Обзор решения»).
 func TestSetStatus_T12_GenerateErrorPreventsStatusChange(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	wantErr := errors.New("bout generation failed")
@@ -723,7 +726,7 @@ func TestSetStatus_T12_GenerateErrorPreventsStatusChange(t *testing.T) {
 // repo.SetStatus при этом не вызывается для этого перехода.
 func TestSetStatus_T12_ClearErrorPreventsStatusChange(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -762,7 +765,7 @@ func boutPoolByID(pools []domain.BoutPoolInput, id string) domain.BoutPoolInput 
 // AC-17: выведенный боец не виден и его членство удаляется.
 func TestReconciliation_AC17_WithdrawnFighterHiddenAndPruned(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1", Club: "X"}) // b2/withdrawn не активен
 	repo.SeedPool("n1", 1, "b1", "withdrawn-b2")
 
@@ -786,7 +789,7 @@ func TestReconciliation_AC17_WithdrawnFighterHiddenAndPruned(t *testing.T) {
 // AC-17a: восстановленный боец появляется в нераспределённых, не в старом пуле.
 func TestReconciliation_AC17a_ReturnedFighterGoesToUnassigned(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1", "b2")
 
@@ -816,7 +819,7 @@ func TestReconciliation_AC17a_ReturnedFighterGoesToUnassigned(t *testing.T) {
 // AC-17b: сброс раскладки удаляет все пулы, возвращает всех в нераспределённые.
 func TestResetLayout_AC17b(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"}, domain.FighterRef{ID: "b3"})
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
@@ -844,7 +847,7 @@ func TestResetLayout_AC17b(t *testing.T) {
 // AC-13a4: undo сброса раскладки восстанавливает все пулы со всеми бойцами.
 func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"},
 		domain.FighterRef{ID: "b3"},
@@ -907,7 +910,7 @@ func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
 // не предусмотрено» означает, что undo одноразовый, не циклический).
 func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
@@ -936,7 +939,7 @@ func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
 // прежней семантики, где reset обнулял undo).
 func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	repo.SeedPool("n1", 1, "b1")
 	// b2 — нераспределённый, чтобы авто что-то расставило и записало undo.
@@ -979,7 +982,7 @@ func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
 // арене; раскладка остаётся ready.
 func TestSetStatus_AC3_CannotUnfixWhilePoolSeated(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -1007,7 +1010,7 @@ func TestSetStatus_AC3_CannotUnfixWhilePoolSeated(t *testing.T) {
 // AC-3 gate: it only blocks while a pool is actually seated).
 func TestSetStatus_AC3_UnfixWorksAfterUnseat(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -1033,7 +1036,7 @@ func TestSetStatus_AC3_UnfixWorksAfterUnseat(t *testing.T) {
 // AC-4: постановка готового пула на свободную активную арену.
 func TestSeatPoolOnArena_AC4_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1058,7 +1061,7 @@ func TestSeatPoolOnArena_AC4_HappyPath(t *testing.T) {
 // AC-5: пул «не готов» (раскладка draft) поставить нельзя.
 func TestSeatPoolOnArena_AC5_NotReadyRejected(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	arenas.Set(domain.ArenaRef{ID: "a1", Name: "R1", Active: true})
@@ -1072,7 +1075,7 @@ func TestSeatPoolOnArena_AC5_NotReadyRejected(t *testing.T) {
 // AC-6: занятая арена не принимает второй пул; первый остаётся на месте.
 func TestSeatPoolOnArena_AC6_ArenaBusyRejected(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	p1 := repo.SeedPool("n1", 1, "f1")
 	p2 := repo.SeedPool("n1", 2, "f2")
@@ -1099,7 +1102,7 @@ func TestSeatPoolOnArena_AC6_ArenaBusyRejected(t *testing.T) {
 // сначала снять.
 func TestSeatPoolOnArena_AC7_AlreadySeatedRejected(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1120,7 +1123,7 @@ func TestSeatPoolOnArena_AC7_AlreadySeatedRejected(t *testing.T) {
 // трогается снятием).
 func TestUnseatPool_AC8_FreesArenaAndReturnsToReady(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1156,7 +1159,7 @@ func TestSeatPoolOnArena_AC9_ArenaNotAvailable(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("archived", func(t *testing.T) {
-		svc, repo, fighters, _, arenas := newServiceWithArenas()
+		svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 		fighters.Set("n1", domain.FighterRef{ID: "f1"})
 		poolID := repo.SeedPool("n1", 1, "f1")
 		repo.SeedStatus("n1", domain.LayoutReady)
@@ -1169,7 +1172,7 @@ func TestSeatPoolOnArena_AC9_ArenaNotAvailable(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		svc, repo, fighters, _, _ := newServiceWithArenas()
+		svc, repo, fighters, _, _, _ := newServiceWithArenas()
 		fighters.Set("n1", domain.FighterRef{ID: "f1"})
 		poolID := repo.SeedPool("n1", 1, "f1")
 		repo.SeedStatus("n1", domain.LayoutReady)
@@ -1185,7 +1188,7 @@ func TestSeatPoolOnArena_AC9_ArenaNotAvailable(t *testing.T) {
 // доступные для постановки.
 func TestGetPoolsForArena_SeatedAndAvailable(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	p1 := repo.SeedPool("n1", 1, "f1")
 	p2 := repo.SeedPool("n1", 2, "f2")
@@ -1210,7 +1213,7 @@ func TestGetPoolsForArena_SeatedAndAvailable(t *testing.T) {
 // GetPoolsForArena: арена свободна — Seated=nil, только available.
 func TestGetPoolsForArena_EmptyArenaHasNoSeated(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _ := newServiceWithArenas()
+	svc, repo, fighters, _, _, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1230,7 +1233,7 @@ func TestGetPoolsForArena_EmptyArenaHasNoSeated(t *testing.T) {
 // AC-14: пока раскладка draft, публичный список пулов пуст.
 func TestListPublicPools_AC14_DraftReturnsEmpty(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1")
 
@@ -1248,7 +1251,7 @@ func TestListPublicPools_AC14_DraftReturnsEmpty(t *testing.T) {
 // площадки.
 func TestListPublicPools_AC11to13_ReadyShowsCompositionAndArena(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas := newServiceWithArenas()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "f1", Name: "A", Club: "X"},
 		domain.FighterRef{ID: "f2", Name: "B", Club: "Y"},
@@ -1292,7 +1295,7 @@ func TestListPublicPools_AC11to13_ReadyShowsCompositionAndArena(t *testing.T) {
 // Пустые id — InvalidArgument на уровне domain для новых юзкейсов.
 func TestPoolOnArena_EmptyInputsReturnInvalidInput(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _, _, _ := newServiceWithArenas()
+	svc, _, _, _, _, _ := newServiceWithArenas()
 
 	if _, err := svc.SeatPoolOnArena(ctx, "", "a1"); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("SeatPoolOnArena empty poolID: expected ErrInvalidInput, got %v", err)
@@ -1322,7 +1325,7 @@ func TestPoolOnArena_EmptyInputsReturnInvalidInput(t *testing.T) {
 // к провайдеру.
 func TestGetPoolsForArena_EnrichesNominationName(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, arenas, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, arenas, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	fighters.Set("n2", domain.FighterRef{ID: "f2"})
 	p1 := repo.SeedPool("n1", 1, "f1")
@@ -1352,7 +1355,7 @@ func TestGetPoolsForArena_EnrichesNominationName(t *testing.T) {
 // имя (не падаем — контракт порта разрешает отсутствующие id в карте).
 func TestGetPoolsForArena_UnknownNominationLeavesNameEmpty(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1379,7 +1382,7 @@ func TestGetPoolsForArena_UnknownNominationLeavesNameEmpty(t *testing.T) {
 // одной номинации — все пулы раскладки разделяют nominationID).
 func TestListPublicPools_EnrichesNominationName(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "f1", Name: "A", Club: "X"})
 	repo.SeedPool("n1", 1, "f1")
 	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
@@ -1399,7 +1402,7 @@ func TestListPublicPools_EnrichesNominationName(t *testing.T) {
 // GetLayout также резолвит имя номинации (loadLayout → applyArenaAndStatus).
 func TestGetLayout_EnrichesNominationName(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	p1 := repo.SeedPool("n1", 1, "f1")
 	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
@@ -1430,7 +1433,7 @@ func poolOrEmpty(p *domain.Pool) string {
 // получает sync(nominationID, true).
 func TestSync_AC7_FirstAssignSyncsTrue(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1)
 
@@ -1450,7 +1453,7 @@ func TestSync_AC7_FirstAssignSyncsTrue(t *testing.T) {
 // спай не вызывается.
 func TestSync_AC8_CreatePoolDoesNotSync(t *testing.T) {
 	ctx := context.Background()
-	svc, _, fighters, _, _, nominations := newServiceWithNominations()
+	svc, _, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1")
 
 	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
@@ -1464,7 +1467,7 @@ func TestSync_AC8_CreatePoolDoesNotSync(t *testing.T) {
 // UnassignFighter последнего распределённого бойца — граница 1→0, sync(false).
 func TestSync_UnassignFighterLastFighterSyncsFalse(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 
@@ -1483,7 +1486,7 @@ func TestSync_UnassignFighterLastFighterSyncsFalse(t *testing.T) {
 // DeletePool последнего непустого пула, опустошающий раскладку — sync(false).
 func TestSync_DeletePoolEmptyingLayoutSyncsFalse(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1, "b1")
 
@@ -1504,7 +1507,7 @@ func TestSync_DeletePoolEmptyingLayoutSyncsFalse(t *testing.T) {
 // см. plan.md/tasks.md — идемпотентно на стороне nomination).
 func TestSync_DeletePoolOnEmptyPoolStillSyncsFalse(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1")
 	poolID := repo.SeedPool("n1", 1)
 
@@ -1523,7 +1526,7 @@ func TestSync_DeletePoolOnEmptyPoolStillSyncsFalse(t *testing.T) {
 // ResetLayout опустошающий непустую раскладку — sync(false).
 func TestSync_ResetLayoutEmptyingLayoutSyncsFalse(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 
@@ -1543,7 +1546,7 @@ func TestSync_ResetLayoutEmptyingLayoutSyncsFalse(t *testing.T) {
 // вызывается.
 func TestSync_ResetLayoutNoopDoesNotSync(t *testing.T) {
 	ctx := context.Background()
-	svc, _, fighters, _, _, nominations := newServiceWithNominations()
+	svc, _, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1")
 
 	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
@@ -1557,7 +1560,7 @@ func TestSync_ResetLayoutNoopDoesNotSync(t *testing.T) {
 // Первый AutoDistribute на пустой раскладке — граница 0→1, sync(true).
 func TestSync_FirstAutoDistributeSyncsTrue(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 
@@ -1577,7 +1580,7 @@ func TestSync_FirstAutoDistributeSyncsTrue(t *testing.T) {
 // спай не вызывается.
 func TestSync_AutoDistributeNoopDoesNotSync(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 
@@ -1594,7 +1597,7 @@ func TestSync_AutoDistributeNoopDoesNotSync(t *testing.T) {
 // (sync(false)).
 func TestSync_UndoAuto_CrossesBoundaryDownward(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 
@@ -1622,7 +1625,7 @@ func TestSync_UndoAuto_CrossesBoundaryDownward(t *testing.T) {
 // бойцами (sync(true)).
 func TestSync_UndoDeletePool_CrossesBoundaryUpward(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1, "b1")
 
@@ -1649,7 +1652,7 @@ func TestSync_UndoDeletePool_CrossesBoundaryUpward(t *testing.T) {
 // (sync(false)), undo восстанавливает все пулы с их бойцами (sync(true)).
 func TestSync_UndoReset_CrossesBoundaryUpward(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
@@ -1679,7 +1682,7 @@ func TestSync_UndoReset_CrossesBoundaryUpward(t *testing.T) {
 // nomination, см. plan.md «Тестирование»).
 func TestSync_AssignFighterMove_StaysAboveBoundary(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _, _, nominations := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 	p2 := repo.SeedPool("n1", 2)
@@ -1730,7 +1733,7 @@ func seedBoutBoardPool(t *testing.T, repo *testutil.FakeRepo, bouts *testutil.Fa
 // GetBoutBoard возвращает пустую доску (не ошибку), если на арене никто не
 // стоит.
 func TestGetBoutBoard_EmptyWhenArenaFree(t *testing.T) {
-	svc, _, _, _ := newService()
+	svc, _, _, _, _ := newService()
 	board, err := svc.GetBoutBoard(context.Background(), "arena-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1742,7 +1745,7 @@ func TestGetBoutBoard_EmptyWhenArenaFree(t *testing.T) {
 
 // По умолчанию текущий бой — первый непроведённый по порядку (FR-9).
 func TestGetBoutBoard_DefaultsCurrentToFirstUnfinished(t *testing.T) {
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	seedBoutBoardPool(t, repo, bouts, "arena-1")
 
@@ -1762,7 +1765,7 @@ func TestGetBoutBoard_DefaultsCurrentToFirstUnfinished(t *testing.T) {
 // отклонено, если пул не стоит на арене.
 func TestConducting_AC13_NotSeatedRejected(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := seedBoutBoardPool(t, repo, bouts, "")
 
@@ -1789,7 +1792,7 @@ func TestConducting_AC13_NotSeatedRejected(t *testing.T) {
 // Пул без боёв (0 бойцов/1 боец, спека 0010 FR-4) на арене — вести нечего.
 func TestConducting_NoBoutsReturnsErrNoCurrentBout(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1805,7 +1808,7 @@ func TestConducting_NoBoutsReturnsErrNoCurrentBout(t *testing.T) {
 // AC-1/AC-2: начать текущий бой, ввести счёт, завершить — исход из счёта.
 func TestStartScoreFinishCurrentBout_AC1_AC2_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
 
@@ -1847,7 +1850,7 @@ func TestStartScoreFinishCurrentBout_AC1_AC2_HappyPath(t *testing.T) {
 // AC-5: явная проверка авто-продвижения текущего боя после завершения.
 func TestFinishCurrentBout_AC5_AutoAdvance(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
 
@@ -1867,7 +1870,7 @@ func TestFinishCurrentBout_AC5_AutoAdvance(t *testing.T) {
 // следующего — указатель очищается, пул → finished.
 func TestFinishCurrentBout_AC10_LastBoutFinishesPool(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := repo.SeedPool("n1", 1, "f1", "f2")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -1892,7 +1895,7 @@ func TestFinishCurrentBout_AC10_LastBoutFinishesPool(t *testing.T) {
 // т.ч. уже завершённый.
 func TestSetCurrentBout_AC6_CirculateToFinished(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
 	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 3})
@@ -1918,7 +1921,7 @@ func TestSetCurrentBout_AC6_CirculateToFinished(t *testing.T) {
 // SetCurrentBout отклоняет boutID, не принадлежащий пулу.
 func TestSetCurrentBout_UnknownBoutIDNotFound(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
 
@@ -1931,7 +1934,7 @@ func TestSetCurrentBout_UnknownBoutIDNotFound(t *testing.T) {
 // AC-7: переоткрыть завершённый бой для правки, AC-8: сбросить начатый.
 func TestReopenResetCurrentBout(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
 	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 3})
@@ -1966,7 +1969,7 @@ func TestReopenResetCurrentBout(t *testing.T) {
 // read-путях (loadLayout — через GetLayout) при прогрессе боёв.
 func TestGetLayout_AC9AC10_StatusReflectsBoutProgress(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := repo.SeedPool("n1", 1, "f1", "f2")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -2009,7 +2012,7 @@ func TestGetLayout_AC9AC10_StatusReflectsBoutProgress(t *testing.T) {
 // finished/active (не откатывает к ready).
 func TestUnseatPool_AC11_PreservesFinishedStatus(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	poolID := repo.SeedPool("n1", 1, "f1", "f2")
 	repo.SeedStatus("n1", domain.LayoutReady)
@@ -2036,7 +2039,7 @@ func TestUnseatPool_AC11_PreservesFinishedStatus(t *testing.T) {
 // (результаты сохраняются после снятия, FR-11).
 func TestSetStatus_AC12_CannotUnfixWhileBoutsStarted(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, fighters, bouts := newService()
+	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
@@ -2054,5 +2057,345 @@ func TestSetStatus_AC12_CannotUnfixWhileBoutsStarted(t *testing.T) {
 	}
 	if status != domain.LayoutReady {
 		t.Fatalf("expected status to remain ready, got %s", status)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0014: живой снапшот номинации (NominationLive) — композиция.
+// ---------------------------------------------------------------------
+
+// FR-12: пока раскладка draft, живой снапшот отдаёт пустой список пулов
+// (публично нечего показывать), как и ListPublicPools.
+func TestNominationLive_DraftReturnsEmptyPools(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	repo.SeedPool("n1", 1, "f1")
+
+	snap, err := svc.NominationLive(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.NominationID != "n1" {
+		t.Fatalf("NominationID = %q, want n1", snap.NominationID)
+	}
+	if len(snap.Pools) != 0 {
+		t.Fatalf("expected 0 pools while draft, got %d", len(snap.Pools))
+	}
+}
+
+// Пустой nominationID — ErrInvalidInput.
+func TestNominationLive_EmptyNominationIDInvalidInput(t *testing.T) {
+	svc, _, _, _, _ := newService()
+	if _, err := svc.NominationLive(context.Background(), ""); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+// Раскладка ready: каждый LivePool несёт обогащённую композицию пула
+// (состав/статус/арена — как enrichPools), его бои по порядку проведения и
+// эффективный текущий бой.
+func TestNominationLive_ReadyComposesPoolsBoutsAndCurrent(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1", Name: "A", Club: "X"}, domain.FighterRef{ID: "f2", Name: "B", Club: "Y"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	snap, err := svc.NominationLive(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.NominationID != "n1" {
+		t.Fatalf("NominationID = %q, want n1", snap.NominationID)
+	}
+	if len(snap.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(snap.Pools))
+	}
+	lp := snap.Pools[0]
+	if lp.Pool.ID != poolID {
+		t.Fatalf("Pool.ID = %q, want %q", lp.Pool.ID, poolID)
+	}
+	if lp.Pool.Status != domain.PoolStatusPreparing {
+		t.Fatalf("Pool.Status = %q, want preparing", lp.Pool.Status)
+	}
+	if len(lp.Pool.Members) != 2 {
+		t.Fatalf("Pool.Members len = %d, want 2", len(lp.Pool.Members))
+	}
+	if len(lp.Bouts) != 3 {
+		t.Fatalf("Bouts len = %d, want 3", len(lp.Bouts))
+	}
+	for i := 0; i < len(lp.Bouts)-1; i++ {
+		if lp.Bouts[i].SequenceNumber > lp.Bouts[i+1].SequenceNumber {
+			t.Fatalf("Bouts not sorted by SequenceNumber: %+v", lp.Bouts)
+		}
+	}
+	if lp.CurrentBoutID != "b1" {
+		t.Fatalf("CurrentBoutID = %q, want b1 (first unfinished)", lp.CurrentBoutID)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0014: публикация сигналов живой шины после успешных мутаций.
+// ---------------------------------------------------------------------
+
+// SeatPoolOnArena публикует сигнал по nominationID пула после успешной
+// постановки; неуспешная попытка (пул не готов) не публикует.
+func TestPublish_SeatPoolOnArena(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, arenas, liveBus := newServiceWithArenas()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	poolID := repo.SeedPool("n1", 1, "f1")
+	arenas.Set(domain.ArenaRef{ID: "a1", Name: "R1", Active: true})
+
+	// Не готова — отклонено, публикации быть не должно.
+	if _, err := svc.SeatPoolOnArena(ctx, poolID, "a1"); !errors.Is(err, domain.ErrNotReady) {
+		t.Fatalf("expected ErrNotReady, got %v", err)
+	}
+	if liveBus.PublishedCount("n1") != 0 {
+		t.Fatalf("expected no publish on failed SeatPoolOnArena, got %d", liveBus.PublishedCount("n1"))
+	}
+
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if _, err := svc.SeatPoolOnArena(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if liveBus.PublishedCount("n1") != 1 {
+		t.Fatalf("expected 1 publish after successful SeatPoolOnArena, got %d", liveBus.PublishedCount("n1"))
+	}
+}
+
+// UnseatPool публикует сигнал после успешного снятия; неизвестный poolID
+// (ErrNotFound до мутации) не публикует.
+func TestPublish_UnseatPool(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, arenas, liveBus := newServiceWithArenas()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	poolID := repo.SeedPool("n1", 1, "f1")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	arenas.Set(domain.ArenaRef{ID: "a1", Name: "R1", Active: true})
+	if _, err := svc.SeatPoolOnArena(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	beforeUnseat := liveBus.PublishedCount("n1")
+
+	if _, err := svc.UnseatPool(ctx, "does-not-exist"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if liveBus.PublishedCount("n1") != beforeUnseat {
+		t.Fatalf("expected no additional publish on failed UnseatPool, got %d (was %d)", liveBus.PublishedCount("n1"), beforeUnseat)
+	}
+
+	if _, err := svc.UnseatPool(ctx, poolID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if liveBus.PublishedCount("n1") != beforeUnseat+1 {
+		t.Fatalf("expected 1 additional publish after successful UnseatPool, got %d (was %d)", liveBus.PublishedCount("n1"), beforeUnseat)
+	}
+}
+
+// SetCurrentBout публикует сигнал по nominationID пула после успешной
+// циркуляции; неизвестный boutID (ErrNotFound) не публикует.
+func TestPublish_SetCurrentBout(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	if _, err := svc.SetCurrentBout(ctx, poolID, "does-not-exist"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if liveBus.PublishedCount("n1") != 0 {
+		t.Fatalf("expected no publish on failed SetCurrentBout, got %d", liveBus.PublishedCount("n1"))
+	}
+
+	if _, err := svc.SetCurrentBout(ctx, poolID, "b2"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if liveBus.PublishedCount("n1") != 1 {
+		t.Fatalf("expected 1 publish after successful SetCurrentBout, got %d", liveBus.PublishedCount("n1"))
+	}
+}
+
+// Каждая из команд ведения текущего боя (Start/Score/Finish/Reopen/Reset)
+// публикует ровно один сигнал по nominationID пула после успешного вызова.
+func TestPublish_ConductingLifecycle_EachStepPublishes(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	want := 0
+	check := func(step string) {
+		t.Helper()
+		want++
+		if got := liveBus.PublishedCount("n1"); got != want {
+			t.Fatalf("after %s: PublishedCount = %d, want %d", step, got, want)
+		}
+	}
+
+	if _, err := svc.StartCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("StartCurrentBout: %v", err)
+	}
+	check("StartCurrentBout")
+
+	if _, err := svc.ScoreCurrentBout(ctx, poolID, "a1", 5, 3); err != nil {
+		t.Fatalf("ScoreCurrentBout: %v", err)
+	}
+	check("ScoreCurrentBout")
+
+	if _, err := svc.FinishCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("FinishCurrentBout: %v", err)
+	}
+	check("FinishCurrentBout")
+
+	if err := repo.SetCurrentBout(ctx, poolID, "b1"); err != nil {
+		t.Fatalf("seed current: %v", err)
+	}
+	if _, err := svc.ReopenCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("ReopenCurrentBout: %v", err)
+	}
+	check("ReopenCurrentBout")
+
+	if _, err := svc.ResetCurrentBout(ctx, poolID, "a1"); err != nil {
+		t.Fatalf("ResetCurrentBout: %v", err)
+	}
+	check("ResetCurrentBout")
+}
+
+// AC-13: ведение отклонено, пока пул не стоит на арене — ни одна из команд
+// (Start/Score/Finish/Reopen/Reset) не публикует при отказе.
+func TestPublish_ConductingLifecycle_NotSeatedDoesNotPublish(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "") // не поставлен на арену
+
+	_, _ = svc.StartCurrentBout(ctx, poolID, "a1")
+	_, _ = svc.ScoreCurrentBout(ctx, poolID, "a1", 1, 0)
+	_, _ = svc.FinishCurrentBout(ctx, poolID, "a1")
+	_, _ = svc.ReopenCurrentBout(ctx, poolID, "a1")
+	_, _ = svc.ResetCurrentBout(ctx, poolID, "a1")
+
+	if got := liveBus.PublishedCount("n1"); got != 0 {
+		t.Fatalf("expected no publish while pool not seated, got %d", got)
+	}
+}
+
+// SetStatus публикует ровно на реальном переходе (draft→ready, ready→draft);
+// повторный вызов с тем же статусом (no-op) не публикует.
+func TestPublish_SetStatus_TransitionsPublish(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	repo.SeedPool("n1", 1, "f1")
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+		t.Fatalf("draft->draft: %v", err)
+	}
+	if got := liveBus.PublishedCount("n1"); got != 0 {
+		t.Fatalf("expected no publish on draft->draft no-op, got %d", got)
+	}
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("draft->ready: %v", err)
+	}
+	if got := liveBus.PublishedCount("n1"); got != 1 {
+		t.Fatalf("expected 1 publish after draft->ready, got %d", got)
+	}
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("ready->ready: %v", err)
+	}
+	if got := liveBus.PublishedCount("n1"); got != 1 {
+		t.Fatalf("expected still 1 publish after ready->ready no-op, got %d", got)
+	}
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+		t.Fatalf("ready->draft: %v", err)
+	}
+	if got := liveBus.PublishedCount("n1"); got != 2 {
+		t.Fatalf("expected 2 publishes after ready->draft, got %d", got)
+	}
+}
+
+// Ошибка на переходе (GenerateForNomination упал) не публикует.
+func TestPublish_SetStatus_GenerateErrorDoesNotPublish(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "b1"})
+	repo.SeedPool("n1", 1, "b1")
+	bouts.GenerateErr = errors.New("boom")
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := liveBus.PublishedCount("n1"); got != 0 {
+		t.Fatalf("expected no publish on generate error, got %d", got)
+	}
+}
+
+// Draft-only композиционные мутаторы (CreatePool/DeletePool/ResetLayout/
+// AssignFighter/UnassignFighter/AutoDistribute/Undo) не публикуют — пока
+// раскладка draft, живой снапшот и так пуст (NominationLive), публиковать
+// нечего.
+func TestPublish_DraftOnlyMutatorsDoNotPublish(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1", Club: "X"}, domain.FighterRef{ID: "f2", Club: "Y"})
+
+	layout, err := svc.CreatePool(ctx, "n1")
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID := layout.Pools[0].ID
+
+	if _, err := svc.AssignFighter(ctx, "n1", "f1", poolID); err != nil {
+		t.Fatalf("AssignFighter: %v", err)
+	}
+	if _, err := svc.UnassignFighter(ctx, "n1", "f1"); err != nil {
+		t.Fatalf("UnassignFighter: %v", err)
+	}
+	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+		t.Fatalf("AutoDistribute: %v", err)
+	}
+	if _, err := svc.Undo(ctx, "n1"); err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("ResetLayout: %v", err)
+	}
+	poolID2 := repo.SeedPool("n1", 1, "f1")
+	if _, err := svc.DeletePool(ctx, poolID2); err != nil {
+		t.Fatalf("DeletePool: %v", err)
+	}
+
+	if got := liveBus.PublishedCount("n1"); got != 0 {
+		t.Fatalf("expected no publish from draft-only mutators, got %d", got)
+	}
+}
+
+// Read-only методы (GetLayout/GetBoutBoard/ListPublicPools/NominationLive)
+// не публикуют.
+func TestPublish_ReadOnlyMethodsDoNotPublish(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, liveBus := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("GetLayout: %v", err)
+	}
+	if _, err := svc.GetBoutBoard(ctx, "arena-1"); err != nil {
+		t.Fatalf("GetBoutBoard: %v", err)
+	}
+	if _, err := svc.ListPublicPools(ctx, "n1"); err != nil {
+		t.Fatalf("ListPublicPools: %v", err)
+	}
+	if _, err := svc.NominationLive(ctx, "n1"); err != nil {
+		t.Fatalf("NominationLive: %v", err)
+	}
+
+	if got := liveBus.PublishedCount("n1"); got != 0 {
+		t.Fatalf("expected no publish from read-only methods, got %d", got)
 	}
 }

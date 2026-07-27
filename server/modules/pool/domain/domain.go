@@ -350,6 +350,56 @@ type BoutConductor interface {
 	AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error)
 }
 
+// ---------------------------------------------------------------------
+// Спека 0014: публичный живой снапшот номинации (bout state/score/outcome +
+// исполнительный статус пула на экране номинации).
+// ---------------------------------------------------------------------
+
+// LiveNotifier — publish-сторона порта живой шины (спека 0014, ADR 0012):
+// сигнал без payload — «публичный снапшот этой номинации мог измениться,
+// перечитайте». Не событийная шина (нет типов событий/полезной нагрузки).
+type LiveNotifier interface {
+	PublishNominationChanged(nominationID string)
+}
+
+// LiveSubscriber — subscribe-сторона порта живой шины (спека 0014, ADR
+// 0012). Возвращает канал сигналов по топику nominationID и функцию отписки
+// (вызывающий обязан вызвать её по завершении подписки — освобождает
+// ресурсы шины).
+type LiveSubscriber interface {
+	SubscribeNomination(nominationID string) (<-chan struct{}, func())
+}
+
+// LiveBus — обе стороны порта живой шины вместе. Service — единственный
+// держатель этой зависимости (по аналогии с остальными межмодульными
+// портами этого файла): AdminHandler/PublicHandler держат только
+// *service.Service, ничего больше — сервис сам публикует после мутаций и
+// прокидывает подписку наружу через тонкий passthrough-метод
+// (Service.SubscribeNomination) для стримингового хендлера. Реальный
+// адаптер к pkg/livebus.Bus подключается в internal/platform отдельной
+// join-волной (не в этом модуле, ADR 0002/0012).
+type LiveBus interface {
+	LiveNotifier
+	LiveSubscriber
+}
+
+// LivePool — один пул живого снапшота номинации (спека 0014, FR-1..FR-3):
+// сам пул (состав/статус/арена — как обогащает service.enrichPools), его
+// бои по порядку проведения со состоянием/счётом и эффективный текущий бой.
+type LivePool struct {
+	Pool          Pool
+	Bouts         []BoutRef
+	CurrentBoutID string
+}
+
+// NominationSnapshot — живой снапшот номинации целиком (спека 0014). Pools
+// пуст, пока раскладка номинации в статусе draft (FR-12) — публично нечего
+// показывать, как и ListPublicPools.
+type NominationSnapshot struct {
+	NominationID string
+	Pools        []LivePool
+}
+
 // ArenaRef — проекция площадки для постановки пула (спека 0011, план
 // «Обзор решения»): идентификатор, (резолвленное) имя, активна ли (архивная
 // арена постановку не принимает, FR-9).

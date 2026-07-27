@@ -90,6 +90,17 @@ service PoolPublicService {
   // ListPublicPools возвращает пулы номинации с составом (имя/клуб бойцов),
   // статусом и, если пул на арене — площадкой (спека 0011, FR-11/FR-12).
   rpc ListPublicPools(ListPublicPoolsRequest) returns (ListPublicPoolsResponse);
+  // GetNominationLive возвращает живой снапшот номинации (спека 0014, FR-1..
+  // FR-4): пулы готовой раскладки с исполнительным статусом/площадкой и их
+  // бои с состоянием/счётом/текущим боём. Пустой список пулов, пока
+  // раскладка draft (FR-12, как ListPublicPools). Используется для
+  // SSR-инициала и polling-fallback (NFR-2).
+  rpc GetNominationLive(GetNominationLiveRequest) returns (GetNominationLiveResponse);
+  // WatchNominationLive — server-streaming живой канал (спека 0014, FR-6/
+  // FR-8): первый кадр — текущий снапшот (как GetNominationLive), далее по
+  // одному кадру на каждое изменение номинации (пул/бой). Односторонний,
+  // read-only (FR-7); поток завершается по отмене контекста клиентом.
+  rpc WatchNominationLive(WatchNominationLiveRequest) returns (stream WatchNominationLiveResponse);
 }
 
 // PoolLayoutStatus — статус раскладки номинации целиком (спека 0009).
@@ -302,6 +313,41 @@ message ListPublicPoolsRequest {
 
 message ListPublicPoolsResponse {
   repeated Pool pools = 1;
+}
+
+// LivePool — один пул живого снапшота номинации (спека 0014, FR-1..FR-3):
+// сам пул (состав/статус/площадка, как в Pool) + его бои по порядку
+// проведения с состоянием/счётом (BoardBout) + эффективный текущий бой.
+// Отдельная проекция от BoutBoard (та — для одной арены; здесь — все пулы
+// номинации разом, спека 0014 FR-11).
+message LivePool {
+  Pool pool = 1;
+  repeated BoardBout bouts = 2;
+  string current_bout_id = 3;
+}
+
+// NominationLiveSnapshot — живой снапшот номинации целиком (спека 0014):
+// общий payload unary- и streaming-ответа. pools пуст, пока раскладка draft
+// (FR-12).
+message NominationLiveSnapshot {
+  string nomination_id = 1;
+  repeated LivePool pools = 2;
+}
+
+message GetNominationLiveRequest {
+  string nomination_id = 1;
+}
+
+message GetNominationLiveResponse {
+  NominationLiveSnapshot snapshot = 1;
+}
+
+message WatchNominationLiveRequest {
+  string nomination_id = 1;
+}
+
+message WatchNominationLiveResponse {
+  NominationLiveSnapshot snapshot = 1;
 }
 
 message GetBoutBoardRequest {

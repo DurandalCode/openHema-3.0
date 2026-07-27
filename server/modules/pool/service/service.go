@@ -19,11 +19,14 @@ type Service struct {
 	bouts       domain.BoutConductor
 	arenas      domain.ArenaProvider
 	nominations domain.NominationProvider
+	liveBus     domain.LiveBus
 }
 
-// New создаёт сервис pool.
-func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider) *Service {
-	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations}
+// New создаёт сервис pool. liveBus — порт живой шины (спека 0014, ADR
+// 0012): Service — единственный держатель этой зависимости в модуле, api-
+// слой обращается к подписке через passthrough-метод Service.SubscribeNomination.
+func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider, liveBus domain.LiveBus) *Service {
+	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus}
 }
 
 // GetLayout возвращает раскладку номинации (lazy-init + реконсиляция с
@@ -227,11 +230,13 @@ func (s *Service) SetStatus(ctx context.Context, nominationID string, status dom
 	if err != nil {
 		return domain.Layout{}, err
 	}
+	transitioned := false
 	switch {
 	case current.Status == domain.LayoutDraft && status == domain.LayoutReady:
 		if err := s.bouts.GenerateForNomination(ctx, nominationID, toBoutPools(current.Pools)); err != nil {
 			return domain.Layout{}, err
 		}
+		transitioned = true
 	case current.Status == domain.LayoutReady && status == domain.LayoutDraft:
 		started, err := s.bouts.AnyStartedInNomination(ctx, nominationID)
 		if err != nil {
@@ -250,9 +255,16 @@ func (s *Service) SetStatus(ctx context.Context, nominationID string, status dom
 		if err := s.bouts.ClearForNomination(ctx, nominationID); err != nil {
 			return domain.Layout{}, err
 		}
+		transitioned = true
 	}
 	if err := s.repo.SetStatus(ctx, nominationID, status); err != nil {
 		return domain.Layout{}, err
+	}
+	// Публикуем только на реальном переходе (draft→ready/ready→draft) — не
+	// на no-op (draft→draft/ready→ready), см. mapError и комментарий выше
+	// метода (спека 0014, задача T5).
+	if transitioned {
+		s.liveBus.PublishNominationChanged(nominationID)
 	}
 	return s.loadLayout(ctx, nominationID)
 }
@@ -303,6 +315,7 @@ func (s *Service) SeatPoolOnArena(ctx context.Context, poolID, arenaID string) (
 	if err := s.repo.SeatPool(ctx, poolID, arenaID); err != nil {
 		return domain.Layout{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.loadLayout(ctx, pool.NominationID)
 }
 
@@ -323,6 +336,7 @@ func (s *Service) UnseatPool(ctx context.Context, poolID string) (domain.Layout,
 	if err := s.repo.UnseatPool(ctx, poolID); err != nil {
 		return domain.Layout{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.loadLayout(ctx, pool.NominationID)
 }
 
@@ -382,6 +396,7 @@ func (s *Service) SetCurrentBout(ctx context.Context, poolID, boutID string) (do
 	if err := s.repo.SetCurrentBout(ctx, poolID, boutID); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -391,13 +406,14 @@ func (s *Service) StartCurrentBout(ctx context.Context, poolID, actorID string) 
 	if poolID == "" {
 		return domain.BoutBoard{}, domain.ErrInvalidInput
 	}
-	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	pool, _, currentID, err := s.currentBoutFor(ctx, poolID)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
 	if err := s.bouts.StartBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -409,13 +425,14 @@ func (s *Service) ScoreCurrentBout(ctx context.Context, poolID, actorID string, 
 	if poolID == "" {
 		return domain.BoutBoard{}, domain.ErrInvalidInput
 	}
-	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	pool, _, currentID, err := s.currentBoutFor(ctx, poolID)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
 	if err := s.bouts.ScoreBout(ctx, currentID, actorID, scoreA, scoreB); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -430,7 +447,7 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 	if poolID == "" {
 		return domain.BoutBoard{}, domain.ErrInvalidInput
 	}
-	_, bouts, currentID, err := s.currentBoutFor(ctx, poolID)
+	pool, bouts, currentID, err := s.currentBoutFor(ctx, poolID)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
@@ -441,6 +458,7 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 	if err := s.repo.SetCurrentBout(ctx, poolID, next); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -451,13 +469,14 @@ func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string)
 	if poolID == "" {
 		return domain.BoutBoard{}, domain.ErrInvalidInput
 	}
-	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	pool, _, currentID, err := s.currentBoutFor(ctx, poolID)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
 	if err := s.bouts.ReopenBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -468,13 +487,14 @@ func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) 
 	if poolID == "" {
 		return domain.BoutBoard{}, domain.ErrInvalidInput
 	}
-	_, _, currentID, err := s.currentBoutFor(ctx, poolID)
+	pool, _, currentID, err := s.currentBoutFor(ctx, poolID)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
 	if err := s.bouts.ResetBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	s.liveBus.PublishNominationChanged(pool.NominationID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -635,6 +655,54 @@ func (s *Service) ListPublicPools(ctx context.Context, nominationID string) ([]d
 		return []domain.Pool{}, nil
 	}
 	return layout.Pools, nil
+}
+
+// ---------------------------------------------------------------------
+// Спека 0014: публичный живой снапшот номинации (bout state/score/outcome +
+// исполнительный статус пула, экран номинации).
+// ---------------------------------------------------------------------
+
+// NominationLive собирает живой снапшот номинации целиком (FR-1..FR-3):
+// для каждого пула — обогащённая композиция (enrichPools, как у
+// GetPoolsForArena/GetBoutBoard), его бои по порядку проведения и
+// эффективный текущий бой. Пока раскладка draft — пустой список пулов
+// (FR-12), как и ListPublicPools (публично нечего показывать, пока
+// раскладка составляется).
+func (s *Service) NominationLive(ctx context.Context, nominationID string) (domain.NominationSnapshot, error) {
+	nominationID = strings.TrimSpace(nominationID)
+	if nominationID == "" {
+		return domain.NominationSnapshot{}, domain.ErrInvalidInput
+	}
+	status, _, rawPools, err := s.repo.GetLayout(ctx, nominationID)
+	if err != nil {
+		return domain.NominationSnapshot{}, err
+	}
+	if status != domain.LayoutReady {
+		return domain.NominationSnapshot{NominationID: nominationID, Pools: []domain.LivePool{}}, nil
+	}
+	enriched, err := s.enrichPools(ctx, rawPools)
+	if err != nil {
+		return domain.NominationSnapshot{}, err
+	}
+	livePools := make([]domain.LivePool, 0, len(enriched))
+	for _, pool := range enriched {
+		bouts, err := s.bouts.BoutsByPool(ctx, pool.ID)
+		if err != nil {
+			return domain.NominationSnapshot{}, err
+		}
+		sorted := sortedBySequence(bouts)
+		current := effectiveCurrentBoutID(pool, sorted)
+		livePools = append(livePools, domain.LivePool{Pool: pool, Bouts: sorted, CurrentBoutID: current})
+	}
+	return domain.NominationSnapshot{NominationID: nominationID, Pools: livePools}, nil
+}
+
+// SubscribeNomination — тонкий passthrough к LiveSubscriber (спека 0014,
+// ADR 0012): api-слой (WatchNominationLive) подписывается через сервис, не
+// держа собственной ссылки на шину (Service — единственный держатель
+// LiveBus в модуле, см. New).
+func (s *Service) SubscribeNomination(nominationID string) (<-chan struct{}, func()) {
+	return s.liveBus.SubscribeNomination(nominationID)
 }
 
 // toBoutPools маппит пулы раскладки во вход генерации боёв: loadLayout уже

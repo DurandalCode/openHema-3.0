@@ -119,6 +119,10 @@ demo: migrate ## Демо-savepoint «заявки»: users/nominations/applicat
 demo-registered: migrate ## Демо-savepoint «бойцы»: то же, что demo, но все заявки доведены до регистрации бойцов
 	cd server && go run ./cmd/demo-registered
 
+.PHONY: demo-bouts
+demo-bouts: migrate ## Демо-savepoint «бои»: то же, что demo-registered, плюс пулы/бои — площадка ведёт бой прямо сейчас (живой публичный экран, спека 0014)
+	cd server && go run ./cmd/demo-bouts
+
 .PHONY: prod
 prod: ## Полная сборка и запуск всего стека в докере (с кодгеном на хосте до build)
 	$(MAKE) codegen
