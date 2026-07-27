@@ -1,10 +1,12 @@
 // Package demoseed содержит общую логику наполнения БД демо-данными,
 // переиспользуемую несколькими demo-сценариями (`cmd/demo`, `cmd/demo-registered`,
-// ...). Каждый сценарий — «savepoint» в турнирном флоу: `cmd/demo` — заявки во
-// всех статусах жизненного цикла (см. Seed); `cmd/demo-registered` — то же
-// самое состояние, доведённое до конца (RegisterAll переводит все
-// незавершённые заявки в «Зарегистрирована», реально создавая бойцов через
-// кроссдоменный эффект, спека 0007).
+// `cmd/demo-bouts`, ...). Каждый сценарий — «savepoint» в турнирном флоу:
+// `cmd/demo` — заявки во всех статусах жизненного цикла (см. Seed);
+// `cmd/demo-registered` — то же самое состояние, доведённое до конца
+// (RegisterAll переводит все незавершённые заявки в «Зарегистрирована»,
+// реально создавая бойцов через кроссдоменный эффект, спека 0007);
+// `cmd/demo-bouts` — ещё глубже: пулы сформированы и часть площадок реально
+// ведёт бои (SeedPoolsAndBouts, спеки 0009–0014).
 //
 // Идемпотентно: Wipe очищает demo-сущности перед повторным наполнением.
 // НЕ предназначено для прод-окружения.
@@ -12,6 +14,7 @@ package demoseed
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -29,17 +32,22 @@ import (
 	authrepo "github.com/hema/server/modules/auth/repo"
 	authservice "github.com/hema/server/modules/auth/service"
 	fightermodule "github.com/hema/server/modules/fighter"
+	fighterdomain "github.com/hema/server/modules/fighter/domain"
 	fighterrepo "github.com/hema/server/modules/fighter/repo"
 	fighterservice "github.com/hema/server/modules/fighter/service"
 	nomdomain "github.com/hema/server/modules/nomination/domain"
 	nomrepo "github.com/hema/server/modules/nomination/repo"
 	nomservice "github.com/hema/server/modules/nomination/service"
+	pooldomain "github.com/hema/server/modules/pool/domain"
+	poolrepo "github.com/hema/server/modules/pool/repo"
+	poolservice "github.com/hema/server/modules/pool/service"
 	"github.com/hema/server/modules/tournament"
 	tournamentdomain "github.com/hema/server/modules/tournament/domain"
 	tournamentrepo "github.com/hema/server/modules/tournament/repo"
 	tournamentservice "github.com/hema/server/modules/tournament/service"
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/jwt"
+	"github.com/hema/server/pkg/livebus"
 )
 
 const (
@@ -155,6 +163,7 @@ type Services struct {
 	Arena       *arenaservice.Service
 	Application *appservice.Service
 	Fighter     *fighterservice.Service
+	Pool        *poolservice.Service
 }
 
 // NewServices собирает сервисы поверх пула соединений — та же композиция,
@@ -178,6 +187,14 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 			fighterrepo.New(pool),
 			fighterNominations,
 			activeTournaments,
+		),
+		Pool: poolservice.New(
+			poolrepo.New(pool),
+			platform.NewPoolActiveFightersProvider(pool),
+			platform.NewPoolBoutConductor(pool),
+			platform.NewPoolArenaProvider(pool, activeTournaments),
+			platform.NewPoolNominationProvider(pool, activeTournaments),
+			platform.NewPoolLiveBus(livebus.New()),
 		),
 	}
 }
@@ -203,14 +220,14 @@ type AppStats struct {
 // нужные последующим шагам (напр. RegisterAll) и отчёту в консоли.
 type SeedResult struct {
 	BootstrapAdminID string
-	AdminIDs          []string
-	FighterUserIDs    []string
-	TournamentID      string
-	NominationIDs     []string
-	NominationTitles  map[string]string // nominationID -> title, для отчётов
-	ArenaIDs          []string
-	Applications      []ApplicationRecord
-	Stats             AppStats
+	AdminIDs         []string
+	FighterUserIDs   []string
+	TournamentID     string
+	NominationIDs    []string
+	NominationTitles map[string]string // nominationID -> title, для отчётов
+	ArenaIDs         []string
+	Applications     []ApplicationRecord
+	Stats            AppStats
 }
 
 // Wipe очищает demo-сущности перед повторным наполнением. Активный турнир
@@ -220,8 +237,18 @@ type SeedResult struct {
 // запуск копил бы бойцов-сирот — auth.users truncate меняет user id заявителей,
 // и старые origin_user_id в fighter.fighters переставали бы совпадать с кем-либо
 // (спека 0007, дедуп по origin_user_id).
+//
+// pool/bout — тоже demo-сущности (спека cmd/demo-bouts): pool.pools/
+// bout.bouts ссылаются на nomination_id/arena_id обычными UUID-колонками
+// БЕЗ кросс-схемного FK (ADR 0002) — TRUNCATE nomination.nominations/
+// arena.arenas их не каскадирует. Без явной очистки здесь повторный прогон
+// демо копил бы осиротевшие пулы/бои прошлых запусков (мусор в «доступные
+// пулы для постановки», спека 0011 FR-9, даже если сам сценарий их не видел
+// раньше — cmd/demo и cmd/demo-registered тоже вызывают Wipe).
 func Wipe(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
+		"TRUNCATE TABLE bout.bout_events, bout.bouts RESTART IDENTITY CASCADE",
+		"TRUNCATE TABLE pool.pool_members, pool.pools, pool.pool_layouts RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE arena.arenas RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE fighter.participations, fighter.fighters RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE application.events, application.application_current RESTART IDENTITY CASCADE",
@@ -601,6 +628,212 @@ func driveApplication(
 		return appservice.Application{}, false, fmt.Errorf("register: %w", err)
 	}
 	return app, warned, nil
+}
+
+// targetPoolSize — ориентировочный размер пула при формировании демо-раскладки
+// (спека 0009): не константа домена, просто разумное число для демо-данных.
+const targetPoolSize = 5
+
+// PoolBoutsResult — итог SeedPoolsAndBouts: что сформировано и проведено, для
+// отчёта в консоль.
+type PoolBoutsResult struct {
+	// NominationIDs — номинации, для которых сформированы пулы и бои (только
+	// те, где после регистрации ≥2 активных бойцов — вести бои не для кого).
+	NominationIDs []string
+	// PoolsByNomination — сколько пулов сформировано в каждой номинации.
+	PoolsByNomination map[string]int
+	// FinishedPoolID/FinishedArenaID — пул, у которого проведены ВСЕ бои
+	// (витрина «завершённый пул», спека 0013); пусто, если показать нечего.
+	FinishedPoolID, FinishedArenaID string
+	// RunningPoolID/RunningArenaID/RunningNominationID — пул, где бой «идёт»
+	// прямо сейчас с реальным (незавершённым) счётом — витрина «живого»
+	// публичного экрана номинации (спека 0014): именно эту номинацию стоит
+	// открыть на /nominations/{RunningNominationID}, чтобы увидеть live push.
+	RunningPoolID, RunningArenaID, RunningNominationID string
+	// PreparingPoolID/PreparingArenaID — пул поставлен на арену, но ни один
+	// бой ещё не начат (витрина «готовится к запуску», спека 0011).
+	PreparingPoolID, PreparingArenaID string
+}
+
+// SeedPoolsAndBouts — savepoint «бои» (cmd/demo-bouts): поверх состояния
+// demo-registered (все заявки доведены до регистрации бойцов, спека 0007)
+// формирует пулы по каждой номинации с ≥2 активными бойцами (спека 0009),
+// фиксирует раскладку — генерирует бои (спека 0010) — и расставляет до трёх
+// площадок в разных фазах исполнения турнирного дня (спеки 0011/0013),
+// разом показывая полный спектр состояний:
+//   - первая площадка — пул целиком проведён (все бои завершены, видны исходы);
+//   - вторая — пул «идёт»: первый бой начат и несёт реальный незавершённый
+//     счёт — витрина «живого» push на публичном экране номинации (спека 0014);
+//   - третья — пул поставлен, но ещё не начат («готовится к запуску»).
+//
+// Остальные пулы (сверх трёх показанных площадок) остаются «готов», не
+// поставленными ни на одну арену. actorID — от чьего имени фиксируются
+// действия секретаря (журнал ЖЦ боя, ADR 0011); organizerID из RegisterAll
+// подходит.
+func SeedPoolsAndBouts(
+	ctx context.Context,
+	poolSvc *poolservice.Service,
+	fighterSvc *fighterservice.Service,
+	tournamentID string,
+	nominationIDs []string,
+	arenaIDs []string,
+	actorID string,
+	rng *rand.Rand,
+) (PoolBoutsResult, error) {
+	result := PoolBoutsResult{PoolsByNomination: make(map[string]int)}
+
+	activeCounts, err := activeFighterCountsByNomination(ctx, fighterSvc, tournamentID)
+	if err != nil {
+		return result, fmt.Errorf("count active fighters: %w", err)
+	}
+
+	// layouts — готовая (ready) раскладка каждой подходящей номинации, чтобы
+	// не перечитывать её повторно на шаге расстановки по аренам ниже.
+	layouts := make(map[string]pooldomain.Layout)
+	var eligible []string
+	for _, nomID := range nominationIDs {
+		if activeCounts[nomID] < 2 {
+			continue // некого расставлять по парам — бои не сформируются (0010, FR-4)
+		}
+
+		poolCount := (activeCounts[nomID] + targetPoolSize - 1) / targetPoolSize
+		for i := 0; i < poolCount; i++ {
+			if _, err := poolSvc.CreatePool(ctx, nomID); err != nil {
+				return result, fmt.Errorf("create pool for nomination %s: %w", nomID, err)
+			}
+		}
+		if _, err := poolSvc.AutoDistribute(ctx, nomID); err != nil {
+			return result, fmt.Errorf("auto-distribute nomination %s: %w", nomID, err)
+		}
+		layout, err := poolSvc.SetStatus(ctx, nomID, pooldomain.LayoutReady)
+		if err != nil {
+			return result, fmt.Errorf("ready nomination %s: %w", nomID, err)
+		}
+
+		eligible = append(eligible, nomID)
+		layouts[nomID] = layout
+		result.NominationIDs = append(result.NominationIDs, nomID)
+		result.PoolsByNomination[nomID] = len(layout.Pools)
+	}
+
+	// Ристалище 1: пул первой подходящей номинации — довести до конца.
+	if len(arenaIDs) > 0 && len(eligible) > 0 {
+		nomID := eligible[0]
+		if poolID := poolWithMostMembers(layouts[nomID].Pools); poolID != "" {
+			if _, err := poolSvc.SeatPoolOnArena(ctx, poolID, arenaIDs[0]); err != nil {
+				return result, fmt.Errorf("seat finished-showcase pool (nomination %s): %w", nomID, err)
+			}
+			if err := conductAllBouts(ctx, poolSvc, poolID, actorID, rng); err != nil {
+				return result, fmt.Errorf("conduct all bouts (finished showcase, nomination %s): %w", nomID, err)
+			}
+			result.FinishedPoolID, result.FinishedArenaID = poolID, arenaIDs[0]
+		}
+	}
+
+	// Ристалище 2: следующая подходящая номинация — начать первый бой и
+	// оставить его «идёт» с реальным счётом (витрина 0014).
+	if len(arenaIDs) > 1 && len(eligible) > 1 {
+		nomID := eligible[1]
+		if poolID := poolWithMostMembers(layouts[nomID].Pools); poolID != "" {
+			if _, err := poolSvc.SeatPoolOnArena(ctx, poolID, arenaIDs[1]); err != nil {
+				return result, fmt.Errorf("seat running-showcase pool (nomination %s): %w", nomID, err)
+			}
+			if _, err := poolSvc.StartCurrentBout(ctx, poolID, actorID); err != nil {
+				return result, fmt.Errorf("start running-showcase bout (nomination %s): %w", nomID, err)
+			}
+			scoreA, scoreB := randomLiveScore(rng)
+			if _, err := poolSvc.ScoreCurrentBout(ctx, poolID, actorID, scoreA, scoreB); err != nil {
+				return result, fmt.Errorf("score running-showcase bout (nomination %s): %w", nomID, err)
+			}
+			result.RunningPoolID = poolID
+			result.RunningArenaID = arenaIDs[1]
+			result.RunningNominationID = nomID
+		}
+	}
+
+	// Ристалище 3: ещё одна подходящая номинация — только поставить, боёв не
+	// начинать («готовится к запуску»).
+	if len(arenaIDs) > 2 && len(eligible) > 2 {
+		nomID := eligible[2]
+		if poolID := poolWithMostMembers(layouts[nomID].Pools); poolID != "" {
+			if _, err := poolSvc.SeatPoolOnArena(ctx, poolID, arenaIDs[2]); err != nil {
+				return result, fmt.Errorf("seat preparing-showcase pool (nomination %s): %w", nomID, err)
+			}
+			result.PreparingPoolID, result.PreparingArenaID = poolID, arenaIDs[2]
+		}
+	}
+
+	return result, nil
+}
+
+// activeFighterCountsByNomination считает активных бойцов с активным
+// участием (спека 0007) по каждой номинации турнира — тот же критерий, что
+// ActiveFightersProvider отдаёт AutoDistribute, чтобы оценка «сколько
+// пулов нужно» соответствовала реальному числу бойцов, которых распределит
+// AutoDistribute.
+func activeFighterCountsByNomination(ctx context.Context, svc *fighterservice.Service, tournamentID string) (map[string]int, error) {
+	roster, err := svc.ListRoster(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	for _, f := range roster {
+		if f.Status != fighterdomain.StatusActive {
+			continue
+		}
+		for _, p := range f.Participations {
+			if p.Status != fighterdomain.ParticipationActive {
+				continue
+			}
+			counts[p.NominationID]++
+		}
+	}
+	return counts, nil
+}
+
+// poolWithMostMembers выбирает самый населённый пул раскладки — гарантирует,
+// что показательный пул реально имеет бои (а не 0-1 бойца, если
+// автораспределение легло неровно), не завязываясь на конкретный номер пула.
+func poolWithMostMembers(pools []pooldomain.Pool) string {
+	best, max := "", -1
+	for _, p := range pools {
+		if len(p.Members) > max {
+			max, best = len(p.Members), p.ID
+		}
+	}
+	return best
+}
+
+// conductAllBouts проводит пул от первого до последнего боя: старт → счёт →
+// завершение, пока есть текущий бой (ErrNoCurrentBout — пул целиком проведён
+// либо не боевой, спека 0013).
+func conductAllBouts(ctx context.Context, svc *poolservice.Service, poolID, actorID string, rng *rand.Rand) error {
+	for {
+		if _, err := svc.StartCurrentBout(ctx, poolID, actorID); err != nil {
+			if errors.Is(err, pooldomain.ErrNoCurrentBout) {
+				return nil
+			}
+			return err
+		}
+		scoreA, scoreB := randomFinalScore(rng)
+		if _, err := svc.ScoreCurrentBout(ctx, poolID, actorID, scoreA, scoreB); err != nil {
+			return err
+		}
+		if _, err := svc.FinishCurrentBout(ctx, poolID, actorID); err != nil {
+			return err
+		}
+	}
+}
+
+// randomFinalScore — правдоподобный итоговый счёт завершённого боя (демо).
+func randomFinalScore(rng *rand.Rand) (int, int) {
+	return 3 + rng.Intn(8), 3 + rng.Intn(8) // 3..10 каждому
+}
+
+// randomLiveScore — счёт идущего (незавершённого) боя: намеренно ниже
+// randomFinalScore, чтобы выглядело как «бой в разгаре», а не доигранным.
+func randomLiveScore(rng *rand.Rand) (int, int) {
+	return rng.Intn(6), rng.Intn(6) // 0..5 каждому
 }
 
 // JoinEmails форматирует список email через запятую — для печати учёток в
