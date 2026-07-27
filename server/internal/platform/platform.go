@@ -104,7 +104,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	poolDeps := poolmodule.Deps{
 		Pool:        pool,
 		Fighters:    NewPoolActiveFightersProvider(pool),
-		Bouts:       NewPoolBoutGenerator(pool),
+		Bouts:       NewPoolBoutConductor(pool),
 		Arenas:      NewPoolArenaProvider(pool, activeTournaments),
 		Nominations: NewPoolNominationProvider(pool, activeTournaments),
 	}

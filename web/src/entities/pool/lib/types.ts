@@ -93,3 +93,65 @@ export function poolStatusLabel(status: PoolStatus): string {
       return "—";
   }
 }
+
+/**
+ * BoutState — состояние отдельного боя (спека 0013, FR-1). Все переходы
+ * обратимы: не начат ⇄ идёт ⇄ завершён.
+ */
+export type BoutState =
+  | "BOUT_STATE_UNSPECIFIED"
+  | "BOUT_STATE_NOT_STARTED"
+  | "BOUT_STATE_IN_PROGRESS"
+  | "BOUT_STATE_FINISHED";
+
+/** boutStateLabel — человекочитаемое состояние боя (RU, спека 0013). */
+export function boutStateLabel(state: BoutState): string {
+  switch (state) {
+    case "BOUT_STATE_NOT_STARTED":
+      return "не начат";
+    case "BOUT_STATE_IN_PROGRESS":
+      return "идёт";
+    case "BOUT_STATE_FINISHED":
+      return "завершён";
+    default:
+      return "—";
+  }
+}
+
+/**
+ * BoardBout — проекция одного боя пула для доски ведения (спека 0013,
+ * FR-14): собственная проекция pool, не переиспользует entities/bout.
+ * `scoreA`/`scoreB` — актуальный счёт (0:0 у не начатого); `state` —
+ * текущая фаза ЖЦ боя.
+ */
+export type BoardBout = {
+  id: string;
+  roundNumber: number;
+  sequenceNumber: number;
+  fighterA: FighterRef;
+  fighterB: FighterRef;
+  state: BoutState;
+  scoreA: number;
+  scoreB: number;
+};
+
+/**
+ * BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
+ * на ней пул (`null`, если арена свободна), его бои по порядку проведения
+ * (0010) и текущий бой. `currentBoutId` пуст, если у пула нет боёв.
+ */
+export type BoutBoard = {
+  pool: Pool | null;
+  bouts: BoardBout[];
+  currentBoutId: string;
+};
+
+/**
+ * outcomeOf выводит исход боя из счёта (спека 0013, FR-3): больше очков —
+ * победа этого бойца, равные — ничья. Отдельного выбора победителя нет.
+ */
+export function outcomeOf(scoreA: number, scoreB: number): "A" | "B" | "draw" {
+  if (scoreA > scoreB) return "A";
+  if (scoreB > scoreA) return "B";
+  return "draw";
+}

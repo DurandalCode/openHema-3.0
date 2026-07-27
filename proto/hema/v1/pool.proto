@@ -46,14 +46,41 @@ service PoolAdminService {
   // Пул переходит в PREPARING. Отклоняется, если пул не готов, уже стоит на
   // арене, либо арена занята/архивна/не найдена.
   rpc SeatPoolOnArena(SeatPoolOnArenaRequest) returns (SeatPoolOnArenaResponse);
-  // UnseatPool снимает пул с арены (спека 0011, FR-8): PREPARING → READY,
-  // привязка к площадке очищается, площадка освобождается. Бои пула
-  // сохраняются.
+  // UnseatPool снимает пул с арены: привязка к площадке очищается, площадка
+  // освобождается. Разрешено в любой исполнительной фазе пула — PREPARING,
+  // ACTIVE и FINISHED (спека 0013, FR-11: результаты уже проведённых боёв
+  // сохраняются, статус пула не сбрасывается). PoolStatus после снятия
+  // вычисляется из прогресса боёв (READY, если ни один бой не начат, иначе
+  // ACTIVE/FINISHED как было).
   rpc UnseatPool(UnseatPoolRequest) returns (UnseatPoolResponse);
   // GetPoolsForArena возвращает для страницы конкретной арены (спека 0011,
   // FR-9): пул, который сейчас на ней стоит (если есть), и список готовых
   // пулов, доступных для постановки (PoolStatus READY, ни на одной арене).
   rpc GetPoolsForArena(GetPoolsForArenaRequest) returns (GetPoolsForArenaResponse);
+  // GetBoutBoard возвращает доску ведения боёв арены (спека 0013, FR-14):
+  // стоящий на арене пул, его бои по порядку (0010) и текущий бой. board
+  // не заполнен, если на арене никто не стоит.
+  rpc GetBoutBoard(GetBoutBoardRequest) returns (GetBoutBoardResponse);
+  // SetCurrentBout назначает текущим любой бой пула — циркуляция (спека
+  // 0013, FR-8), включая уже завершённые бои.
+  rpc SetCurrentBout(SetCurrentBoutRequest) returns (SetCurrentBoutResponse);
+  // StartCurrentBout переводит текущий бой пула не начат → идёт (спека
+  // 0013, FR-4). Пул должен стоять на арене (FR-12).
+  rpc StartCurrentBout(StartCurrentBoutRequest) returns (StartCurrentBoutResponse);
+  // ScoreCurrentBout задаёт счёт текущего боя (абсолютное значение — быстрые
+  // шаги ±1/±2/±3/±5 и ручной ввод считаются на клиенте, спека 0013,
+  // FR-2/FR-2a). Допустимо только пока бой идёт.
+  rpc ScoreCurrentBout(ScoreCurrentBoutRequest) returns (ScoreCurrentBoutResponse);
+  // FinishCurrentBout переводит текущий бой идёт → завершён, фиксируя счёт
+  // (спека 0013, FR-5); текущий бой пула автоматически продвигается на
+  // следующий непроведённый (FR-9).
+  rpc FinishCurrentBout(FinishCurrentBoutRequest) returns (FinishCurrentBoutResponse);
+  // ReopenCurrentBout переводит текущий бой завершён → идёт для правки
+  // счёта (спека 0013, FR-6).
+  rpc ReopenCurrentBout(ReopenCurrentBoutRequest) returns (ReopenCurrentBoutResponse);
+  // ResetCurrentBout переводит текущий бой идёт → не начат, счёт обнуляется
+  // (спека 0013, FR-6).
+  rpc ResetCurrentBout(ResetCurrentBoutRequest) returns (ResetCurrentBoutResponse);
 }
 
 // PoolPublicService — публичное чтение пулов номинации (спека 0011, FR-11).
@@ -92,6 +119,15 @@ enum PoolStatus {
   POOL_STATUS_FINISHED = 5;
 }
 
+// BoutState — состояние отдельного боя (спека 0013, FR-1). Все переходы
+// обратимы: не начат ⇄ идёт ⇄ завершён.
+enum BoutState {
+  BOUT_STATE_UNSPECIFIED = 0;
+  BOUT_STATE_NOT_STARTED = 1;
+  BOUT_STATE_IN_PROGRESS = 2;
+  BOUT_STATE_FINISHED = 3;
+}
+
 // FighterRef — проекция бойца для экрана управления пулами (DnD): id для
 // перетаскивания, имя/клуб — снапшот из модуля fighter.
 message FighterRef {
@@ -118,6 +154,30 @@ message Pool {
   string arena_id = 7;
   string arena_name = 8;
   string nomination_name = 9;
+}
+
+// BoardBout — проекция одного боя пула для доски ведения (спека 0013,
+// FR-14): собственная проекция pool, не переиспользует bout.Bout (ADR 0002).
+// score_a/score_b — актуальный счёт (0:0 у не начатого); state — текущая
+// фаза ЖЦ боя.
+message BoardBout {
+  string id = 1;
+  int32 round_number = 2;
+  int32 sequence_number = 3;
+  FighterRef fighter_a = 4;
+  FighterRef fighter_b = 5;
+  BoutState state = 6;
+  int32 score_a = 7;
+  int32 score_b = 8;
+}
+
+// BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
+// на ней пул, его бои по порядку проведения (0010) и текущий бой.
+// current_bout_id пуст, если у пула нет боёв (0010, FR-4).
+message BoutBoard {
+  Pool pool = 1;
+  repeated BoardBout bouts = 2;
+  string current_bout_id = 3;
 }
 
 // PoolLayout — раскладка номинации целиком: статус, нераспределённые,
@@ -242,4 +302,69 @@ message ListPublicPoolsRequest {
 
 message ListPublicPoolsResponse {
   repeated Pool pools = 1;
+}
+
+message GetBoutBoardRequest {
+  string arena_id = 1;
+}
+
+message GetBoutBoardResponse {
+  BoutBoard board = 1;
+}
+
+// SetCurrentBoutRequest/Response и далее — каждое действие ведения боя имеет
+// собственную пару Request/Response (buf lint: сообщение не переиспользуется
+// между разными RPC, см. аналогичную заметку в bout.proto), хотя ответы по
+// форме идентичны: возвращают обновлённую доску арены, на которой стоит пул
+// (спека 0013, FR-14) — клиенту не нужен отдельный round-trip за доской.
+
+message SetCurrentBoutRequest {
+  string pool_id = 1;
+  string bout_id = 2;
+}
+
+message SetCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message StartCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message StartCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message ScoreCurrentBoutRequest {
+  string pool_id = 1;
+  int32 score_a = 2;
+  int32 score_b = 3;
+}
+
+message ScoreCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message FinishCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message FinishCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message ReopenCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message ReopenCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message ResetCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message ResetCurrentBoutResponse {
+  BoutBoard board = 1;
 }

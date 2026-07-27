@@ -27,13 +27,14 @@ const n1 = "11111111-1111-1111-1111-111111111111"
 // нужен публичный клиент/fake-арены.
 func setup(t *testing.T) (hemav1connect.PoolAdminServiceClient, *testutil.FakeRepo, *testutil.FakeActiveFightersProvider) {
 	t.Helper()
-	admin, _, repo, fighters, _, _ := setupFull(t)
+	admin, _, repo, fighters, _, _, _ := setupFull(t)
 	return admin, repo, fighters
 }
 
 // setupFull — как setup, но дополнительно монтирует PoolPublicService (без
 // RequireAdmin, спека 0011) и возвращает публичный клиент, fake-провайдер
-// арен и fake-провайдер номинаций (резолв имени номинации пула, FR-9).
+// арен, fake-провайдер номинаций (резолв имени номинации пула, FR-9) и
+// fake-кондуктор боёв (спека 0013: ведение текущего боя на fake BoutConductor).
 func setupFull(t *testing.T) (
 	hemav1connect.PoolAdminServiceClient,
 	hemav1connect.PoolPublicServiceClient,
@@ -41,12 +42,13 @@ func setupFull(t *testing.T) (
 	*testutil.FakeActiveFightersProvider,
 	*testutil.FakeArenaProvider,
 	*testutil.FakeNominationProvider,
+	*testutil.FakeBoutConductor,
 ) {
 	t.Helper()
 
 	repo := testutil.NewFakeRepo()
 	fighters := testutil.NewFakeActiveFightersProvider()
-	bouts := testutil.NewFakeBoutGenerator()
+	bouts := testutil.NewFakeBoutConductor()
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
@@ -74,7 +76,7 @@ func setupFull(t *testing.T) (
 	client := server.Client()
 	adminClient := hemav1connect.NewPoolAdminServiceClient(client, server.URL)
 	publicClient := hemav1connect.NewPoolPublicServiceClient(client, server.URL)
-	return adminClient, publicClient, repo, fighters, arenas, nominations
+	return adminClient, publicClient, repo, fighters, arenas, nominations, bouts
 }
 
 func adminBearer(t *testing.T) string {
@@ -407,7 +409,7 @@ func TestSetLayoutStatus_E2E_InvalidTargetReturnsInvalidArgument(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestSeatPoolOnArena_E2E(t *testing.T) {
-	admin, _, repo, fighters, arenas, _ := setupFull(t)
+	admin, _, repo, fighters, arenas, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -430,7 +432,7 @@ func TestSeatPoolOnArena_E2E(t *testing.T) {
 }
 
 func TestSeatPoolOnArena_E2E_NotReadyReturnsFailedPrecondition(t *testing.T) {
-	admin, _, repo, fighters, arenas, _ := setupFull(t)
+	admin, _, repo, fighters, arenas, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1") // status по умолчанию — draft
 	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true})
@@ -445,7 +447,7 @@ func TestSeatPoolOnArena_E2E_NotReadyReturnsFailedPrecondition(t *testing.T) {
 }
 
 func TestSeatPoolOnArena_E2E_ArenaNotAvailableReturnsFailedPrecondition(t *testing.T) {
-	admin, _, repo, fighters, _, _ := setupFull(t)
+	admin, _, repo, fighters, _, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -460,7 +462,7 @@ func TestSeatPoolOnArena_E2E_ArenaNotAvailableReturnsFailedPrecondition(t *testi
 }
 
 func TestSeatPoolOnArena_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
-	admin, _, _, _, _, _ := setupFull(t)
+	admin, _, _, _, _, _, _ := setupFull(t)
 
 	req := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: "p1", ArenaId: "a1"})
 	_, err := admin.SeatPoolOnArena(context.Background(), req)
@@ -470,7 +472,7 @@ func TestSeatPoolOnArena_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
 }
 
 func TestSeatPoolOnArena_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
-	admin, _, _, _, _, _ := setupFull(t)
+	admin, _, _, _, _, _, _ := setupFull(t)
 
 	req := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: "p1", ArenaId: "a1"})
 	req.Header().Set("Authorization", userBearer(t))
@@ -481,7 +483,7 @@ func TestSeatPoolOnArena_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
 }
 
 func TestUnseatPool_E2E(t *testing.T) {
-	admin, _, repo, fighters, arenas, _ := setupFull(t)
+	admin, _, repo, fighters, arenas, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -506,7 +508,7 @@ func TestUnseatPool_E2E(t *testing.T) {
 }
 
 func TestGetPoolsForArena_E2E(t *testing.T) {
-	admin, _, repo, fighters, arenas, _ := setupFull(t)
+	admin, _, repo, fighters, arenas, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	p1 := repo.SeedPool(n1, 1, "f1")
 	p2 := repo.SeedPool(n1, 2, "f2")
@@ -534,7 +536,7 @@ func TestGetPoolsForArena_E2E(t *testing.T) {
 }
 
 func TestListPublicPools_E2E_ReadyShowsPools(t *testing.T) {
-	_, public, repo, fighters, _, _ := setupFull(t)
+	_, public, repo, fighters, _, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A", Club: "X"})
 	repo.SeedPool(n1, 1, "f1")
 	repo.SeedStatus(n1, domain.LayoutReady)
@@ -556,7 +558,7 @@ func TestListPublicPools_E2E_ReadyShowsPools(t *testing.T) {
 
 // AC-14: пока раскладка draft, публичный список пуст (не ошибка).
 func TestListPublicPools_E2E_DraftReturnsEmpty(t *testing.T) {
-	_, public, repo, fighters, _, _ := setupFull(t)
+	_, public, repo, fighters, _, _, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	repo.SeedPool(n1, 1, "f1") // статус по умолчанию — draft
 
@@ -575,7 +577,7 @@ func TestListPublicPools_E2E_DraftReturnsEmpty(t *testing.T) {
 // неразличимы). Проверяем на GetPoolsForArena: и seated, и available несут
 // адресов NominationName.
 func TestGetPoolsForArena_E2E_NominationNameInResponse(t *testing.T) {
-	admin, _, repo, fighters, arenas, nominations := setupFull(t)
+	admin, _, repo, fighters, arenas, nominations, _ := setupFull(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1"})
 	fighters.Set("nom-sable", domain.FighterRef{ID: "f2"})
 	p1 := repo.SeedPool(n1, 1, "f1")
@@ -611,5 +613,190 @@ func TestGetPoolsForArena_E2E_NominationNameInResponse(t *testing.T) {
 			got = res.Msg.Available[0].NominationName
 		}
 		t.Errorf("available.NominationName = %q, want Сабля", got)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0013: доска ведения текущего боя (GetBoutBoard + мутации).
+// ---------------------------------------------------------------------
+
+// seedBoardPool сажает пул с двумя боями (b1, b2, оба не начаты) на арену —
+// общий сетап для e2e-тестов ведения.
+func seedBoardPool(t *testing.T, repo *testutil.FakeRepo, bouts *testutil.FakeBoutConductor, arenaID string) string {
+	t.Helper()
+	poolID := repo.SeedPool(n1, 1, "f1", "f2")
+	repo.SeedStatus(n1, domain.LayoutReady)
+	if arenaID != "" {
+		if err := repo.SeatPool(context.Background(), poolID, arenaID); err != nil {
+			t.Fatalf("seat pool: %v", err)
+		}
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b2", SequenceNumber: 2,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	return poolID
+}
+
+func TestGetBoutBoard_E2E(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "arena-1")
+
+	req := connect.NewRequest(&hemav1.GetBoutBoardRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetBoutBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetBoutBoard: %v", err)
+	}
+	if res.Msg.Board.Pool == nil || res.Msg.Board.Pool.Id != poolID {
+		t.Fatalf("expected board.pool = %s, got %v", poolID, res.Msg.Board.Pool)
+	}
+	if len(res.Msg.Board.Bouts) != 2 || res.Msg.Board.Bouts[0].Id != "b1" {
+		t.Fatalf("expected 2 bouts starting with b1, got %v", res.Msg.Board.Bouts)
+	}
+	if res.Msg.Board.CurrentBoutId != "b1" {
+		t.Errorf("CurrentBoutId = %q, want b1", res.Msg.Board.CurrentBoutId)
+	}
+}
+
+func TestGetBoutBoard_E2E_EmptyWhenArenaFree(t *testing.T) {
+	admin, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.GetBoutBoardRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetBoutBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetBoutBoard: %v", err)
+	}
+	if res.Msg.Board.Pool != nil || len(res.Msg.Board.Bouts) != 0 {
+		t.Errorf("expected empty board, got %v", res.Msg.Board)
+	}
+}
+
+// Happy path: начать → счёт → завершить — авто-продвижение на b2 (AC-5).
+func TestStartScoreFinishCurrentBout_E2E(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "arena-1")
+
+	startReq := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: poolID})
+	startReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.StartCurrentBout(context.Background(), startReq); err != nil {
+		t.Fatalf("StartCurrentBout: %v", err)
+	}
+
+	scoreReq := connect.NewRequest(&hemav1.ScoreCurrentBoutRequest{PoolId: poolID, ScoreA: 5, ScoreB: 3})
+	scoreReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ScoreCurrentBout(context.Background(), scoreReq); err != nil {
+		t.Fatalf("ScoreCurrentBout: %v", err)
+	}
+
+	finishReq := connect.NewRequest(&hemav1.FinishCurrentBoutRequest{PoolId: poolID})
+	finishReq.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.FinishCurrentBout(context.Background(), finishReq)
+	if err != nil {
+		t.Fatalf("FinishCurrentBout: %v", err)
+	}
+	if res.Msg.Board.CurrentBoutId != "b2" {
+		t.Errorf("CurrentBoutId = %q, want b2 (auto-advance, AC-5)", res.Msg.Board.CurrentBoutId)
+	}
+	if len(bouts.StartCalls) != 1 || bouts.StartCalls[0].BoutID != "b1" || bouts.StartCalls[0].ActorID == "" {
+		t.Errorf("unexpected StartCalls: %+v", bouts.StartCalls)
+	}
+	if len(bouts.ScoreCalls) != 1 || bouts.ScoreCalls[0].ScoreA != 5 || bouts.ScoreCalls[0].ScoreB != 3 {
+		t.Errorf("unexpected ScoreCalls: %+v", bouts.ScoreCalls)
+	}
+	if len(bouts.FinishCalls) != 1 || bouts.FinishCalls[0].BoutID != "b1" {
+		t.Errorf("unexpected FinishCalls: %+v", bouts.FinishCalls)
+	}
+}
+
+// AC-6: циркуляция — назначить текущим любой бой пула, включая завершённый.
+func TestSetCurrentBout_E2E(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "arena-1")
+
+	req := connect.NewRequest(&hemav1.SetCurrentBoutRequest{PoolId: poolID, BoutId: "b2"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.SetCurrentBout(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SetCurrentBout: %v", err)
+	}
+	if res.Msg.Board.CurrentBoutId != "b2" {
+		t.Errorf("CurrentBoutId = %q, want b2", res.Msg.Board.CurrentBoutId)
+	}
+}
+
+// Переоткрыть завершённый (AC-7) и сбросить начатый (AC-8) бой.
+func TestReopenResetCurrentBout_E2E(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "arena-1")
+	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 3})
+	if err := repo.SetCurrentBout(context.Background(), poolID, "b1"); err != nil {
+		t.Fatalf("seed current: %v", err)
+	}
+
+	reopenReq := connect.NewRequest(&hemav1.ReopenCurrentBoutRequest{PoolId: poolID})
+	reopenReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ReopenCurrentBout(context.Background(), reopenReq); err != nil {
+		t.Fatalf("ReopenCurrentBout: %v", err)
+	}
+	if len(bouts.ReopenCalls) != 1 || bouts.ReopenCalls[0].BoutID != "b1" {
+		t.Errorf("unexpected ReopenCalls: %+v", bouts.ReopenCalls)
+	}
+
+	resetReq := connect.NewRequest(&hemav1.ResetCurrentBoutRequest{PoolId: poolID})
+	resetReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ResetCurrentBout(context.Background(), resetReq); err != nil {
+		t.Fatalf("ResetCurrentBout: %v", err)
+	}
+	if len(bouts.ResetCalls) != 1 || bouts.ResetCalls[0].BoutID != "b1" {
+		t.Errorf("unexpected ResetCalls: %+v", bouts.ResetCalls)
+	}
+}
+
+// AC-13: ведение отклонено (FailedPrecondition), если пул не на арене.
+func TestStartCurrentBout_E2E_NotSeatedReturnsFailedPrecondition(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "") // не поставлен на арену
+
+	req := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: poolID})
+	req.Header().Set("Authorization", adminBearer(t))
+	_, err := admin.StartCurrentBout(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+}
+
+// AC-14: права — без токена/не-admin ведение недоступно (проверяем одним
+// репрезентативным новым RPC — интерсепторы общие для всех методов сервиса).
+func TestStartCurrentBout_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: "p1"})
+	_, err := admin.StartCurrentBout(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestStartCurrentBout_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: "p1"})
+	req.Header().Set("Authorization", userBearer(t))
+	_, err := admin.StartCurrentBout(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
 	}
 }

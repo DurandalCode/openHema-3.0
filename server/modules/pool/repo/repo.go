@@ -111,12 +111,14 @@ func (r *Repo) listPools(ctx context.Context, nid uuid.UUID) ([]domain.Pool, err
 		out = append(out, domain.Pool{
 			ID: p.ID.String(), NominationID: p.NominationID.String(), Number: int(p.Number),
 			Members: byPool[p.ID], ArenaID: fromNullableUUID(p.ArenaID),
+			CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
 		})
 	}
 	return out, nil
 }
 
-// GetPool возвращает один пул по id (включая ArenaID, спека 0011).
+// GetPool возвращает один пул по id (включая ArenaID/CurrentBoutID, спека
+// 0011/0013).
 func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) {
 	pid, err := uuid.Parse(poolID)
 	if err != nil {
@@ -139,7 +141,7 @@ func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) 
 	}
 	return domain.Pool{
 		ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number), Members: members,
-		ArenaID: fromNullableUUID(row.ArenaID),
+		ArenaID: fromNullableUUID(row.ArenaID), CurrentBoutID: fromNullableUUID(row.CurrentBoutID),
 	}, nil
 }
 
@@ -603,7 +605,7 @@ func (r *Repo) PoolsForArena(ctx context.Context, arenaID string) (domain.Pool, 
 	}
 	return domain.Pool{
 		ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number), Members: members,
-		ArenaID: fromNullableUUID(row.ArenaID),
+		ArenaID: fromNullableUUID(row.ArenaID), CurrentBoutID: fromNullableUUID(row.CurrentBoutID),
 	}, true, nil
 }
 
@@ -626,10 +628,32 @@ func (r *Repo) ReadyUnseatedPools(ctx context.Context) ([]domain.Pool, error) {
 		}
 		out = append(out, domain.Pool{
 			ID: p.ID.String(), NominationID: p.NominationID.String(), Number: int(p.Number), Members: members,
-			ArenaID: fromNullableUUID(p.ArenaID),
+			ArenaID: fromNullableUUID(p.ArenaID), CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
 		})
 	}
 	return out, nil
+}
+
+// SetCurrentBout записывает указатель текущего боя пула (спека 0013,
+// FR-7/FR-8/FR-9). boutID пуст — указатель сбрасывается в NULL
+// (авто-продвижение после завершения последнего боя пула, AC-10).
+func (r *Repo) SetCurrentBout(ctx context.Context, poolID, boutID string) error {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	var boutUUID pgtype.UUID
+	if boutID != "" {
+		bid, err := uuid.Parse(boutID)
+		if err != nil {
+			return fmt.Errorf("parse bout id: %w", err)
+		}
+		boutUUID = pgtype.UUID{Bytes: [16]byte(bid), Valid: true}
+	}
+	if err := r.q.SetCurrentBout(ctx, sqlc.SetCurrentBoutParams{ID: pid, BoutID: boutUUID}); err != nil {
+		return fmt.Errorf("set current bout: %w", err)
+	}
+	return nil
 }
 
 // AnySeatedInNomination — стоит ли хотя бы один пул номинации на арене

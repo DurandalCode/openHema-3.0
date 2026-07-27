@@ -83,7 +83,7 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 	poolmodule.Register(mux, poolmodule.Deps{
 		Pool:        pool,
 		Fighters:    platform.NewPoolActiveFightersProvider(pool),
-		Bouts:       platform.NewPoolBoutGenerator(pool),                             // real adapter, not fake (spec 0010, T19)
+		Bouts:       platform.NewPoolBoutConductor(pool),                            // real adapter, not fake (spec 0010/0013)
 		Arenas:      platform.NewPoolArenaProvider(pool, activeTournaments),         // real adapter, spec 0011
 		Nominations: platform.NewPoolNominationProvider(pool, activeTournaments),   // real adapter, FR-9 (имя номинации пула)
 	}, baseOpts, adminOpts)
@@ -614,5 +614,129 @@ func TestIntegration_SeatPoolOnArena_UniqueIndexBlocksSecondPool(t *testing.T) {
 	}
 	if got.Msg.Seated == nil || got.Msg.Seated.Id != pool1 {
 		t.Fatalf("expected pool1 (%s) still seated on arena, got %+v", pool1, got.Msg.Seated)
+	}
+}
+
+// TestIntegration_ConductBout_FullLifecycle прогоняет ведение боя через
+// реальный путь pool×bout (спека 0013): постановка на арену, старт боя,
+// счёт, завершение с авто-продвижением текущего боя (AC-5), пересчёт
+// статуса пула из живого PoolBoutConductor (preparing→active→finished,
+// AC-9/AC-10), снятие с арены с сохранением результата (AC-11) и гейт
+// расфиксации раскладки при наличии проведённых боёв (AC-12).
+func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
+	c, _ := setup(t)
+	arenaID := createArena(t, c, "Ристалище 1")
+
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	poolID := created.Msg.Layout.Pools[0].Id
+	for _, fid := range []string{f1, f2} {
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq.Header().Set("Authorization", adminBearer(t))
+		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+			t.Fatalf("AssignFighter(%s): %v", fid, err)
+		}
+	}
+	setLayoutStatus(t, c, nomID, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+
+	seatReq := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: poolID, ArenaId: arenaID})
+	seatReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.SeatPoolOnArena(context.Background(), seatReq); err != nil {
+		t.Fatalf("SeatPoolOnArena: %v", err)
+	}
+
+	board := func() *hemav1.BoutBoard {
+		req := connect.NewRequest(&hemav1.GetBoutBoardRequest{ArenaId: arenaID})
+		req.Header().Set("Authorization", adminBearer(t))
+		res, err := c.pool.GetBoutBoard(context.Background(), req)
+		if err != nil {
+			t.Fatalf("GetBoutBoard: %v", err)
+		}
+		return res.Msg.Board
+	}
+
+	b := board()
+	if b == nil || b.Pool == nil || len(b.Bouts) != 1 {
+		t.Fatalf("expected a board with 1 bout for 2 fighters, got %+v", b)
+	}
+	if b.Pool.Status != hemav1.PoolStatus_POOL_STATUS_PREPARING {
+		t.Fatalf("expected PREPARING before any bout starts, got %v", b.Pool.Status)
+	}
+	boutID := b.CurrentBoutId
+	if boutID == "" {
+		t.Fatal("expected a current bout to be auto-selected")
+	}
+
+	startReq := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: poolID})
+	startReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.StartCurrentBout(context.Background(), startReq); err != nil {
+		t.Fatalf("StartCurrentBout: %v", err)
+	}
+	if b := board(); b.Pool.Status != hemav1.PoolStatus_POOL_STATUS_ACTIVE {
+		t.Fatalf("expected ACTIVE after starting the only bout, got %v", b.Pool.Status)
+	}
+
+	scoreReq := connect.NewRequest(&hemav1.ScoreCurrentBoutRequest{PoolId: poolID, ScoreA: 5, ScoreB: 3})
+	scoreReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.ScoreCurrentBout(context.Background(), scoreReq); err != nil {
+		t.Fatalf("ScoreCurrentBout: %v", err)
+	}
+
+	finishReq := connect.NewRequest(&hemav1.FinishCurrentBoutRequest{PoolId: poolID})
+	finishReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.FinishCurrentBout(context.Background(), finishReq); err != nil {
+		t.Fatalf("FinishCurrentBout: %v", err)
+	}
+
+	final := board()
+	if final.Pool.Status != hemav1.PoolStatus_POOL_STATUS_FINISHED {
+		t.Fatalf("expected FINISHED once the only bout is finished, got %v", final.Pool.Status)
+	}
+	if final.CurrentBoutId != "" {
+		t.Fatalf("expected no current bout left to advance to, got %q", final.CurrentBoutId)
+	}
+	if len(final.Bouts) != 1 || final.Bouts[0].Id != boutID ||
+		final.Bouts[0].State != hemav1.BoutState_BOUT_STATE_FINISHED ||
+		final.Bouts[0].ScoreA != 5 || final.Bouts[0].ScoreB != 3 {
+		t.Fatalf("expected the finished bout to keep its score, got %+v", final.Bouts)
+	}
+
+	// AC-11: снятие пула с результатами — результаты сохраняются.
+	unseatReq := connect.NewRequest(&hemav1.UnseatPoolRequest{PoolId: poolID})
+	unseatReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.UnseatPool(context.Background(), unseatReq); err != nil {
+		t.Fatalf("UnseatPool: %v", err)
+	}
+	getLayoutReq := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: nomID})
+	getLayoutReq.Header().Set("Authorization", adminBearer(t))
+	layoutRes, err := c.pool.GetLayout(context.Background(), getLayoutReq)
+	if err != nil {
+		t.Fatalf("GetLayout: %v", err)
+	}
+	if layoutRes.Msg.Layout.Pools[0].Status != hemav1.PoolStatus_POOL_STATUS_FINISHED {
+		t.Fatalf("expected pool to stay FINISHED after unseat, got %v", layoutRes.Msg.Layout.Pools[0].Status)
+	}
+	if layoutRes.Msg.Layout.Pools[0].ArenaId != "" {
+		t.Fatalf("expected arena_id cleared after unseat, got %q", layoutRes.Msg.Layout.Pools[0].ArenaId)
+	}
+
+	// AC-12: раскладку с проведённым боем нельзя вернуть в draft, даже
+	// после снятия пула с арены (результаты защищены).
+	draftReq := connect.NewRequest(&hemav1.SetLayoutStatusRequest{NominationId: nomID, Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT})
+	draftReq.Header().Set("Authorization", adminBearer(t))
+	_, err = c.pool.SetLayoutStatus(context.Background(), draftReq)
+	if err == nil {
+		t.Fatal("expected SetLayoutStatus(draft) to fail: nomination has a finished bout")
+	}
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %v: %v", connect.CodeOf(err), err)
 	}
 }

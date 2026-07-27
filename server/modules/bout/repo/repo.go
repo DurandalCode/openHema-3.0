@@ -1,17 +1,34 @@
 // Package repo реализует domain.Repository поверх сгенерированного
-// sqlc-кода (спека 0010).
+// sqlc-кода: снапшот боёв пула (спека 0010) + event-sourced журнал/проекция
+// жизненного цикла (спека 0013, ADR 0011).
+//
+// Append атомарно пишет событие в журнал (bout.bout_events) и обновляет
+// инлайн-проекцию (bout.bouts) в одной транзакции. Конфликт версии потока
+// (UNIQUE(bout_id, version)) → domain.ErrConcurrency, детектируется по
+// имени констрейнта.
 package repo
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hema/server/modules/bout/domain"
 	"github.com/hema/server/modules/bout/repo/sqlc"
+)
+
+const (
+	uniqueViolation = "23505"
+	// Имя констрейнта — см. modules/bout/migrations/00002_bout_lifecycle.sql.
+	constraintBoutEventsVersion = "uq_bout_events_version"
 )
 
 // Repo — адаптер к PostgreSQL для модуля bout.
@@ -27,10 +44,11 @@ func New(pool *pgxpool.Pool) *Repo {
 
 var _ domain.Repository = (*Repo)(nil)
 
-// ReplaceForNomination одной транзакцией удаляет все бои номинации и
-// вставляет новые (bouts == nil → только удаление — это и есть «очистить»,
-// используется для обоих направлений: generate и clear реализованы через
-// один и тот же repo-метод с разным входом, plan.md «Server» → domain).
+// ReplaceForNomination одной транзакцией удаляет все бои номинации (события
+// удаляются каскадом FK, см. миграция 00002) и вставляет новые: на каждый
+// бой — строку проекции (state=not_started, счёт 0:0, version=1) и событие
+// scheduled (version 1) — bouts == nil → только удаление (генерация и
+// очистка используют один и тот же repo-метод, спека 0010).
 func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bouts []domain.Bout) error {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
@@ -48,6 +66,7 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 		return fmt.Errorf("delete bouts: %w", err)
 	}
 
+	now := time.Now()
 	for _, b := range bouts {
 		poolID, err := uuid.Parse(b.PoolID)
 		if err != nil {
@@ -61,7 +80,8 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 		if err != nil {
 			return fmt.Errorf("parse fighter b id: %w", err)
 		}
-		if _, err := q.InsertBout(ctx, sqlc.InsertBoutParams{
+
+		row, err := q.InsertBout(ctx, sqlc.InsertBoutParams{
 			PoolID:         poolID,
 			NominationID:   nid,
 			RoundNumber:    int32(b.RoundNumber),
@@ -72,8 +92,35 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 			FighterBID:     fighterBID,
 			FighterBName:   b.FighterB.Name,
 			FighterBClub:   b.FighterB.Club,
-		}); err != nil {
+			State:          string(domain.StateNotStarted),
+			ScoreA:         0,
+			ScoreB:         0,
+			Version:        1,
+		})
+		if err != nil {
 			return fmt.Errorf("insert bout: %w", err)
+		}
+
+		payload, err := marshalPayload(domain.Payload{
+			PoolID:         b.PoolID,
+			NominationID:   nominationID,
+			RoundNumber:    b.RoundNumber,
+			SequenceNumber: b.SequenceNumber,
+			FighterA:       b.FighterA,
+			FighterB:       b.FighterB,
+		})
+		if err != nil {
+			return fmt.Errorf("marshal scheduled payload: %w", err)
+		}
+		if err := q.AppendEvent(ctx, sqlc.AppendEventParams{
+			BoutID:     row.ID,
+			Version:    1,
+			EventType:  string(domain.EventScheduled),
+			Payload:    payload,
+			ActorID:    pgtype.UUID{}, // NULL — scheduled формируется системой, не человеком.
+			OccurredAt: now,
+		}); err != nil {
+			return fmt.Errorf("insert scheduled event: %w", err)
 		}
 	}
 
@@ -84,7 +131,7 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 }
 
 // ListByNomination возвращает бои номинации, отсортированные по pool_id,
-// затем sequence_number (порядок задан на уровне SQL-запроса).
+// затем sequence_number.
 func (r *Repo) ListByNomination(ctx context.Context, nominationID string) ([]domain.Bout, error) {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
@@ -104,13 +151,280 @@ func (r *Repo) ListByNomination(ctx context.Context, nominationID string) ([]dom
 			NominationID:   row.NominationID.String(),
 			RoundNumber:    int(row.RoundNumber),
 			SequenceNumber: int(row.SequenceNumber),
-			FighterA: domain.FighterRef{
-				ID: row.FighterAID.String(), Name: row.FighterAName, Club: row.FighterAClub,
-			},
-			FighterB: domain.FighterRef{
-				ID: row.FighterBID.String(), Name: row.FighterBName, Club: row.FighterBClub,
-			},
+			FighterA:       domain.FighterRef{ID: row.FighterAID.String(), Name: row.FighterAName, Club: row.FighterAClub},
+			FighterB:       domain.FighterRef{ID: row.FighterBID.String(), Name: row.FighterBName, Club: row.FighterBClub},
+			State:          domain.BoutState(row.State),
+			ScoreA:         int(row.ScoreA),
+			ScoreB:         int(row.ScoreB),
+			Version:        int(row.Version),
 		}
 	}
 	return out, nil
+}
+
+// BoutsByPool возвращает бои пула (состояние/счёт), по sequence_number —
+// для доски ведения (вызывается модулем pool через порт).
+func (r *Repo) BoutsByPool(ctx context.Context, poolID string) ([]domain.Bout, error) {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return nil, fmt.Errorf("parse pool id: %w", err)
+	}
+
+	rows, err := r.q.BoutsByPool(ctx, pid)
+	if err != nil {
+		return nil, fmt.Errorf("bouts by pool: %w", err)
+	}
+
+	out := make([]domain.Bout, len(rows))
+	for i, row := range rows {
+		out[i] = domain.Bout{
+			ID:             row.ID.String(),
+			PoolID:         row.PoolID.String(),
+			NominationID:   row.NominationID.String(),
+			RoundNumber:    int(row.RoundNumber),
+			SequenceNumber: int(row.SequenceNumber),
+			FighterA:       domain.FighterRef{ID: row.FighterAID.String(), Name: row.FighterAName, Club: row.FighterAClub},
+			FighterB:       domain.FighterRef{ID: row.FighterBID.String(), Name: row.FighterBName, Club: row.FighterBClub},
+			State:          domain.BoutState(row.State),
+			ScoreA:         int(row.ScoreA),
+			ScoreB:         int(row.ScoreB),
+			Version:        int(row.Version),
+		}
+	}
+	return out, nil
+}
+
+// GetBout возвращает проекцию одного боя.
+func (r *Repo) GetBout(ctx context.Context, boutID string) (domain.Bout, error) {
+	bid, err := uuid.Parse(boutID)
+	if err != nil {
+		return domain.Bout{}, domain.ErrNotFound
+	}
+
+	row, err := r.q.GetBout(ctx, bid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Bout{}, domain.ErrNotFound
+		}
+		return domain.Bout{}, fmt.Errorf("get bout: %w", err)
+	}
+	return domain.Bout{
+		ID:             row.ID.String(),
+		PoolID:         row.PoolID.String(),
+		NominationID:   row.NominationID.String(),
+		RoundNumber:    int(row.RoundNumber),
+		SequenceNumber: int(row.SequenceNumber),
+		FighterA:       domain.FighterRef{ID: row.FighterAID.String(), Name: row.FighterAName, Club: row.FighterAClub},
+		FighterB:       domain.FighterRef{ID: row.FighterBID.String(), Name: row.FighterBName, Club: row.FighterBClub},
+		State:          domain.BoutState(row.State),
+		ScoreA:         int(row.ScoreA),
+		ScoreB:         int(row.ScoreB),
+		Version:        int(row.Version),
+	}, nil
+}
+
+// PoolProgress возвращает total/started/finished боёв пула (FR-10).
+func (r *Repo) PoolProgress(ctx context.Context, poolID string) (int, int, int, error) {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("parse pool id: %w", err)
+	}
+	row, err := r.q.PoolProgress(ctx, pid)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("pool progress: %w", err)
+	}
+	return int(row.Total), int(row.Started), int(row.Finished), nil
+}
+
+// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
+// state ≠ not_started (гейт расфиксации, FR-13).
+func (r *Repo) AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return false, fmt.Errorf("parse nomination id: %w", err)
+	}
+	got, err := r.q.AnyStartedInNomination(ctx, nid)
+	if err != nil {
+		return false, fmt.Errorf("any started in nomination: %w", err)
+	}
+	return got, nil
+}
+
+// Load возвращает поток событий боя, упорядоченный по версии.
+func (r *Repo) Load(ctx context.Context, boutID string) ([]domain.Event, error) {
+	bid, err := uuid.Parse(boutID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	rows, err := r.q.LoadEvents(ctx, bid)
+	if err != nil {
+		return nil, fmt.Errorf("load events: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, domain.ErrNotFound
+	}
+	out := make([]domain.Event, 0, len(rows))
+	for _, row := range rows {
+		ev, err := toDomainEvent(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+// Append атомарно вставляет событие (version = expectedVersion+1) и
+// обновляет проекцию в одной транзакции (ADR 0011 п.3/п.4).
+func (r *Repo) Append(ctx context.Context, boutID string, expectedVersion int, ev domain.Event, view domain.BoutView) error {
+	bid, err := uuid.Parse(boutID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	payload, err := marshalPayload(ev.Payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.AppendEvent(ctx, sqlc.AppendEventParams{
+		BoutID:     bid,
+		Version:    int32(expectedVersion + 1),
+		EventType:  string(ev.Type),
+		Payload:    payload,
+		ActorID:    toNullableUUID(ev.ActorID),
+		OccurredAt: ev.OccurredAt,
+	}); err != nil {
+		if isUniqueViolation(err, constraintBoutEventsVersion) {
+			return domain.ErrConcurrency
+		}
+		return fmt.Errorf("append event: %w", err)
+	}
+
+	if err := q.UpdateProjection(ctx, sqlc.UpdateProjectionParams{
+		ID:      bid,
+		State:   string(view.State),
+		ScoreA:  int32(view.ScoreA),
+		ScoreB:  int32(view.ScoreB),
+		Version: int32(view.Version),
+	}); err != nil {
+		return fmt.Errorf("update projection: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// jsonPayload — сериализуемое представление domain.Payload.
+type jsonPayload struct {
+	PoolID         string          `json:"pool_id,omitempty"`
+	NominationID   string          `json:"nomination_id,omitempty"`
+	RoundNumber    int             `json:"round_number,omitempty"`
+	SequenceNumber int             `json:"sequence_number,omitempty"`
+	FighterA       *jsonFighterRef `json:"fighter_a,omitempty"`
+	FighterB       *jsonFighterRef `json:"fighter_b,omitempty"`
+	ScoreA         int             `json:"score_a,omitempty"`
+	ScoreB         int             `json:"score_b,omitempty"`
+}
+
+type jsonFighterRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	Club string `json:"club,omitempty"`
+}
+
+func marshalPayload(p domain.Payload) ([]byte, error) {
+	jp := jsonPayload{
+		PoolID:         p.PoolID,
+		NominationID:   p.NominationID,
+		RoundNumber:    p.RoundNumber,
+		SequenceNumber: p.SequenceNumber,
+		ScoreA:         p.ScoreA,
+		ScoreB:         p.ScoreB,
+	}
+	if p.FighterA.ID != "" {
+		jp.FighterA = &jsonFighterRef{ID: p.FighterA.ID, Name: p.FighterA.Name, Club: p.FighterA.Club}
+	}
+	if p.FighterB.ID != "" {
+		jp.FighterB = &jsonFighterRef{ID: p.FighterB.ID, Name: p.FighterB.Name, Club: p.FighterB.Club}
+	}
+	return json.Marshal(jp)
+}
+
+func unmarshalPayload(raw []byte) (domain.Payload, error) {
+	if len(raw) == 0 {
+		return domain.Payload{}, nil
+	}
+	var jp jsonPayload
+	if err := json.Unmarshal(raw, &jp); err != nil {
+		return domain.Payload{}, err
+	}
+	p := domain.Payload{
+		PoolID:         jp.PoolID,
+		NominationID:   jp.NominationID,
+		RoundNumber:    jp.RoundNumber,
+		SequenceNumber: jp.SequenceNumber,
+		ScoreA:         jp.ScoreA,
+		ScoreB:         jp.ScoreB,
+	}
+	if jp.FighterA != nil {
+		p.FighterA = domain.FighterRef{ID: jp.FighterA.ID, Name: jp.FighterA.Name, Club: jp.FighterA.Club}
+	}
+	if jp.FighterB != nil {
+		p.FighterB = domain.FighterRef{ID: jp.FighterB.ID, Name: jp.FighterB.Name, Club: jp.FighterB.Club}
+	}
+	return p, nil
+}
+
+func toDomainEvent(row sqlc.LoadEventsRow) (domain.Event, error) {
+	payload, err := unmarshalPayload(row.Payload)
+	if err != nil {
+		return domain.Event{}, fmt.Errorf("unmarshal payload: %w", err)
+	}
+	return domain.Event{
+		Type:       domain.EventType(row.EventType),
+		ActorID:    fromNullableUUID(row.ActorID),
+		OccurredAt: row.OccurredAt,
+		Sequence:   int(row.Version),
+		Payload:    payload,
+	}, nil
+}
+
+// toNullableUUID конвертирует доменный actor_id ("" — нет инициатора,
+// событие scheduled) в pgtype.UUID.
+func toNullableUUID(id string) pgtype.UUID {
+	if id == "" {
+		return pgtype.UUID{}
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: [16]byte(parsed), Valid: true}
+}
+
+// fromNullableUUID — обратное преобразование.
+func fromNullableUUID(id pgtype.UUID) string {
+	if !id.Valid {
+		return ""
+	}
+	return uuid.UUID(id.Bytes).String()
+}
+
+// isUniqueViolation определяет, что ошибка PG — нарушение конкретного
+// unique-констрейнта (по имени).
+func isUniqueViolation(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == uniqueViolation && pgErr.ConstraintName == constraintName
 }

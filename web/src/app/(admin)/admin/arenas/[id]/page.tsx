@@ -6,6 +6,7 @@ import { Col, Row } from "@/shared/ui/stack";
 import { getArena } from "@/entities/arena/model/get-arena";
 import { arenaStatusLabel } from "@/entities/arena/lib/types";
 import { PoolSeating } from "@/features/pool-seating/ui/pool-seating";
+import { BoutBoard } from "@/features/bout-board/ui/bout-board";
 import { AdminHeader } from "../../admin-header";
 
 export const runtime = "nodejs";
@@ -16,12 +17,12 @@ type PageProps = { params: Promise<{ id: string }> };
 /**
  * /admin/arenas/[id] — стабильный URL страницы управления площадкой (FR-9).
  * Серверный компонент: SSR `getArena` по id; показывает реквизиты площадки
- * (имя, описание, статус) и секцию постановки/снятия пула (спека 0011,
+ * (имя, описание, статус), секцию постановки/снятия пула (спека 0011,
  * FR-9): виджет `PoolSeating` (клиентский, TanStack Query) поверх
- * `/api/arenas/[id]/pools`. Идентификатор = id (uuid), поэтому URL не
- * рвётся при переименовании и архивации (FR-8) без дополнительной логики.
- *
- * Ход боя (текущий бой, результат) — вне скоупа 0011, будущий инкремент.
+ * `/api/arenas/[id]/pools`, и секцию ведения боя стоящего пула (спека 0013,
+ * FR-14): виджет `BoutBoard` поверх `/api/arenas/[id]/board`. Идентификатор
+ * = id (uuid), поэтому URL не рвётся при переименовании и архивации (FR-8)
+ * без дополнительной логики.
  */
 export default async function AdminArenaPage({ params }: PageProps) {
   const { id } = await params;
@@ -75,11 +76,25 @@ export default async function AdminArenaPage({ params }: PageProps) {
             <CardDescription>
               Пул, готовящийся к запуску на этой площадке — с составом и
               боями по порядку, либо список готовых пулов для постановки
-              (спека 0011, FR-9). Сам ход боя — будущий инкремент.
+              (спека 0011, FR-9).
             </CardDescription>
           </CardHeader>
           <CardContent>
             <PoolSeating arenaId={arena.id} />
+          </CardContent>
+        </Card>
+
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>Ведение боя</CardTitle>
+            <CardDescription>
+              Текущий бой стоящего на арене пула: счёт (быстрые шаги ±1/±2/
+              ±3/±5 и ручной ввод), начать/завершить/переоткрыть/сбросить,
+              переключение текущего боя по списку (спека 0013, FR-14).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BoutBoard arenaId={arena.id} />
           </CardContent>
         </Card>
       </div>

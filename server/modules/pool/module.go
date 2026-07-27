@@ -23,18 +23,19 @@ import (
 // Deps — явные зависимости модуля pool (DI через конструктор). Fighters,
 // Bouts, Arenas и Nominations — межмодульные зависимости (порты, не прямой
 // доступ к чужим PG-схемам, ADR 0002); направления зависимостей — только
-// pool → fighter, pool → bout (спека 0010), pool → arena (спека 0011,
-// «Обзор решения») и pool → nomination (резолв имени номинации пула для
-// экрана арены, FR-9). Arenas/Nominations — реальные адаптеры подключаются
-// отдельной join-волной в internal/platform (см. tasks.md T8); до этого поле
-// может быть nil при локальной сборке composition root — модуль сам этим не
+// pool → fighter, pool → bout (спека 0010, лайфсайкл-команды добавлены
+// спекой 0013), pool → arena (спека 0011, «Обзор решения») и pool →
+// nomination (резолв имени номинации пула для экрана арены, FR-9). Bouts —
+// реальный адаптер к модулю bout (BoutConductor) подключается отдельной
+// join-волной в internal/platform (см. tasks.md T15); до этого поле может
+// быть nil при локальной сборке composition root — модуль сам этим не
 // управляет.
 type Deps struct {
-	Pool         *pgxpool.Pool
-	Fighters     domain.ActiveFightersProvider
-	Bouts        domain.BoutGenerator
-	Arenas       domain.ArenaProvider
-	Nominations  domain.NominationProvider
+	Pool        *pgxpool.Pool
+	Fighters    domain.ActiveFightersProvider
+	Bouts       domain.BoutConductor
+	Arenas      domain.ArenaProvider
+	Nominations domain.NominationProvider
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
