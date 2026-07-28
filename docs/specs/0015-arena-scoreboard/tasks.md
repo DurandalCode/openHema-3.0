@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: in progress
+- Статус: done
 - Дата: 2026-07-28
 - План: `./plan.md`
 
@@ -73,37 +73,37 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
 
 ## Server — Трек A: модуль `arena` (персист `default_duration`)
 
-- [ ] T3. **domain (red→green)** — `arena/domain/domain.go` + `domain_test.go`:
+- [x] T3. **domain (red→green)** — `arena/domain/domain.go` + `domain_test.go`:
       поле `DefaultDurationSeconds int` в `Arena`; валидатор диапазона `1..3600`
       (доменная ошибка при выходе). Тест: валидные/невалидные значения.
-- [ ] T4. **service (red→green)** — `arena/service/service_test.go` + `service.go`:
+- [x] T4. **service (red→green)** — `arena/service/service_test.go` + `service.go`:
       `SetDefaultDuration(ctx, arenaID, seconds)` — арена существует, **не
       архивна** (иначе доменная ошибка), валидация диапазона, `repo`-обновление,
       вернуть свежую арену. Тесты (fake-репо): успех; архивная → отказ; вне
       диапазона → `InvalidArgument`-эквивалент.
-- [ ] T5. **testutil** — `arena/testutil/fake_repo.go`: хранить/обновлять
+- [x] T5. **testutil** — `arena/testutil/fake_repo.go`: хранить/обновлять
       `DefaultDurationSeconds` (дефолт 90 у сидов), метод под новый repo-запрос.
-- [ ] T6. **repo** — `arena/repo/queries/arena.sql`: `UpdateArenaDefaultDuration`
+- [x] T6. **repo** — `arena/repo/queries/arena.sql`: `UpdateArenaDefaultDuration`
       (`:one`, `SET default_duration_seconds=$2, updated_at=now() WHERE id=$1
       RETURNING *`); `make sqlc`; `arena/repo/repo.go` — реализация + маппинг
       новой колонки в существующих `Get/List`.
-- [ ] T7. **migrations** — `arena/migrations/00002_default_duration.sql` (goose):
+- [x] T7. **migrations** — `arena/migrations/00002_default_duration.sql` (goose):
       `ALTER TABLE arena.arenas ADD COLUMN default_duration_seconds INTEGER NOT
       NULL DEFAULT 90 CONSTRAINT chk_arenas_default_duration CHECK BETWEEN 1 AND
       3600;` + `-- +goose Down` (DROP COLUMN).
-- [ ] T8. **api (red→green)** — `arena/api/handler_test.go` + `handler.go`:
+- [x] T8. **api (red→green)** — `arena/api/handler_test.go` + `handler.go`:
       `SetArenaDefaultDuration` (httptest + Connect, fake-репо) — успех + маппинг
       ошибок (архив→`FailedPrecondition`, диапазон→`InvalidArgument`); `toProtoArena`
       маппит `default_duration_seconds`.
 
 ## Server — Трек B: модуль `pool` (реле-комната + стриминг + команды)
 
-- [ ] T9. **domain — порт arena (red→green)** — `pool/domain/domain.go`:
+- [x] T9. **domain — порт arena (red→green)** — `pool/domain/domain.go`:
       расширить порт `ArenaProvider` методом `DefaultDurationSeconds(ctx,
       arenaID) (int, error)`. Обновить `pool/testutil/fake_arena_provider.go`
       (или аналог) — вернуть настраиваемый дефолт (90). Компиляционный red — через
       T11/T12.
-- [ ] T10. **реле-комната (red→green)** — `pool/service/arena_room.go` +
+- [x] T10. **реле-комната (red→green)** — `pool/service/arena_room.go` +
       `arena_room_test.go`: in-memory `arenaRooms` под mutex; `member{ role;
       ordinal; ch chan any }`; `room{ members; lastFrame *TimerFrame; swapped
       bool }`. Методы: `Join(arenaID, role) (member, snapshotFn)` /
@@ -117,7 +117,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
       panel без ordinal; пустая комната → `lastFrame` сброшен; `PublishFrame` от
       не-источника → отказ; `RelayCommand` доставляет всем; swap кешируется.
       **Таймерной математики нет** (её ведёт клиент).
-- [ ] T11. **service — ArenaLive + сигнал доски (red→green)** —
+- [x] T11. **service — ArenaLive + сигнал доски (red→green)** —
       `pool/service/service_test.go` + `service.go`: `ArenaLive(ctx, arenaID,
       member) (ArenaLiveSnapshot, error)` — собрать board (`GetBoutBoard`-путь) +
       `room.lastFrame`/`room` + `arena.DefaultDurationSeconds` (порт) +
@@ -127,7 +127,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
       `ReopenCurrentBout`, `ResetCurrentBout`) — рядом с существующей публикацией
       в топик номинации (0014). Тесты: композиция снапшота (fake-arena/кондуктор);
       каждая из 8 команд сигналит комнату верной арены; read-методы — не сигналят.
-- [ ] T12. **api — стриминг + команды (red→green)** — `pool/api/handler_test.go`
+- [x] T12. **api — стриминг + команды (red→green)** — `pool/api/handler_test.go`
       + `handler.go`: `WatchArenaBoard` (server-streaming: `Join` → первый
       `snapshot`; цикл `select { <-ctx.Done(): Leave+return; ev := <-member.ch:
       если command → Send command-event; иначе перечитать ArenaLive → Send
@@ -142,7 +142,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
 
 ## Web — Трек C (на моках grpc)
 
-- [ ] T13. **entities + сериализация (red→green)** — `entities/arena` — тип +
+- [x] T13. **entities + сериализация (red→green)** — `entities/arena` — тип +
       `defaultDurationSeconds`; `entities/arena-live/lib/types.ts` (DTO
       `ArenaLiveSnapshotDto`/`TimerFrameDto`/`ScoreboardRoomDto`, переиспользуют
       `BoutBoardDto` из `entities/bout`); `entities/arena-live/lib/` хелперы
@@ -152,7 +152,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
       `arenaLiveToJson` (`oneof` snapshot/command; переиспользует `boutBoardToJson`).
       Тесты: `boutOutcome`/`nextBout`/`boutNumber`; `arenaLiveToJson` round-trip;
       `pnpm exec tsc --noEmit`.
-- [ ] T14. **ядро таймера — чистые функции (red→green)** —
+- [x] T14. **ядро таймера — чистые функции (red→green)** —
       `features/arena-timer/model/timer-authority.ts` + `*.test.ts`:
       `apply(state, command, now)` (START якорит по `now`/`performance.now`; PAUSE
       фиксирует точный `remaining_cs`; RESET→default/STOPPED; ADJUST ±N клэмп ≥0;
@@ -162,7 +162,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
       `TimerFrame` → easing-коррекция + локальный довод rAF (без скачка на паузе).
       Тесты: PAUSE не «дёргает» (точное значение); клэмп; EXPIRED; авто-сброс;
       follower сглаживает и не прыгает.
-- [ ] T15. **BFF-роуты (red→green)** — `app/api/arenas/[id]/`:
+- [x] T15. **BFF-роуты (red→green)** — `app/api/arenas/[id]/`:
       `live/route.ts` (SSE-прокси `watchArenaBoard` `?role=`, event
       `{type:"snapshot"|"command",...}`, heartbeat, cleanup по `req.signal`,
       admin-токен, `runtime="nodejs"`; образец — `nominations/[id]/live`),
@@ -173,7 +173,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
       `setArenaDefaultDuration`). Тесты `*.test.ts` (мок connect/grpc): SSE-фрейминг
       обоих event + heartbeat + cleanup; проброс команд в gRPC; маппинг
       `connect.Code`→HTTP.
-- [ ] T16. **хуки (red→green)** — `features/arena-live/api/use-arena-live.ts`
+- [x] T16. **хуки (red→green)** — `features/arena-live/api/use-arena-live.ts`
       (`EventSource('/api/arenas/{id}/live?role=...')`, применяет `snapshot`/
       `command`, `serverOffset = server_now − Date.now()`, fallback polling
       `/board`, авто-reconnect; local state, не RQ) + `features/arena-timer/api/
@@ -182,7 +182,7 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
       + на переходах; иначе — follower через `timer-follower`). Тесты: фейковый
       `EventSource` (snapshot/command); роль source vs follower; source публикует
       кадры (мок fetch); fallback на polling.
-- [ ] T17. **виджет + страница + панель (red→green)** —
+- [x] T17. **виджет + страница + панель (red→green)** —
       `features/arena-timer/ui/TimerDisplay.tsx` (сотые, подсветка `<5.00` FR-19,
       сигнал на 0) + `TimerControls.tsx` (старт/пауза/сброс/`±1·2·3·5`, инпут
       дефолта, кнопка swap); `widgets/arena-scoreboard/arena-scoreboard.tsx`
@@ -199,24 +199,24 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
 
 ## Волна 2 — join (после мержа A+B+C)
 
-- [ ] T18. **wiring** — `internal/platform`: создать `arenaRooms` (из `pool`) в
+- [x] T18. **wiring** — `internal/platform`: создать `arenaRooms` (из `pool`) в
       composition root, прокинуть в `pool` service/handler; адаптер
       `ArenaProvider` над модулем `arena` расширить `DefaultDurationSeconds`
       (вызывает `arena`-сервис/чтение); зарегистрировать `WatchArenaBoard`/
       `PublishTimerFrame`/`ControlArenaTimer`/`SetScoreboardSides` под `adminOpts`
       и `SetArenaDefaultDuration` в `arena`. Проверить, что интерсепторы
       (recovery/logging) корректно оборачивают server-streaming RPC.
-- [ ] T19. **integration (testcontainers)** — `arena/integration`: миграция
+- [x] T19. **integration (testcontainers)** — `arena/integration`: миграция
       `00002` применяется; `default_duration_seconds` пишется/читается через
       реальный Connect × реальный PG (дефолт 90; `SetArenaDefaultDuration`
       меняет). (`pool`-стриминг покрыт e2e без БД, T12.)
-- [ ] T20. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
+- [x] T20. **проверка** — `make test-all` зелёный; `pnpm exec tsc --noEmit`
       (менялись protobuf-моки); `go build ./...` + `pnpm build`; ручной прогон:
       открыть `/admin/arenas/[id]/scoreboard` на одном экране и панель арены на
       другом → счёт/состояние обновляются на табло; таймер: старт/пауза/±/сброс с
       панели идут синхронно, сотые плавные, на паузе нет скачка; смена текущего
       боя сбрасывает таймер; завершение боя показывает победителя; подсветка `<5c`.
-- [ ] T21. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
+- [x] T21. **статус/индекс** — обновить статусы `spec.md`/`plan.md`/`tasks.md`
       (→done по мере); строка 0015 в `docs/specs/README.md` (`plan`→`tasks`→`done`);
       проставить пометки «изменён 0015» у 0008 (колонка `default_duration` +
       admin-табло), 0013 (таймер/swap на панель), 0014 (переиспользован паттерн
@@ -225,3 +225,33 @@ fake-репо/кондукторе), **C** (web — SSE/хуки/ядро тай
 _Задачи адаптированы под фичу: контракты+ADR → `arena` (персист, снизу вверх) ‖
 `pool` (реле-комната/стриминг, на fake-arena) ‖ web (ядро таймера на клиенте, на
 моках) → join (wiring реле-комнаты + adapter arena→pool, integration, verification)._
+
+## Находки join-волны (сверх исходного чек-листа)
+
+- **Регрессия в `pkg/connectutil`**: `Auth`/`RequireAdmin` были
+  `connect.UnaryInterceptorFunc` — у этого типа `WrapStreamingHandler` в самом
+  connect-go осознанный no-op, т.е. server-streaming RPC **вообще не
+  проходили** ни аутентификацию, ни проверку роли admin. До 0015 в проекте не
+  было admin-only streaming RPC (`WatchNominationLive`, 0014, — публичный, баг
+  был безвреден), `WatchArenaBoard` стал первым и обнажил проблему (найдено
+  треком B, e2e-тестом это не покрывалось). Исправлено координатором на
+  join-волне: `Auth`/`RequireAdmin`, а заодно и `Logging`/`Recovery`
+  (тот же паттерн, тот же риск — необработанная паника в стриме и отсутствие
+  логов) переписаны как полноценные `connect.Interceptor` с явным
+  `WrapStreamingHandler`. Добавлены регрессионные тесты
+  `TestWatchArenaBoard_E2E_NoTokenReturnsUnauthenticated`/
+  `_NonAdminReturnsPermissionDenied` (`pool/api/handler_test.go`) — без фикса
+  падали бы (стрим отдавал бы снапшот без токена).
+- **T19** дополнен тестом `SetArenaDefaultDuration` вне диапазона →
+  `InvalidArgument` (сверх исходного «дефолт пишется/читается»).
+- **T20 «ручной прогон»** выполнен по-настоящему (Playwright headless
+  Chromium, два независимых залогиненных браузерных контекста поверх `make
+  dev` + `make demo-bouts`, не только автотесты): открыт `/admin/arenas/[id]`
+  (панель — таймер-блок, кнопка «Открыть табло») и `/admin/arenas/[id]/scoreboard`
+  (полноэкранное табло) для одной и той же готовящейся арены; подтверждено
+  живое обновление счёта/доски, синий/красный с именами и клубами, «Бой N из
+  M», «Далее: …»; клик «Старт» на панели — оба экрана тикают синхронно
+  (панель 1:28.18, табло 1:25.58 с учётом сдвига по времени скриншотов); клик
+  «Пауза» — на обоих экранах отсчёт останавливается на **идентичном** значении
+  (1:27.97 = 1:27.97, без расхождения сотых); консоль браузера чистая на обеих
+  страницах. Скриншоты — в scratch-директории сессии, не коммитятся.

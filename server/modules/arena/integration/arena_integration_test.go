@@ -301,6 +301,74 @@ func TestIntegration_ReorderArenas_TransactionalAndPersisted(t *testing.T) {
 	}
 }
 
+// TestIntegration_DefaultDurationSeconds_DefaultAndPersisted — спека 0015,
+// FR-8: миграция 00002 добавляет колонку с DEFAULT 90 (создание арены без
+// явного указания длительности получает дефолт из схемы), а
+// SetArenaDefaultDuration меняет и персистит значение через реальный PG.
+func TestIntegration_DefaultDurationSeconds_DefaultAndPersisted(t *testing.T) {
+	admin := setup(t)
+
+	createReq := connect.NewRequest(&hemav1.CreateArenaRequest{
+		TournamentId: seedTournamentID,
+		Name:         "Ристалище с таймером",
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := admin.CreateArena(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateArena: %v", err)
+	}
+	if created.Msg.Arena.DefaultDurationSeconds != 90 {
+		t.Errorf("default_duration_seconds at creation = %d, want 90 (schema DEFAULT)", created.Msg.Arena.DefaultDurationSeconds)
+	}
+
+	setReq := connect.NewRequest(&hemav1.SetArenaDefaultDurationRequest{
+		ArenaId:                created.Msg.Arena.Id,
+		DefaultDurationSeconds: 120,
+	})
+	setReq.Header().Set("Authorization", adminBearer(t))
+	setRes, err := admin.SetArenaDefaultDuration(context.Background(), setReq)
+	if err != nil {
+		t.Fatalf("SetArenaDefaultDuration: %v", err)
+	}
+	if setRes.Msg.Arena.DefaultDurationSeconds != 120 {
+		t.Errorf("default_duration_seconds after set = %d, want 120", setRes.Msg.Arena.DefaultDurationSeconds)
+	}
+
+	getReq := connect.NewRequest(&hemav1.GetArenaRequest{Id: created.Msg.Arena.Id})
+	getReq.Header().Set("Authorization", adminBearer(t))
+	got, err := admin.GetArena(context.Background(), getReq)
+	if err != nil {
+		t.Fatalf("GetArena: %v", err)
+	}
+	if got.Msg.Arena.DefaultDurationSeconds != 120 {
+		t.Errorf("persisted default_duration_seconds = %d, want 120", got.Msg.Arena.DefaultDurationSeconds)
+	}
+}
+
+func TestIntegration_SetArenaDefaultDuration_OutOfRangeReturnsInvalidArgument(t *testing.T) {
+	admin := setup(t)
+
+	createReq := connect.NewRequest(&hemav1.CreateArenaRequest{
+		TournamentId: seedTournamentID,
+		Name:         "T",
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := admin.CreateArena(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateArena: %v", err)
+	}
+
+	setReq := connect.NewRequest(&hemav1.SetArenaDefaultDurationRequest{
+		ArenaId:                created.Msg.Arena.Id,
+		DefaultDurationSeconds: 0,
+	})
+	setReq.Header().Set("Authorization", adminBearer(t))
+	_, err = admin.SetArenaDefaultDuration(context.Background(), setReq)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
 func TestIntegration_CreateArena_NoToken(t *testing.T) {
 	admin := setup(t)
 

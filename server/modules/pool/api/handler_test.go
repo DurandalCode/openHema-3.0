@@ -1013,6 +1013,46 @@ func TestWatchArenaBoard_E2E_FirstFrameIsSnapshotOnConnect(t *testing.T) {
 	}
 }
 
+// Регрессия: WatchArenaBoard — первый в проекте admin-only server-streaming
+// RPC. connect.UnaryInterceptorFunc (старая форма Auth/RequireAdmin) не
+// оборачивает WrapStreamingHandler — без явной реализации оба этих теста
+// падали бы (стрим открывался и отдавал снапшот без токена/без роли admin).
+// pkg/connectutil.Auth/RequireAdmin теперь полноценный connect.Interceptor
+// (см. auth_interceptor.go) — эти тесты подтверждают, что streaming-путь
+// тоже защищён, не только unary.
+func TestWatchArenaBoard_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	stream, err := admin.WatchArenaBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if stream.Receive() {
+		t.Fatalf("expected no frames, got: %+v", stream.Msg())
+	}
+	if connect.CodeOf(stream.Err()) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(stream.Err()))
+	}
+}
+
+func TestWatchArenaBoard_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", userBearer(t))
+	stream, err := admin.WatchArenaBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if stream.Receive() {
+		t.Fatalf("expected no frames, got: %+v", stream.Msg())
+	}
+	if connect.CodeOf(stream.Err()) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(stream.Err()))
+	}
+}
+
 // ControlArenaTimer от панели ретранслируется единственному подключённому
 // табло (источнику) через её WatchArenaBoard-поток (спека 0015, FR-7).
 func TestWatchArenaBoard_E2E_ControlArenaTimerRelaysCommandToSource(t *testing.T) {
