@@ -421,6 +421,13 @@ type ArenaProvider interface {
 	// пулов, ListPublicPools/GetPoolsForArena). Отсутствующие id в ответе
 	// просто не встречаются в карте.
 	ArenasByIDs(ctx context.Context, ids []string) (map[string]ArenaRef, error)
+	// DefaultDurationSeconds возвращает персистентный дефолт длительности
+	// таймера табло арены (спека 0015): используется для инициализации/
+	// сброса таймера у авторитетного табло и как default_duration_seconds
+	// в ArenaLiveSnapshot. Владелец значения — модуль arena (ADR 0002);
+	// сама длительность таймера при этом недоменная и не хранится модулем
+	// pool (ADR 0013).
+	DefaultDurationSeconds(ctx context.Context, arenaID string) (int, error)
 }
 
 // NominationRef — проекция номинации для обогащения пулов именем номинации
@@ -446,4 +453,89 @@ type NominationProvider interface {
 	// способной изменить число распределённых бойцов — сервис сам решает,
 	// когда звать (по результирующему состоянию, не по имени RPC).
 	SyncRegistrationState(ctx context.Context, nominationID string, hasDistributedFighters bool) error
+}
+
+// ---------------------------------------------------------------------
+// Спека 0015: недоменный таймер табло арены (ADR 0013 — сервер как реле).
+// Комната живая (в памяти процесса, эфемерна, без PG) — эти типы описывают
+// только форму данных, которыми обмениваются участники комнаты; сама
+// комната — service.arenaRooms (не domain: не переживает рестарт процесса,
+// не персистентная сущность в смысле остального пакета domain).
+// ---------------------------------------------------------------------
+
+// ScoreboardRole — роль подключённого к живой комнате арены участника:
+// табло (полноэкранный зрительский экран, участвует в ordinal/source) или
+// панель управления ареной (this_ordinal всегда 0, никогда не источник).
+type ScoreboardRole string
+
+const (
+	ScoreboardRoleScoreboard ScoreboardRole = "scoreboard"
+	ScoreboardRolePanel      ScoreboardRole = "panel"
+)
+
+// TimerStatus — состояние недоменного таймера табло (спека 0015, FR-9).
+// Источник истины — авторитетное табло (клиент); сервер лишь ретранслирует
+// и кеширует последний присланный кадр (ADR 0013).
+type TimerStatus string
+
+const (
+	TimerStatusStopped TimerStatus = "stopped"
+	TimerStatusRunning TimerStatus = "running"
+	TimerStatusPaused  TimerStatus = "paused"
+	TimerStatusExpired TimerStatus = "expired"
+)
+
+// TimerCommandKind — команды панели управления таймером (спека 0015, FR-7).
+type TimerCommandKind string
+
+const (
+	TimerCommandStart  TimerCommandKind = "start"
+	TimerCommandPause  TimerCommandKind = "pause"
+	TimerCommandReset  TimerCommandKind = "reset"
+	TimerCommandAdjust TimerCommandKind = "adjust"
+)
+
+// TimerCommand — команда таймера, ретранслируемая сервером от панели
+// авторитетному табло (спека 0015, FR-7). AmountSeconds — знаковое смещение,
+// используется только для TimerCommandAdjust (±1/±2/±3/±5).
+type TimerCommand struct {
+	Kind          TimerCommandKind
+	AmountSeconds int32
+}
+
+// TimerFrame — полное состояние таймера в момент SampledUnixMS по часам
+// авторитетного табло (спека 0015, «синхроним полное время»). RemainingCS —
+// сантисекунды (сотые доли секунды); DefaultCS — текущий дефолт комнаты
+// (сантисекунды). Followers доводят локально между кадрами (клиентское
+// сглаживание) — сервер математику таймера не считает (ADR 0013).
+type TimerFrame struct {
+	Status        TimerStatus
+	RemainingCS   int32
+	SampledUnixMS int64
+	DefaultCS     int32
+}
+
+// ScoreboardRoom — состав живой комнаты арены с точки зрения текущего
+// подписчика (спека 0015, FR-11/FR-12): сколько табло подключено, какой у
+// этого подписчика порядковый номер (панель — 0) и является ли он
+// источником таймера (табло ordinal 1). SidesSwapped — эфемерный swap
+// синий/красный (FR-6), не персистится за пределами живой комнаты.
+type ScoreboardRoom struct {
+	ScoreboardCount int
+	ThisOrdinal     int
+	ThisIsSource    bool
+	SidesSwapped    bool
+}
+
+// ArenaLiveSnapshot — живой снапшот табло арены целиком (спека 0015): доска
+// ведения (пусто, если на арене никто не стоит, FR-5), последнее известное
+// состояние таймера, состав комнаты для конкретного подписчика,
+// персистентный дефолт арены и серверное время в момент сборки кадра
+// (опора клиентской синхронизации часов).
+type ArenaLiveSnapshot struct {
+	Board                  BoutBoard
+	Timer                  TimerFrame
+	Room                   ScoreboardRoom
+	DefaultDurationSeconds int32
+	ServerNowUnixMS        int64
 }

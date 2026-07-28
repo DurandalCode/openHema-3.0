@@ -20,13 +20,18 @@ type Service struct {
 	arenas      domain.ArenaProvider
 	nominations domain.NominationProvider
 	liveBus     domain.LiveBus
+	// rooms — реестр живых комнат табло арен (спека 0015, ADR 0013):
+	// недоменный таймер-реле, целиком в памяти процесса (эфемерно, без PG).
+	// Живёт внутри Service — наружу (Deps/module.go) новых зависимостей не
+	// требует, см. arena_room.go.
+	rooms *arenaRooms
 }
 
 // New создаёт сервис pool. liveBus — порт живой шины (спека 0014, ADR
 // 0012): Service — единственный держатель этой зависимости в модуле, api-
 // слой обращается к подписке через passthrough-метод Service.SubscribeNomination.
 func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider, liveBus domain.LiveBus) *Service {
-	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus}
+	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, rooms: newArenaRooms()}
 }
 
 // GetLayout возвращает раскладку номинации (lazy-init + реконсиляция с
@@ -316,6 +321,7 @@ func (s *Service) SeatPoolOnArena(ctx context.Context, poolID, arenaID string) (
 		return domain.Layout{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(arenaID)
 	return s.loadLayout(ctx, pool.NominationID)
 }
 
@@ -333,10 +339,15 @@ func (s *Service) UnseatPool(ctx context.Context, poolID string) (domain.Layout,
 	if err != nil {
 		return domain.Layout{}, err
 	}
+	// arenaID читаем ДО репозиторного UnseatPool: после снятия привязка пула
+	// к арене уже очищена (спека 0015, T11) — сигналить нужно ту арену, с
+	// которой пул только что сняли.
+	arenaID := pool.ArenaID
 	if err := s.repo.UnseatPool(ctx, poolID); err != nil {
 		return domain.Layout{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(arenaID)
 	return s.loadLayout(ctx, pool.NominationID)
 }
 
@@ -397,6 +408,7 @@ func (s *Service) SetCurrentBout(ctx context.Context, poolID, boutID string) (do
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -414,6 +426,7 @@ func (s *Service) StartCurrentBout(ctx context.Context, poolID, actorID string) 
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -433,6 +446,7 @@ func (s *Service) ScoreCurrentBout(ctx context.Context, poolID, actorID string, 
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -459,6 +473,7 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -477,6 +492,7 @@ func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string)
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
 
@@ -495,6 +511,7 @@ func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) 
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
 
