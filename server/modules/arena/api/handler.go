@@ -138,6 +138,22 @@ func (h *AdminHandler) ReorderArenas(
 	}), nil
 }
 
+// SetArenaDefaultDuration задаёт дефолтную длительность боя (в секундах,
+// 1..3600) для табло арены существующей площадки.
+func (h *AdminHandler) SetArenaDefaultDuration(
+	ctx context.Context,
+	req *connect.Request[hemav1.SetArenaDefaultDurationRequest],
+) (*connect.Response[hemav1.SetArenaDefaultDurationResponse], error) {
+	m := req.Msg
+	a, err := h.svc.SetDefaultDuration(ctx, m.ArenaId, m.DefaultDurationSeconds)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SetArenaDefaultDurationResponse{
+		Arena: toProtoArena(a),
+	}), nil
+}
+
 // mapError переводит доменные ошибки в connect.Code.
 func mapError(err error) error {
 	switch {
@@ -160,14 +176,15 @@ func toProtoArenas(arenas []domain.Arena) []*hemav1.Arena {
 
 func toProtoArena(a domain.Arena) *hemav1.Arena {
 	return &hemav1.Arena{
-		Id:           a.ID,
-		TournamentId: a.TournamentID,
-		Name:         a.Name,
-		Description:  a.Description,
-		Position:     a.Position,
-		Status:       toProtoStatus(a.Status),
-		CreatedAt:    timestamppb.New(a.CreatedAt),
-		UpdatedAt:    timestamppb.New(a.UpdatedAt),
+		Id:                     a.ID,
+		TournamentId:           a.TournamentID,
+		Name:                   a.Name,
+		Description:            a.Description,
+		Position:               a.Position,
+		Status:                 toProtoStatus(a.Status),
+		DefaultDurationSeconds: a.DefaultDurationSeconds,
+		CreatedAt:              timestamppb.New(a.CreatedAt),
+		UpdatedAt:              timestamppb.New(a.UpdatedAt),
 	}
 }
 

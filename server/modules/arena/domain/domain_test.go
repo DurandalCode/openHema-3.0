@@ -27,6 +27,29 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestValidateDefaultDuration(t *testing.T) {
+	cases := []struct {
+		name string
+		in   int32
+		want error
+	}{
+		{"minimum accepted", 1, nil},
+		{"maximum accepted", 3600, nil},
+		{"typical value accepted", 90, nil},
+		{"zero rejected", 0, ErrInvalidInput},
+		{"above maximum rejected", 3601, ErrInvalidInput},
+		{"negative rejected", -1, ErrInvalidInput},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := ValidateDefaultDuration(c.in)
+			if !errors.Is(err, c.want) {
+				t.Errorf("ValidateDefaultDuration(%d) = %v, want %v", c.in, err, c.want)
+			}
+		})
+	}
+}
+
 func TestStatusConstants(t *testing.T) {
 	if StatusActive != "active" {
 		t.Errorf("StatusActive = %q, want \"active\"", StatusActive)

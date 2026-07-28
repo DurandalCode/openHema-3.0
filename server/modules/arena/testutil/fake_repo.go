@@ -82,14 +82,15 @@ func (r *FakeRepo) Create(_ context.Context, tournamentID string, in domain.Crea
 
 	now := time.Now().UTC()
 	a := domain.Arena{
-		ID:          uuid.NewString(),
-		TournamentID: tournamentID,
-		Name:        in.Name,
-		Description: in.Description,
-		Position:    maxPosition + 1,
-		Status:      domain.StatusActive,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:                     uuid.NewString(),
+		TournamentID:           tournamentID,
+		Name:                   in.Name,
+		Description:            in.Description,
+		Position:               maxPosition + 1,
+		Status:                 domain.StatusActive,
+		DefaultDurationSeconds: 90,
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	}
 	r.arenas[a.ID] = a
 	return a, nil
@@ -146,6 +147,21 @@ func (r *FakeRepo) Reorder(_ context.Context, _ string, orderedIDs []string) ([]
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// SetDefaultDuration задаёт дефолтную длительность боя для площадки.
+func (r *FakeRepo) SetDefaultDuration(_ context.Context, id string, seconds int32) (domain.Arena, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.arenas[id]
+	if !ok {
+		return domain.Arena{}, domain.ErrNotFound
+	}
+	existing.DefaultDurationSeconds = seconds
+	existing.UpdatedAt = time.Now().UTC()
+	r.arenas[id] = existing
+	return existing, nil
 }
 
 func sortByPosition(arenas []domain.Arena) {

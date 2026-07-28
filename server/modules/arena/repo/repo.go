@@ -186,15 +186,36 @@ func (r *Repo) Reorder(ctx context.Context, tournamentID string, orderedIDs []st
 	return out, nil
 }
 
+// SetDefaultDuration задаёт дефолтную длительность боя для площадки
+// (недоменная настройка табло арены).
+func (r *Repo) SetDefaultDuration(ctx context.Context, id string, seconds int32) (domain.Arena, error) {
+	aid, err := uuid.Parse(id)
+	if err != nil {
+		return domain.Arena{}, domain.ErrNotFound
+	}
+	row, err := r.q.UpdateArenaDefaultDuration(ctx, sqlc.UpdateArenaDefaultDurationParams{
+		ID:                     aid,
+		DefaultDurationSeconds: seconds,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Arena{}, domain.ErrNotFound
+		}
+		return domain.Arena{}, fmt.Errorf("update arena default duration: %w", err)
+	}
+	return toDomain(row), nil
+}
+
 func toDomain(row sqlc.ArenaArena) domain.Arena {
 	return domain.Arena{
-		ID:           row.ID.String(),
-		TournamentID: row.TournamentID.String(),
-		Name:         row.Name,
-		Description:  row.Description,
-		Position:     row.Position,
-		Status:       domain.Status(row.Status),
-		CreatedAt:    row.CreatedAt,
-		UpdatedAt:    row.UpdatedAt,
+		ID:                     row.ID.String(),
+		TournamentID:           row.TournamentID.String(),
+		Name:                   row.Name,
+		Description:            row.Description,
+		Position:               row.Position,
+		Status:                 domain.Status(row.Status),
+		DefaultDurationSeconds: row.DefaultDurationSeconds,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}
 }
