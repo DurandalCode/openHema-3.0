@@ -17,25 +17,45 @@ export function formatTimerCs(remainingCs: number): string {
 }
 
 /**
- * TimerDisplay — крупные часы боя (спека 0015): подсветка последних <5.00с
- * (FR-19), визуальный индикатор на `EXPIRED` (стоп на 0 с сигналом, FR-9).
- * Read-only (FR-17) — нет обработчиков.
+ * TimerDisplay — часы боя (спека 0015): подсветка последних <5.00с (FR-19),
+ * визуальный индикатор на `EXPIRED` (стоп на 0 с сигналом, FR-9). Read-only
+ * (FR-17) — нет обработчиков.
+ *
+ * `size="scoreboard"` — режим полноэкранного табло (NFR-1, «читаемость с
+ * расстояния»): табло сознательно **исключение из дизайн-системы** —
+ * не наследует тему (`dark:`/CSS-переменные), а держит фиксированный
+ * максимальный контраст (белый на чёрном) независимо от системной/локальной
+ * темы админа, плюс кратно крупнее шрифт. `size="panel"` (по умолчанию) —
+ * обычный вид внутри админки, темизированный, без изменений.
  */
-export function TimerDisplay({ status, remainingCs }: { status: TimerStatus; remainingCs: number }) {
+export function TimerDisplay({
+  status,
+  remainingCs,
+  size = "panel",
+}: {
+  status: TimerStatus;
+  remainingCs: number;
+  size?: "panel" | "scoreboard";
+}) {
   const lowTime = remainingCs < 500 && status !== "EXPIRED";
   const expired = status === "EXPIRED";
+  const alert = expired || lowTime;
 
   return (
     <div
       data-timer-status={status}
       data-low-time={lowTime || undefined}
       className={cn(
-        "font-mono font-bold tabular-nums transition-colors",
-        expired
-          ? "animate-pulse text-destructive"
-          : lowTime
-            ? "animate-pulse text-7xl text-destructive sm:text-8xl"
-            : "text-6xl text-foreground sm:text-7xl",
+        "font-mono font-black tabular-nums transition-colors",
+        size === "scoreboard"
+          ? cn(
+              "text-[5rem] leading-none sm:text-[8rem] lg:text-[10rem]",
+              alert ? "animate-pulse text-red-500" : "text-white",
+            )
+          : cn(
+              "text-6xl sm:text-7xl",
+              alert ? "animate-pulse text-destructive" : "text-foreground",
+            ),
       )}
     >
       {formatTimerCs(remainingCs)}

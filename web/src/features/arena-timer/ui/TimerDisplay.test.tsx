@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { TimerDisplay, formatTimerCs } from "./TimerDisplay";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("formatTimerCs", () => {
   it("formats seconds and hundredths without minutes as SS.hh", () => {
@@ -41,5 +45,19 @@ describe("TimerDisplay", () => {
     render(<TimerDisplay status="RUNNING" remainingCs={500} />);
     const el = screen.getByText("05.00");
     expect(el).not.toHaveAttribute("data-low-time");
+  });
+
+  it("size=scoreboard renders much larger, fixed white-on-black (design-system exception)", () => {
+    render(<TimerDisplay status="RUNNING" remainingCs={9000} size="scoreboard" />);
+    const el = screen.getByText("1:30.00");
+    expect(el.className).toContain("text-white");
+    expect(el.className).toMatch(/text-\[\d+rem\]/);
+    expect(el.className).not.toContain("text-foreground");
+  });
+
+  it("size=scoreboard still turns red on low-time/expired", () => {
+    render(<TimerDisplay status="EXPIRED" remainingCs={0} size="scoreboard" />);
+    const el = screen.getByText("00.00");
+    expect(el.className).toContain("text-red-500");
   });
 });

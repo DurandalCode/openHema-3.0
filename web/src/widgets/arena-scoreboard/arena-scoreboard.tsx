@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/shared/lib/cn";
 import { useArenaLive } from "@/features/arena-live/api/use-arena-live";
 import { useArenaTimer } from "@/features/arena-timer/api/use-arena-timer";
 import { TimerDisplay } from "@/features/arena-timer/ui/TimerDisplay";
@@ -19,10 +20,19 @@ function colorOfFighterA(sidesSwapped: boolean): Color {
  * (синий/красный, счёт), таймер, следующая пара, оглашение победителя.
  * Read-only (FR-17) — нет обработчиков, меняющих состояние.
  *
- * Корневой `fixed inset-0 z-50 bg-background` перекрывает родительский
- * chrome (Navbar/AdminNav) на весь просмотр без второго root layout
- * (см. поправку к плану — Next.js App Router не даёт снять родительский
- * layout, а второй root потребовал бы убрать общий `app/layout.tsx`).
+ * Корневой `fixed inset-0 z-50` перекрывает родительский chrome (Navbar/
+ * AdminNav) на весь просмотр без второго root layout (см. поправку к плану —
+ * Next.js App Router не даёт снять родительский layout, а второй root
+ * потребовал бы убрать общий `app/layout.tsx`).
+ *
+ * **Табло — намеренное исключение из дизайн-системы** (NFR-1, «читаемость
+ * с расстояния»): в отличие от остального приложения оно НЕ наследует тему
+ * (`bg-background`/`text-foreground`/`dark:`/CSS-переменные) — фон и текст
+ * захардкожены (чёрный/белый) независимо от системной/локальной темы
+ * зрителя или админа, шрифты кратно крупнее обычных, цветовые панели —
+ * сплошная насыщенная заливка, а не 10%-тинт. Это осознанно: экран на
+ * проекторе у площадки должен выглядеть одинаково всегда, а не «поехать»
+ * из-за чьей-то светлой темы браузера.
  */
 export function ArenaScoreboard({
   arenaId,
@@ -92,9 +102,9 @@ export function ArenaScoreboard({
 
   if (!board || !board.pool || !displayedBout) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background">
-        <p className="text-2xl text-muted-foreground">{arenaName || "Табло"}</p>
-        <p className="text-4xl font-semibold">Ожидание боя…</p>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-black text-white">
+        <p className="text-3xl text-gray-400 sm:text-4xl">{arenaName || "Табло"}</p>
+        <p className="text-6xl font-black sm:text-7xl">Ожидание боя…</p>
       </div>
     );
   }
@@ -121,15 +131,15 @@ export function ArenaScoreboard({
     outcome === "draw" ? "Ничья" : outcome === "A" ? displayedBout.fighterA.name : outcome === "B" ? displayedBout.fighterB.name : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col gap-6 overflow-y-auto bg-background p-6 sm:p-10">
+    <div className="fixed inset-0 z-50 flex flex-col gap-6 overflow-y-auto bg-black p-6 text-white sm:p-10">
       <header className="flex flex-col items-center gap-1 text-center">
-        <h1 className="text-2xl font-semibold sm:text-3xl">{arenaName || "Табло"}</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-4xl font-bold sm:text-5xl lg:text-6xl">{arenaName || "Табло"}</h1>
+        <p className="text-xl text-gray-300 sm:text-2xl">
           {board.pool.nominationName}
           {board.pool.name ? ` · ${board.pool.name}` : ""}
         </p>
         {number && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-lg text-gray-400 sm:text-xl">
             Бой {number.current} из {number.total}
           </p>
         )}
@@ -141,25 +151,26 @@ export function ArenaScoreboard({
       </div>
 
       <div className="flex flex-col items-center gap-2">
-        <TimerDisplay status={display.status} remainingCs={display.remainingCs} />
+        <TimerDisplay status={display.status} remainingCs={display.remainingCs} size="scoreboard" />
       </div>
 
       {finished && outcomeLabel && (
         <div
           data-testid="outcome-announcement"
-          className={
+          className={cn(
+            "rounded-lg p-6 text-center text-5xl font-black sm:text-6xl",
             outcomeColor === "blue"
-              ? "rounded-lg bg-blue-600/10 p-4 text-center text-3xl font-bold text-blue-600"
+              ? "bg-blue-600 text-white"
               : outcomeColor === "red"
-                ? "rounded-lg bg-red-600/10 p-4 text-center text-3xl font-bold text-red-600"
-                : "rounded-lg bg-muted p-4 text-center text-3xl font-bold"
-          }
+                ? "bg-red-600 text-white"
+                : "bg-white text-black",
+          )}
         >
           {outcome === "draw" ? "Ничья" : `Победа: ${outcomeLabel}`}
         </div>
       )}
 
-      <footer className="text-center text-lg text-muted-foreground">
+      <footer className="text-center text-2xl text-gray-300 sm:text-3xl">
         {upNext ? (
           <p>
             Далее: {upNext.fighterA.name} — {upNext.fighterB.name}
@@ -176,16 +187,19 @@ function FighterPanel({ color, fighter, score }: { color: Color; fighter: Fighte
   return (
     <div
       data-color={color}
-      className={
-        color === "blue"
-          ? "flex flex-col items-center gap-2 rounded-xl bg-blue-600/10 p-6 text-blue-700 dark:text-blue-400"
-          : "flex flex-col items-center gap-2 rounded-xl bg-red-600/10 p-6 text-red-700 dark:text-red-400"
-      }
+      className={cn(
+        "flex flex-col items-center gap-3 rounded-xl p-6 text-white sm:p-8",
+        color === "blue" ? "bg-blue-800" : "bg-red-800",
+      )}
     >
-      <span className="text-sm font-medium uppercase tracking-wide">{color === "blue" ? "Синий" : "Красный"}</span>
-      <span className="text-center text-2xl font-bold sm:text-3xl">{fighter.name}</span>
-      {fighter.club && <span className="text-sm opacity-80">{fighter.club}</span>}
-      <span className="font-mono text-6xl font-extrabold tabular-nums sm:text-7xl">{score}</span>
+      <span className="text-2xl font-bold uppercase tracking-widest sm:text-3xl">
+        {color === "blue" ? "Синий" : "Красный"}
+      </span>
+      <span className="text-center text-4xl font-extrabold sm:text-5xl lg:text-6xl">{fighter.name}</span>
+      {fighter.club && <span className="text-lg text-white/80 sm:text-xl">{fighter.club}</span>}
+      <span className="font-mono text-[6rem] font-black leading-none tabular-nums sm:text-[8rem] lg:text-[10rem]">
+        {score}
+      </span>
     </div>
   );
 }
