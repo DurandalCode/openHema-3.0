@@ -81,6 +81,26 @@ service PoolAdminService {
   // ResetCurrentBout переводит текущий бой идёт → не начат, счёт обнуляется
   // (спека 0013, FR-6).
   rpc ResetCurrentBout(ResetCurrentBoutRequest) returns (ResetCurrentBoutResponse);
+  // WatchArenaBoard — живой канал табло арены (спека 0015, FR-1..FR-5/FR-14/
+  // FR-18): первый кадр — текущий снапшот (доска + таймер + комната), далее
+  // по одному кадру на изменение доски/таймера/состава комнаты/swap. Также
+  // ретранслирует команды панели авторитетному табло (oneof command).
+  // Admin-only (FR-1); поток завершается по отмене контекста клиентом.
+  rpc WatchArenaBoard(WatchArenaBoardRequest) returns (stream WatchArenaBoardResponse);
+  // PublishTimerFrame — авторитетное табло (комнаты арены, ordinal 1)
+  // публикует текущее полное состояние таймера (спека 0015, решение
+  // «источник — табло, синхроним полное время»). Сервер — реле: не считает
+  // таймер сам, только кеширует и ретранслирует. Отклоняется, если вызывающий
+  // не источник (не первое подключённое табло).
+  rpc PublishTimerFrame(PublishTimerFrameRequest) returns (PublishTimerFrameResponse);
+  // ControlArenaTimer — панель отправляет команду управления таймером
+  // (пуск/пауза/сброс/±секунды, спека 0015 FR-7); сервер ретранслирует её
+  // авторитетному табло через WatchArenaBoard (oneof command), само значение
+  // таймера не меняет.
+  rpc ControlArenaTimer(ControlArenaTimerRequest) returns (ControlArenaTimerResponse);
+  // SetScoreboardSides — эфемерный swap синий/красный (спека 0015, FR-6): не
+  // запоминается за боём, меняет только отображение комнаты арены.
+  rpc SetScoreboardSides(SetScoreboardSidesRequest) returns (SetScoreboardSidesResponse);
 }
 
 // PoolPublicService — публичное чтение пулов номинации (спека 0011, FR-11).
@@ -189,6 +209,80 @@ message BoutBoard {
   Pool pool = 1;
   repeated BoardBout bouts = 2;
   string current_bout_id = 3;
+}
+
+// ScoreboardRole — роль подписчика живого канала табло арены (спека 0015):
+// табло (полноэкранный зрительский экран) или панель управления ареной.
+// Первое подключённое табло (ordinal 1) становится источником таймера.
+enum ScoreboardRole {
+  SCOREBOARD_ROLE_UNSPECIFIED = 0;
+  SCOREBOARD_ROLE_SCOREBOARD = 1;
+  SCOREBOARD_ROLE_PANEL = 2;
+}
+
+// TimerStatus — состояние недоменного таймера табло (спека 0015, FR-9).
+// Таймер не пишется в журнал боя и не влияет на ЖЦ боя/пула (FR-16):
+// источник истины — авторитетное табло (клиент), сервер лишь ретранслирует.
+enum TimerStatus {
+  TIMER_STATUS_UNSPECIFIED = 0;
+  TIMER_STATUS_STOPPED = 1;
+  TIMER_STATUS_RUNNING = 2;
+  TIMER_STATUS_PAUSED = 3;
+  TIMER_STATUS_EXPIRED = 4;
+}
+
+// TimerCommandKind — команды панели управления таймером (спека 0015, FR-7).
+enum TimerCommandKind {
+  TIMER_COMMAND_KIND_UNSPECIFIED = 0;
+  TIMER_COMMAND_KIND_START = 1;
+  TIMER_COMMAND_KIND_PAUSE = 2;
+  TIMER_COMMAND_KIND_RESET = 3;
+  TIMER_COMMAND_KIND_ADJUST = 4;
+}
+
+// TimerCommand — команда таймера, ретранслируемая сервером от панели
+// авторитетному табло (спека 0015, FR-7). amount_seconds — знаковое
+// смещение, используется только для ADJUST (±1/±2/±3/±5).
+message TimerCommand {
+  TimerCommandKind kind = 1;
+  int32 amount_seconds = 2;
+}
+
+// TimerFrame — полное состояние таймера в момент sampled_unix_ms по часам
+// авторитетного табло (спека 0015, «синхроним полное время»). remaining_cs —
+// сантисекунды (сотые доли секунды); default_cs — текущий дефолт комнаты
+// (сантисекунды). Followers доводят локально между кадрами (клиентское
+// сглаживание), сервер математику таймера не считает.
+message TimerFrame {
+  TimerStatus status = 1;
+  int32 remaining_cs = 2;
+  int64 sampled_unix_ms = 3;
+  int32 default_cs = 4;
+}
+
+// ScoreboardRoom — состав живой комнаты арены с точки зрения текущего
+// подписчика (спека 0015, FR-11/FR-12): сколько табло подключено, какой у
+// этого подписчика порядковый номер (панель — 0) и является ли он
+// источником таймера (табло ordinal 1). sides_swapped — эфемерный swap
+// синий/красный (FR-6).
+message ScoreboardRoom {
+  int32 scoreboard_count = 1;
+  int32 this_ordinal = 2;
+  bool this_is_source = 3;
+  bool sides_swapped = 4;
+}
+
+// ArenaLiveSnapshot — живой снапшот табло арены целиком (спека 0015): доска
+// ведения (пусто, если на арене никто не стоит — FR-5), последнее известное
+// состояние таймера, состав комнаты для этого подписчика, персистентный
+// дефолт арены (для инициализации/сброса у авторитетного табло) и серверное
+// время в момент отправки кадра (опора клиентской синхронизации часов).
+message ArenaLiveSnapshot {
+  BoutBoard board = 1;
+  TimerFrame timer = 2;
+  ScoreboardRoom room = 3;
+  int32 default_duration_seconds = 4;
+  int64 server_now_unix_ms = 5;
 }
 
 // PoolLayout — раскладка номинации целиком: статус, нераспределённые,
@@ -413,4 +507,51 @@ message ResetCurrentBoutRequest {
 
 message ResetCurrentBoutResponse {
   BoutBoard board = 1;
+}
+
+message WatchArenaBoardRequest {
+  string arena_id = 1;
+  ScoreboardRole role = 2;
+}
+
+// WatchArenaBoardResponse — событие живого канала табло арены (спека 0015).
+// snapshot — полное состояние (при подключении и на каждое изменение
+// доски/таймера/комнаты/swap); command — ретранслированная команда панели,
+// адресованная авторитетному табло (само значение таймера на сервере не
+// меняется).
+message WatchArenaBoardResponse {
+  oneof event {
+    ArenaLiveSnapshot snapshot = 1;
+    TimerCommand command = 2;
+  }
+}
+
+// PublishTimerFrameRequest — вызывается только авторитетным табло (ordinal 1
+// комнаты арены). Отклоняется (FailedPrecondition), если вызывающий поток —
+// не источник.
+message PublishTimerFrameRequest {
+  string arena_id = 1;
+  TimerFrame frame = 2;
+}
+
+message PublishTimerFrameResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}
+
+message ControlArenaTimerRequest {
+  string arena_id = 1;
+  TimerCommand command = 2;
+}
+
+message ControlArenaTimerResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}
+
+message SetScoreboardSidesRequest {
+  string arena_id = 1;
+  bool swapped = 2;
+}
+
+message SetScoreboardSidesResponse {
+  ArenaLiveSnapshot snapshot = 1;
 }
