@@ -282,6 +282,118 @@ func (h *AdminHandler) ResetCurrentBout(
 	return connect.NewResponse(&hemav1.ResetCurrentBoutResponse{Board: toProtoBoard(board)}), nil
 }
 
+// ---------------------------------------------------------------------
+// Спека 0015: живой канал табло арены (недоменный таймер, ADR 0013 — сервер
+// как реле).
+// ---------------------------------------------------------------------
+
+// WatchArenaBoard — server-streaming живой канал табло арены (спека 0015,
+// FR-1..FR-5/FR-14/FR-18): первый кадр — текущий снапшот (доска + таймер +
+// комната), далее — по одному кадру на изменение доски/таймера/состава
+// комнаты/swap (снапшот) либо на команду панели, адресованную этому
+// участнику как источнику (команда). Завершается без ошибки по отмене
+// контекста клиентом (обрыв соединения — штатный путь, как
+// WatchNominationLive).
+//
+// ИЗВЕСТНЫЙ ПРОБЕЛ (обнаружен при написании этого хендлера, спека 0015,
+// вне скоупа модуля pool): смонтированные на PoolAdminService интерсепторы
+// connectutil.Auth/RequireAdmin — connect.UnaryInterceptorFunc, у которого
+// WrapStreamingHandler — намеренный no-op в самом connect-go («has no
+// effect on streaming RPCs»). Это означает, что FR-1 («Admin-only») сейчас
+// НЕ соблюдается для этого RPC — запрос без токена/от не-admin проходит и
+// получает обычный снапшот. WatchNominationLive (спека 0014) — тоже
+// streaming, но намеренно публичный, поэтому тот же пробел там незаметен.
+// Фикс требует правки server/pkg/connectutil (полноценный
+// connect.Interceptor с реальным WrapStreamingHandler) — за пределами
+// разрешённых для этого трека файлов (server/modules/pool/**), см.
+// handler_test.go рядом с (отсутствующими намеренно) auth-тестами этого
+// RPC.
+func (h *AdminHandler) WatchArenaBoard(
+	ctx context.Context,
+	req *connect.Request[hemav1.WatchArenaBoardRequest],
+	stream *connect.ServerStream[hemav1.WatchArenaBoardResponse],
+) error {
+	arenaID := strings.TrimSpace(req.Msg.ArenaId)
+	if arenaID == "" {
+		return mapError(domain.ErrInvalidInput)
+	}
+
+	member := h.svc.JoinArenaBoard(arenaID, toDomainScoreboardRole(req.Msg.Role))
+	defer member.Leave()
+
+	snap, err := h.svc.ArenaLive(ctx, arenaID, member)
+	if err != nil {
+		return mapError(err)
+	}
+	if err := stream.Send(&hemav1.WatchArenaBoardResponse{
+		Event: &hemav1.WatchArenaBoardResponse_Snapshot{Snapshot: toProtoArenaLiveSnapshot(snap)},
+	}); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-member.BoardChanged():
+			snap, err := h.svc.ArenaLive(ctx, arenaID, member)
+			if err != nil {
+				return mapError(err)
+			}
+			if err := stream.Send(&hemav1.WatchArenaBoardResponse{
+				Event: &hemav1.WatchArenaBoardResponse_Snapshot{Snapshot: toProtoArenaLiveSnapshot(snap)},
+			}); err != nil {
+				return err
+			}
+		case cmd := <-member.Commands():
+			if err := stream.Send(&hemav1.WatchArenaBoardResponse{
+				Event: &hemav1.WatchArenaBoardResponse_Command{Command: toProtoTimerCommand(cmd)},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// PublishTimerFrame — авторитетное табло публикует полное состояние таймера
+// (спека 0015, ADR 0013): сервер кеширует и ретранслирует, не проверяя
+// личность вызывающего.
+func (h *AdminHandler) PublishTimerFrame(
+	ctx context.Context,
+	req *connect.Request[hemav1.PublishTimerFrameRequest],
+) (*connect.Response[hemav1.PublishTimerFrameResponse], error) {
+	snap, err := h.svc.PublishTimerFrame(ctx, req.Msg.ArenaId, toDomainTimerFrame(req.Msg.Frame))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.PublishTimerFrameResponse{Snapshot: toProtoArenaLiveSnapshot(snap)}), nil
+}
+
+// ControlArenaTimer ретранслирует команду панели текущему источнику таймера
+// (спека 0015, FR-7).
+func (h *AdminHandler) ControlArenaTimer(
+	ctx context.Context,
+	req *connect.Request[hemav1.ControlArenaTimerRequest],
+) (*connect.Response[hemav1.ControlArenaTimerResponse], error) {
+	snap, err := h.svc.ControlArenaTimer(ctx, req.Msg.ArenaId, toDomainTimerCommand(req.Msg.Command))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ControlArenaTimerResponse{Snapshot: toProtoArenaLiveSnapshot(snap)}), nil
+}
+
+// SetScoreboardSides — эфемерный swap синий/красный (спека 0015, FR-6).
+func (h *AdminHandler) SetScoreboardSides(
+	ctx context.Context,
+	req *connect.Request[hemav1.SetScoreboardSidesRequest],
+) (*connect.Response[hemav1.SetScoreboardSidesResponse], error) {
+	snap, err := h.svc.SetScoreboardSides(ctx, req.Msg.ArenaId, req.Msg.Swapped)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SetScoreboardSidesResponse{Snapshot: toProtoArenaLiveSnapshot(snap)}), nil
+}
+
 // PublicHandler реализует PoolPublicServiceHandler (спека 0011, FR-11):
 // публичное чтение пулов готовой раскладки номинации. Без RequireAdmin.
 type PublicHandler struct {
@@ -549,4 +661,138 @@ func toProtoBoutState(s domain.BoutState) hemav1.BoutState {
 	default:
 		return hemav1.BoutState_BOUT_STATE_UNSPECIFIED
 	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0015: живой канал табло арены (недоменный таймер, ADR 0013).
+// ---------------------------------------------------------------------
+
+// toProtoArenaLiveSnapshot маппит живой снапшот табло арены целиком (спека
+// 0015): переиспользует toProtoBoard для поля board.
+func toProtoArenaLiveSnapshot(s domain.ArenaLiveSnapshot) *hemav1.ArenaLiveSnapshot {
+	return &hemav1.ArenaLiveSnapshot{
+		Board:                  toProtoBoard(s.Board),
+		Timer:                  toProtoTimerFrame(s.Timer),
+		Room:                   toProtoScoreboardRoom(s.Room),
+		DefaultDurationSeconds: s.DefaultDurationSeconds,
+		ServerNowUnixMs:        s.ServerNowUnixMS,
+	}
+}
+
+func toProtoTimerFrame(f domain.TimerFrame) *hemav1.TimerFrame {
+	return &hemav1.TimerFrame{
+		Status:        toProtoTimerStatus(f.Status),
+		RemainingCs:   f.RemainingCS,
+		SampledUnixMs: f.SampledUnixMS,
+		DefaultCs:     f.DefaultCS,
+	}
+}
+
+func toDomainTimerFrame(f *hemav1.TimerFrame) domain.TimerFrame {
+	if f == nil {
+		return domain.TimerFrame{}
+	}
+	return domain.TimerFrame{
+		Status:        toDomainTimerStatus(f.Status),
+		RemainingCS:   f.RemainingCs,
+		SampledUnixMS: f.SampledUnixMs,
+		DefaultCS:     f.DefaultCs,
+	}
+}
+
+func toProtoTimerStatus(s domain.TimerStatus) hemav1.TimerStatus {
+	switch s {
+	case domain.TimerStatusStopped:
+		return hemav1.TimerStatus_TIMER_STATUS_STOPPED
+	case domain.TimerStatusRunning:
+		return hemav1.TimerStatus_TIMER_STATUS_RUNNING
+	case domain.TimerStatusPaused:
+		return hemav1.TimerStatus_TIMER_STATUS_PAUSED
+	case domain.TimerStatusExpired:
+		return hemav1.TimerStatus_TIMER_STATUS_EXPIRED
+	default:
+		return hemav1.TimerStatus_TIMER_STATUS_UNSPECIFIED
+	}
+}
+
+func toDomainTimerStatus(s hemav1.TimerStatus) domain.TimerStatus {
+	switch s {
+	case hemav1.TimerStatus_TIMER_STATUS_STOPPED:
+		return domain.TimerStatusStopped
+	case hemav1.TimerStatus_TIMER_STATUS_RUNNING:
+		return domain.TimerStatusRunning
+	case hemav1.TimerStatus_TIMER_STATUS_PAUSED:
+		return domain.TimerStatusPaused
+	case hemav1.TimerStatus_TIMER_STATUS_EXPIRED:
+		return domain.TimerStatusExpired
+	default:
+		return ""
+	}
+}
+
+func toProtoScoreboardRoom(r domain.ScoreboardRoom) *hemav1.ScoreboardRoom {
+	return &hemav1.ScoreboardRoom{
+		ScoreboardCount: int32(r.ScoreboardCount),
+		ThisOrdinal:     int32(r.ThisOrdinal),
+		ThisIsSource:    r.ThisIsSource,
+		SidesSwapped:    r.SidesSwapped,
+	}
+}
+
+func toProtoTimerCommand(c domain.TimerCommand) *hemav1.TimerCommand {
+	return &hemav1.TimerCommand{
+		Kind:          toProtoTimerCommandKind(c.Kind),
+		AmountSeconds: c.AmountSeconds,
+	}
+}
+
+func toDomainTimerCommand(c *hemav1.TimerCommand) domain.TimerCommand {
+	if c == nil {
+		return domain.TimerCommand{}
+	}
+	return domain.TimerCommand{
+		Kind:          toDomainTimerCommandKind(c.Kind),
+		AmountSeconds: c.AmountSeconds,
+	}
+}
+
+func toProtoTimerCommandKind(k domain.TimerCommandKind) hemav1.TimerCommandKind {
+	switch k {
+	case domain.TimerCommandStart:
+		return hemav1.TimerCommandKind_TIMER_COMMAND_KIND_START
+	case domain.TimerCommandPause:
+		return hemav1.TimerCommandKind_TIMER_COMMAND_KIND_PAUSE
+	case domain.TimerCommandReset:
+		return hemav1.TimerCommandKind_TIMER_COMMAND_KIND_RESET
+	case domain.TimerCommandAdjust:
+		return hemav1.TimerCommandKind_TIMER_COMMAND_KIND_ADJUST
+	default:
+		return hemav1.TimerCommandKind_TIMER_COMMAND_KIND_UNSPECIFIED
+	}
+}
+
+func toDomainTimerCommandKind(k hemav1.TimerCommandKind) domain.TimerCommandKind {
+	switch k {
+	case hemav1.TimerCommandKind_TIMER_COMMAND_KIND_START:
+		return domain.TimerCommandStart
+	case hemav1.TimerCommandKind_TIMER_COMMAND_KIND_PAUSE:
+		return domain.TimerCommandPause
+	case hemav1.TimerCommandKind_TIMER_COMMAND_KIND_RESET:
+		return domain.TimerCommandReset
+	case hemav1.TimerCommandKind_TIMER_COMMAND_KIND_ADJUST:
+		return domain.TimerCommandAdjust
+	default:
+		return ""
+	}
+}
+
+// toDomainScoreboardRole маппит роль подписчика WatchArenaBoard (спека
+// 0015): неизвестное/UNSPECIFIED значение трактуется как PANEL (не участвует
+// в ordinal/source, this_ordinal всегда 0) — консервативный дефолт, не
+// позволяющий немаркированному клиенту случайно стать источником таймера.
+func toDomainScoreboardRole(r hemav1.ScoreboardRole) domain.ScoreboardRole {
+	if r == hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD {
+		return domain.ScoreboardRoleScoreboard
+	}
+	return domain.ScoreboardRolePanel
 }
