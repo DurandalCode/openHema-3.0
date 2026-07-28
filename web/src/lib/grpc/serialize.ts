@@ -22,10 +22,14 @@ import {
   PoolSchema,
   BoutBoardSchema,
   NominationLiveSnapshotSchema,
+  ArenaLiveSnapshotSchema,
+  TimerCommandSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
   type NominationLiveSnapshot,
+  type ArenaLiveSnapshot,
+  type TimerCommand,
 } from "@/gen/hema/v1/pool_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -70,6 +74,14 @@ import type {
   NominationLiveSnapshotDto,
   LivePoolDto,
 } from "@/entities/nomination-live/lib/types";
+import type {
+  ArenaLiveSnapshotDto,
+  TimerFrameDto,
+  ScoreboardRoomDto,
+  TimerStatusDto,
+  TimerCommandDto,
+  TimerCommandKindDto,
+} from "@/entities/arena-live/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -262,6 +274,9 @@ export function rosterEntriesToJson(entries: RosterEntry[] | undefined): RosterE
  * arenaToJson превращает protobuf-сообщение Arena в обычный JSON-объект.
  * `status` — строковый литерал. Нормализует proto3-дефолты: пустые строки
  * сохраняются (UI ждёт строку, не undefined), position = 0 при отсутствии.
+ * `defaultDurationSeconds` (спека 0015, FR-8) — недоменная дефолтная
+ * длительность боя; proto3-omitted (0, до миграции/сидирования) заменяется
+ * на дефолт схемы 90с, а не 0 (0с — не валидная длительность боя).
  */
 export function arenaToJson(arena: Arena | undefined): ArenaDto | null {
   if (!arena) return null;
@@ -273,6 +288,7 @@ export function arenaToJson(arena: Arena | undefined): ArenaDto | null {
     description: raw.description ?? "",
     position: raw.position ?? 0,
     status: (raw.status as ArenaStatusDto) ?? "ARENA_STATUS_UNSPECIFIED",
+    defaultDurationSeconds: raw.defaultDurationSeconds || 90,
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
   };
@@ -429,5 +445,62 @@ export function nominationLiveToJson(
           }),
         )
       : [],
+  };
+}
+
+function timerFrameRawToDto(raw: Partial<TimerFrameDto> | undefined, defaultCsFallback: number): TimerFrameDto {
+  return {
+    status: (raw?.status as TimerStatusDto) ?? "TIMER_STATUS_STOPPED",
+    remainingCs: raw?.remainingCs ?? defaultCsFallback,
+    sampledUnixMs: raw?.sampledUnixMs ?? "0",
+    defaultCs: raw?.defaultCs ?? defaultCsFallback,
+  };
+}
+
+function scoreboardRoomRawToDto(raw: Partial<ScoreboardRoomDto> | undefined): ScoreboardRoomDto {
+  return {
+    scoreboardCount: raw?.scoreboardCount ?? 0,
+    thisOrdinal: raw?.thisOrdinal ?? 0,
+    thisIsSource: raw?.thisIsSource ?? false,
+    sidesSwapped: raw?.sidesSwapped ?? false,
+  };
+}
+
+/**
+ * timerCommandToJson превращает protobuf-сообщение TimerCommand в обычный
+ * JSON-объект (спека 0015, FR-7): используется для ретранслируемого события
+ * `command` в `WatchArenaBoardResponse` (панель → авторитетное табло).
+ */
+export function timerCommandToJson(command: TimerCommand | undefined): TimerCommandDto | null {
+  if (!command) return null;
+  const raw = toJson(TimerCommandSchema, command) as Partial<TimerCommandDto>;
+  return {
+    kind: (raw.kind as TimerCommandKindDto) ?? "TIMER_COMMAND_KIND_UNSPECIFIED",
+    amountSeconds: raw.amountSeconds ?? 0,
+  };
+}
+
+/**
+ * arenaLiveToJson превращает protobuf-сообщение ArenaLiveSnapshot в обычный
+ * JSON-объект (спека 0015): живой снапшот табло арены — доска (переиспользует
+ * `boutBoardToJson`, как есть, на самом proto-подсообщении `snapshot.board`,
+ * не на уже-toJson'нутом `raw`), последний известный кадр таймера, состав
+ * комнаты и персистентный дефолт арены (для инициализации/сброса у
+ * авторитетного табло, ADR 0013). `sampledUnixMs`/`serverNowUnixMs` — int64,
+ * `toJson` сериализует их строкой (см. `TimerFrameDto`).
+ */
+export function arenaLiveToJson(snapshot: ArenaLiveSnapshot | undefined): ArenaLiveSnapshotDto | null {
+  if (!snapshot) return null;
+  const raw = toJson(ArenaLiveSnapshotSchema, snapshot) as Partial<ArenaLiveSnapshotDto> & {
+    timer?: Partial<TimerFrameDto>;
+    room?: Partial<ScoreboardRoomDto>;
+  };
+  const defaultDurationSeconds = raw.defaultDurationSeconds || 90;
+  return {
+    board: boutBoardToJson(snapshot.board),
+    timer: timerFrameRawToDto(raw.timer, defaultDurationSeconds * 100),
+    room: scoreboardRoomRawToDto(raw.room),
+    defaultDurationSeconds,
+    serverNowUnixMs: raw.serverNowUnixMs ?? "0",
   };
 }

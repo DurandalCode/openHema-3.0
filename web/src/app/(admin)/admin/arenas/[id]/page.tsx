@@ -7,6 +7,7 @@ import { getArena } from "@/entities/arena/model/get-arena";
 import { arenaStatusLabel } from "@/entities/arena/lib/types";
 import { PoolSeating } from "@/features/pool-seating/ui/pool-seating";
 import { BoutBoard } from "@/features/bout-board/ui/bout-board";
+import { TimerControls } from "@/features/arena-timer/ui/TimerControls";
 import { AdminHeader } from "../../admin-header";
 
 export const runtime = "nodejs";
@@ -45,9 +46,16 @@ export default async function AdminArenaPage({ params }: PageProps) {
                   Статус: {arenaStatusLabel(arena.status)}
                 </CardDescription>
               </Col>
-              <Button variant="outline" asChild>
-                <Link href="/admin/arenas">← Все площадки</Link>
-              </Button>
+              <Row gap={2}>
+                <Button variant="outline" asChild>
+                  <Link href={`/admin/arenas/${arena.id}/scoreboard`} target="_blank">
+                    Открыть табло
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link href="/admin/arenas">← Все площадки</Link>
+                </Button>
+              </Row>
             </Row>
           </CardHeader>
           <CardContent>
@@ -95,6 +103,21 @@ export default async function AdminArenaPage({ params }: PageProps) {
           </CardHeader>
           <CardContent>
             <BoutBoard arenaId={arena.id} />
+          </CardContent>
+        </Card>
+
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>Таймер боя</CardTitle>
+            <CardDescription>
+              Пуск/пауза/сброс/±секунды, дефолтная длительность (переживает
+              перезагрузку) и swap синий/красный. Авторитетный отсчёт идёт
+              на открытом табло — эта панель синхронизируется с ним (спека
+              0015, ADR 0013).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TimerControls arenaId={arena.id} />
           </CardContent>
         </Card>
       </div>
