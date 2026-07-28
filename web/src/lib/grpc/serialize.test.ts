@@ -9,13 +9,14 @@ import {
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
 import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
-import { NominationLiveSnapshotSchema } from "@/gen/hema/v1/pool_pb";
+import { NominationLiveSnapshotSchema, ArenaLiveSnapshotSchema } from "@/gen/hema/v1/pool_pb";
 import {
   applicationHistoryToJson,
   applicationsToJson,
   applicationToJson,
   arenaToJson,
   arenasToJson,
+  arenaLiveToJson,
   nominationParticipantsToJson,
   nominationsToJson,
   nominationToJson,
@@ -397,6 +398,7 @@ type ArenaJson = {
   description: string;
   position: number;
   status: string;
+  defaultDurationSeconds: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -410,6 +412,7 @@ describe("arenaToJson", () => {
       description: "У входа",
       position: 2,
       status: "ARENA_STATUS_ACTIVE",
+      defaultDurationSeconds: 120,
       createdAt: "2026-01-01T00:00:00Z",
       updatedAt: "2026-07-07T00:00:00Z",
     });
@@ -423,6 +426,7 @@ describe("arenaToJson", () => {
     expect(json.description).toBe("У входа");
     expect(json.position).toBe(2);
     expect(json.status).toBe("ARENA_STATUS_ACTIVE");
+    expect(json.defaultDurationSeconds).toBe(120);
     expect(json.createdAt).toBe("2026-01-01T00:00:00Z");
     expect(json.updatedAt).toBe("2026-07-07T00:00:00Z");
   });
@@ -459,6 +463,10 @@ describe("arenaToJson", () => {
     expect(json.description).toBe("");
     expect(json.position).toBe(0);
     expect(json.status).toBe("ARENA_STATUS_UNSPECIFIED");
+    // Спека 0015, FR-8: proto3-omitted default_duration_seconds (0, до
+    // миграции/сидирования) нормализуется в дефолт схемы 90с, не 0 (0с —
+    // не валидная длительность боя).
+    expect(json.defaultDurationSeconds).toBe(90);
   });
 });
 
@@ -556,5 +564,100 @@ describe("nominationLiveToJson", () => {
     const json = nominationLiveToJson(snapshot);
 
     expect(json).toEqual({ nominationId: "nom-2", pools: [] });
+  });
+});
+
+describe("arenaLiveToJson", () => {
+  it("converts a filled protobuf ArenaLiveSnapshot to plain JSON (board via boutBoardToJson, int64 as string)", () => {
+    const snapshot = fromJson(ArenaLiveSnapshotSchema, {
+      board: {
+        pool: {
+          id: "pool-1",
+          nominationId: "n1",
+          nominationName: "Longsword",
+          number: 1,
+          name: "Пул 1",
+          members: [],
+          status: "POOL_STATUS_ACTIVE",
+          arenaId: "arena-1",
+          arenaName: "Ристалище 1",
+        },
+        bouts: [
+          {
+            id: "bout-1",
+            roundNumber: 1,
+            sequenceNumber: 1,
+            fighterA: { fighterId: "f1", name: "Fighter One", club: "" },
+            fighterB: { fighterId: "f2", name: "Fighter Two", club: "" },
+            state: "BOUT_STATE_IN_PROGRESS",
+            scoreA: 3,
+            scoreB: 2,
+          },
+        ],
+        currentBoutId: "bout-1",
+      },
+      timer: {
+        status: "TIMER_STATUS_RUNNING",
+        remainingCs: 1247,
+        sampledUnixMs: "1234567890123",
+        defaultCs: 9000,
+      },
+      room: {
+        scoreboardCount: 2,
+        thisOrdinal: 1,
+        thisIsSource: true,
+        sidesSwapped: false,
+      },
+      defaultDurationSeconds: 90,
+      serverNowUnixMs: "1234567890999",
+    });
+
+    const json = arenaLiveToJson(snapshot);
+
+    expect(json).not.toBeNull();
+    expect(json?.board?.pool?.id).toBe("pool-1");
+    expect(json?.board?.currentBoutId).toBe("bout-1");
+    expect(json?.timer).toEqual({
+      status: "TIMER_STATUS_RUNNING",
+      remainingCs: 1247,
+      sampledUnixMs: "1234567890123",
+      defaultCs: 9000,
+    });
+    expect(json?.room).toEqual({
+      scoreboardCount: 2,
+      thisOrdinal: 1,
+      thisIsSource: true,
+      sidesSwapped: false,
+    });
+    expect(json?.defaultDurationSeconds).toBe(90);
+    // int64 → string (не bigint, не number — round-trip regression).
+    expect(typeof json?.serverNowUnixMs).toBe("string");
+    expect(json?.serverNowUnixMs).toBe("1234567890999");
+  });
+
+  it("returns null for undefined", () => {
+    expect(arenaLiveToJson(undefined)).toBeNull();
+  });
+
+  it("normalizes an empty snapshot (no pool seated, FR-5) — board null, timer/room/default fall back", () => {
+    const snapshot = fromJson(ArenaLiveSnapshotSchema, {});
+
+    const json = arenaLiveToJson(snapshot);
+
+    expect(json?.board).toBeNull();
+    expect(json?.timer).toEqual({
+      status: "TIMER_STATUS_STOPPED",
+      remainingCs: 9000,
+      sampledUnixMs: "0",
+      defaultCs: 9000,
+    });
+    expect(json?.room).toEqual({
+      scoreboardCount: 0,
+      thisOrdinal: 0,
+      thisIsSource: false,
+      sidesSwapped: false,
+    });
+    expect(json?.defaultDurationSeconds).toBe(90);
+    expect(json?.serverNowUnixMs).toBe("0");
   });
 });

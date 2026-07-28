@@ -20,6 +20,9 @@ export type Arena = {
   // position — порядок в списке площадок турнира (0-индекс).
   position: number;
   status: ArenaStatus;
+  // defaultDurationSeconds — недоменная дефолтная длительность боя (спека
+  // 0015, FR-8): персистентная настройка табло/таймера, секунды (1..3600).
+  defaultDurationSeconds: number;
   createdAt: string;
   updatedAt: string;
 };
