@@ -18,7 +18,6 @@ import { useReopenBout } from "../api/use-reopen-bout";
 import { useResetBout } from "../api/use-reset-bout";
 import { useScoreBout } from "../api/use-score-bout";
 import { useSetCurrentBout } from "../api/use-set-current-bout";
-import { useStartBout } from "../api/use-start-bout";
 import { applyScoreStep } from "../model/score-step";
 
 const STEPS = [1, 2, 3, 5] as const;
@@ -27,12 +26,13 @@ const STEPS = [1, 2, 3, 5] as const;
  * BoutBoard — экран ведения боёв стоящего на арене пула (спека 0013,
  * FR-14): текущий бой (пара, счёт, быстрые шаги ±1/±2/±3/±5 + ручной ввод,
  * кнопки жизненного цикла, исход) и список боёв пула по порядку с
- * циркуляцией (клик по бою → делает его текущим).
+ * циркуляцией (клик по бою → делает его текущим). Начать бой отдельной
+ * кнопкой здесь не делаем (спека 0015): старт боя теперь — побочный эффект
+ * кнопки «Старт» таймера (`TimerControls`), если текущий бой ещё не начат.
  */
 export function BoutBoard({ arenaId }: { arenaId: string }) {
   const { data: board, isLoading, error } = useBoutBoard(arenaId);
   const setCurrent = useSetCurrentBout(arenaId);
-  const start = useStartBout(arenaId);
   const score = useScoreBout(arenaId);
   const finish = useFinishBout(arenaId);
   const reopen = useReopenBout(arenaId);
@@ -57,7 +57,6 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
 
   const mutationError =
     setCurrent.error?.message ??
-    start.error?.message ??
     score.error?.message ??
     finish.error?.message ??
     reopen.error?.message ??
@@ -66,7 +65,6 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
 
   const anyPending =
     setCurrent.isPending ||
-    start.isPending ||
     score.isPending ||
     finish.isPending ||
     reopen.isPending ||
@@ -91,7 +89,6 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
           onStepB={(delta) => sendScore(currentBout.scoreA, applyScoreStep(currentBout.scoreB, delta))}
           onManualA={(value) => sendScore(value, currentBout.scoreB)}
           onManualB={(value) => sendScore(currentBout.scoreA, value)}
-          onStart={() => start.mutate(poolId)}
           onFinish={() => finish.mutate(poolId)}
           onReopen={() => reopen.mutate(poolId)}
           onReset={() => reset.mutate(poolId)}
@@ -116,7 +113,6 @@ function CurrentBoutCard({
   onStepB,
   onManualA,
   onManualB,
-  onStart,
   onFinish,
   onReopen,
   onReset,
@@ -127,7 +123,6 @@ function CurrentBoutCard({
   onStepB: (delta: number) => void;
   onManualA: (value: number) => void;
   onManualB: (value: number) => void;
-  onStart: () => void;
   onFinish: () => void;
   onReopen: () => void;
   onReset: () => void;
@@ -170,14 +165,6 @@ function CurrentBoutCard({
             <Badge variant="secondary">{outcomeLabel}</Badge>
           </Row>
           <Row gap={2} className="flex-wrap">
-            <Button
-              type="button"
-              size="sm"
-              disabled={pending || bout.state !== "BOUT_STATE_NOT_STARTED"}
-              onClick={onStart}
-            >
-              Начать
-            </Button>
             <Button
               type="button"
               size="sm"

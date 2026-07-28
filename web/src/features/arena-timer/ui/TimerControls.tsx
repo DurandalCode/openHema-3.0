@@ -7,6 +7,7 @@ import { Input } from "@/shared/ui/input";
 import { Col, Row } from "@/shared/ui/stack";
 import { useArenaLive } from "@/features/arena-live/api/use-arena-live";
 import { useArenaTimer } from "@/features/arena-timer/api/use-arena-timer";
+import { useStartBout } from "@/features/bout-board/api/use-start-bout";
 import { TimerDisplay } from "./TimerDisplay";
 
 const ADJUST_STEPS = [1, 2, 3, 5] as const;
@@ -35,10 +36,29 @@ async function postScoreboardSides(arenaId: string, swapped: boolean): Promise<v
  * ADR 0013), поэтому встраивается одной строкой `<TimerControls arenaId />`.
  * Команды доступны панели независимо от того, открыто ли табло-источник
  * (сервер лишь реле — риск «нет табло» описан в plan.md).
+ *
+ * «Старт» совмещает два независимых действия одной кнопкой (UX-решение,
+ * не доменное): если текущий бой пула ещё не начат — сначала начинает его
+ * (`useStartBout`, спека 0013, FR-4), затем в любом случае стартует таймер.
+ * Отдельной кнопки «Начать бой» на панели больше нет (перенесена сюда из
+ * `BoutBoard`). Пока таймер идёт — «Старт» заблокирован (повторный клик
+ * бессмыслен, таймер уже отсчитывает).
  */
 export function TimerControls({ arenaId }: { arenaId: string }) {
   const live = useArenaLive(arenaId, "panel", null);
   const { display, controls } = useArenaTimer(arenaId, live);
+  const startBout = useStartBout(arenaId);
+
+  const board = live.snapshot?.board ?? null;
+  const currentBout = board ? (board.bouts.find((b) => b.id === board.currentBoutId) ?? null) : null;
+  const poolId = board?.pool?.id ?? null;
+
+  function handleStart() {
+    if (poolId && currentBout?.state === "BOUT_STATE_NOT_STARTED") {
+      startBout.mutate(poolId);
+    }
+    controls.start();
+  }
 
   const defaultDurationSeconds = live.snapshot?.defaultDurationSeconds ?? 90;
   const sidesSwapped = live.snapshot?.room.sidesSwapped ?? false;
@@ -60,7 +80,12 @@ export function TimerControls({ arenaId }: { arenaId: string }) {
       <TimerDisplay status={display.status} remainingCs={display.remainingCs} />
 
       <Row gap={2} className="flex-wrap">
-        <Button type="button" size="sm" onClick={controls.start}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={display.status === "RUNNING" || startBout.isPending}
+          onClick={handleStart}
+        >
           Старт
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={controls.pause}>
