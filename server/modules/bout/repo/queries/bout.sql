@@ -1,8 +1,17 @@
 -- name: DeleteBoutsByNomination :exec
 -- ON DELETE CASCADE на bout.bout_events.bout_id удаляет вместе с проекцией
 -- и потоки событий регенерируемых боёв (спека 0013, plan.md «Server» →
--- bout, миграция 00002).
+-- bout, миграция 00002). Используется ReplaceForNomination (GenerateForStage,
+-- спека 0017): в этом инкременте у номинации ровно один этап, поэтому
+-- delete-перед-insert всё ещё безопасно адресовать по номинации целиком.
 DELETE FROM bout.bouts WHERE nomination_id = $1;
+
+-- name: DeleteBoutsByPools :exec
+-- Расфиксация этапа (спека 0017, ClearForPools): удаляет бои только
+-- перечисленных пулов, не трогая бои пулов других этапов той же номинации
+-- (FR-8). ON DELETE CASCADE на bout.bout_events.bout_id удаляет вместе с
+-- проекцией и потоки событий.
+DELETE FROM bout.bouts WHERE pool_id = ANY(sqlc.arg(pool_ids)::uuid[]);
 
 -- name: InsertBout :one
 INSERT INTO bout.bouts (
@@ -57,10 +66,12 @@ SELECT
 FROM bout.bouts
 WHERE pool_id = $1;
 
--- name: AnyStartedInNomination :one
+-- name: AnyStartedInPools :one
+-- Гейт расфиксации этапа (спека 0017, FR-8/FR-13): есть ли среди боёв
+-- перечисленных пулов хотя бы один со state ≠ not_started.
 SELECT EXISTS (
     SELECT 1 FROM bout.bouts
-    WHERE nomination_id = $1 AND state <> 'not_started'
+    WHERE pool_id = ANY(sqlc.arg(pool_ids)::uuid[]) AND state <> 'not_started'
 ) AS any_started;
 
 -- name: AppendEvent :exec
