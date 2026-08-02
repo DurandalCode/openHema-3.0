@@ -51,13 +51,18 @@ export type TimerFrameDto = {
 
 /**
  * ScoreboardRoomDto — состав живой комнаты арены с точки зрения текущего
- * подписчика (спека 0015, FR-11/FR-12).
+ * подписчика (спека 0015, FR-11/FR-12). `revealGeneration` — эфемерный
+ * монотонный счётчик «покажи текущий бой» (RevealCurrentBout): растёт на
+ * каждый явный клик секретаря «Показать следующий бой», рассылается всем
+ * табло комнаты (не только источнику таймера) — развязывает оглашение
+ * результата и переход к следующему бою на табло на разные действия.
  */
 export type ScoreboardRoomDto = {
   scoreboardCount: number;
   thisOrdinal: number;
   thisIsSource: boolean;
   sidesSwapped: boolean;
+  revealGeneration: number;
 };
 
 /**
@@ -125,5 +130,5 @@ export function emptyTimerFrame(defaultCs: number): TimerFrameDto {
 
 /** emptyScoreboardRoom — безопасный дефолт комнаты (нет подписчиков). */
 export function emptyScoreboardRoom(): ScoreboardRoomDto {
-  return { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false };
+  return { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 };
 }

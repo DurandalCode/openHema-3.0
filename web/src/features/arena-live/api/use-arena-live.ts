@@ -33,7 +33,7 @@ function emptySnapshotFromBoard(board: BoutBoardDto | null): ArenaLiveSnapshotDt
   return {
     board,
     timer: { status: "TIMER_STATUS_STOPPED", remainingCs: 0, sampledUnixMs: "0", defaultCs: 0 },
-    room: { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false },
+    room: { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 },
     defaultDurationSeconds: 90,
     serverNowUnixMs: "0",
   };

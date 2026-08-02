@@ -521,10 +521,11 @@ type TimerFrame struct {
 // источником таймера (табло ordinal 1). SidesSwapped — эфемерный swap
 // синий/красный (FR-6), не персистится за пределами живой комнаты.
 type ScoreboardRoom struct {
-	ScoreboardCount int
-	ThisOrdinal     int
-	ThisIsSource    bool
-	SidesSwapped    bool
+	ScoreboardCount  int
+	ThisOrdinal      int
+	ThisIsSource     bool
+	SidesSwapped     bool
+	RevealGeneration int32
 }
 
 // ArenaLiveSnapshot — живой снапшот табло арены целиком (спека 0015): доска

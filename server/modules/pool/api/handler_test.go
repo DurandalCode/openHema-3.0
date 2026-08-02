@@ -1214,6 +1214,86 @@ func TestWatchArenaBoard_E2E_SetScoreboardSidesStreamsSnapshot(t *testing.T) {
 	}
 }
 
+// RevealCurrentBout развязывает оглашение результата (FinishCurrentBout) и
+// переход к следующему бою на табло (спека 0015, UX-уточнение): чисто
+// отображенческий сигнал, широковещательно доходит до ВСЕХ подключённых
+// табло (не только источника, в отличие от команд таймера).
+func TestWatchArenaBoard_E2E_RevealCurrentBoutBroadcastsToAllScoreboards(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+
+	req1 := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req1.Header().Set("Authorization", adminBearer(t))
+	stream1, err := admin.WatchArenaBoard(ctx1, req1)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard (table 1): %v", err)
+	}
+	if !stream1.Receive() {
+		t.Fatalf("expected first frame (table 1), got err: %v", stream1.Err())
+	}
+	if got := stream1.Msg().GetSnapshot().Room.RevealGeneration; got != 0 {
+		t.Fatalf("initial RevealGeneration = %d, want 0", got)
+	}
+
+	req2 := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req2.Header().Set("Authorization", adminBearer(t))
+	stream2, err := admin.WatchArenaBoard(ctx2, req2)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard (table 2): %v", err)
+	}
+	if !stream2.Receive() {
+		t.Fatalf("expected first frame (table 2), got err: %v", stream2.Err())
+	}
+
+	revealReq := connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"})
+	revealReq.Header().Set("Authorization", adminBearer(t))
+	revealRes, err := admin.RevealCurrentBout(context.Background(), revealReq)
+	if err != nil {
+		t.Fatalf("RevealCurrentBout: %v", err)
+	}
+	if got := revealRes.Msg.Snapshot.Room.RevealGeneration; got != 1 {
+		t.Errorf("unary response RevealGeneration = %d, want 1", got)
+	}
+
+	if !stream1.Receive() {
+		t.Fatalf("expected updated snapshot (table 1), got err: %v", stream1.Err())
+	}
+	if got := stream1.Msg().GetSnapshot().Room.RevealGeneration; got != 1 {
+		t.Errorf("table 1 RevealGeneration = %d, want 1", got)
+	}
+	if !stream2.Receive() {
+		t.Fatalf("expected updated snapshot (table 2 — broadcast, not just source), got err: %v", stream2.Err())
+	}
+	if got := stream2.Msg().GetSnapshot().Room.RevealGeneration; got != 1 {
+		t.Errorf("table 2 RevealGeneration = %d, want 1 (must reach non-source tables too)", got)
+	}
+}
+
+func TestRevealCurrentBout_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	_, err := admin.RevealCurrentBout(context.Background(), connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestRevealCurrentBout_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", userBearer(t))
+	_, err := admin.RevealCurrentBout(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
 // Отмена контекста клиента завершает стрим штатно, без утечки/зависания
 // сервера (как WatchNominationLive, спека 0014 — тот же паттерн).
 func TestWatchArenaBoard_E2E_ContextCancelDoesNotHang(t *testing.T) {

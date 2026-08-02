@@ -47,16 +47,24 @@ export function ArenaScoreboard({
   const { display } = useArenaTimer(arenaId, live);
   const snapshot = live.snapshot;
   const board = snapshot?.board ?? null;
-  const room = snapshot?.room ?? { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false };
+  const room = snapshot?.room ?? {
+    scoreboardCount: 0,
+    thisOrdinal: 0,
+    thisIsSource: false,
+    sidesSwapped: false,
+    revealGeneration: 0,
+  };
 
   // Оглашение результата (спека 0015, FR-14/AC-11a/AC-11b): сервер
   // авто-продвигает `currentBoutId` на следующий бой СРАЗУ по завершении
   // (0013, FinishCurrentBout) — тот же снапшот уже несёт новый
   // `currentBoutId`. Табло не полагается на «currentBoutId изменился» как
   // сигнал перехода (он меняется мгновенно) — держит показ только что
-  // завершённого боя, пока секретарь явно не начнёт/не выберет следующий
+  // завершённого боя, пока секретарь явно не покажет следующий (см.
+  // `room.revealGeneration` ниже) либо не начнёт/не выберет следующий сам
   // (следующий бой становится не NOT_STARTED, либо currentBoutId
-  // переключается ещё раз на третий бой — циркуляция).
+  // переключается ещё раз на третий бой — циркуляция, оставлено как
+  // фолбэк на случай, если секретарь пропустит кнопку показа).
   //
   // Вся логика решения живёт в теле эффекта, читая/записывая
   // `displayedBoutIdRef`/`advanceTargetRef` напрямую, а не в функции-апдейтере
@@ -70,12 +78,29 @@ export function ArenaScoreboard({
   const displayedBoutIdRef = useRef<string | null>(board?.currentBoutId || null);
   const advanceTargetRef = useRef<string | null>(null);
   const initializedRef = useRef(false);
+  const revealGenerationRef = useRef(room.revealGeneration);
 
   useEffect(() => {
     const rawCurrentId = board?.currentBoutId || null;
 
     if (!initializedRef.current) {
       initializedRef.current = true;
+      displayedBoutIdRef.current = rawCurrentId;
+      revealGenerationRef.current = room.revealGeneration;
+      setDisplayedBoutId(rawCurrentId);
+      return;
+    }
+
+    // RevealCurrentBout (спека 0015, UX-уточнение): секретарь явно нажал
+    // «Показать следующий бой» на панели. Развязывает «оглашение результата»
+    // и «переход к следующему бою на табло» на разные действия — снимает
+    // удержание безусловно, независимо от состояния текущего боя (даже если
+    // он ещё «не начат»), что и даёт видимое «0:0, ожидание старта» перед
+    // стартом, а не мгновенный скачок в «идёт» одним и тем же кликом Старт.
+    const revealed = room.revealGeneration !== revealGenerationRef.current;
+    revealGenerationRef.current = room.revealGeneration;
+    if (revealed) {
+      advanceTargetRef.current = null;
       displayedBoutIdRef.current = rawCurrentId;
       setDisplayedBoutId(rawCurrentId);
       return;
@@ -104,7 +129,7 @@ export function ArenaScoreboard({
 
     displayedBoutIdRef.current = next;
     setDisplayedBoutId(next);
-  }, [board?.currentBoutId, board?.bouts]);
+  }, [board?.currentBoutId, board?.bouts, room.revealGeneration]);
 
   const displayedBout = board?.bouts.find((b) => b.id === displayedBoutId) ?? null;
 

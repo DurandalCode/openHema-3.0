@@ -29,7 +29,7 @@ function sourceSnapshot(defaultDurationSeconds = 90, currentBoutId = ""): ArenaL
   return {
     board: { pool: null, bouts: [], currentBoutId },
     timer: { status: "TIMER_STATUS_STOPPED", remainingCs: defaultDurationSeconds * 100, sampledUnixMs: "0", defaultCs: defaultDurationSeconds * 100 },
-    room: { scoreboardCount: 1, thisOrdinal: 1, thisIsSource: true, sidesSwapped: false },
+    room: { scoreboardCount: 1, thisOrdinal: 1, thisIsSource: true, sidesSwapped: false, revealGeneration: 0 },
     defaultDurationSeconds,
     serverNowUnixMs: "0",
   };
@@ -39,7 +39,7 @@ function followerSnapshot(status: ArenaLiveSnapshotDto["timer"]["status"], remai
   return {
     board: { pool: null, bouts: [], currentBoutId: "" },
     timer: { status, remainingCs, sampledUnixMs: String(sampledUnixMs), defaultCs: 9000 },
-    room: { scoreboardCount: 2, thisOrdinal: 2, thisIsSource: false, sidesSwapped: false },
+    room: { scoreboardCount: 2, thisOrdinal: 2, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 },
     defaultDurationSeconds: 90,
     serverNowUnixMs: String(sampledUnixMs),
   };

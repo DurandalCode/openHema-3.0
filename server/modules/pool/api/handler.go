@@ -394,6 +394,20 @@ func (h *AdminHandler) SetScoreboardSides(
 	return connect.NewResponse(&hemav1.SetScoreboardSidesResponse{Snapshot: toProtoArenaLiveSnapshot(snap)}), nil
 }
 
+// RevealCurrentBout — секретарь явно показывает текущий бой на всех
+// подключённых табло (спека 0015, UX-уточнение): развязывает оглашение
+// результата и переход к следующему бою на табло на разные кнопки панели.
+func (h *AdminHandler) RevealCurrentBout(
+	ctx context.Context,
+	req *connect.Request[hemav1.RevealCurrentBoutRequest],
+) (*connect.Response[hemav1.RevealCurrentBoutResponse], error) {
+	snap, err := h.svc.RevealCurrentBout(ctx, req.Msg.ArenaId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.RevealCurrentBoutResponse{Snapshot: toProtoArenaLiveSnapshot(snap)}), nil
+}
+
 // PublicHandler реализует PoolPublicServiceHandler (спека 0011, FR-11):
 // публичное чтение пулов готовой раскладки номинации. Без RequireAdmin.
 type PublicHandler struct {
@@ -732,10 +746,11 @@ func toDomainTimerStatus(s hemav1.TimerStatus) domain.TimerStatus {
 
 func toProtoScoreboardRoom(r domain.ScoreboardRoom) *hemav1.ScoreboardRoom {
 	return &hemav1.ScoreboardRoom{
-		ScoreboardCount: int32(r.ScoreboardCount),
-		ThisOrdinal:     int32(r.ThisOrdinal),
-		ThisIsSource:    r.ThisIsSource,
-		SidesSwapped:    r.SidesSwapped,
+		ScoreboardCount:  int32(r.ScoreboardCount),
+		ThisOrdinal:      int32(r.ThisOrdinal),
+		ThisIsSource:     r.ThisIsSource,
+		SidesSwapped:     r.SidesSwapped,
+		RevealGeneration: r.RevealGeneration,
 	}
 }
 

@@ -101,6 +101,17 @@ service PoolAdminService {
   // SetScoreboardSides — эфемерный swap синий/красный (спека 0015, FR-6): не
   // запоминается за боём, меняет только отображение комнаты арены.
   rpc SetScoreboardSides(SetScoreboardSidesRequest) returns (SetScoreboardSidesResponse);
+  // RevealCurrentBout — секретарь явно показывает на всех подключённых
+  // табло текущий бой пула (спека 0015, UX-уточнение): развязывает
+  // «оглашение результата» (FinishCurrentBout, держит на табло прошлый бой
+  // с исходом) и «переход к следующему бою на табло» на разные действия
+  // панели. Домен не трогает — это чисто отображенческий сигнал: сервер
+  // инкрементирует эфемерный счётчик комнаты арены (room.reveal_generation)
+  // и рассылает его всем подключённым табло; получив новое значение,
+  // табло снимает удержание и показывает board.current_bout_id как есть
+  // (0:0, «не начат», если бой ещё не начат) — независимо от состояния
+  // прежнего отображаемого боя. No-op, если у арены сейчас нет комнаты.
+  rpc RevealCurrentBout(RevealCurrentBoutRequest) returns (RevealCurrentBoutResponse);
 }
 
 // PoolPublicService — публичное чтение пулов номинации (спека 0011, FR-11).
@@ -265,11 +276,17 @@ message TimerFrame {
 // этого подписчика порядковый номер (панель — 0) и является ли он
 // источником таймера (табло ordinal 1). sides_swapped — эфемерный swap
 // синий/красный (FR-6).
+// reveal_generation — эфемерный монотонный счётчик «покажи текущий бой»
+// (спека 0015, RevealCurrentBout): растёт на каждый явный клик секретаря;
+// табло, увидев рост, снимает удержание прошлого боя независимо от его
+// состояния. Как и sides_swapped — общий для комнаты, не зависит от роли
+// подписчика.
 message ScoreboardRoom {
   int32 scoreboard_count = 1;
   int32 this_ordinal = 2;
   bool this_is_source = 3;
   bool sides_swapped = 4;
+  int32 reveal_generation = 5;
 }
 
 // ArenaLiveSnapshot — живой снапшот табло арены целиком (спека 0015): доска
@@ -553,5 +570,13 @@ message SetScoreboardSidesRequest {
 }
 
 message SetScoreboardSidesResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}
+
+message RevealCurrentBoutRequest {
+  string arena_id = 1;
+}
+
+message RevealCurrentBoutResponse {
   ArenaLiveSnapshot snapshot = 1;
 }

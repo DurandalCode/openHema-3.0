@@ -40,10 +40,11 @@ type roomMember struct {
 // scoreboards[0] — источник таймера (this_is_source). panels — подключённые
 // панели управления, не участвуют в ordinal/source, всегда this_ordinal=0.
 type arenaRoom struct {
-	scoreboards  []*roomMember
-	panels       []*roomMember
-	lastFrame    *domain.TimerFrame
-	sidesSwapped bool
+	scoreboards      []*roomMember
+	panels           []*roomMember
+	lastFrame        *domain.TimerFrame
+	sidesSwapped     bool
+	revealGeneration int32
 }
 
 // arenaRooms — реестр живых комнат по arenaID (спека 0015, ADR 0013):
@@ -167,6 +168,24 @@ func (r *arenaRooms) setSwapped(arenaID string, swapped bool) {
 	signalAll(room)
 }
 
+// revealCurrentBout инкрементирует эфемерный счётчик «покажи текущий бой»
+// комнаты и сигналит всех участников (спека 0015, RevealCurrentBout):
+// табло, увидев рост счётчика, снимает удержание прошлого боя независимо
+// от его состояния (см. domain-комментарий у ScoreboardRoom). Чисто
+// отображенческий сигнал — домен не трогает. No-op, если у арены сейчас
+// нет комнаты.
+func (r *arenaRooms) revealCurrentBout(arenaID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	room, ok := r.rooms[arenaID]
+	if !ok {
+		return
+	}
+	room.revealGeneration++
+	signalAll(room)
+}
+
 // signalBoardChanged сигналит всех участников комнаты (доска/бой могли
 // измениться — вызывается сервисом рядом с liveBus.PublishNominationChanged
 // у board-мутирующих методов, T11). No-op, если у арены сейчас нет комнаты.
@@ -194,8 +213,9 @@ func (r *arenaRooms) view(arenaID string, m *roomMember) domain.ScoreboardRoom {
 		return domain.ScoreboardRoom{}
 	}
 	out := domain.ScoreboardRoom{
-		ScoreboardCount: len(room.scoreboards),
-		SidesSwapped:    room.sidesSwapped,
+		ScoreboardCount:  len(room.scoreboards),
+		SidesSwapped:     room.sidesSwapped,
+		RevealGeneration: room.revealGeneration,
 	}
 	if m != nil && m.role == domain.ScoreboardRoleScoreboard {
 		for i, x := range room.scoreboards {
@@ -372,6 +392,20 @@ func (s *Service) SetScoreboardSides(ctx context.Context, arenaID string, swappe
 		return domain.ArenaLiveSnapshot{}, domain.ErrInvalidInput
 	}
 	s.rooms.setSwapped(arenaID, swapped)
+	return s.ArenaLive(ctx, arenaID, nil)
+}
+
+// RevealCurrentBout — секретарь явно показывает на всех подключённых табло
+// текущий бой пула (спека 0015, UX-уточнение): развязывает «оглашение
+// результата» (FinishCurrentBout) и «переход к следующему бою на табло» на
+// разные действия панели. Инкрементирует эфемерный счётчик комнаты и
+// сигналит всех участников; сам bout/pool/board не трогает (не домен).
+func (s *Service) RevealCurrentBout(ctx context.Context, arenaID string) (domain.ArenaLiveSnapshot, error) {
+	arenaID = strings.TrimSpace(arenaID)
+	if arenaID == "" {
+		return domain.ArenaLiveSnapshot{}, domain.ErrInvalidInput
+	}
+	s.rooms.revealCurrentBout(arenaID)
 	return s.ArenaLive(ctx, arenaID, nil)
 }
 

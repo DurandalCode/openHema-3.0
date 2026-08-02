@@ -607,6 +607,7 @@ describe("arenaLiveToJson", () => {
         thisOrdinal: 1,
         thisIsSource: true,
         sidesSwapped: false,
+        revealGeneration: 3,
       },
       defaultDurationSeconds: 90,
       serverNowUnixMs: "1234567890999",
@@ -628,6 +629,7 @@ describe("arenaLiveToJson", () => {
       thisOrdinal: 1,
       thisIsSource: true,
       sidesSwapped: false,
+      revealGeneration: 3,
     });
     expect(json?.defaultDurationSeconds).toBe(90);
     // int64 → string (не bigint, не number — round-trip regression).
@@ -656,6 +658,7 @@ describe("arenaLiveToJson", () => {
       thisOrdinal: 0,
       thisIsSource: false,
       sidesSwapped: false,
+      revealGeneration: 0,
     });
     expect(json?.defaultDurationSeconds).toBe(90);
     expect(json?.serverNowUnixMs).toBe("0");

@@ -2580,6 +2580,46 @@ func TestSetScoreboardSides_SavesAndReflectsInSnapshot(t *testing.T) {
 	}
 }
 
+func TestRevealCurrentBout_IncrementsGenerationAndSignals(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+
+	snap, err := svc.RevealCurrentBout(ctx, "arena-1")
+	if err != nil {
+		t.Fatalf("RevealCurrentBout: %v", err)
+	}
+	if snap.Room.RevealGeneration != 1 {
+		t.Errorf("Room.RevealGeneration = %d, want 1", snap.Room.RevealGeneration)
+	}
+
+	select {
+	case <-member.BoardChanged():
+	default:
+		t.Errorf("expected BoardChanged signaled")
+	}
+
+	snap2, err := svc.RevealCurrentBout(ctx, "arena-1")
+	if err != nil {
+		t.Fatalf("RevealCurrentBout (2nd): %v", err)
+	}
+	if snap2.Room.RevealGeneration != 2 {
+		t.Errorf("Room.RevealGeneration after 2nd call = %d, want 2 (monotonic)", snap2.Room.RevealGeneration)
+	}
+}
+
+func TestRevealCurrentBout_EmptyArenaIDReturnsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	_, err := svc.RevealCurrentBout(ctx, "")
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
 // SeatPoolOnArena/UnseatPool сигналят комнату верной арены (T11): читаем
 // arenaID для UnseatPool ДО репозиторного вызова (см. комментарий в
 // service.go).

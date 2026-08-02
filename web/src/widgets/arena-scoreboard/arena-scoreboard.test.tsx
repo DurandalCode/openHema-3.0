@@ -42,11 +42,11 @@ function bout(partial: Partial<BoardBout> & { id: string; sequenceNumber: number
   };
 }
 
-function makeSnapshot(board: BoutBoard | null, sidesSwapped = false): ArenaLiveSnapshotDto {
+function makeSnapshot(board: BoutBoard | null, sidesSwapped = false, revealGeneration = 0): ArenaLiveSnapshotDto {
   return {
     board,
     timer: { status: "TIMER_STATUS_STOPPED", remainingCs: 9000, sampledUnixMs: "0", defaultCs: 9000 },
-    room: { scoreboardCount: 1, thisOrdinal: 1, thisIsSource: true, sidesSwapped },
+    room: { scoreboardCount: 1, thisOrdinal: 1, thisIsSource: true, sidesSwapped, revealGeneration },
     defaultDurationSeconds: 90,
     serverNowUnixMs: "0",
   };
@@ -213,6 +213,50 @@ describe("ArenaScoreboard", () => {
 
     expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Dave");
+    expect(document.querySelector('[data-color="red"]')?.textContent).toContain("Carol");
+  });
+
+  it("releases the hold immediately on RevealCurrentBout (room.revealGeneration bump), even though the next bout is still NOT_STARTED", () => {
+    const b1 = bout({
+      id: "b1",
+      sequenceNumber: 1,
+      state: "BOUT_STATE_FINISHED",
+      fighterA: { fighterId: "fa", name: "Alice", club: "" },
+      fighterB: { fighterId: "fb", name: "Bob", club: "" },
+      scoreA: 7,
+      scoreB: 4,
+    });
+    const b2 = bout({
+      id: "b2",
+      sequenceNumber: 2,
+      state: "BOUT_STATE_NOT_STARTED",
+      fighterA: { fighterId: "fc", name: "Carol", club: "" },
+      fighterB: { fighterId: "fd", name: "Dave", club: "" },
+    });
+
+    const boardWhileB1Current: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b1" };
+    mockLive(makeSnapshot(boardWhileB1Current, false, 0));
+    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+    // Finish b1: server auto-advances currentBoutId to b2 — hold engages,
+    // same reveal_generation (0) as before.
+    const boardAfterFinish: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b2" };
+    mockLive(makeSnapshot(boardAfterFinish, false, 0));
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    expect(screen.getByTestId("outcome-announcement")).toBeInTheDocument();
+    expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Bob");
+
+    // Secretary clicks "Показать следующий бой" on the panel — server bumps
+    // room.revealGeneration and broadcasts it to this table. b2 is STILL
+    // NOT_STARTED (secretary hasn't pressed Старт yet) — the table must
+    // reveal it anyway (0:0, waiting), not wait for it to start.
+    const boardRevealed: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b2" };
+    mockLive(makeSnapshot(boardRevealed, false, 1));
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+    expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Dave");
+    expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("0");
     expect(document.querySelector('[data-color="red"]')?.textContent).toContain("Carol");
   });
 

@@ -14,6 +14,7 @@ import {
 } from "@/entities/pool/lib/types";
 import { useBoutBoard } from "../api/use-bout-board";
 import { useFinishBout } from "../api/use-finish-bout";
+import { useRevealBout } from "../api/use-reveal-bout";
 import { useReopenBout } from "../api/use-reopen-bout";
 import { useResetBout } from "../api/use-reset-bout";
 import { useScoreBout } from "../api/use-score-bout";
@@ -29,12 +30,18 @@ const STEPS = [1, 2, 3, 5] as const;
  * циркуляцией (клик по бою → делает его текущим). Начать бой отдельной
  * кнопкой здесь не делаем (спека 0015): старт боя теперь — побочный эффект
  * кнопки «Старт» таймера (`TimerControls`), если текущий бой ещё не начат.
+ *
+ * «Показать следующий бой» (спека 0015, UX-уточнение) — развязывает
+ * оглашение результата (Завершить, табло держит прошлый бой с исходом) и
+ * переход к следующему бою на табло: секретарь сам решает, когда зал
+ * увидит новую пару (0:0, «не начат»), не дожидаясь, пока он нажмёт Старт.
  */
 export function BoutBoard({ arenaId }: { arenaId: string }) {
   const { data: board, isLoading, error } = useBoutBoard(arenaId);
   const setCurrent = useSetCurrentBout(arenaId);
   const score = useScoreBout(arenaId);
   const finish = useFinishBout(arenaId);
+  const reveal = useRevealBout(arenaId);
   const reopen = useReopenBout(arenaId);
   const reset = useResetBout(arenaId);
 
@@ -59,6 +66,7 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
     setCurrent.error?.message ??
     score.error?.message ??
     finish.error?.message ??
+    reveal.error?.message ??
     reopen.error?.message ??
     reset.error?.message ??
     null;
@@ -67,6 +75,7 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
     setCurrent.isPending ||
     score.isPending ||
     finish.isPending ||
+    reveal.isPending ||
     reopen.isPending ||
     reset.isPending;
 
@@ -90,6 +99,7 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
           onManualA={(value) => sendScore(value, currentBout.scoreB)}
           onManualB={(value) => sendScore(currentBout.scoreA, value)}
           onFinish={() => finish.mutate(poolId)}
+          onReveal={() => reveal.mutate()}
           onReopen={() => reopen.mutate(poolId)}
           onReset={() => reset.mutate(poolId)}
         />
@@ -114,6 +124,7 @@ function CurrentBoutCard({
   onManualA,
   onManualB,
   onFinish,
+  onReveal,
   onReopen,
   onReset,
 }: {
@@ -124,6 +135,7 @@ function CurrentBoutCard({
   onManualA: (value: number) => void;
   onManualB: (value: number) => void;
   onFinish: () => void;
+  onReveal: () => void;
   onReopen: () => void;
   onReset: () => void;
 }) {
@@ -172,6 +184,9 @@ function CurrentBoutCard({
               onClick={onFinish}
             >
               Завершить
+            </Button>
+            <Button type="button" size="sm" variant="secondary" disabled={pending} onClick={onReveal}>
+              Показать следующий бой
             </Button>
             <Button
               type="button"

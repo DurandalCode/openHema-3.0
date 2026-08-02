@@ -205,6 +205,43 @@ func TestArenaRooms_SetSwappedSavesAndSignals(t *testing.T) {
 	}
 }
 
+func TestArenaRooms_RevealCurrentBoutIncrementsAndSignalsAll(t *testing.T) {
+	r := newArenaRooms()
+	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
+	panel := r.join("a1", domain.ScoreboardRolePanel)
+
+	if v := r.view("a1", scoreboard); v.RevealGeneration != 0 {
+		t.Fatalf("initial RevealGeneration = %d, want 0", v.RevealGeneration)
+	}
+
+	r.revealCurrentBout("a1")
+
+	if v := r.view("a1", scoreboard); v.RevealGeneration != 1 {
+		t.Errorf("RevealGeneration after one reveal = %d, want 1", v.RevealGeneration)
+	}
+	select {
+	case <-scoreboard.boardCh:
+	default:
+		t.Errorf("expected scoreboard.boardCh signaled")
+	}
+	select {
+	case <-panel.boardCh:
+	default:
+		t.Errorf("expected panel.boardCh signaled too (broadcast, like sides_swapped)")
+	}
+
+	r.revealCurrentBout("a1")
+	if v := r.view("a1", scoreboard); v.RevealGeneration != 2 {
+		t.Errorf("RevealGeneration after second reveal = %d, want 2 (monotonic)", v.RevealGeneration)
+	}
+}
+
+func TestArenaRooms_RevealCurrentBoutNoRoomIsNoop(t *testing.T) {
+	r := newArenaRooms()
+	// No panic, no-op: no room exists for this arena yet.
+	r.revealCurrentBout("no-such-arena")
+}
+
 // TestArenaRooms_ConcurrentJoinLeavePublish — конкурентный join/leave/publish
 // под go test -race не должен падать/гонки.
 func TestArenaRooms_ConcurrentJoinLeavePublish(t *testing.T) {

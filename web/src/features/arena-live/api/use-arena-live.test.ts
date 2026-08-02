@@ -24,7 +24,7 @@ const initialBoard: BoutBoard = {
 const snapshot: ArenaLiveSnapshotDto = {
   board: initialBoard,
   timer: { status: "TIMER_STATUS_RUNNING", remainingCs: 8900, sampledUnixMs: "1700000000000", defaultCs: 9000 },
-  room: { scoreboardCount: 1, thisOrdinal: 1, thisIsSource: true, sidesSwapped: false },
+  room: { scoreboardCount: 1, thisOrdinal: 1, thisIsSource: true, sidesSwapped: false, revealGeneration: 0 },
   defaultDurationSeconds: 90,
   serverNowUnixMs: "1700000000500",
 };

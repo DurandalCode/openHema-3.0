@@ -15,7 +15,7 @@ const controls = {
 const baseSnapshot: ArenaLiveSnapshotDto = {
   board: null,
   timer: { status: "TIMER_STATUS_STOPPED", remainingCs: 9000, sampledUnixMs: "0", defaultCs: 9000 },
-  room: { scoreboardCount: 1, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false },
+  room: { scoreboardCount: 1, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 },
   defaultDurationSeconds: 90,
   serverNowUnixMs: "0",
 };

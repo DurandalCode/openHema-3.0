@@ -463,6 +463,7 @@ function scoreboardRoomRawToDto(raw: Partial<ScoreboardRoomDto> | undefined): Sc
     thisOrdinal: raw?.thisOrdinal ?? 0,
     thisIsSource: raw?.thisIsSource ?? false,
     sidesSwapped: raw?.sidesSwapped ?? false,
+    revealGeneration: raw?.revealGeneration ?? 0,
   };
 }
 
