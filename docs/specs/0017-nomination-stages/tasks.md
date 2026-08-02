@@ -61,7 +61,7 @@
         во всех вызывающих роутах, импорты `@/gen/hema/v1/stage_pb`.
         **REST-пути и имена файлов роутов не меняем** (NFR-2);
       - пересоздать БД, прогнать `make demo-bouts`.
-- [ ] T2. `proto/hema/v1/stage.proto` — `enum StageType`, `message Stage`,
+- [x] T2. `proto/hema/v1/stage.proto` — `enum StageType`, `message Stage`,
       поля `stage` в `PoolLayout` и `stages` в `ListPublicPoolsResponse` /
       `NominationLive`; `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_

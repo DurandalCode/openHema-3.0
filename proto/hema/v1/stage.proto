@@ -170,12 +170,32 @@ enum BoutState {
   BOUT_STATE_FINISHED = 3;
 }
 
+// StageType — тип этапа номинации (спека 0017, ADR 0014 §1/§3). В этом
+// инкременте существует ровно одно значение; BRACKET придёт со спекой 0018.
+enum StageType {
+  STAGE_TYPE_UNSPECIFIED = 0;
+  STAGE_TYPE_GROUPS = 1;
+}
+
 // FighterRef — проекция бойца для экрана управления пулами (DnD): id для
 // перетаскивания, имя/клуб — снапшот из модуля fighter.
 message FighterRef {
   string fighter_id = 1;
   string name = 2;
   string club = 3;
+}
+
+// Stage — этап номинации (спека 0017, FR-1). Статуса здесь нет намеренно:
+// статус фиксации состава уже едет в PoolLayout.status — дублировать его в
+// двух местах ради одного инкремента незачем. position — порядковый номер;
+// несколько этапов могут делить одну позицию (параллельные ветки схемы,
+// ADR 0014 §1), поэтому уникальности по (nomination_id, position) нет.
+message Stage {
+  string id = 1;
+  string nomination_id = 2;
+  int32 position = 3;
+  string title = 4;
+  StageType type = 5;
 }
 
 // PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
@@ -325,13 +345,15 @@ message ArenaLiveSnapshot {
 }
 
 // PoolLayout — раскладка номинации целиком: статус, нераспределённые,
-// пулы. can_undo — доступна ли кнопка «Отменить» (FR-7a).
+// пулы. can_undo — доступна ли кнопка «Отменить» (FR-7a). stage — этап,
+// которому принадлежит раскладка (спека 0017, FR-11).
 message PoolLayout {
   string nomination_id = 1;
   PoolLayoutStatus status = 2;
   repeated FighterRef unassigned = 3;
   repeated Pool pools = 4;
   bool can_undo = 5;
+  Stage stage = 6;
 }
 
 message GetLayoutRequest {
@@ -446,6 +468,9 @@ message ListPublicPoolsRequest {
 
 message ListPublicPoolsResponse {
   repeated Pool pools = 1;
+  // stages — этапы номинации (спека 0017). Ровно один элемент в этом
+  // инкременте; repeated сразу — модель допускает несколько (FR-2).
+  repeated Stage stages = 2;
 }
 
 // LivePool — один пул живого снапшота номинации (спека 0014, FR-1..FR-3):
@@ -461,10 +486,12 @@ message LivePool {
 
 // NominationLiveSnapshot — живой снапшот номинации целиком (спека 0014):
 // общий payload unary- и streaming-ответа. pools пуст, пока раскладка draft
-// (FR-12).
+// (FR-12). stages — этапы номинации (спека 0017); заполнен независимо от
+// готовности раскладки.
 message NominationLiveSnapshot {
   string nomination_id = 1;
   repeated LivePool pools = 2;
+  repeated Stage stages = 3;
 }
 
 message GetNominationLiveRequest {
