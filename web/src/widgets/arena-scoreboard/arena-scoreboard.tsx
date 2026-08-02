@@ -57,7 +57,17 @@ export function ArenaScoreboard({
   // завершённого боя, пока секретарь явно не начнёт/не выберет следующий
   // (следующий бой становится не NOT_STARTED, либо currentBoutId
   // переключается ещё раз на третий бой — циркуляция).
+  //
+  // Вся логика решения живёт в теле эффекта, читая/записывая
+  // `displayedBoutIdRef`/`advanceTargetRef` напрямую, а не в функции-апдейтере
+  // `setState(prev => ...)`: апдейтеры React обязаны быть чистыми и в dev
+  // (React 18 Strict Mode) вызываются дважды для проверки этого — апдейтер с
+  // побочным эффектом (мутация `advanceTargetRef` внутри него) на второй
+  // вызов видел уже изменённый на первом вызове реф и повторно включал
+  // «удержание» сразу после его снятия, из-за чего циркуляция на другой
+  // ещё не начатый бой после завершения никогда не показывалась на табло.
   const [displayedBoutId, setDisplayedBoutId] = useState<string | null>(board?.currentBoutId || null);
+  const displayedBoutIdRef = useRef<string | null>(board?.currentBoutId || null);
   const advanceTargetRef = useRef<string | null>(null);
   const initializedRef = useRef(false);
 
@@ -66,36 +76,34 @@ export function ArenaScoreboard({
 
     if (!initializedRef.current) {
       initializedRef.current = true;
+      displayedBoutIdRef.current = rawCurrentId;
       setDisplayedBoutId(rawCurrentId);
       return;
     }
 
-    setDisplayedBoutId((prevDisplayed) => {
-      if (rawCurrentId === prevDisplayed) return prevDisplayed;
+    const prevDisplayed = displayedBoutIdRef.current;
+    if (rawCurrentId === prevDisplayed) return;
 
-      const displayedState = board?.bouts.find((b) => b.id === prevDisplayed)?.state;
-      const isHoldingAnnouncement = displayedState === "BOUT_STATE_FINISHED";
+    const displayedState = board?.bouts.find((b) => b.id === prevDisplayed)?.state;
+    const isHoldingAnnouncement = displayedState === "BOUT_STATE_FINISHED";
 
-      if (isHoldingAnnouncement && advanceTargetRef.current === null) {
-        advanceTargetRef.current = rawCurrentId;
-        return prevDisplayed;
-      }
-
-      if (advanceTargetRef.current !== null) {
-        if (rawCurrentId !== advanceTargetRef.current) {
-          advanceTargetRef.current = null;
-          return rawCurrentId;
-        }
+    let next = rawCurrentId;
+    if (isHoldingAnnouncement && advanceTargetRef.current === null) {
+      advanceTargetRef.current = rawCurrentId;
+      next = prevDisplayed;
+    } else if (advanceTargetRef.current !== null) {
+      if (rawCurrentId !== advanceTargetRef.current) {
+        advanceTargetRef.current = null;
+        next = rawCurrentId;
+      } else {
         const candidate = board?.bouts.find((b) => b.id === rawCurrentId);
-        if (candidate && candidate.state !== "BOUT_STATE_NOT_STARTED") {
-          advanceTargetRef.current = null;
-          return rawCurrentId;
-        }
-        return prevDisplayed;
+        next = candidate && candidate.state !== "BOUT_STATE_NOT_STARTED" ? rawCurrentId : prevDisplayed;
+        if (next === rawCurrentId) advanceTargetRef.current = null;
       }
+    }
 
-      return rawCurrentId;
-    });
+    displayedBoutIdRef.current = next;
+    setDisplayedBoutId(next);
   }, [board?.currentBoutId, board?.bouts]);
 
   const displayedBout = board?.bouts.find((b) => b.id === displayedBoutId) ?? null;

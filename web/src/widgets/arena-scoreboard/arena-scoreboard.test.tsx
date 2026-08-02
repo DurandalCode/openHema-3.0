@@ -60,6 +60,7 @@ function mockLive(snapshot: ArenaLiveSnapshotDto | null) {
   });
 }
 
+
 describe("ArenaScoreboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -171,6 +172,48 @@ describe("ArenaScoreboard", () => {
 
     expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain(b2.fighterB.name);
+  });
+
+  it("releases the hold when the secretary manually circulates to a different not-started bout (not just the auto-advance target)", () => {
+    const b1 = bout({
+      id: "b1",
+      sequenceNumber: 1,
+      state: "BOUT_STATE_FINISHED",
+      fighterA: { fighterId: "fa", name: "Alice", club: "" },
+      fighterB: { fighterId: "fb", name: "Bob", club: "" },
+      scoreA: 7,
+      scoreB: 4,
+    });
+    const b2 = bout({ id: "b2", sequenceNumber: 2, state: "BOUT_STATE_NOT_STARTED" });
+    const b3 = bout({
+      id: "b3",
+      sequenceNumber: 3,
+      state: "BOUT_STATE_NOT_STARTED",
+      fighterA: { fighterId: "fc", name: "Carol", club: "" },
+      fighterB: { fighterId: "fd", name: "Dave", club: "" },
+    });
+
+    const boardWhileB1Current: BoutBoard = { pool, bouts: [b1, b2, b3], currentBoutId: "b1" };
+    mockLive(makeSnapshot(boardWhileB1Current));
+    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+    // Finish b1: server auto-advances currentBoutId to b2 — the widget holds
+    // b1's outcome (same as the AC-11a test above).
+    const boardAfterFinish: BoutBoard = { pool, bouts: [b1, b2, b3], currentBoutId: "b2" };
+    mockLive(makeSnapshot(boardAfterFinish));
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    expect(screen.getByTestId("outcome-announcement")).toBeInTheDocument();
+
+    // Secretary does NOT start b2 — instead manually circulates (SetCurrentBout)
+    // to b3, a completely different not-started bout. The board must drop the
+    // hold and show b3 immediately, not stay stuck on b1's announcement.
+    const boardCirculatedToB3: BoutBoard = { pool, bouts: [b1, b2, b3], currentBoutId: "b3" };
+    mockLive(makeSnapshot(boardCirculatedToB3));
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+    expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Dave");
+    expect(document.querySelector('[data-color="red"]')?.textContent).toContain("Carol");
   });
 
   it("announces a draw", () => {
