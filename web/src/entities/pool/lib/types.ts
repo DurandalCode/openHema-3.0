@@ -39,10 +39,29 @@ export type FighterRef = {
 };
 
 /**
+ * PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
+ * статистика бойца по завершённым боям пула + итоговое место. `place`
+ * вычислен сервером с учётом дележа (FR-3: 1, 2, 2, 4) — клиент не
+ * пересчитывает и не досортировывает (FR-8).
+ */
+export type PoolStanding = {
+  fighter: FighterRef;
+  wins: number;
+  draws: number;
+  losses: number;
+  pointsScored: number;
+  pointsConceded: number;
+  place: number;
+};
+
+/**
  * Pool — пул номинации. `arenaId`/`arenaName` пусты, если пул не поставлен
  * на арену (спека 0011). `nominationName` — резолвленное на чтение название
  * номинации пула (denormalized, FR-9: список «готовых пулов» на экране арены
- * собран из разных номинаций — без имени они неразличимы).
+ * собран из разных номинаций — без имени они неразличимы). `standings` —
+ * итоговая таблица пула (спека 0016), пуста, если в пуле нет ни одного
+ * завершённого боя (FR-7) либо на путях, связанных с ареной/табло, где она
+ * осознанно не заполняется.
  */
 export type Pool = {
   id: string;
@@ -54,6 +73,7 @@ export type Pool = {
   status: PoolStatus;
   arenaId: string;
   arenaName: string;
+  standings: PoolStanding[];
 };
 
 export type PoolLayout = {

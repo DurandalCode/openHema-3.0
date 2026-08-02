@@ -39,6 +39,7 @@ function boardWithCurrentBout(state: "BOUT_STATE_NOT_STARTED" | "BOUT_STATE_IN_P
       status: "POOL_STATUS_PREPARING" as const,
       arenaId: "a1",
       arenaName: "",
+      standings: [],
     },
     bouts: [
       {

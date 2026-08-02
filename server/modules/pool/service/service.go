@@ -707,6 +707,9 @@ func (s *Service) NominationLive(ctx context.Context, nominationID string) (doma
 		if err != nil {
 			return domain.NominationSnapshot{}, err
 		}
+		// Standings (спека 0016, FR-6): переиспользуем уже прочитанные бои —
+		// без дополнительного вызова порта.
+		pool.Standings = domain.ComputeStandings(pool.Members, bouts)
 		sorted := sortedBySequence(bouts)
 		current := effectiveCurrentBoutID(pool, sorted)
 		livePools = append(livePools, domain.LivePool{Pool: pool, Bouts: sorted, CurrentBoutID: current})
@@ -846,6 +849,14 @@ func (s *Service) loadLayout(ctx context.Context, nominationID string) (domain.L
 // пулы одной раскладки разделяют nominationID, резолв идёт одним батчем.
 // PoolProgress вызывается по одному разу на пул (пулы уже уникальны по ID
 // в списке одной раскладки) — не N+1 относительно бойцов.
+//
+// Standings (спека 0016, FR-5/FR-7) заполняется только когда у пула есть
+// хотя бы один завершённый бой (finished > 0 из уже полученного
+// PoolProgress) — тогда дополнительно читаем сами бои (BoutsByPool) и
+// считаем итоговую таблицу; для пулов без результатов лишний вызов порта не
+// делаем (Standings остаётся nil, FR-7). Путь используется GetLayout
+// (admin) и, транзитивно, ListPublicPools (public) — GetPoolsForArena к
+// этой функции не обращается, её пулы Standings осознанно не несут.
 func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, layoutStatus domain.LayoutStatus) ([]domain.Pool, error) {
 	arenaNames, err := s.resolveArenaNames(ctx, pools)
 	if err != nil {
@@ -865,6 +876,13 @@ func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, 
 			pools[i].ArenaName = arenaNames[pools[i].ArenaID].Name
 		}
 		pools[i].NominationName = nomNames[pools[i].NominationID].Title
+		if finished > 0 {
+			poolBouts, err := s.bouts.BoutsByPool(ctx, pools[i].ID)
+			if err != nil {
+				return nil, err
+			}
+			pools[i].Standings = domain.ComputeStandings(pools[i].Members, poolBouts)
+		}
 	}
 	return pools, nil
 }

@@ -12,6 +12,7 @@ const pool: Pool = {
   status: "POOL_STATUS_ACTIVE",
   arenaId: "arena-1",
   arenaName: "Ристалище 1",
+  standings: [],
 };
 
 function bout(partial: Partial<BoardBout> & { id: string; sequenceNumber: number }): BoardBout {

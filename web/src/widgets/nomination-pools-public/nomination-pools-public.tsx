@@ -7,6 +7,7 @@ import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { poolStatusLabel, boutStateLabel, outcomeOf } from "@/entities/pool/lib/types";
 import type { BoardBout } from "@/entities/pool/lib/types";
+import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
 import { useNominationLive } from "@/features/nomination-live/api/use-nomination-live";
 
@@ -129,6 +130,7 @@ export function NominationPoolsPublic({
                     </Col>
                   </Col>
                 )}
+                <PoolStandingsTable standings={pool.standings} />
               </Col>
             </CardContent>
           </Card>

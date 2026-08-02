@@ -62,6 +62,7 @@ import type {
   PoolStatus as PoolStatusDto,
   FighterRef as PoolFighterRefDto,
   Pool as PoolDto,
+  PoolStanding as PoolStandingDto,
   BoutBoard as BoutBoardDto,
   BoardBout as BoardBoutDto,
   BoutState as BoutStateDto,
@@ -305,12 +306,30 @@ function poolFighterRefToJson(raw: Partial<PoolFighterRefDto> | undefined): Pool
 }
 
 /**
+ * poolStandingToJson нормализует одну строку итоговой таблицы пула (спека
+ * 0016) — числовые поля клэмпятся к 0, `fighter` — как остальные снапшоты
+ * бойца.
+ */
+function poolStandingToJson(raw: Partial<PoolStandingDto> | undefined): PoolStandingDto {
+  return {
+    fighter: poolFighterRefToJson(raw?.fighter),
+    wins: raw?.wins ?? 0,
+    draws: raw?.draws ?? 0,
+    losses: raw?.losses ?? 0,
+    pointsScored: raw?.pointsScored ?? 0,
+    pointsConceded: raw?.pointsConceded ?? 0,
+    place: raw?.place ?? 0,
+  };
+}
+
+/**
  * poolRawToDto нормализует уже toJson-сериализованный (plain JSON, не proto
  * Message) объект пула — общая часть между `poolLayoutToJson` (пулы вложены
  * в `PoolLayout`) и `poolToJson` (пул как отдельное proto-сообщение).
  * `status`/`arenaId`/`arenaName` — спека 0011; `nominationName` — резолв
  * имени номинации пула (FR-9: «готовые пулы» на экране арены собраны из
- * разных номинаций).
+ * разных номинаций); `standings` — итоговая таблица пула (спека 0016),
+ * пустой массив, если сервер её не заполнил (FR-7 либо путь арены/табло).
  */
 function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
   return {
@@ -323,6 +342,7 @@ function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
     status: (raw?.status as PoolStatusDto) ?? "POOL_STATUS_UNSPECIFIED",
     arenaId: raw?.arenaId ?? "",
     arenaName: raw?.arenaName ?? "",
+    standings: Array.isArray(raw?.standings) ? raw.standings.map(poolStandingToJson) : [],
   };
 }
 

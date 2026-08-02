@@ -16,6 +16,7 @@ function pool(id: string, members: FighterRef[]): Pool {
     status: "POOL_STATUS_NOT_READY",
     arenaId: "",
     arenaName: "",
+    standings: [],
   };
 }
 function layout(pools: Pool[], unassigned: FighterRef[] = [], canUndo = false): PoolLayout {

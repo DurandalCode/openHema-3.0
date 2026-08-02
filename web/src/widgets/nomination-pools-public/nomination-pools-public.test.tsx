@@ -25,6 +25,17 @@ const snapshot: NominationLiveSnapshotDto = {
         status: "POOL_STATUS_ACTIVE",
         arenaId: "arena-1",
         arenaName: "Ристалище 1",
+        standings: [
+          {
+            fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+            wins: 1,
+            draws: 0,
+            losses: 0,
+            pointsScored: 5,
+            pointsConceded: 3,
+            place: 1,
+          },
+        ],
       },
       bouts: [
         {
@@ -84,6 +95,17 @@ describe("NominationPoolsPublic", () => {
     expect(rows).toHaveLength(2);
     const notCurrentRow = Array.from(rows).find((r) => !r.hasAttribute("data-current"));
     expect(notCurrentRow?.textContent).toContain("Fighter One");
+  });
+
+  it("renders the pool standings table (спека 0016)", () => {
+    const { container } = render(
+      <NominationPoolsPublic nominationId="n1" initialSnapshot={snapshot} />,
+    );
+
+    const table = container.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table?.textContent).toContain("Fighter One");
+    expect(table?.textContent).toContain("Sokol");
   });
 
   it("shows the draft placeholder when there are no pools yet", () => {

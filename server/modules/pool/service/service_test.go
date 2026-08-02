@@ -2750,3 +2750,156 @@ func assertArenaBoardNotSignaled(t *testing.T, m *service.ArenaBoardMember, step
 	default:
 	}
 }
+
+// ---------------------------------------------------------------------
+// Спека 0016: статистика и итоговая таблица пула (Standings).
+// ---------------------------------------------------------------------
+
+func standingByID(standings []domain.Standing, id string) (domain.Standing, bool) {
+	for _, s := range standings {
+		if s.Fighter.ID == id {
+			return s, true
+		}
+	}
+	return domain.Standing{}, false
+}
+
+// AC-6: пул без ни одного завершённого боя — GetLayout не заполняет
+// Standings (FR-7).
+func TestGetLayout_Standings_EmptyWithoutFinishedBouts(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+
+	layout, err := svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := poolByID(layout.Pools, poolID)
+	if len(pool.Standings) != 0 {
+		t.Fatalf("expected empty Standings (FR-7), got %+v", pool.Standings)
+	}
+}
+
+// AC-2: один завершённый бой из нескольких — GetLayout отдаёт заполненную
+// таблицу с ненулевой статистикой участников.
+func TestGetLayout_Standings_PopulatedAfterFinishedBout(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1", Name: "A"}, FighterB: domain.FighterRef{ID: "f2", Name: "B"},
+		State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 2,
+	})
+
+	layout, err := svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := poolByID(layout.Pools, poolID)
+	winner, ok := standingByID(pool.Standings, "f1")
+	if !ok {
+		t.Fatalf("f1 missing from standings: %+v", pool.Standings)
+	}
+	if winner.Wins != 1 || winner.Place != 1 {
+		t.Fatalf("winner standing: %+v", winner)
+	}
+	loser, ok := standingByID(pool.Standings, "f2")
+	if !ok {
+		t.Fatalf("f2 missing from standings: %+v", pool.Standings)
+	}
+	if loser.Losses != 1 || loser.Place != 2 {
+		t.Fatalf("loser standing: %+v", loser)
+	}
+}
+
+// AC-5: правка счёта уже завершённого боя (Reopen → Score → Finish) меняет
+// таблицу следующего чтения без отдельного действия — Standings всегда
+// производная от текущего состояния боёв (FR-8).
+func TestGetLayout_Standings_ReflectsRescoreAfterReopen(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 2,
+	})
+	if err := repo.SetCurrentBout(ctx, poolID, "b1"); err != nil {
+		t.Fatalf("set current: %v", err)
+	}
+
+	layout, err := svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	before, _ := standingByID(poolByID(layout.Pools, poolID).Standings, "f1")
+	if before.Wins != 1 {
+		t.Fatalf("expected f1 to be winning before rescore: %+v", before)
+	}
+
+	if _, err := svc.ReopenCurrentBout(ctx, poolID, "actor"); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if _, err := svc.ScoreCurrentBout(ctx, poolID, "actor", 3, 6); err != nil {
+		t.Fatalf("score: %v", err)
+	}
+	if _, err := svc.FinishCurrentBout(ctx, poolID, "actor"); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+
+	layout, err = svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	after, ok := standingByID(poolByID(layout.Pools, poolID).Standings, "f2")
+	if !ok {
+		t.Fatalf("f2 missing after rescore")
+	}
+	if after.Wins != 1 || after.PointsScored != 6 || after.PointsConceded != 3 {
+		t.Fatalf("standings not reflecting rescore: %+v", after)
+	}
+}
+
+// Живой снапшот номинации (спека 0014) несёт ту же таблицу для завершённых
+// боёв пула (FR-6).
+func TestNominationLive_Standings_PopulatedFromFinishedBouts(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateFinished, ScoreA: 4, ScoreB: 4,
+	})
+
+	snap, err := svc.NominationLive(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snap.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(snap.Pools))
+	}
+	standings := snap.Pools[0].Pool.Standings
+	f1, ok := standingByID(standings, "f1")
+	if !ok || f1.Draws != 1 {
+		t.Fatalf("expected f1 draw in live standings: %+v (found=%v)", f1, ok)
+	}
+}

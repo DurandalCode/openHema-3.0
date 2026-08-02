@@ -1389,3 +1389,147 @@ func TestPublishTimerFrame_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
 		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
 	}
 }
+
+// ---------------------------------------------------------------------
+// Спека 0016: статистика и итоговая таблица пула (standings) в ответах.
+// ---------------------------------------------------------------------
+
+// finishedStandingsBout сажает пул с одним завершённым боем (f1 бьёт f2) —
+// общий сетап для e2e-тестов standings.
+func finishedStandingsBout(t *testing.T, repo *testutil.FakeRepo, bouts *testutil.FakeBoutConductor) string {
+	t.Helper()
+	poolID := repo.SeedPool(n1, 1, "f1", "f2")
+	repo.SeedStatus(n1, domain.LayoutReady)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1", Name: "A"}, FighterB: domain.FighterRef{ID: "f2", Name: "B"},
+		State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 2,
+	})
+	return poolID
+}
+
+func standingByFighterID(standings []*hemav1.PoolStanding, id string) *hemav1.PoolStanding {
+	for _, s := range standings {
+		if s.Fighter.GetFighterId() == id {
+			return s
+		}
+	}
+	return nil
+}
+
+func TestGetLayout_E2E_StandingsPopulatedAfterFinishedBout(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
+	poolID := finishedStandingsBout(t, repo, bouts)
+
+	req := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: n1})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetLayout(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetLayout: %v", err)
+	}
+	var pool *hemav1.Pool
+	for _, p := range res.Msg.Layout.Pools {
+		if p.Id == poolID {
+			pool = p
+		}
+	}
+	if pool == nil {
+		t.Fatalf("pool %s not found in layout", poolID)
+	}
+	winner := standingByFighterID(pool.Standings, "f1")
+	if winner == nil || winner.Wins != 1 || winner.Place != 1 {
+		t.Fatalf("winner standing: %+v", winner)
+	}
+	loser := standingByFighterID(pool.Standings, "f2")
+	if loser == nil || loser.Losses != 1 || loser.Place != 2 {
+		t.Fatalf("loser standing: %+v", loser)
+	}
+}
+
+func TestListPublicPools_E2E_StandingsPopulatedAfterFinishedBout(t *testing.T) {
+	_, public, repo, fighters, _, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
+	finishedStandingsBout(t, repo, bouts)
+
+	req := connect.NewRequest(&hemav1.ListPublicPoolsRequest{NominationId: n1})
+	res, err := public.ListPublicPools(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListPublicPools: %v", err)
+	}
+	if len(res.Msg.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(res.Msg.Pools))
+	}
+	if standingByFighterID(res.Msg.Pools[0].Standings, "f1") == nil {
+		t.Fatalf("expected f1 in public standings, got %+v", res.Msg.Pools[0].Standings)
+	}
+}
+
+func TestGetNominationLive_E2E_StandingsPopulatedAfterFinishedBout(t *testing.T) {
+	_, public, repo, fighters, _, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
+	finishedStandingsBout(t, repo, bouts)
+
+	req := connect.NewRequest(&hemav1.GetNominationLiveRequest{NominationId: n1})
+	res, err := public.GetNominationLive(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetNominationLive: %v", err)
+	}
+	if len(res.Msg.Snapshot.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(res.Msg.Snapshot.Pools))
+	}
+	standings := res.Msg.Snapshot.Pools[0].Pool.Standings
+	if standingByFighterID(standings, "f1") == nil {
+		t.Fatalf("expected f1 in live standings, got %+v", standings)
+	}
+}
+
+// Регрессия: GetPoolsForArena/GetBoutBoard (пути арены/табло, спека 0015)
+// standings осознанно не заполняют, даже когда у пула есть завершённые бои.
+func TestGetPoolsForArena_E2E_StandingsNotPopulated(t *testing.T) {
+	admin, _, repo, fighters, arenas, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
+	poolID := finishedStandingsBout(t, repo, bouts)
+	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true})
+
+	seatReq := connect.NewRequest(&hemav1.SeatPoolOnArenaRequest{PoolId: poolID, ArenaId: "arena-1"})
+	seatReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.SeatPoolOnArena(context.Background(), seatReq); err != nil {
+		t.Fatalf("SeatPoolOnArena: %v", err)
+	}
+
+	req := connect.NewRequest(&hemav1.GetPoolsForArenaRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetPoolsForArena(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetPoolsForArena: %v", err)
+	}
+	if res.Msg.Seated == nil {
+		t.Fatalf("expected seated pool")
+	}
+	if len(res.Msg.Seated.Standings) != 0 {
+		t.Fatalf("expected empty standings on arena path, got %+v", res.Msg.Seated.Standings)
+	}
+}
+
+func TestGetBoutBoard_E2E_StandingsNotPopulated(t *testing.T) {
+	admin, _, repo, fighters, _, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
+	poolID := finishedStandingsBout(t, repo, bouts)
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat: %v", err)
+	}
+
+	req := connect.NewRequest(&hemav1.GetBoutBoardRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetBoutBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetBoutBoard: %v", err)
+	}
+	if res.Msg.Board.Pool == nil {
+		t.Fatalf("expected board pool")
+	}
+	if len(res.Msg.Board.Pool.Standings) != 0 {
+		t.Fatalf("expected empty standings on bout board, got %+v", res.Msg.Board.Pool.Standings)
+	}
+}
