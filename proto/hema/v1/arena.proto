@@ -28,6 +28,10 @@ service ArenaAdminService {
   // ReorderArenas задаёт порядок площадок турнира целиком (полный
   // упорядоченный список id).
   rpc ReorderArenas(ReorderArenasRequest) returns (ReorderArenasResponse);
+  // SetArenaDefaultDuration задаёт дефолтную длительность боя арены (спека
+  // 0015, FR-8): недоменная настройка табло/таймера — не влияет на ЖЦ боя
+  // (спека 0013). Значение — секунды, диапазон 1..3600.
+  rpc SetArenaDefaultDuration(SetArenaDefaultDurationRequest) returns (SetArenaDefaultDurationResponse);
 }
 
 // ArenaStatus — статус площадки. Архивация — обратимое «удаление» (FR-5).
@@ -49,6 +53,10 @@ message Arena {
   ArenaStatus status = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  // default_duration_seconds — дефолтная длительность боя для табло арены
+  // (спека 0015, FR-8): недоменная настройка отображения/таймера, не влияет
+  // на бой/пул/журнал (0013). Секунды, 1..3600, по умолчанию 90.
+  int32 default_duration_seconds = 9;
 }
 
 message ListArenasRequest {
@@ -117,4 +125,13 @@ message ReorderArenasRequest {
 
 message ReorderArenasResponse {
   repeated Arena arenas = 1;
+}
+
+message SetArenaDefaultDurationRequest {
+  string arena_id = 1;
+  int32 default_duration_seconds = 2;
+}
+
+message SetArenaDefaultDurationResponse {
+  Arena arena = 1;
 }

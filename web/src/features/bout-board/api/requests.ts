@@ -65,6 +65,29 @@ export async function resetBoutRequest(poolId: string): Promise<BoardResult> {
   return sendBoutAction(poolId, { action: "reset" });
 }
 
+export type RevealBoutResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * revealBoutRequest — показать текущий бой на всех подключённых табло арены
+ * (спека 0015, UX-уточнение): развязывает оглашение результата
+ * (finishBoutRequest, держит на табло прошлый бой с исходом) и переход к
+ * следующему бою на табло на разные действия панели. Чисто отображенческий
+ * сигнал — не возвращает доску (не меняет её), поэтому свой, более простой
+ * тип результата вместо общего `BoardResult`.
+ */
+export async function revealBoutRequest(arenaId: string): Promise<RevealBoutResult> {
+  try {
+    const res = await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/reveal-bout`, { method: "POST" });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
 async function sendBoutAction(poolId: string, body: unknown): Promise<BoardResult> {
   return sendJson(`/api/pools/${encodeURIComponent(poolId)}/bout`, "POST", body);
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   finishBoutRequest,
   getBoutBoardRequest,
+  revealBoutRequest,
   reopenBoutRequest,
   resetBoutRequest,
   scoreBoutRequest,
@@ -181,6 +182,33 @@ describe("features/bout-board/api/requests", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reset" }),
       });
+    });
+  });
+
+  describe("revealBoutRequest", () => {
+    it("POSTs /api/arenas/[id]/reveal-bout with no body", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const result = await revealBoutRequest("a1");
+
+      expect(result).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith("/api/arenas/a1/reveal-bout", { method: "POST" });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "bad" }) });
+
+      const result = await revealBoutRequest("a1");
+
+      expect(result).toEqual({ ok: false, error: "bad" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await revealBoutRequest("a1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 });

@@ -14,11 +14,11 @@ import {
 } from "@/entities/pool/lib/types";
 import { useBoutBoard } from "../api/use-bout-board";
 import { useFinishBout } from "../api/use-finish-bout";
+import { useRevealBout } from "../api/use-reveal-bout";
 import { useReopenBout } from "../api/use-reopen-bout";
 import { useResetBout } from "../api/use-reset-bout";
 import { useScoreBout } from "../api/use-score-bout";
 import { useSetCurrentBout } from "../api/use-set-current-bout";
-import { useStartBout } from "../api/use-start-bout";
 import { applyScoreStep } from "../model/score-step";
 
 const STEPS = [1, 2, 3, 5] as const;
@@ -27,14 +27,21 @@ const STEPS = [1, 2, 3, 5] as const;
  * BoutBoard — экран ведения боёв стоящего на арене пула (спека 0013,
  * FR-14): текущий бой (пара, счёт, быстрые шаги ±1/±2/±3/±5 + ручной ввод,
  * кнопки жизненного цикла, исход) и список боёв пула по порядку с
- * циркуляцией (клик по бою → делает его текущим).
+ * циркуляцией (клик по бою → делает его текущим). Начать бой отдельной
+ * кнопкой здесь не делаем (спека 0015): старт боя теперь — побочный эффект
+ * кнопки «Старт» таймера (`TimerControls`), если текущий бой ещё не начат.
+ *
+ * «Показать следующий бой» (спека 0015, UX-уточнение) — развязывает
+ * оглашение результата (Завершить, табло держит прошлый бой с исходом) и
+ * переход к следующему бою на табло: секретарь сам решает, когда зал
+ * увидит новую пару (0:0, «не начат»), не дожидаясь, пока он нажмёт Старт.
  */
 export function BoutBoard({ arenaId }: { arenaId: string }) {
   const { data: board, isLoading, error } = useBoutBoard(arenaId);
   const setCurrent = useSetCurrentBout(arenaId);
-  const start = useStartBout(arenaId);
   const score = useScoreBout(arenaId);
   const finish = useFinishBout(arenaId);
+  const reveal = useRevealBout(arenaId);
   const reopen = useReopenBout(arenaId);
   const reset = useResetBout(arenaId);
 
@@ -57,18 +64,18 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
 
   const mutationError =
     setCurrent.error?.message ??
-    start.error?.message ??
     score.error?.message ??
     finish.error?.message ??
+    reveal.error?.message ??
     reopen.error?.message ??
     reset.error?.message ??
     null;
 
   const anyPending =
     setCurrent.isPending ||
-    start.isPending ||
     score.isPending ||
     finish.isPending ||
+    reveal.isPending ||
     reopen.isPending ||
     reset.isPending;
 
@@ -91,8 +98,8 @@ export function BoutBoard({ arenaId }: { arenaId: string }) {
           onStepB={(delta) => sendScore(currentBout.scoreA, applyScoreStep(currentBout.scoreB, delta))}
           onManualA={(value) => sendScore(value, currentBout.scoreB)}
           onManualB={(value) => sendScore(currentBout.scoreA, value)}
-          onStart={() => start.mutate(poolId)}
           onFinish={() => finish.mutate(poolId)}
+          onReveal={() => reveal.mutate()}
           onReopen={() => reopen.mutate(poolId)}
           onReset={() => reset.mutate(poolId)}
         />
@@ -116,8 +123,8 @@ function CurrentBoutCard({
   onStepB,
   onManualA,
   onManualB,
-  onStart,
   onFinish,
+  onReveal,
   onReopen,
   onReset,
 }: {
@@ -127,8 +134,8 @@ function CurrentBoutCard({
   onStepB: (delta: number) => void;
   onManualA: (value: number) => void;
   onManualB: (value: number) => void;
-  onStart: () => void;
   onFinish: () => void;
+  onReveal: () => void;
   onReopen: () => void;
   onReset: () => void;
 }) {
@@ -173,18 +180,13 @@ function CurrentBoutCard({
             <Button
               type="button"
               size="sm"
-              disabled={pending || bout.state !== "BOUT_STATE_NOT_STARTED"}
-              onClick={onStart}
-            >
-              Начать
-            </Button>
-            <Button
-              type="button"
-              size="sm"
               disabled={pending || bout.state !== "BOUT_STATE_IN_PROGRESS"}
               onClick={onFinish}
             >
               Завершить
+            </Button>
+            <Button type="button" size="sm" variant="secondary" disabled={pending} onClick={onReveal}>
+              Показать следующий бой
             </Button>
             <Button
               type="button"

@@ -257,8 +257,8 @@ func TestUpdateArena_E2E(t *testing.T) {
 
 	req := connect.NewRequest(&hemav1.UpdateArenaRequest{
 		Id:          "a1",
-		Name:         "New",
-		Description:  "Updated",
+		Name:        "New",
+		Description: "Updated",
 	})
 	req.Header().Set("Authorization", adminBearer(t))
 
@@ -419,5 +419,53 @@ func TestReorderArenas_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
 		connect.NewRequest(&hemav1.ReorderArenasRequest{TournamentId: activeTournamentID, OrderedIds: []string{"a1"}}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestSetArenaDefaultDuration_E2E(t *testing.T) {
+	admin, _ := setup(t, seedArena("a1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.SetArenaDefaultDurationRequest{
+		ArenaId:                "a1",
+		DefaultDurationSeconds: 120,
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := admin.SetArenaDefaultDuration(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SetArenaDefaultDuration: %v", err)
+	}
+	if res.Msg.Arena.DefaultDurationSeconds != 120 {
+		t.Errorf("DefaultDurationSeconds = %d, want 120", res.Msg.Arena.DefaultDurationSeconds)
+	}
+}
+
+func TestSetArenaDefaultDuration_E2E_OutOfRangeReturnsInvalidArgument(t *testing.T) {
+	admin, _ := setup(t, seedArena("a1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.SetArenaDefaultDurationRequest{
+		ArenaId:                "a1",
+		DefaultDurationSeconds: 3601,
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.SetArenaDefaultDuration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestSetArenaDefaultDuration_E2E_NotFound(t *testing.T) {
+	admin, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.SetArenaDefaultDurationRequest{
+		ArenaId:                "does-not-exist",
+		DefaultDurationSeconds: 120,
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.SetArenaDefaultDuration(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %v", connect.CodeOf(err))
 	}
 }

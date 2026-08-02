@@ -39,10 +39,13 @@ type Arena struct {
 	Name         string
 	Description  string
 	// Position — порядок в списке площадок турнира (0-индекс).
-	Position   int32
-	Status     Status
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	Position int32
+	Status   Status
+	// DefaultDurationSeconds — недоменная настройка табло арены: дефолтная
+	// длительность боя в секундах (1..3600), по умолчанию 90.
+	DefaultDurationSeconds int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // CreateInput — значения полей при создании площадки.
@@ -77,6 +80,9 @@ type Repository interface {
 	// Reorder атомарно задаёт позиции площадок турнира по порядку orderedIDs
 	// и возвращает обновлённый список.
 	Reorder(ctx context.Context, tournamentID string, orderedIDs []string) ([]Arena, error)
+	// SetDefaultDuration задаёт дефолтную длительность боя для площадки
+	// (недоменная настройка табло арены).
+	SetDefaultDuration(ctx context.Context, id string, seconds int32) (Arena, error)
 }
 
 // ActiveTournamentProvider — межмодульная зависимость: резолв идентификатора
@@ -91,6 +97,15 @@ type ActiveTournamentProvider interface {
 // (FR-2, FR-4). Используется service-слоем и юнит-тестом domain.
 func ValidateName(name string) error {
 	if strings.TrimSpace(name) == "" {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+// ValidateDefaultDuration проверяет инвариант дефолтной длительности боя
+// табло арены: целое число секунд в диапазоне 1..3600 включительно.
+func ValidateDefaultDuration(seconds int32) error {
+	if seconds < 1 || seconds > 3600 {
 		return ErrInvalidInput
 	}
 	return nil

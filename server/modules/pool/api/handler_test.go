@@ -962,3 +962,430 @@ func TestWatchNominationLive_E2E_EmptyNominationIDReturnsInvalidArgument(t *test
 		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(stream.Err()))
 	}
 }
+
+// ---------------------------------------------------------------------
+// Спека 0015: живой канал табло арены (недоменный таймер, ADR 0013 — сервер
+// как реле). Синхронизация со стримом сервера идёт через первый кадр
+// (snapshot): handler делает JoinArenaBoard синхронно ДО первого Send, так
+// что к моменту, когда stream.Receive() на клиенте вернул первый кадр,
+// участник гарантированно уже в комнате арены — в отличие от
+// WatchNominationLive (спека 0014) здесь не нужен отдельный
+// waitForSubscriberCount: мутации, которые должны увидеть подписчики
+// (StartCurrentBout/ControlArenaTimer/...), идут через реальный RPC-путь
+// сервиса (не напрямую в шину теста), поэтому happens-before гарантирован
+// самим порядком вызовов в тесте.
+// ---------------------------------------------------------------------
+
+func TestWatchArenaBoard_E2E_FirstFrameIsSnapshotOnConnect(t *testing.T) {
+	admin, _, repo, fighters, arenas, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "arena-1")
+	arenas.SetDefaultDuration("arena-1", 120)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", adminBearer(t))
+	stream, err := admin.WatchArenaBoard(ctx, req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+
+	if !stream.Receive() {
+		t.Fatalf("expected first frame, got err: %v", stream.Err())
+	}
+	snap := stream.Msg().GetSnapshot()
+	if snap == nil {
+		t.Fatalf("expected snapshot event, got %+v", stream.Msg())
+	}
+	if snap.Board.Pool == nil || snap.Board.Pool.Id != poolID {
+		t.Fatalf("Board.Pool = %v, want id %s", snap.Board.Pool, poolID)
+	}
+	if snap.DefaultDurationSeconds != 120 {
+		t.Errorf("DefaultDurationSeconds = %d, want 120", snap.DefaultDurationSeconds)
+	}
+	if snap.Timer.Status != hemav1.TimerStatus_TIMER_STATUS_STOPPED || snap.Timer.RemainingCs != 12000 {
+		t.Errorf("Timer = %+v, want synthetic stopped/12000", snap.Timer)
+	}
+	if snap.Room.ThisOrdinal != 1 || !snap.Room.ThisIsSource || snap.Room.ScoreboardCount != 1 {
+		t.Errorf("Room = %+v, want ordinal 1 + source + count 1", snap.Room)
+	}
+}
+
+// Регрессия: WatchArenaBoard — первый в проекте admin-only server-streaming
+// RPC. connect.UnaryInterceptorFunc (старая форма Auth/RequireAdmin) не
+// оборачивает WrapStreamingHandler — без явной реализации оба этих теста
+// падали бы (стрим открывался и отдавал снапшот без токена/без роли admin).
+// pkg/connectutil.Auth/RequireAdmin теперь полноценный connect.Interceptor
+// (см. auth_interceptor.go) — эти тесты подтверждают, что streaming-путь
+// тоже защищён, не только unary.
+func TestWatchArenaBoard_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	stream, err := admin.WatchArenaBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if stream.Receive() {
+		t.Fatalf("expected no frames, got: %+v", stream.Msg())
+	}
+	if connect.CodeOf(stream.Err()) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(stream.Err()))
+	}
+}
+
+func TestWatchArenaBoard_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", userBearer(t))
+	stream, err := admin.WatchArenaBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if stream.Receive() {
+		t.Fatalf("expected no frames, got: %+v", stream.Msg())
+	}
+	if connect.CodeOf(stream.Err()) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(stream.Err()))
+	}
+}
+
+// ControlArenaTimer от панели ретранслируется единственному подключённому
+// табло (источнику) через её WatchArenaBoard-поток (спека 0015, FR-7).
+func TestWatchArenaBoard_E2E_ControlArenaTimerRelaysCommandToSource(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	scoreboardReq := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	scoreboardReq.Header().Set("Authorization", adminBearer(t))
+	scoreboardStream, err := admin.WatchArenaBoard(ctx, scoreboardReq)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard(scoreboard): %v", err)
+	}
+	if !scoreboardStream.Receive() {
+		t.Fatalf("expected first frame (scoreboard), got err: %v", scoreboardStream.Err())
+	}
+
+	controlReq := connect.NewRequest(&hemav1.ControlArenaTimerRequest{
+		ArenaId: "arena-1",
+		Command: &hemav1.TimerCommand{Kind: hemav1.TimerCommandKind_TIMER_COMMAND_KIND_START},
+	})
+	controlReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ControlArenaTimer(context.Background(), controlReq); err != nil {
+		t.Fatalf("ControlArenaTimer: %v", err)
+	}
+
+	if !scoreboardStream.Receive() {
+		t.Fatalf("expected command frame, got err: %v", scoreboardStream.Err())
+	}
+	cmd := scoreboardStream.Msg().GetCommand()
+	if cmd == nil {
+		t.Fatalf("expected command event, got %+v", scoreboardStream.Msg())
+	}
+	if cmd.Kind != hemav1.TimerCommandKind_TIMER_COMMAND_KIND_START {
+		t.Errorf("Kind = %v, want START", cmd.Kind)
+	}
+}
+
+// PublishTimerFrame от табло ретранслируется всем подписчикам комнаты
+// (табло и панели) новым snapshot-событием (спека 0015, ADR 0013).
+func TestWatchArenaBoard_E2E_PublishTimerFrameBroadcastsSnapshot(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	panelReq := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_PANEL})
+	panelReq.Header().Set("Authorization", adminBearer(t))
+	panelStream, err := admin.WatchArenaBoard(ctx, panelReq)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard(panel): %v", err)
+	}
+	if !panelStream.Receive() {
+		t.Fatalf("expected first frame (panel), got err: %v", panelStream.Err())
+	}
+
+	publishReq := connect.NewRequest(&hemav1.PublishTimerFrameRequest{
+		ArenaId: "arena-1",
+		Frame:   &hemav1.TimerFrame{Status: hemav1.TimerStatus_TIMER_STATUS_RUNNING, RemainingCs: 4500, DefaultCs: 9000},
+	})
+	publishReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.PublishTimerFrame(context.Background(), publishReq); err != nil {
+		t.Fatalf("PublishTimerFrame: %v", err)
+	}
+
+	if !panelStream.Receive() {
+		t.Fatalf("expected updated snapshot, got err: %v", panelStream.Err())
+	}
+	snap := panelStream.Msg().GetSnapshot()
+	if snap == nil {
+		t.Fatalf("expected snapshot event, got %+v", panelStream.Msg())
+	}
+	if snap.Timer.Status != hemav1.TimerStatus_TIMER_STATUS_RUNNING || snap.Timer.RemainingCs != 4500 {
+		t.Errorf("Timer = %+v, want running/4500", snap.Timer)
+	}
+	if snap.Room.ThisOrdinal != 0 || snap.Room.ThisIsSource {
+		t.Errorf("Room = %+v, want panel ordinal 0, not source", snap.Room)
+	}
+}
+
+// Мутация доски существующим RPC (StartCurrentBout) шлёт подписчику
+// WatchArenaBoard обновлённый snapshot (спека 0015, T11 сигнал рядом с
+// liveBus.PublishNominationChanged).
+func TestWatchArenaBoard_E2E_BoardMutationStreamsUpdatedSnapshot(t *testing.T) {
+	admin, _, repo, fighters, arenas, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoardPool(t, repo, bouts, "arena-1")
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", adminBearer(t))
+	stream, err := admin.WatchArenaBoard(ctx, req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if !stream.Receive() {
+		t.Fatalf("expected first frame, got err: %v", stream.Err())
+	}
+	if stream.Msg().GetSnapshot().Board.Bouts[0].State != hemav1.BoutState_BOUT_STATE_NOT_STARTED {
+		t.Fatalf("unexpected first frame: %+v", stream.Msg())
+	}
+
+	startReq := connect.NewRequest(&hemav1.StartCurrentBoutRequest{PoolId: poolID})
+	startReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.StartCurrentBout(context.Background(), startReq); err != nil {
+		t.Fatalf("StartCurrentBout: %v", err)
+	}
+
+	if !stream.Receive() {
+		t.Fatalf("expected updated snapshot, got err: %v", stream.Err())
+	}
+	snap := stream.Msg().GetSnapshot()
+	if snap == nil || snap.Board.Bouts[0].State != hemav1.BoutState_BOUT_STATE_IN_PROGRESS {
+		t.Fatalf("unexpected second frame (expected updated bout state): %+v", stream.Msg())
+	}
+}
+
+// SetScoreboardSides шлёт snapshot-событие с sides_swapped всем подписчикам
+// комнаты (спека 0015, FR-6).
+func TestWatchArenaBoard_E2E_SetScoreboardSidesStreamsSnapshot(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", adminBearer(t))
+	stream, err := admin.WatchArenaBoard(ctx, req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if !stream.Receive() {
+		t.Fatalf("expected first frame, got err: %v", stream.Err())
+	}
+
+	swapReq := connect.NewRequest(&hemav1.SetScoreboardSidesRequest{ArenaId: "arena-1", Swapped: true})
+	swapReq.Header().Set("Authorization", adminBearer(t))
+	swapRes, err := admin.SetScoreboardSides(context.Background(), swapReq)
+	if err != nil {
+		t.Fatalf("SetScoreboardSides: %v", err)
+	}
+	if !swapRes.Msg.Snapshot.Room.SidesSwapped {
+		t.Errorf("unary response Room.SidesSwapped = false, want true")
+	}
+
+	if !stream.Receive() {
+		t.Fatalf("expected updated snapshot, got err: %v", stream.Err())
+	}
+	snap := stream.Msg().GetSnapshot()
+	if snap == nil || !snap.Room.SidesSwapped {
+		t.Fatalf("expected snapshot with SidesSwapped=true, got %+v", stream.Msg())
+	}
+}
+
+// RevealCurrentBout развязывает оглашение результата (FinishCurrentBout) и
+// переход к следующему бою на табло (спека 0015, UX-уточнение): чисто
+// отображенческий сигнал, широковещательно доходит до ВСЕХ подключённых
+// табло (не только источника, в отличие от команд таймера).
+func TestWatchArenaBoard_E2E_RevealCurrentBoutBroadcastsToAllScoreboards(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+
+	req1 := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req1.Header().Set("Authorization", adminBearer(t))
+	stream1, err := admin.WatchArenaBoard(ctx1, req1)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard (table 1): %v", err)
+	}
+	if !stream1.Receive() {
+		t.Fatalf("expected first frame (table 1), got err: %v", stream1.Err())
+	}
+	if got := stream1.Msg().GetSnapshot().Room.RevealGeneration; got != 0 {
+		t.Fatalf("initial RevealGeneration = %d, want 0", got)
+	}
+
+	req2 := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req2.Header().Set("Authorization", adminBearer(t))
+	stream2, err := admin.WatchArenaBoard(ctx2, req2)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard (table 2): %v", err)
+	}
+	if !stream2.Receive() {
+		t.Fatalf("expected first frame (table 2), got err: %v", stream2.Err())
+	}
+
+	revealReq := connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"})
+	revealReq.Header().Set("Authorization", adminBearer(t))
+	revealRes, err := admin.RevealCurrentBout(context.Background(), revealReq)
+	if err != nil {
+		t.Fatalf("RevealCurrentBout: %v", err)
+	}
+	if got := revealRes.Msg.Snapshot.Room.RevealGeneration; got != 1 {
+		t.Errorf("unary response RevealGeneration = %d, want 1", got)
+	}
+
+	if !stream1.Receive() {
+		t.Fatalf("expected updated snapshot (table 1), got err: %v", stream1.Err())
+	}
+	if got := stream1.Msg().GetSnapshot().Room.RevealGeneration; got != 1 {
+		t.Errorf("table 1 RevealGeneration = %d, want 1", got)
+	}
+	if !stream2.Receive() {
+		t.Fatalf("expected updated snapshot (table 2 — broadcast, not just source), got err: %v", stream2.Err())
+	}
+	if got := stream2.Msg().GetSnapshot().Room.RevealGeneration; got != 1 {
+		t.Errorf("table 2 RevealGeneration = %d, want 1 (must reach non-source tables too)", got)
+	}
+}
+
+func TestRevealCurrentBout_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	_, err := admin.RevealCurrentBout(context.Background(), connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestRevealCurrentBout_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", userBearer(t))
+	_, err := admin.RevealCurrentBout(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+// Отмена контекста клиента завершает стрим штатно, без утечки/зависания
+// сервера (как WatchNominationLive, спека 0014 — тот же паттерн).
+func TestWatchArenaBoard_E2E_ContextCancelDoesNotHang(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", adminBearer(t))
+	stream, err := admin.WatchArenaBoard(ctx, req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if !stream.Receive() {
+		t.Fatalf("expected first frame, got err: %v", stream.Err())
+	}
+
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		for stream.Receive() {
+			// drain until the stream ends (client-side cancellation).
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("stream did not terminate within 2s after context cancel (server hang?)")
+	}
+	if err := stream.Err(); err != nil && connect.CodeOf(err) != connect.CodeCanceled {
+		t.Fatalf("unexpected terminal error after cancel: %v", err)
+	}
+}
+
+func TestWatchArenaBoard_E2E_EmptyArenaIDReturnsInvalidArgument(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	req.Header().Set("Authorization", adminBearer(t))
+	stream, err := admin.WatchArenaBoard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard: %v", err)
+	}
+	if stream.Receive() {
+		t.Fatalf("expected no frames, got: %+v", stream.Msg())
+	}
+	if connect.CodeOf(stream.Err()) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(stream.Err()))
+	}
+}
+
+// ВАЖНО (найдено при написании этого инкремента, спека 0015 T12): у
+// WatchArenaBoard НЕТ тестов «без токена → Unauthenticated» /
+// «не-admin → PermissionDenied», в отличие от остальных RPC этого файла.
+// Причина — не логика этого хендлера, а инфраструктурный пробел вне скоупа
+// модуля pool: connectutil.Auth/RequireAdmin (server/pkg/connectutil/
+// auth_interceptor.go) объявлены как connect.UnaryInterceptorFunc, а у
+// этого типа WrapStreamingHandler — намеренный no-op в самом connect-go
+// (connectrpc.com/connect/interceptor.go: «UnaryInterceptorFunc ... has no
+// effect on streaming RPCs»). WatchArenaBoard — первый в проекте admin-only
+// STREAMING RPC (WatchNominationLive, спека 0014, тоже streaming, но
+// намеренно публичный — пробел был невидим). Проверено вручную (unary
+// RPC — PublishTimerFrame и остальные — защищены штатно): запрос
+// WatchArenaBoard без Authorization ИЛИ с не-admin токеном сейчас проходит
+// и отдаёт обычный snapshot вместо Unauthenticated/PermissionDenied — FR-1
+// («Admin-only») спеки 0015 фактически не соблюдается для этого RPC.
+// Фикс требует правки server/pkg/connectutil (сделать Auth/RequireAdmin
+// полноценным connect.Interceptor с реальным WrapStreamingHandler,
+// либо завести отдельный streaming-aware интерсептор) — вне разрешённого
+// для этого трека scope (только server/modules/pool/**). Флагируется
+// координатору отдельно; тест-заглушки «протекающего» поведения намеренно
+// не пишутся, чтобы не зафиксировать баг как ожидаемое поведение.
+
+func TestPublishTimerFrame_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.PublishTimerFrameRequest{ArenaId: "arena-1", Frame: &hemav1.TimerFrame{}})
+	_, err := admin.PublishTimerFrame(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestPublishTimerFrame_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.PublishTimerFrameRequest{ArenaId: "arena-1", Frame: &hemav1.TimerFrame{}})
+	req.Header().Set("Authorization", userBearer(t))
+	_, err := admin.PublishTimerFrame(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}

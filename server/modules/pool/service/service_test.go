@@ -2399,3 +2399,354 @@ func TestPublish_ReadOnlyMethodsDoNotPublish(t *testing.T) {
 		t.Fatalf("expected no publish from read-only methods, got %d", got)
 	}
 }
+
+// ---------------------------------------------------------------------
+// Спека 0015: недоменный таймер табло арены (ADR 0013 — сервер как реле).
+// ArenaLive/PublishTimerFrame/ControlArenaTimer/SetScoreboardSides и сигнал
+// комнаты арены рядом с liveBus.PublishNominationChanged у 8 board-
+// мутирующих методов.
+// ---------------------------------------------------------------------
+
+func TestArenaLive_EmptyArenaIDInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+	if _, err := svc.ArenaLive(ctx, "", nil); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestArenaTimerRPCs_EmptyArenaIDInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+	if _, err := svc.PublishTimerFrame(ctx, "", domain.TimerFrame{}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("PublishTimerFrame: expected ErrInvalidInput, got %v", err)
+	}
+	if _, err := svc.ControlArenaTimer(ctx, "", domain.TimerCommand{}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("ControlArenaTimer: expected ErrInvalidInput, got %v", err)
+	}
+	if _, err := svc.SetScoreboardSides(ctx, "", false); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("SetScoreboardSides: expected ErrInvalidInput, got %v", err)
+	}
+}
+
+// ArenaLive композиция: board — как GetBoutBoard (той же композиции), timer —
+// синтетическое значение (STOPPED, remaining=default), пока источник ничего
+// не прислал, default_duration_seconds — из ArenaProvider.
+func TestArenaLive_ComposesBoardTimerDefault(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, _ := newServiceWithArenas()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+	arenas.SetDefaultDuration("arena-1", 120)
+
+	snap, err := svc.ArenaLive(ctx, "arena-1", nil)
+	if err != nil {
+		t.Fatalf("ArenaLive: %v", err)
+	}
+	if snap.Board.Pool.ID != poolID {
+		t.Fatalf("Board.Pool.ID = %q, want %q", snap.Board.Pool.ID, poolID)
+	}
+	if snap.DefaultDurationSeconds != 120 {
+		t.Errorf("DefaultDurationSeconds = %d, want 120", snap.DefaultDurationSeconds)
+	}
+	wantCS := int32(120 * 100)
+	if snap.Timer.Status != domain.TimerStatusStopped || snap.Timer.RemainingCS != wantCS || snap.Timer.DefaultCS != wantCS {
+		t.Errorf("Timer = %+v, want synthetic {stopped, %d, _, %d}", snap.Timer, wantCS, wantCS)
+	}
+	if snap.ServerNowUnixMS == 0 {
+		t.Errorf("ServerNowUnixMS not set")
+	}
+	if snap.Room.ScoreboardCount != 0 {
+		t.Errorf("Room.ScoreboardCount = %d, want 0 (no one joined)", snap.Room.ScoreboardCount)
+	}
+}
+
+// ArenaLive без явного дефолта арены (FakeArenaProvider возвращает 90 по
+// умолчанию, T9).
+func TestArenaLive_DefaultDurationFallsBackTo90(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	snap, err := svc.ArenaLive(ctx, "arena-without-explicit-default", nil)
+	if err != nil {
+		t.Fatalf("ArenaLive: %v", err)
+	}
+	if snap.DefaultDurationSeconds != 90 {
+		t.Errorf("DefaultDurationSeconds = %d, want 90", snap.DefaultDurationSeconds)
+	}
+}
+
+// Room в ArenaLive отражает состав комнаты с точки зрения конкретного
+// участника (JoinArenaBoard).
+func TestArenaLive_RoomReflectsMember(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+
+	snap, err := svc.ArenaLive(ctx, "arena-1", member)
+	if err != nil {
+		t.Fatalf("ArenaLive: %v", err)
+	}
+	if snap.Room.ThisOrdinal != 1 || !snap.Room.ThisIsSource || snap.Room.ScoreboardCount != 1 {
+		t.Errorf("Room = %+v, want ordinal 1 + source + count 1", snap.Room)
+	}
+}
+
+// PublishTimerFrame кеширует кадр (виден в следующем ArenaLive) и сигналит
+// подписчика комнаты.
+func TestPublishTimerFrame_CachesAndSignalsMember(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+
+	frame := domain.TimerFrame{Status: domain.TimerStatusRunning, RemainingCS: 4500, DefaultCS: 9000}
+	if _, err := svc.PublishTimerFrame(ctx, "arena-1", frame); err != nil {
+		t.Fatalf("PublishTimerFrame: %v", err)
+	}
+
+	snap, err := svc.ArenaLive(ctx, "arena-1", member)
+	if err != nil {
+		t.Fatalf("ArenaLive: %v", err)
+	}
+	if snap.Timer != frame {
+		t.Errorf("Timer = %+v, want %+v", snap.Timer, frame)
+	}
+	select {
+	case <-member.BoardChanged():
+	default:
+		t.Errorf("expected member signaled after PublishTimerFrame")
+	}
+}
+
+// ControlArenaTimer ретранслирует команду ТОЛЬКО текущему источнику
+// (ordinal 1).
+func TestControlArenaTimer_RelaysToSourceOnly(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	source := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer source.Leave()
+	follower := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer follower.Leave()
+
+	cmd := domain.TimerCommand{Kind: domain.TimerCommandStart}
+	if _, err := svc.ControlArenaTimer(ctx, "arena-1", cmd); err != nil {
+		t.Fatalf("ControlArenaTimer: %v", err)
+	}
+
+	select {
+	case got := <-source.Commands():
+		if got != cmd {
+			t.Errorf("source got %+v, want %+v", got, cmd)
+		}
+	default:
+		t.Fatalf("expected command delivered to source")
+	}
+	select {
+	case got := <-follower.Commands():
+		t.Errorf("follower unexpectedly got command: %+v", got)
+	default:
+	}
+}
+
+// ControlArenaTimer без единого табло в комнате — no-op, не паникует.
+func TestControlArenaTimer_NoScoreboardsIsNoop(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	if _, err := svc.ControlArenaTimer(ctx, "arena-without-scoreboards", domain.TimerCommand{Kind: domain.TimerCommandPause}); err != nil {
+		t.Fatalf("ControlArenaTimer: %v", err)
+	}
+}
+
+// SetScoreboardSides сохраняет swapped, виден в снапшоте комнаты.
+func TestSetScoreboardSides_SavesAndReflectsInSnapshot(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+
+	snap, err := svc.SetScoreboardSides(ctx, "arena-1", true)
+	if err != nil {
+		t.Fatalf("SetScoreboardSides: %v", err)
+	}
+	if !snap.Room.SidesSwapped {
+		t.Errorf("Room.SidesSwapped = %v, want true", snap.Room.SidesSwapped)
+	}
+}
+
+func TestRevealCurrentBout_IncrementsGenerationAndSignals(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+
+	snap, err := svc.RevealCurrentBout(ctx, "arena-1")
+	if err != nil {
+		t.Fatalf("RevealCurrentBout: %v", err)
+	}
+	if snap.Room.RevealGeneration != 1 {
+		t.Errorf("Room.RevealGeneration = %d, want 1", snap.Room.RevealGeneration)
+	}
+
+	select {
+	case <-member.BoardChanged():
+	default:
+		t.Errorf("expected BoardChanged signaled")
+	}
+
+	snap2, err := svc.RevealCurrentBout(ctx, "arena-1")
+	if err != nil {
+		t.Fatalf("RevealCurrentBout (2nd): %v", err)
+	}
+	if snap2.Room.RevealGeneration != 2 {
+		t.Errorf("Room.RevealGeneration after 2nd call = %d, want 2 (monotonic)", snap2.Room.RevealGeneration)
+	}
+}
+
+func TestRevealCurrentBout_EmptyArenaIDReturnsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	_, err := svc.RevealCurrentBout(ctx, "")
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+// SeatPoolOnArena/UnseatPool сигналят комнату верной арены (T11): читаем
+// arenaID для UnseatPool ДО репозиторного вызова (см. комментарий в
+// service.go).
+func TestSignalArenaBoard_SeatAndUnseatPool(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	poolID := repo.SeedPool("n1", 1, "f1")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true})
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+	other := svc.JoinArenaBoard("arena-2", domain.ScoreboardRoleScoreboard)
+	defer other.Leave()
+
+	if _, err := svc.SeatPoolOnArena(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("SeatPoolOnArena: %v", err)
+	}
+	assertArenaBoardSignaled(t, member, "SeatPoolOnArena")
+	assertArenaBoardNotSignaled(t, other, "SeatPoolOnArena (wrong arena)")
+
+	if _, err := svc.UnseatPool(ctx, poolID); err != nil {
+		t.Fatalf("UnseatPool: %v", err)
+	}
+	assertArenaBoardSignaled(t, member, "UnseatPool")
+	assertArenaBoardNotSignaled(t, other, "UnseatPool (wrong arena)")
+}
+
+// Каждый шаг ведения текущего боя (SetCurrentBout + пять команд ведения)
+// сигналит комнату верной арены, не чужую (T11).
+func TestSignalArenaBoard_ConductingLifecycleSignalsCorrectArena(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+	other := svc.JoinArenaBoard("arena-2", domain.ScoreboardRoleScoreboard)
+	defer other.Leave()
+	drainArenaBoard(member)
+	drainArenaBoard(other)
+
+	step := func(name string, fn func() error) {
+		t.Helper()
+		if err := fn(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		assertArenaBoardSignaled(t, member, name)
+		assertArenaBoardNotSignaled(t, other, name+" (wrong arena)")
+		drainArenaBoard(member)
+	}
+
+	step("SetCurrentBout", func() error {
+		_, err := svc.SetCurrentBout(ctx, poolID, "b2")
+		return err
+	})
+	step("StartCurrentBout", func() error {
+		_, err := svc.StartCurrentBout(ctx, poolID, "a1")
+		return err
+	})
+	step("ScoreCurrentBout", func() error {
+		_, err := svc.ScoreCurrentBout(ctx, poolID, "a1", 5, 3)
+		return err
+	})
+	step("FinishCurrentBout", func() error {
+		_, err := svc.FinishCurrentBout(ctx, poolID, "a1")
+		return err
+	})
+
+	// FinishCurrentBout продвинул текущий на b3 (b2 завершён) — вручную
+	// возвращаем указатель на только что завершённый b2, чтобы проверить
+	// Reopen/Reset (как TestPublish_ConductingLifecycle_EachStepPublishes).
+	if err := repo.SetCurrentBout(ctx, poolID, "b2"); err != nil {
+		t.Fatalf("seed current: %v", err)
+	}
+	drainArenaBoard(member)
+
+	step("ReopenCurrentBout", func() error {
+		_, err := svc.ReopenCurrentBout(ctx, poolID, "a1")
+		return err
+	})
+	step("ResetCurrentBout", func() error {
+		_, err := svc.ResetCurrentBout(ctx, poolID, "a1")
+		return err
+	})
+}
+
+// Read-методы (GetBoutBoard) не сигналят комнату арены.
+func TestSignalArenaBoard_ReadOnlyMethodsDoNotSignal(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	seedBoutBoardPool(t, repo, bouts, "arena-1")
+
+	member := svc.JoinArenaBoard("arena-1", domain.ScoreboardRoleScoreboard)
+	defer member.Leave()
+	drainArenaBoard(member)
+
+	if _, err := svc.GetBoutBoard(ctx, "arena-1"); err != nil {
+		t.Fatalf("GetBoutBoard: %v", err)
+	}
+	assertArenaBoardNotSignaled(t, member, "GetBoutBoard")
+}
+
+func drainArenaBoard(m *service.ArenaBoardMember) {
+	select {
+	case <-m.BoardChanged():
+	default:
+	}
+}
+
+func assertArenaBoardSignaled(t *testing.T, m *service.ArenaBoardMember, step string) {
+	t.Helper()
+	select {
+	case <-m.BoardChanged():
+	default:
+		t.Errorf("%s: expected arena board signal", step)
+	}
+}
+
+func assertArenaBoardNotSignaled(t *testing.T, m *service.ArenaBoardMember, step string) {
+	t.Helper()
+	select {
+	case <-m.BoardChanged():
+		t.Errorf("%s: unexpected arena board signal (wrong arena)", step)
+	default:
+	}
+}

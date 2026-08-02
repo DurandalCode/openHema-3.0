@@ -454,3 +454,57 @@ func TestReorder_EmptyTournamentID(t *testing.T) {
 		t.Errorf("expected ErrInvalidInput, got %v", err)
 	}
 }
+
+func TestSetDefaultDuration_HappyPath(t *testing.T) {
+	svc, _ := testService()
+
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Name: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.DefaultDurationSeconds != 90 {
+		t.Fatalf("default DefaultDurationSeconds = %d, want 90", created.DefaultDurationSeconds)
+	}
+
+	got, err := svc.SetDefaultDuration(context.Background(), created.ID, 120)
+	if err != nil {
+		t.Fatalf("SetDefaultDuration: %v", err)
+	}
+	if got.DefaultDurationSeconds != 120 {
+		t.Errorf("DefaultDurationSeconds = %d, want 120", got.DefaultDurationSeconds)
+	}
+}
+
+func TestSetDefaultDuration_EmptyID(t *testing.T) {
+	svc, _ := testService()
+
+	_, err := svc.SetDefaultDuration(context.Background(), "  ", 120)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestSetDefaultDuration_OutOfRange(t *testing.T) {
+	svc, _ := testService()
+
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Name: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	for _, seconds := range []int32{0, 3601} {
+		_, err := svc.SetDefaultDuration(context.Background(), created.ID, seconds)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("seconds %d: expected ErrInvalidInput, got %v", seconds, err)
+		}
+	}
+}
+
+func TestSetDefaultDuration_NotFound(t *testing.T) {
+	svc, _ := testService()
+
+	_, err := svc.SetDefaultDuration(context.Background(), "does-not-exist", 120)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}

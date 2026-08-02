@@ -59,6 +59,17 @@ func (p *PoolArenaProvider) ArenasByIDs(ctx context.Context, ids []string) (map[
 	return out, nil
 }
 
+// DefaultDurationSeconds возвращает дефолтную длительность боя арены (спека
+// 0015, FR-8) — недоменная настройка табло, читается через тот же
+// arena-сервис, что ArenaByID.
+func (p *PoolArenaProvider) DefaultDurationSeconds(ctx context.Context, arenaID string) (int, error) {
+	a, err := p.svc.Get(ctx, arenaID)
+	if err != nil {
+		return 0, err
+	}
+	return int(a.DefaultDurationSeconds), nil
+}
+
 func toPoolArenaRef(a arenadomain.Arena) pooldomain.ArenaRef {
 	return pooldomain.ArenaRef{
 		ID:     a.ID,

@@ -126,6 +126,19 @@ func (s *Service) Reorder(ctx context.Context, tournamentID string, orderedIDs [
 	return s.repo.Reorder(ctx, tid, orderedIDs)
 }
 
+// SetDefaultDuration задаёт дефолтную длительность боя (в секундах, 1..3600)
+// для табло арены существующей площадки.
+func (s *Service) SetDefaultDuration(ctx context.Context, id string, seconds int32) (domain.Arena, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return domain.Arena{}, domain.ErrInvalidInput
+	}
+	if err := domain.ValidateDefaultDuration(seconds); err != nil {
+		return domain.Arena{}, err
+	}
+	return s.repo.SetDefaultDuration(ctx, id, seconds)
+}
+
 // resolveTournament проверяет, что tournamentID непустой и указывает на
 // активный турнир (в MVP — единственный способ существования турнира).
 // Любая ошибка провайдера (в т.ч. «активного турнира нет») мапится в
