@@ -62,6 +62,9 @@ const snapshot: NominationLiveSnapshotDto = {
       currentBoutId: "bout-2",
     },
   ],
+  stages: [
+    { id: "stage-1", nominationId: "n1", position: 0, title: "Групповой этап", type: "STAGE_TYPE_GROUPS" },
+  ],
 };
 
 describe("NominationPoolsPublic", () => {
@@ -112,9 +115,21 @@ describe("NominationPoolsPublic", () => {
     render(
       <NominationPoolsPublic
         nominationId="n1"
-        initialSnapshot={{ nominationId: "n1", pools: [] }}
+        initialSnapshot={{ nominationId: "n1", pools: [], stages: [] }}
       />,
     );
     expect(screen.getByText(/раскладка по группам ещё формируется/i)).toBeInTheDocument();
+  });
+
+  // Спека 0017, FR-11/AC-3: состав по группам подписан названием этапа,
+  // которому он принадлежит. Запрос через container (а не screen) — файл не
+  // делает cleanup() между тестами (см. соседние тесты), а этот текст
+  // повторится в каждом рендере с filled snapshot.
+  it("renders the stage title above the pool grid", () => {
+    const { container } = render(
+      <NominationPoolsPublic nominationId="n1" initialSnapshot={snapshot} />,
+    );
+
+    expect(container).toHaveTextContent("Групповой этап");
   });
 });
