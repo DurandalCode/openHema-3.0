@@ -630,12 +630,12 @@ func TestSetStatus_T12_DraftToReadyGeneratesBouts(t *testing.T) {
 	}
 }
 
-// T12: ready → draft вызывает BoutGenerator.ClearForNomination.
+// T12: ready → draft вызывает BoutGenerator.ClearForPools с пулами этапа.
 func TestSetStatus_T12_ReadyToDraftClearsBouts(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
-	repo.SeedPool("n1", 1, "b1")
+	poolID := repo.SeedPool("n1", 1, "b1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -651,10 +651,10 @@ func TestSetStatus_T12_ReadyToDraftClearsBouts(t *testing.T) {
 		t.Fatalf("expected draft, got %s", layout.Status)
 	}
 	if len(bouts.ClearCalls) != 1 {
-		t.Fatalf("expected 1 ClearForNomination call, got %d", len(bouts.ClearCalls))
+		t.Fatalf("expected 1 ClearForPools call, got %d", len(bouts.ClearCalls))
 	}
-	if bouts.ClearCalls[0].NominationID != "n1" {
-		t.Fatalf("expected nominationID n1, got %s", bouts.ClearCalls[0].NominationID)
+	if got := bouts.ClearCalls[0].PoolIDs; len(got) != 1 || got[0] != poolID {
+		t.Fatalf("expected PoolIDs [%s], got %v", poolID, got)
 	}
 }
 
@@ -713,12 +713,12 @@ func TestSetStatus_T12_GenerateErrorPreventsStatusChange(t *testing.T) {
 	if repo.SetStatusCalls != 0 {
 		t.Fatalf("expected repo.SetStatus not called, got %d calls", repo.SetStatusCalls)
 	}
-	status, _, _, err := repo.GetLayout(ctx, "n1")
+	stage, _, err := repo.StageByNomination(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status != domain.LayoutDraft {
-		t.Fatalf("expected status to remain draft, got %s", status)
+	if stage.Status != domain.LayoutDraft {
+		t.Fatalf("expected status to remain draft, got %s", stage.Status)
 	}
 }
 
@@ -744,12 +744,12 @@ func TestSetStatus_T12_ClearErrorPreventsStatusChange(t *testing.T) {
 	if repo.SetStatusCalls != callsAfterReady {
 		t.Fatalf("expected repo.SetStatus not called again, got %d calls (was %d)", repo.SetStatusCalls, callsAfterReady)
 	}
-	status, _, _, err := repo.GetLayout(ctx, "n1")
+	stage, _, err := repo.StageByNomination(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status != domain.LayoutReady {
-		t.Fatalf("expected status to remain ready, got %s", status)
+	if stage.Status != domain.LayoutReady {
+		t.Fatalf("expected status to remain ready, got %s", stage.Status)
 	}
 }
 
@@ -777,12 +777,19 @@ func TestReconciliation_AC17_WithdrawnFighterHiddenAndPruned(t *testing.T) {
 		t.Fatalf("expected only active fighter visible, got %+v", layout.Pools[0].Members)
 	}
 
-	_, _, rawPools, err := repo.GetLayout(ctx, "n1")
+	stage, found, err := repo.StageByNomination(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(rawPools[0].Members) != 1 {
-		t.Fatalf("expected withdrawn fighter's membership pruned from storage, got %d members", len(rawPools[0].Members))
+	if !found {
+		t.Fatalf("expected stage to exist")
+	}
+	rawMembers, err := repo.MembersByStage(ctx, stage.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rawMembers) != 1 {
+		t.Fatalf("expected withdrawn fighter's membership pruned from storage, got %d members", len(rawMembers))
 	}
 }
 
@@ -997,12 +1004,12 @@ func TestSetStatus_AC3_CannotUnfixWhilePoolSeated(t *testing.T) {
 	if !errors.Is(err, domain.ErrPoolSeated) {
 		t.Fatalf("expected ErrPoolSeated, got %v", err)
 	}
-	status, _, _, err := repo.GetLayout(ctx, "n1")
+	stage, _, err := repo.StageByNomination(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status != domain.LayoutReady {
-		t.Fatalf("expected status to remain ready, got %s", status)
+	if stage.Status != domain.LayoutReady {
+		t.Fatalf("expected status to remain ready, got %s", stage.Status)
 	}
 }
 
@@ -2041,22 +2048,22 @@ func TestSetStatus_AC12_CannotUnfixWhileBoutsStarted(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
-	repo.SeedPool("n1", 1, "f1")
+	poolID := repo.SeedPool("n1", 1, "f1")
 	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	bouts.SetAnyStarted("n1", true)
+	bouts.SetAnyStartedForPool(poolID, true)
 
 	_, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
 	if !errors.Is(err, domain.ErrHasResults) {
 		t.Fatalf("expected ErrHasResults, got %v", err)
 	}
-	status, _, _, err := repo.GetLayout(ctx, "n1")
+	stage, _, err := repo.StageByNomination(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status != domain.LayoutReady {
-		t.Fatalf("expected status to remain ready, got %s", status)
+	if stage.Status != domain.LayoutReady {
+		t.Fatalf("expected status to remain ready, got %s", stage.Status)
 	}
 }
 
@@ -2901,5 +2908,304 @@ func TestNominationLive_Standings_PopulatedFromFinishedBouts(t *testing.T) {
 	f1, ok := standingByID(standings, "f1")
 	if !ok || f1.Draws != 1 {
 		t.Fatalf("expected f1 draw in live standings: %+v (found=%v)", f1, ok)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0017: этапы номинации как сущность.
+// ---------------------------------------------------------------------
+
+// FR-4/AC-2: первая мутирующая операция на номинации создаёт её групповой
+// этап (position=0, groups, «Групповой этап»), статус draft.
+func TestStage_FR4_FirstMutationCreatesDefaultStage(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1")
+
+	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stage, found, err := repo.StageByNomination(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected stage to be created")
+	}
+	if stage.Position != 0 {
+		t.Errorf("Position = %d, want 0", stage.Position)
+	}
+	if stage.Type != domain.StageTypeGroups {
+		t.Errorf("Type = %q, want groups", stage.Type)
+	}
+	if stage.Title != domain.DefaultStageTitle {
+		t.Errorf("Title = %q, want %q", stage.Title, domain.DefaultStageTitle)
+	}
+	if stage.Status != domain.LayoutDraft {
+		t.Errorf("Status = %q, want draft", stage.Status)
+	}
+}
+
+// FR-4: повторные мутирующие вызовы не дублируют этап.
+func TestStage_FR4_RepeatedMutationsDoNotDuplicateStage(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+
+	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	stages, err := repo.StagesByNomination(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stages) != 1 {
+		t.Fatalf("expected exactly 1 stage after repeated mutations, got %d", len(stages))
+	}
+}
+
+// AC-2/FR-4: GetLayout на номинации без этапа возвращает виртуальный этап
+// (те же дефолты, пустой id) и НЕ создаёт строку в БД — read-only (это и
+// есть суть разделения stageForRead/stageForWrite).
+func TestStage_AC2_GetLayoutVirtualStageDoesNotWrite(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1")
+
+	layout, err := svc.GetLayout(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if layout.Stage.ID != "" {
+		t.Errorf("Stage.ID = %q, want empty (virtual stage)", layout.Stage.ID)
+	}
+	if layout.Stage.Position != 0 || layout.Stage.Type != domain.StageTypeGroups ||
+		layout.Stage.Title != domain.DefaultStageTitle || layout.Stage.Status != domain.LayoutDraft {
+		t.Errorf("virtual Stage = %+v, want defaults with empty ID", layout.Stage)
+	}
+	if got := repo.StageCount(); got != 0 {
+		t.Fatalf("expected GetLayout not to create a stage row, got %d stages in storage", got)
+	}
+
+	// Повторный GetLayout — тоже read-only.
+	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := repo.StageCount(); got != 0 {
+		t.Fatalf("expected repeated GetLayout still not to create a stage row, got %d", got)
+	}
+}
+
+// AC-5/FR-8: расфиксация (ready→draft) одного этапа не блокируется пулом
+// ДРУГОГО этапа той же номинации, стоящим на арене. "Другой этап" — вручную
+// посеянный (SeedStage/SeedPoolInStage): в этой спеке через интерфейс не
+// создаётся (FR-12), но модель его допускает — состояние проверяется на
+// уровне данных, как и предписывает spec.md AC-5.
+func TestSetStatus_Stage0017_AC5_UnfixNotBlockedByOtherStageSeatedPool(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	repo.SeedPool("n1", 1, "f1") // материализует канонический этап 1
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	pool2 := repo.SeedPoolInStage(stage2, 1, "f2")
+	if err := repo.SeatPool(ctx, pool2, "arena-x"); err != nil {
+		t.Fatalf("seat pool2: %v", err)
+	}
+
+	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	if err != nil {
+		t.Fatalf("expected unfix to succeed despite the other stage's seated pool, got error: %v", err)
+	}
+	if layout.Status != domain.LayoutDraft {
+		t.Fatalf("expected draft, got %s", layout.Status)
+	}
+}
+
+// AC-5/FR-8: расфиксация не блокируется начатыми/проведёнными боями пула
+// ДРУГОГО этапа той же номинации.
+func TestSetStatus_Stage0017_AC5_UnfixNotBlockedByOtherStageStartedBouts(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	repo.SeedPool("n1", 1, "f1")
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	pool2 := repo.SeedPoolInStage(stage2, 1, "f2")
+	bouts.SetAnyStartedForPool(pool2, true)
+
+	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	if err != nil {
+		t.Fatalf("expected unfix to succeed despite the other stage's started bouts, got error: %v", err)
+	}
+	if layout.Status != domain.LayoutDraft {
+		t.Fatalf("expected draft, got %s", layout.Status)
+	}
+}
+
+// FR-8: draft→ready вызывает GenerateForStage только с пулами СВОЕГО этапа —
+// пул другого этапа той же номинации не передаётся.
+func TestSetStatus_Stage0017_GenerateCalledOnlyWithThisStagePools(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	poolID := repo.SeedPool("n1", 1, "f1")
+
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	repo.SeedPoolInStage(stage2, 1, "f2")
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bouts.GenerateCalls) != 1 {
+		t.Fatalf("expected 1 generate call, got %d", len(bouts.GenerateCalls))
+	}
+	pools := bouts.GenerateCalls[0].Pools
+	if len(pools) != 1 || pools[0].PoolID != poolID {
+		t.Fatalf("expected GenerateForStage called with only this stage's pool %s, got %+v", poolID, pools)
+	}
+}
+
+// FR-8: ready→draft вызывает ClearForPools только с пулами СВОЕГО этапа —
+// регресс «не снести чужие бои» (пул другого этапа той же номинации не
+// передаётся).
+func TestSetStatus_Stage0017_ClearCalledOnlyWithThisStagePools(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+	poolID := repo.SeedPool("n1", 1, "f1")
+
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	pool2 := repo.SeedPoolInStage(stage2, 1, "f2")
+
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bouts.ClearCalls) != 1 {
+		t.Fatalf("expected 1 clear call, got %d", len(bouts.ClearCalls))
+	}
+	got := bouts.ClearCalls[0].PoolIDs
+	if len(got) != 1 || got[0] != poolID {
+		t.Fatalf("expected ClearForPools called with only this stage's pool %s (not the other stage's %s), got %v", poolID, pool2, got)
+	}
+}
+
+// AC-4/FR-7: тот же боец в пуле другого этапа той же номинации — допустимое
+// состояние, обе принадлежности сохраняются (это будущий переход
+// группы→плейофф, не баг).
+func TestAssignFighter_Stage0017_AC4_SameFighterInTwoStagesAllowed(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"})
+
+	poolID := repo.SeedPool("n1", 1)
+	if _, err := svc.AssignFighter(ctx, "n1", "f1", poolID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	pool2 := repo.SeedPoolInStage(stage2, 1)
+	if err := repo.AssignFighter(ctx, stage2, "f1", pool2); err != nil {
+		t.Fatalf("expected fighter to be assignable to a pool of a different stage, got error: %v", err)
+	}
+
+	stage1, found, err := repo.StageByNomination(ctx, "n1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected stage1 to exist")
+	}
+	m1, err := repo.MembersByStage(ctx, stage1.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m2, err := repo.MembersByStage(ctx, stage2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m1) != 1 || m1[0].FighterID != "f1" {
+		t.Fatalf("expected f1 in stage1, got %+v", m1)
+	}
+	if len(m2) != 1 || m2[0].FighterID != "f1" {
+		t.Fatalf("expected f1 in stage2, got %+v", m2)
+	}
+}
+
+// AC-6/FR-9: синхронизация приёма заявок считает распределённых бойцов по
+// ВСЕМ этапам номинации — фигурант из этапа, не задействованного текущей
+// мутацией, всё равно учитывается.
+func TestSync_Stage0017_AC6_CountsDistributedAcrossAllStages(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+
+	// Этап 2 (посеян вручную): f2 распределён в его пул. Этап 1
+	// (канонический) на момент вызова ещё не существует.
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	pool2 := repo.SeedPoolInStage(stage2, 1)
+	if err := repo.AssignFighter(ctx, stage2, "f2", pool2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// UnassignFighter на несуществующем членстве этапа 1 — идемпотентный
+	// no-op, но всё равно материализует этап 1 и триггерит sync по
+	// результирующему состоянию НОМИНАЦИИ ЦЕЛИКОМ.
+	if _, err := svc.UnassignFighter(ctx, "n1", "does-not-exist"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	value, called := nominations.LastSynced("n1")
+	if !called {
+		t.Fatalf("expected SyncRegistrationState to be called")
+	}
+	if !value {
+		t.Fatalf("expected sync value true (distributed fighter exists in another stage of the same nomination), got false")
+	}
+}
+
+// FR-9: реконсиляция по активному ростеру (PruneMembers) чистит членства по
+// ВСЕМ этапам номинации, а не только по этапу, где обнаружен осиротевший
+// боец — PruneMembers остаётся номинационным намеренно.
+func TestReconciliation_Stage0017_PruneMembersAcrossAllStages(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}) // withdrawn-* не активны
+
+	// Этап 1 (канонический): активный f1 + осиротевший — триггерит
+	// prune-ветку (status draft && orphaned) при чтении ЭТОГО этапа.
+	repo.SeedPool("n1", 1, "f1", "withdrawn-in-stage1")
+
+	// Этап 2 (вручную посеянный) с ДРУГИМ осиротевшим бойцом — сам по себе
+	// не сканируется на orphaned этим чтением, но обязан быть подчищен,
+	// т.к. PruneMembers — номинационный вызов (спека 0017, FR-9).
+	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
+	pool2 := repo.SeedPoolInStage(stage2, 1, "withdrawn-in-stage2")
+	_ = pool2
+
+	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m2, err := repo.MembersByStage(ctx, stage2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m2) != 0 {
+		t.Fatalf("expected orphaned membership pruned from stage2's pool too (PruneMembers stays nomination-scoped), got %+v", m2)
 	}
 }

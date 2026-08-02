@@ -482,9 +482,12 @@ type LivePool struct {
 
 // NominationSnapshot — живой снапшот номинации целиком (спека 0014). Pools
 // пуст, пока раскладка номинации в статусе draft (FR-12) — публично нечего
-// показывать, как и ListPublicPools.
+// показывать, как и ListPublicPools. Stages — этапы номинации (спека 0017,
+// FR-11): не менее одного элемента (виртуальный singleton, если строк в БД
+// ещё нет — см. service.stagesForRead).
 type NominationSnapshot struct {
 	NominationID string
+	Stages       []Stage
 	Pools        []LivePool
 }
 
