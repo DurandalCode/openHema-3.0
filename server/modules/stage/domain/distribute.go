@@ -21,6 +21,10 @@ type FighterRef struct {
 // членств (fighter_id) данными из ActiveFightersProvider — до обогащения
 // Name/Club у элементов Members пусты.
 //
+// StageID — этап, которому принадлежит пул (спека 0017, FR-5): пулы
+// адресуются относительно этапа, NominationID остаётся денормализацией под
+// номинационные чтения (публичный экран, живой снапшот, реконсиляция).
+//
 // ArenaID/ArenaName/Status — спека 0011: ArenaID хранится репозиторием
 // (пусто, если пул не на арене); ArenaName резолвится службой через
 // ArenaProvider при сборке (не хранится в БД, план «Обзор решения» —
@@ -34,6 +38,7 @@ type FighterRef struct {
 // спека 0011, FR-9).
 type Pool struct {
 	ID             string
+	StageID        string
 	NominationID   string
 	NominationName string
 	Number         int

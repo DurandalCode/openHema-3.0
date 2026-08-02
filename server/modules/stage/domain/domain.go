@@ -156,10 +156,49 @@ type UndoState struct {
 	Pools []ResetPool
 }
 
-// Layout — раскладка номинации целиком: статус, нераспределённые, пулы.
-// CanUndo — доступна ли кнопка «Отменить» на экране (FR-7a).
+// StageType — тип этапа номинации (спека 0017, FR-3; ADR 0014 §1/§3). В этом
+// инкременте существует ровно одно значение — групповой (круговая система
+// внутри групп, механика 0009/0010/0016). Второй тип (bracket) придёт со
+// спекой 0018.
+type StageType string
+
+const StageTypeGroups StageType = "groups"
+
+// DefaultStageTitle — название авто-создаваемого группового этапа (спека
+// 0017, FR-4).
+const DefaultStageTitle = "Групповой этап"
+
+// Stage — этап номинации (спека 0017, FR-1). Status/Undo переезжают сюда с
+// раскладки номинации целиком (FR-6): это ровно то, чем была pool_layouts —
+// владелец статуса фиксации состава и undo-снапшота, — плюс идентичность
+// (Position/Title/Type) и принадлежность номинации. В этой спеке у каждой
+// номинации ровно один этап (position=0, type=groups, FR-2/FR-4).
+type Stage struct {
+	ID           string
+	NominationID string
+	Position     int
+	Title        string
+	Type         StageType
+	Status       LayoutStatus
+	Undo         UndoState
+}
+
+// PoolMember — сырое членство: боец в пуле (репозиторное чтение, без
+// обогащения именем/клубом). Комбинируется службой с bare-пулами из
+// PoolsByStage/PoolsByNomination (по аналогии с тем, как repo раньше сам
+// объединял ListPoolsByNomination + ListMembersByNomination).
+type PoolMember struct {
+	PoolID    string
+	FighterID string
+}
+
+// Layout — раскладка одного этапа номинации: статус, нераспределённые,
+// пулы. CanUndo — доступна ли кнопка «Отменить» на экране (FR-7a). Stage —
+// этап, которому принадлежит раскладка (спека 0017, FR-11): при отсутствии
+// строки в БД — виртуальный этап с пустым ID (см. service.stageForRead).
 type Layout struct {
 	NominationID string
+	Stage        Stage
 	Status       LayoutStatus
 	Unassigned   []FighterRef
 	Pools        []Pool
@@ -177,56 +216,97 @@ type ArenaPools struct {
 	Available []Pool
 }
 
-// Repository — порт доступа к хранилищу раскладки (PG-схема pool).
-// Пулы возвращаются с «сырыми» членствами (Members[i].ID заполнен,
-// Name/Club — нет): обогащение данными бойца — работа service через
+// Repository — порт доступа к хранилищу раскладки (PG-схема stage). Пулы
+// возвращаются с «сырыми» членствами (Members[i].ID заполнен, Name/Club —
+// нет): обогащение данными бойца — работа service через
 // ActiveFightersProvider (модули не делят данные напрямую, ADR 0002).
+//
+// Спека 0017: раскладка принадлежит этапу, а не номинации целиком (FR-5).
+// Мутирующие методы адресуются по stageID (EnsureStage/stageForWrite
+// резолвит его от nominationID на входе в сервис); чтения, показывающие
+// номинацию целиком (публичный экран, живой снапшот, реконсиляция ростера),
+// остаются номинационными (FR-9) — см. PoolsByNomination/MembersByNomination/
+// PruneMembers ниже.
 type Repository interface {
-	// GetLayout возвращает статус, undo-снапшот и пулы номинации (включая
-	// ArenaID каждого пула, спека 0011). Отсутствие строки раскладки
-	// трактуется как draft + UndoNone (lazy-init, FR-14).
-	GetLayout(ctx context.Context, nominationID string) (LayoutStatus, UndoState, []Pool, error)
-	// GetPool возвращает один пул по id (включая NominationID/ArenaID — для
-	// резолва раскладки перед мутацией по запросам без nomination_id).
+	// GetPool возвращает один пул по id (включая StageID/NominationID/
+	// ArenaID — для резолва этапа/раскладки перед мутацией по запросам без
+	// явного stage_id).
 	GetPool(ctx context.Context, poolID string) (Pool, error)
 
-	// CreatePool вставляет пул с заданным number, материализует lazy-строку
-	// раскладки в draft, очищает undo. Возвращает созданный пул.
-	CreatePool(ctx context.Context, nominationID string, number int) (Pool, error)
+	// CreatePool вставляет пул с заданным number в указанный этап,
+	// очищает undo этапа. Возвращает созданный пул.
+	CreatePool(ctx context.Context, stageID string, number int) (Pool, error)
 	// DeletePool атомарно удаляет пул (каскадом членства) и записывает
-	// undo-снапшот (kind=delete_pool, number+fighter_ids удалённого пула).
+	// undo-снапшот его этапа (kind=delete_pool, number+fighter_ids
+	// удалённого пула). Этап резолвится от пула — poolID уникален, явного
+	// stageID не требуется.
 	DeletePool(ctx context.Context, poolID string) error
-	// ResetLayout атомарно удаляет все пулы номинации (каскадом членства) и
+	// ResetLayout атомарно удаляет все пулы этапа (каскадом членства) и
 	// записывает undo-снапшот всех пулов с их членствами (kind=reset),
 	// гарантирует статус draft (FR-4a, undoable — FR-7a).
-	ResetLayout(ctx context.Context, nominationID string) error
-	// AssignFighter кладёт бойца в пул: upsert членства по (nomination_id,
+	ResetLayout(ctx context.Context, stageID string) error
+	// AssignFighter кладёт бойца в пул: upsert членства по (stage_id,
 	// fighter_id) — move одним действием, если боец уже был в другом пуле
-	// этой номинации (FR-1/FR-5). Очищает undo.
-	AssignFighter(ctx context.Context, nominationID, fighterID, poolID string) error
-	// UnassignFighter убирает бойца из пула, если он там был (идемпотентно).
-	// Очищает undo.
-	UnassignFighter(ctx context.Context, nominationID, fighterID string) error
+	// этого этапа (спека 0017, FR-7: тот же боец в пуле другого этапа той
+	// же номинации не трогается). Очищает undo этапа.
+	AssignFighter(ctx context.Context, stageID, fighterID, poolID string) error
+	// UnassignFighter убирает бойца из пула этапа, если он там был
+	// (идемпотентно). Очищает undo этапа.
+	UnassignFighter(ctx context.Context, stageID, fighterID string) error
 	// ApplyAutoDistribute атомарно применяет assignments (insert членств) и
-	// записывает undo (kind=auto, fighter_ids = кого расставило).
-	ApplyAutoDistribute(ctx context.Context, nominationID string, assignments []Assignment) error
-	// UndoAuto удаляет членства перечисленных fighterIDs (возврат в
+	// записывает undo этапа (kind=auto, fighter_ids = кого расставило).
+	ApplyAutoDistribute(ctx context.Context, stageID string, assignments []Assignment) error
+	// UndoAuto удаляет членства перечисленных fighterIDs в этапе (возврат в
 	// нераспределённые) и очищает undo.
-	UndoAuto(ctx context.Context, nominationID string, fighterIDs []string) error
-	// UndoDeletePool пересоздаёт пул с тем же number и восстанавливает
+	UndoAuto(ctx context.Context, stageID string, fighterIDs []string) error
+	// UndoDeletePool пересоздаёт пул этапа с тем же number и восстанавливает
 	// членства fighterIDs, очищает undo.
-	UndoDeletePool(ctx context.Context, nominationID string, number int, fighterIDs []string) error
-	// UndoReset пересоздаёт все пулы из снапшота с теми же номерами и
+	UndoDeletePool(ctx context.Context, stageID string, number int, fighterIDs []string) error
+	// UndoReset пересоздаёт все пулы этапа из снапшота с теми же номерами и
 	// восстанавливает их членства, очищает undo (AC-13a4).
-	UndoReset(ctx context.Context, nominationID string, pools []ResetPool) error
-	// PruneMembers удаляет членства бойцов номинации, которых нет среди
-	// activeFighterIDs (FR-15). Не мутирует undo: реконсиляция — не
-	// admin-действие в смысле FR-7a, а системное подчищение.
+	UndoReset(ctx context.Context, stageID string, pools []ResetPool) error
+	// PruneMembers удаляет членства бойцов номинации (по всем её этапам,
+	// спека 0017, FR-9), которых нет среди activeFighterIDs (FR-15). Не
+	// мутирует undo: реконсиляция — не admin-действие в смысле FR-7a, а
+	// системное подчищение. Остаётся номинационным намеренно.
 	PruneMembers(ctx context.Context, nominationID string, activeFighterIDs []string) error
-	// SetStatus задаёт статус раскладки (draft/ready), материализует
-	// lazy-строку, очищает undo (FR-9, FR-7a — смена статуса мутирует
-	// раскладку).
-	SetStatus(ctx context.Context, nominationID string, status LayoutStatus) error
+	// SetStatus задаёт статус этапа (draft/ready), очищает undo (FR-9,
+	// FR-7a — смена статуса мутирует раскладку).
+	SetStatus(ctx context.Context, stageID string, status LayoutStatus) error
+
+	// EnsureStage — get-or-create единственного этапа номинации (спека
+	// 0017, FR-4): при отсутствии создаёт строку с position=0,
+	// type=StageTypeGroups, title=DefaultStageTitle, status=draft; при
+	// наличии — возвращает существующую как есть. Только для мутирующих
+	// путей (stageForWrite) — GetLayout не должен писать в БД.
+	EnsureStage(ctx context.Context, nominationID string) (Stage, error)
+	// StageByNomination — чтение без создания (found=false, если строки
+	// нет). Вызывающий (stageForRead) трактует found=false как виртуальный
+	// этап — ровно как отсутствие строки раскладки трактовалось как пустой
+	// draft (спека 0009, решение №9).
+	StageByNomination(ctx context.Context, nominationID string) (Stage, bool, error)
+	// StageByID резолвит этап по его id — используется там, где этап
+	// известен через пул (pool.StageID), а не через nominationID
+	// (SeatPoolOnArena: разные пулы номинации могут в будущем принадлежать
+	// разным этапам, план «Модуль stage»).
+	StageByID(ctx context.Context, stageID string) (Stage, bool, error)
+	// StagesByNomination возвращает все этапы номинации (для публичных
+	// ответов, repeated stages) — в этой спеке не более одного.
+	StagesByNomination(ctx context.Context, nominationID string) ([]Stage, error)
+
+	// PoolsByStage возвращает bare-пулы этапа (без обогащённых членств —
+	// см. MembersByStage) для админ-раскладки одного этапа (loadLayout).
+	PoolsByStage(ctx context.Context, stageID string) ([]Pool, error)
+	// MembersByStage возвращает сырые членства (pool_id/fighter_id) этапа —
+	// комбинируется службой с PoolsByStage.
+	MembersByStage(ctx context.Context, stageID string) ([]PoolMember, error)
+	// PoolsByNomination возвращает bare-пулы номинации целиком, по всем её
+	// этапам (спека 0017, FR-9: публичный экран и живой снапшот показывают
+	// номинацию целиком, а не один этап).
+	PoolsByNomination(ctx context.Context, nominationID string) ([]Pool, error)
+	// MembersByNomination возвращает сырые членства номинации целиком, по
+	// всем её этапам — комбинируется службой с PoolsByNomination.
+	MembersByNomination(ctx context.Context, nominationID string) ([]PoolMember, error)
 
 	// SeatPool закрепляет пул за площадкой (готов → готовится к запуску,
 	// спека 0011, FR-7). Атомарно: полагается на partial unique index
@@ -240,13 +320,15 @@ type Repository interface {
 	// PoolsForArena возвращает пул, стоящий на арене (found=false, если
 	// арена сейчас свободна, спека 0011, FR-9).
 	PoolsForArena(ctx context.Context, arenaID string) (pool Pool, found bool, err error)
-	// ReadyUnseatedPools возвращает все пулы в статусе «готов» (раскладка
-	// ready), ещё не поставленные ни на одну арену — кандидаты для
+	// ReadyUnseatedPools возвращает все пулы в статусе «готов» (раскладка их
+	// этапа ready), ещё не поставленные ни на одну арену — кандидаты для
 	// постановки (FR-9).
 	ReadyUnseatedPools(ctx context.Context) ([]Pool, error)
-	// AnySeatedInNomination — стоит ли хотя бы один пул номинации на арене
-	// (гейт FR-3: расфиксация раскладки запрещена, пока пул на арене).
-	AnySeatedInNomination(ctx context.Context, nominationID string) (bool, error)
+	// AnySeatedInStage — стоит ли хотя бы один пул этапа на арене (гейт
+	// FR-8 спеки 0017, было AnySeatedInNomination: расфиксация раскладки
+	// запрещена, пока пул ЭТОГО этапа на арене — занятость арены пулом
+	// другого этапа той же номинации не блокирует).
+	AnySeatedInStage(ctx context.Context, stageID string) (bool, error)
 	// SetCurrentBout записывает указатель текущего боя пула (спека 0013,
 	// FR-7/FR-8/FR-9): boutID пуст — указатель сбрасывается (нет
 	// непроведённых боёв после авто-продвижения, AC-10).
@@ -306,31 +388,36 @@ type BoutBoard struct {
 }
 
 // BoutConductor — межмодульная зависимость: жизненный цикл боя и
-// формирование/очистка боёв пулов номинации через API модуля bout (без
-// прямого доступа к его PG-схеме, ADR 0002). Направление зависимости —
-// только pool → bout (спека 0010, «Обзор решения», расширено спекой 0013).
+// формирование/очистка боёв пулов этапа через API модуля bout (без прямого
+// доступа к его PG-схеме, ADR 0002). Направление зависимости — только
+// stage → bout (спека 0010, «Обзор решения», расширено спекой 0013,
+// переадресовано на пулы этапа спекой 0017).
 //
-// GenerateForNomination/ClearForNomination — как в спеке 0010: SetStatus
-// вызывает GenerateForNomination на переходе draft → ready,
-// ClearForNomination — на переходе ready → draft (теперь гейтится
-// AnyStartedInNomination, FR-13).
+// GenerateForStage/ClearForPools — SetStatus вызывает GenerateForStage на
+// переходе draft → ready этапа, ClearForPools — на переходе ready → draft
+// (гейтится AnyStartedInPools, FR-13/спека 0017 FR-8). GenerateForStage
+// сохраняет nominationID: он не адресует (это по-прежнему пулы этапа), а
+// штампуется в payload события Scheduled — бой по-прежнему принадлежит
+// номинации (спека 0017, план «Обзор решения»). ClearForPools адресуется
+// списком id пулов этого этапа — не трогает бои пулов другого этапа той же
+// номинации (регресс-гарантия спеки 0017).
 //
 // Start/Score/Finish/Reopen/ResetBout — лайфсайкл-команды текущего боя
-// (спека 0013, FR-1/FR-4..FR-6): делегируются сервисом pool после резолва
+// (спека 0013, FR-1/FR-4..FR-6): делегируются сервисом stage после резолва
 // эффективного текущего боя пула. actorID — кто выполнил действие (для
 // журнала боя, ADR 0011, NFR-1). ScoreBout принимает абсолютные значения
 // счёта (план «Способ выражения счёта»: команда идемпотентна, шаги ±N —
 // клиентская арифметика поверх текущего счёта из доски).
 //
-// BoutsByPool/PoolProgress/AnyStartedInNomination — чтения для доски и
+// BoutsByPool/PoolProgress/AnyStartedInPools — чтения для доски и
 // вычисляемого статуса пула (FR-10).
 //
 // Ошибки: реализация мапит доменные ошибки bout в ErrInvalidTransition/
 // ErrConcurrency этого пакета (см. комментарий у этих сентинелов) либо в
 // ErrNotFound (boutID не существует).
 type BoutConductor interface {
-	GenerateForNomination(ctx context.Context, nominationID string, pools []BoutPoolInput) error
-	ClearForNomination(ctx context.Context, nominationID string) error
+	GenerateForStage(ctx context.Context, nominationID string, pools []BoutPoolInput) error
+	ClearForPools(ctx context.Context, poolIDs []string) error
 
 	StartBout(ctx context.Context, boutID, actorID string) error
 	ScoreBout(ctx context.Context, boutID, actorID string, scoreA, scoreB int) error
@@ -339,15 +426,16 @@ type BoutConductor interface {
 	ResetBout(ctx context.Context, boutID, actorID string) error
 
 	// BoutsByPool возвращает бои пула (id/раунд/порядок/пара/состояние/
-	// счёт), порядок не гарантирован — сервис pool сортирует по
+	// счёт), порядок не гарантирован — сервис stage сортирует по
 	// SequenceNumber сам (см. service.sortedBySequence).
 	BoutsByPool(ctx context.Context, poolID string) ([]BoutRef, error)
 	// PoolProgress — сколько всего боёв у пула, сколько начато (state ≠
 	// not_started) и сколько завершено (FR-10).
 	PoolProgress(ctx context.Context, poolID string) (total, started, finished int, err error)
-	// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
-	// state ≠ not_started (гейт FR-13, AC-12).
-	AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error)
+	// AnyStartedInPools — есть ли среди перечисленных пулов хотя бы один
+	// бой со state ≠ not_started (гейт FR-13/спека 0017 FR-8, AC-12). Пустой
+	// список — валидный вход, no-op → false.
+	AnyStartedInPools(ctx context.Context, poolIDs []string) (bool, error)
 }
 
 // ---------------------------------------------------------------------
