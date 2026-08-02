@@ -7,6 +7,7 @@ vi.mock("@/lib/grpc/client", () => ({
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolsToJson: vi.fn((p) => p ?? []),
+  stagesToJson: vi.fn((s) => s ?? []),
 }));
 
 import { stagePublicClient } from "@/lib/grpc/client";
@@ -27,23 +28,27 @@ describe("app/api/nominations/[id]/public-pools route", () => {
     expect(res.status).toBe(200);
   });
 
-  it("returns pools JSON on ok", async () => {
+  it("returns pools and stages JSON on ok", async () => {
     vi.mocked(stagePublicClient.listPublicPools).mockResolvedValue({
       pools: [{ id: "p1", status: "POOL_STATUS_PREPARING" }],
+      stages: [{ id: "stage-1", title: "Групповой этап" }],
     } as never);
 
     const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({ pools: [{ id: "p1", status: "POOL_STATUS_PREPARING" }] });
+    expect(data).toEqual({
+      pools: [{ id: "p1", status: "POOL_STATUS_PREPARING" }],
+      stages: [{ id: "stage-1", title: "Групповой этап" }],
+    });
     expect(stagePublicClient.listPublicPools).toHaveBeenCalledWith({ nominationId: "n1" });
   });
 
   it("returns empty list when layout is draft (AC-14, server-side gate)", async () => {
-    vi.mocked(stagePublicClient.listPublicPools).mockResolvedValue({ pools: [] } as never);
+    vi.mocked(stagePublicClient.listPublicPools).mockResolvedValue({ pools: [], stages: [] } as never);
     const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
     const data = await res.json();
-    expect(data).toEqual({ pools: [] });
+    expect(data).toEqual({ pools: [], stages: [] });
   });
 
   it("maps ConnectError NotFound → 404", async () => {
