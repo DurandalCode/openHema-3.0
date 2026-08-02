@@ -7,17 +7,20 @@ import (
 	"github.com/hema/server/modules/stage/domain"
 )
 
-// GenerateCall — зафиксированный вызов GenerateForNomination (аргументы, для
-// проверки в тестах).
+// GenerateCall — зафиксированный вызов GenerateForStage (аргументы, для
+// проверки в тестах). NominationID здесь — не адресация (см. комментарий у
+// domain.BoutConductor), а штамп для payload события Scheduled.
 type GenerateCall struct {
 	NominationID string
 	Pools        []domain.BoutPoolInput
 }
 
-// ClearCall — зафиксированный вызов ClearForNomination (аргументы, для
-// проверки в тестах).
+// ClearCall — зафиксированный вызов ClearForPools (аргументы, для проверки в
+// тестах). PoolIDs — пулы ОДНОГО этапа (спека 0017): тесты T6 используют это
+// поле, чтобы убедиться, что ready→draft не трогает бои пулов другого этапа
+// той же номинации.
 type ClearCall struct {
-	NominationID string
+	PoolIDs []string
 }
 
 // LifecycleCall — зафиксированный вызов лайфсайкл-команды без счёта
@@ -75,7 +78,7 @@ type FakeBoutConductor struct {
 	bouts       map[string]*domain.BoutRef // bout id -> bout (мутируется лайфсайкл-командами)
 	boutsByPool map[string][]string        // pool id -> bout ids (порядок посева, доска сортирует сама по SequenceNumber)
 
-	anyStarted map[string]bool // nomination id -> есть ли начатый/проведённый бой (FR-13)
+	anyStarted map[string]bool // pool id -> есть ли начатый/проведённый бой (FR-13/спека 0017 FR-8)
 }
 
 // NewFakeBoutConductor создаёт пустой fake-кондуктор боёв.
@@ -104,13 +107,13 @@ func (f *FakeBoutConductor) SeedBout(poolID string, b domain.BoutRef) {
 	f.bouts[b.ID] = &cp
 }
 
-// SetAnyStarted — тестовый хелпер: задаёт результат AnyStartedInNomination
-// для номинации напрямую (без резолва через посеянные бои — гейт FR-13
-// тестируется независимо от доски).
-func (f *FakeBoutConductor) SetAnyStarted(nominationID string, v bool) {
+// SetAnyStartedForPool — тестовый хелпер: задаёт результат AnyStartedInPools
+// для конкретного пула напрямую (без резолва через посеянные бои — гейт
+// FR-13/спека 0017 FR-8 тестируется независимо от доски).
+func (f *FakeBoutConductor) SetAnyStartedForPool(poolID string, v bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.anyStarted[nominationID] = v
+	f.anyStarted[poolID] = v
 }
 
 // Bout возвращает текущее (возможно, изменённое лайфсайкл-командами)
@@ -125,8 +128,8 @@ func (f *FakeBoutConductor) Bout(boutID string) (domain.BoutRef, bool) {
 	return *b, true
 }
 
-// GenerateForNomination фиксирует вызов и возвращает GenerateErr, если задан.
-func (f *FakeBoutConductor) GenerateForNomination(_ context.Context, nominationID string, pools []domain.BoutPoolInput) error {
+// GenerateForStage фиксирует вызов и возвращает GenerateErr, если задан.
+func (f *FakeBoutConductor) GenerateForStage(_ context.Context, nominationID string, pools []domain.BoutPoolInput) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -137,12 +140,13 @@ func (f *FakeBoutConductor) GenerateForNomination(_ context.Context, nominationI
 	return f.GenerateErr
 }
 
-// ClearForNomination фиксирует вызов и возвращает ClearErr, если задан.
-func (f *FakeBoutConductor) ClearForNomination(_ context.Context, nominationID string) error {
+// ClearForPools фиксирует вызов (с перечнем пулов этапа) и возвращает
+// ClearErr, если задан.
+func (f *FakeBoutConductor) ClearForPools(_ context.Context, poolIDs []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.ClearCalls = append(f.ClearCalls, ClearCall{NominationID: nominationID})
+	f.ClearCalls = append(f.ClearCalls, ClearCall{PoolIDs: append([]string{}, poolIDs...)})
 	return f.ClearErr
 }
 
@@ -267,14 +271,20 @@ func (f *FakeBoutConductor) PoolProgress(_ context.Context, poolID string) (tota
 	return total, started, finished, nil
 }
 
-// AnyStartedInNomination возвращает значение, заданное SetAnyStarted (по
-// умолчанию false), либо AnyStartedErr, если задан.
-func (f *FakeBoutConductor) AnyStartedInNomination(_ context.Context, nominationID string) (bool, error) {
+// AnyStartedInPools возвращает true, если хотя бы для одного из poolIDs
+// задано SetAnyStartedForPool(id, true); AnyStartedErr, если задан. Пустой
+// список — валидный вход, no-op → false (план «Модуль bout», FR-13).
+func (f *FakeBoutConductor) AnyStartedInPools(_ context.Context, poolIDs []string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	if f.AnyStartedErr != nil {
 		return false, f.AnyStartedErr
 	}
-	return f.anyStarted[nominationID], nil
+	for _, id := range poolIDs {
+		if f.anyStarted[id] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
