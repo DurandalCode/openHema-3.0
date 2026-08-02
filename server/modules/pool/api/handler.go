@@ -555,6 +555,7 @@ func toProtoPool(p domain.Pool) *hemav1.Pool {
 		ArenaId:        p.ArenaID,
 		ArenaName:      p.ArenaName,
 		NominationName: p.NominationName,
+		Standings:      toProtoStandings(p.Standings),
 	}
 }
 
@@ -562,6 +563,25 @@ func toProtoFighterRefs(refs []domain.FighterRef) []*hemav1.FighterRef {
 	out := make([]*hemav1.FighterRef, 0, len(refs))
 	for _, f := range refs {
 		out = append(out, &hemav1.FighterRef{FighterId: f.ID, Name: f.Name, Club: f.Club})
+	}
+	return out
+}
+
+// toProtoStandings маппит итоговую таблицу пула (спека 0016). Пустой срез
+// (не nil), если Standings пуст — согласуется с остальными repeated-полями
+// этого файла (FR-7: пусто значит «нечего показывать»).
+func toProtoStandings(standings []domain.Standing) []*hemav1.PoolStanding {
+	out := make([]*hemav1.PoolStanding, 0, len(standings))
+	for _, s := range standings {
+		out = append(out, &hemav1.PoolStanding{
+			Fighter:        &hemav1.FighterRef{FighterId: s.Fighter.ID, Name: s.Fighter.Name, Club: s.Fighter.Club},
+			Wins:           int32(s.Wins),
+			Draws:          int32(s.Draws),
+			Losses:         int32(s.Losses),
+			PointsScored:   int32(s.PointsScored),
+			PointsConceded: int32(s.PointsConceded),
+			Place:          int32(s.Place),
+		})
 	}
 	return out
 }

@@ -20,6 +20,7 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { Bout } from "@/entities/bout/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
 import { useLayout } from "../api/use-layout";
@@ -341,7 +342,12 @@ function PoolColumn({
               )}
             </Col>
           </div>
-          {readOnly && <BoutList bouts={bouts} />}
+          {readOnly && (
+            <>
+              <BoutList bouts={bouts} />
+              <PoolStandingsTable standings={pool.standings} />
+            </>
+          )}
         </Col>
       </CardContent>
     </Card>

@@ -178,6 +178,22 @@ message FighterRef {
   string club = 3;
 }
 
+// PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
+// статистика бойца по завершённым боям пула + итоговое место. place
+// вычисляется сервером с учётом дележа (FR-3: полностью равные по
+// wins/points_scored/points_conceded бойцы делят место — конкурентное
+// ранжирование 1,2,2,4, не 1,2,2,3); клиент не пересчитывает и не
+// досортировывает (FR-8).
+message PoolStanding {
+  FighterRef fighter = 1;
+  int32 wins = 2;
+  int32 draws = 3;
+  int32 losses = 4;
+  int32 points_scored = 5;
+  int32 points_conceded = 6;
+  int32 place = 7;
+}
+
 // Pool — пул (группа) номинации с его бойцами. Имя не редактируется
 // (генерируется системой из номера, спека 0009 «Вне скоупа»).
 // status/arena_id/arena_name — спека 0011: статус отдельного пула и, если он
@@ -186,6 +202,11 @@ message FighterRef {
 // nomination_name — резолвленное на момент чтения название номинации пула
 // (denormalized на чтении, по аналогии с arena_name): для экрана арены, где
 // список «готовых пулов для постановки» собран из разных номинаций.
+// standings — итоговая таблица пула (спека 0016). Пусто, если в пуле нет ни
+// одного завершённого боя (FR-7) — так UI отличает «нечего показывать» от
+// «все места нулевые». Осознанно не заполняется на путях, связанных с
+// ареной/табло (GetPoolsForArena/GetBoutBoard — спека 0015 уже оставляет
+// итоговые таблицы вне табло).
 message Pool {
   string id = 1;
   string nomination_id = 2;
@@ -196,6 +217,7 @@ message Pool {
   string arena_id = 7;
   string arena_name = 8;
   string nomination_name = 9;
+  repeated PoolStanding standings = 10;
 }
 
 // BoardBout — проекция одного боя пула для доски ведения (спека 0013,

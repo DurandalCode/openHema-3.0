@@ -9,7 +9,7 @@ import {
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
 import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
-import { NominationLiveSnapshotSchema, ArenaLiveSnapshotSchema } from "@/gen/hema/v1/pool_pb";
+import { NominationLiveSnapshotSchema, ArenaLiveSnapshotSchema, PoolSchema } from "@/gen/hema/v1/pool_pb";
 import {
   applicationHistoryToJson,
   applicationsToJson,
@@ -21,6 +21,7 @@ import {
   nominationsToJson,
   nominationToJson,
   nominationLiveToJson,
+  poolToJson,
   tournamentToJson,
   userToJson,
 } from "@/lib/grpc/serialize";
@@ -470,6 +471,30 @@ describe("arenaToJson", () => {
   });
 });
 
+describe("poolToJson", () => {
+  it("normalizes an omitted standings field to an empty array (спека 0016, FR-7)", () => {
+    const pool = fromJson(PoolSchema, {
+      id: "pool-1",
+      nominationId: "n1",
+      nominationName: "Longsword",
+      number: 1,
+      name: "Пул 1",
+      members: [],
+      status: "POOL_STATUS_READY",
+      arenaId: "",
+      arenaName: "",
+    });
+
+    const json = poolToJson(pool);
+
+    expect(json?.standings).toEqual([]);
+  });
+
+  it("returns null for undefined", () => {
+    expect(poolToJson(undefined)).toBeNull();
+  });
+});
+
 describe("arenasToJson", () => {
   it("converts an array of protobuf Arenas", () => {
     const a = fromJson(ArenaSchema, { id: "a1", name: "A", status: "ARENA_STATUS_ACTIVE" });
@@ -504,6 +529,17 @@ describe("nominationLiveToJson", () => {
             status: "POOL_STATUS_ACTIVE",
             arenaId: "arena-1",
             arenaName: "Ристалище 1",
+            standings: [
+              {
+                fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+                wins: 1,
+                draws: 0,
+                losses: 0,
+                pointsScored: 5,
+                pointsConceded: 3,
+                place: 1,
+              },
+            ],
           },
           bouts: [
             {
@@ -552,6 +588,18 @@ describe("nominationLiveToJson", () => {
     expect(lp.bouts[1].fighterA.name).toBe("Fighter Three");
     // proto3-omitted defaults normalized (empty club, not undefined)
     expect(lp.bouts[1].fighterA.club).toBe("");
+    // спека 0016: итоговая таблица пула проброшена в JSON без пересортировки
+    expect(lp.pool.standings).toEqual([
+      {
+        fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+        wins: 1,
+        draws: 0,
+        losses: 0,
+        pointsScored: 5,
+        pointsConceded: 3,
+        place: 1,
+      },
+    ]);
   });
 
   it("returns null for undefined", () => {

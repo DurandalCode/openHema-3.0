@@ -19,6 +19,7 @@ const updated: NominationLiveSnapshotDto = {
         status: "POOL_STATUS_ACTIVE",
         arenaId: "a1",
         arenaName: "Ристалище 1",
+        standings: [],
       },
       bouts: [],
       currentBoutId: "",
