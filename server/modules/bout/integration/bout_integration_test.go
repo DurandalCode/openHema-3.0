@@ -2,8 +2,8 @@
 
 // Package integration — сквозные тесты модуля bout на реальной PostgreSQL
 // (testcontainers). См. ADR 0010. GenerateForNomination/ClearForNomination
-// не имеют публичного RPC (триггерятся из pool.SetLayoutStatus — см.
-// modules/pool/integration для сквозного pool×bout пути, spec 0010 T19) —
+// не имеют публичного RPC (триггерятся из stage.SetLayoutStatus — см.
+// modules/stage/integration для сквозного pool×bout пути, spec 0010 T19) —
 // здесь они вызываются напрямую через bout-сервис поверх реальной БД;
 // ListBoutsByNomination проверяется через реальный Connect × PG.
 package integration

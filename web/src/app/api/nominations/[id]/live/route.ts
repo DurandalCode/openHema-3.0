@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { poolPublicClient } from "@/lib/grpc/client";
+import { stagePublicClient } from "@/lib/grpc/client";
 import { nominationLiveToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<Response
       }, 20000);
 
       try {
-        for await (const resp of poolPublicClient.watchNominationLive(
+        for await (const resp of stagePublicClient.watchNominationLive(
           { nominationId: id },
           { signal: req.signal },
         )) {

@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { deletePool: vi.fn() },
+  stageAdminClient: { deletePool: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { DELETE } from "./route";
 
@@ -29,18 +29,18 @@ describe("app/api/pools/[poolId] route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await DELETE(req(), { params: Promise.resolve({ poolId: "p1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.deletePool).not.toHaveBeenCalled();
+    expect(stageAdminClient.deletePool).not.toHaveBeenCalled();
   });
 
   it("deletes pool and returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.deletePool).mockResolvedValue({
+    vi.mocked(stageAdminClient.deletePool).mockResolvedValue({
       layout: { pools: [] },
     } as never);
 
     const res = await DELETE(req(), { params: Promise.resolve({ poolId: "p1" }) });
     expect(res.status).toBe(200);
-    expect(poolAdminClient.deletePool).toHaveBeenCalledWith(
+    expect(stageAdminClient.deletePool).toHaveBeenCalledWith(
       { poolId: "p1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -48,7 +48,7 @@ describe("app/api/pools/[poolId] route", () => {
 
   it("maps ConnectError NotFound → 404", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.deletePool).mockRejectedValue(
+    vi.mocked(stageAdminClient.deletePool).mockRejectedValue(
       new ConnectError("not found", Code.NotFound),
     );
     const res = await DELETE(req(), { params: Promise.resolve({ poolId: "p1" }) });

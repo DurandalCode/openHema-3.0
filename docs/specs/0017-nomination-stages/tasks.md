@@ -41,7 +41,7 @@
 
 ## Волна 0 — переименование и контракты
 
-- [ ] T1. **Переименование `pool → stage`** (механическое, без единого
+- [x] T1. **Переименование `pool → stage`** (механическое, без единого
       изменения поведения — критерий приёмки: `make test-all` зелёный):
       - `server/modules/pool/` → `server/modules/stage/`, `package pool` →
         `package stage`, импорты (включая `internal/platform/*`);

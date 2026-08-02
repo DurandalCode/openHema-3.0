@@ -1,0 +1,604 @@
+syntax = "proto3";
+
+package hema.v1;
+
+option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
+
+// StageAdminService — управление раскладкой бойцов номинации по пулам
+// (группам). Все RPC требуют роль ADMIN (проверяется серверным
+// интерсептором RequireAdmin). Публичного чтения нет (спека 0009, FR-13):
+// пулы — служебная раскладка организатора.
+service StageAdminService {
+  // GetLayout возвращает текущую раскладку номинации: статус, список
+  // нераспределённых бойцов и список пулов с их бойцами (lazy-init —
+  // отсутствие раскладки трактуется как draft с пустыми пулами, FR-14).
+  rpc GetLayout(GetLayoutRequest) returns (GetLayoutResponse);
+  // CreatePool создаёт пул в номинации. Имя генерируется системой как
+  // «Пул N», где N — наименьший свободный положительный номер (FR-3).
+  // Только в draft.
+  rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
+  // DeletePool удаляет пул; все его бойцы возвращаются в нераспределённые
+  // (FR-4). Undoable. Только в draft.
+  rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
+  // ResetLayout удаляет все пулы номинации разом и возвращает всех бойцов
+  // в нераспределённые, статус остаётся draft (FR-4a). Только в draft.
+  rpc ResetLayout(ResetLayoutRequest) returns (ResetLayoutResponse);
+  // AssignFighter перемещает бойца в пул: из нераспределённых либо из
+  // другого пула (move одним действием, FR-5). Только в draft.
+  rpc AssignFighter(AssignFighterRequest) returns (AssignFighterResponse);
+  // UnassignFighter возвращает бойца из пула в нераспределённые (FR-5).
+  // Только в draft.
+  rpc UnassignFighter(UnassignFighterRequest) returns (UnassignFighterResponse);
+  // AutoDistribute раскладывает всех нераспределённых бойцов по
+  // существующим пулам, минимизируя одноклубников в одном пуле (FR-6/FR-7).
+  // Уже расставленные бойцы не трогаются. Undoable. Только в draft.
+  rpc AutoDistribute(AutoDistributeRequest) returns (AutoDistributeResponse);
+  // Undo откатывает последнее mutating-действие среди двух классов:
+  // автораспределение или удаление пула (FR-7a). Только в draft.
+  rpc Undo(UndoRequest) returns (UndoResponse);
+  // SetLayoutStatus переключает статус раскладки draft↔ready (FR-9, спека
+  // 0009). draft→ready фиксирует состав и формирует бои всех пулов
+  // номинации (спека 0010); ready→draft отклоняется, если хотя бы один пул
+  // номинации стоит на арене (спека 0011, FR-3).
+  rpc SetLayoutStatus(SetLayoutStatusRequest) returns (SetLayoutStatusResponse);
+  // SeatPoolOnArena ставит готовый пул (PoolStatus READY) на активную
+  // свободную площадку целиком, вместе с его боями (спека 0011, FR-7).
+  // Пул переходит в PREPARING. Отклоняется, если пул не готов, уже стоит на
+  // арене, либо арена занята/архивна/не найдена.
+  rpc SeatPoolOnArena(SeatPoolOnArenaRequest) returns (SeatPoolOnArenaResponse);
+  // UnseatPool снимает пул с арены: привязка к площадке очищается, площадка
+  // освобождается. Разрешено в любой исполнительной фазе пула — PREPARING,
+  // ACTIVE и FINISHED (спека 0013, FR-11: результаты уже проведённых боёв
+  // сохраняются, статус пула не сбрасывается). PoolStatus после снятия
+  // вычисляется из прогресса боёв (READY, если ни один бой не начат, иначе
+  // ACTIVE/FINISHED как было).
+  rpc UnseatPool(UnseatPoolRequest) returns (UnseatPoolResponse);
+  // GetPoolsForArena возвращает для страницы конкретной арены (спека 0011,
+  // FR-9): пул, который сейчас на ней стоит (если есть), и список готовых
+  // пулов, доступных для постановки (PoolStatus READY, ни на одной арене).
+  rpc GetPoolsForArena(GetPoolsForArenaRequest) returns (GetPoolsForArenaResponse);
+  // GetBoutBoard возвращает доску ведения боёв арены (спека 0013, FR-14):
+  // стоящий на арене пул, его бои по порядку (0010) и текущий бой. board
+  // не заполнен, если на арене никто не стоит.
+  rpc GetBoutBoard(GetBoutBoardRequest) returns (GetBoutBoardResponse);
+  // SetCurrentBout назначает текущим любой бой пула — циркуляция (спека
+  // 0013, FR-8), включая уже завершённые бои.
+  rpc SetCurrentBout(SetCurrentBoutRequest) returns (SetCurrentBoutResponse);
+  // StartCurrentBout переводит текущий бой пула не начат → идёт (спека
+  // 0013, FR-4). Пул должен стоять на арене (FR-12).
+  rpc StartCurrentBout(StartCurrentBoutRequest) returns (StartCurrentBoutResponse);
+  // ScoreCurrentBout задаёт счёт текущего боя (абсолютное значение — быстрые
+  // шаги ±1/±2/±3/±5 и ручной ввод считаются на клиенте, спека 0013,
+  // FR-2/FR-2a). Допустимо только пока бой идёт.
+  rpc ScoreCurrentBout(ScoreCurrentBoutRequest) returns (ScoreCurrentBoutResponse);
+  // FinishCurrentBout переводит текущий бой идёт → завершён, фиксируя счёт
+  // (спека 0013, FR-5); текущий бой пула автоматически продвигается на
+  // следующий непроведённый (FR-9).
+  rpc FinishCurrentBout(FinishCurrentBoutRequest) returns (FinishCurrentBoutResponse);
+  // ReopenCurrentBout переводит текущий бой завершён → идёт для правки
+  // счёта (спека 0013, FR-6).
+  rpc ReopenCurrentBout(ReopenCurrentBoutRequest) returns (ReopenCurrentBoutResponse);
+  // ResetCurrentBout переводит текущий бой идёт → не начат, счёт обнуляется
+  // (спека 0013, FR-6).
+  rpc ResetCurrentBout(ResetCurrentBoutRequest) returns (ResetCurrentBoutResponse);
+  // WatchArenaBoard — живой канал табло арены (спека 0015, FR-1..FR-5/FR-14/
+  // FR-18): первый кадр — текущий снапшот (доска + таймер + комната), далее
+  // по одному кадру на изменение доски/таймера/состава комнаты/swap. Также
+  // ретранслирует команды панели авторитетному табло (oneof command).
+  // Admin-only (FR-1); поток завершается по отмене контекста клиентом.
+  rpc WatchArenaBoard(WatchArenaBoardRequest) returns (stream WatchArenaBoardResponse);
+  // PublishTimerFrame — авторитетное табло (комнаты арены, ordinal 1)
+  // публикует текущее полное состояние таймера (спека 0015, решение
+  // «источник — табло, синхроним полное время»). Сервер — реле: не считает
+  // таймер сам, только кеширует и ретранслирует. Отклоняется, если вызывающий
+  // не источник (не первое подключённое табло).
+  rpc PublishTimerFrame(PublishTimerFrameRequest) returns (PublishTimerFrameResponse);
+  // ControlArenaTimer — панель отправляет команду управления таймером
+  // (пуск/пауза/сброс/±секунды, спека 0015 FR-7); сервер ретранслирует её
+  // авторитетному табло через WatchArenaBoard (oneof command), само значение
+  // таймера не меняет.
+  rpc ControlArenaTimer(ControlArenaTimerRequest) returns (ControlArenaTimerResponse);
+  // SetScoreboardSides — эфемерный swap синий/красный (спека 0015, FR-6): не
+  // запоминается за боём, меняет только отображение комнаты арены.
+  rpc SetScoreboardSides(SetScoreboardSidesRequest) returns (SetScoreboardSidesResponse);
+  // RevealCurrentBout — секретарь явно показывает на всех подключённых
+  // табло текущий бой пула (спека 0015, UX-уточнение): развязывает
+  // «оглашение результата» (FinishCurrentBout, держит на табло прошлый бой
+  // с исходом) и «переход к следующему бою на табло» на разные действия
+  // панели. Домен не трогает — это чисто отображенческий сигнал: сервер
+  // инкрементирует эфемерный счётчик комнаты арены (room.reveal_generation)
+  // и рассылает его всем подключённым табло; получив новое значение,
+  // табло снимает удержание и показывает board.current_bout_id как есть
+  // (0:0, «не начат», если бой ещё не начат) — независимо от состояния
+  // прежнего отображаемого боя. No-op, если у арены сейчас нет комнаты.
+  rpc RevealCurrentBout(RevealCurrentBoutRequest) returns (RevealCurrentBoutResponse);
+}
+
+// StagePublicService — публичное чтение пулов номинации (спека 0011, FR-11).
+// Не требует роли ADMIN. Показывает пулы только при готовой (ready)
+// раскладке номинации; пока раскладка draft — пустой список.
+service StagePublicService {
+  // ListPublicPools возвращает пулы номинации с составом (имя/клуб бойцов),
+  // статусом и, если пул на арене — площадкой (спека 0011, FR-11/FR-12).
+  rpc ListPublicPools(ListPublicPoolsRequest) returns (ListPublicPoolsResponse);
+  // GetNominationLive возвращает живой снапшот номинации (спека 0014, FR-1..
+  // FR-4): пулы готовой раскладки с исполнительным статусом/площадкой и их
+  // бои с состоянием/счётом/текущим боём. Пустой список пулов, пока
+  // раскладка draft (FR-12, как ListPublicPools). Используется для
+  // SSR-инициала и polling-fallback (NFR-2).
+  rpc GetNominationLive(GetNominationLiveRequest) returns (GetNominationLiveResponse);
+  // WatchNominationLive — server-streaming живой канал (спека 0014, FR-6/
+  // FR-8): первый кадр — текущий снапшот (как GetNominationLive), далее по
+  // одному кадру на каждое изменение номинации (пул/бой). Односторонний,
+  // read-only (FR-7); поток завершается по отмене контекста клиентом.
+  rpc WatchNominationLive(WatchNominationLiveRequest) returns (stream WatchNominationLiveResponse);
+}
+
+// PoolLayoutStatus — статус раскладки номинации целиком (спека 0009).
+// Реализованы переходы только draft↔ready. Значения 3 (ACTIVE) и
+// 4 (FINISHED) существовали как задел под будущие бои и упразднены спекой
+// 0011: исполнительная фаза (готовится к запуску/идёт/завершён) — свойство
+// отдельного пула (см. PoolStatus), не раскладки целиком.
+enum PoolLayoutStatus {
+  POOL_LAYOUT_STATUS_UNSPECIFIED = 0;
+  POOL_LAYOUT_STATUS_DRAFT = 1;
+  POOL_LAYOUT_STATUS_READY = 2;
+  reserved 3, 4;
+  reserved "POOL_LAYOUT_STATUS_ACTIVE", "POOL_LAYOUT_STATUS_FINISHED";
+}
+
+// PoolStatus — статус отдельного пула (спека 0011, FR-1). NOT_READY/READY
+// синхронны со статусом раскладки номинации (переходят вместе при
+// SetLayoutStatus); PREPARING — пул поставлен на арену (SeatPoolOnArena).
+// ACTIVE/FINISHED — задел под будущий ЖЦ боя (ЕДД), переходы в них в этом
+// инкременте не реализованы.
+enum PoolStatus {
+  POOL_STATUS_UNSPECIFIED = 0;
+  POOL_STATUS_NOT_READY = 1;
+  POOL_STATUS_READY = 2;
+  POOL_STATUS_PREPARING = 3;
+  POOL_STATUS_ACTIVE = 4;
+  POOL_STATUS_FINISHED = 5;
+}
+
+// BoutState — состояние отдельного боя (спека 0013, FR-1). Все переходы
+// обратимы: не начат ⇄ идёт ⇄ завершён.
+enum BoutState {
+  BOUT_STATE_UNSPECIFIED = 0;
+  BOUT_STATE_NOT_STARTED = 1;
+  BOUT_STATE_IN_PROGRESS = 2;
+  BOUT_STATE_FINISHED = 3;
+}
+
+// FighterRef — проекция бойца для экрана управления пулами (DnD): id для
+// перетаскивания, имя/клуб — снапшот из модуля fighter.
+message FighterRef {
+  string fighter_id = 1;
+  string name = 2;
+  string club = 3;
+}
+
+// PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
+// статистика бойца по завершённым боям пула + итоговое место. place
+// вычисляется сервером с учётом дележа (FR-3: полностью равные по
+// wins/points_scored/points_conceded бойцы делят место — конкурентное
+// ранжирование 1,2,2,4, не 1,2,2,3); клиент не пересчитывает и не
+// досортировывает (FR-8).
+message PoolStanding {
+  FighterRef fighter = 1;
+  int32 wins = 2;
+  int32 draws = 3;
+  int32 losses = 4;
+  int32 points_scored = 5;
+  int32 points_conceded = 6;
+  int32 place = 7;
+}
+
+// Pool — пул (группа) номинации с его бойцами. Имя не редактируется
+// (генерируется системой из номера, спека 0009 «Вне скоупа»).
+// status/arena_id/arena_name — спека 0011: статус отдельного пула и, если он
+// поставлен на арену, идентификатор и (резолвленное на момент чтения) имя
+// площадки. arena_id/arena_name пусты, если пул не на арене.
+// nomination_name — резолвленное на момент чтения название номинации пула
+// (denormalized на чтении, по аналогии с arena_name): для экрана арены, где
+// список «готовых пулов для постановки» собран из разных номинаций.
+// standings — итоговая таблица пула (спека 0016). Пусто, если в пуле нет ни
+// одного завершённого боя (FR-7) — так UI отличает «нечего показывать» от
+// «все места нулевые». Осознанно не заполняется на путях, связанных с
+// ареной/табло (GetPoolsForArena/GetBoutBoard — спека 0015 уже оставляет
+// итоговые таблицы вне табло).
+message Pool {
+  string id = 1;
+  string nomination_id = 2;
+  int32 number = 3;
+  string name = 4;
+  repeated FighterRef members = 5;
+  PoolStatus status = 6;
+  string arena_id = 7;
+  string arena_name = 8;
+  string nomination_name = 9;
+  repeated PoolStanding standings = 10;
+}
+
+// BoardBout — проекция одного боя пула для доски ведения (спека 0013,
+// FR-14): собственная проекция pool, не переиспользует bout.Bout (ADR 0002).
+// score_a/score_b — актуальный счёт (0:0 у не начатого); state — текущая
+// фаза ЖЦ боя.
+message BoardBout {
+  string id = 1;
+  int32 round_number = 2;
+  int32 sequence_number = 3;
+  FighterRef fighter_a = 4;
+  FighterRef fighter_b = 5;
+  BoutState state = 6;
+  int32 score_a = 7;
+  int32 score_b = 8;
+}
+
+// BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
+// на ней пул, его бои по порядку проведения (0010) и текущий бой.
+// current_bout_id пуст, если у пула нет боёв (0010, FR-4).
+message BoutBoard {
+  Pool pool = 1;
+  repeated BoardBout bouts = 2;
+  string current_bout_id = 3;
+}
+
+// ScoreboardRole — роль подписчика живого канала табло арены (спека 0015):
+// табло (полноэкранный зрительский экран) или панель управления ареной.
+// Первое подключённое табло (ordinal 1) становится источником таймера.
+enum ScoreboardRole {
+  SCOREBOARD_ROLE_UNSPECIFIED = 0;
+  SCOREBOARD_ROLE_SCOREBOARD = 1;
+  SCOREBOARD_ROLE_PANEL = 2;
+}
+
+// TimerStatus — состояние недоменного таймера табло (спека 0015, FR-9).
+// Таймер не пишется в журнал боя и не влияет на ЖЦ боя/пула (FR-16):
+// источник истины — авторитетное табло (клиент), сервер лишь ретранслирует.
+enum TimerStatus {
+  TIMER_STATUS_UNSPECIFIED = 0;
+  TIMER_STATUS_STOPPED = 1;
+  TIMER_STATUS_RUNNING = 2;
+  TIMER_STATUS_PAUSED = 3;
+  TIMER_STATUS_EXPIRED = 4;
+}
+
+// TimerCommandKind — команды панели управления таймером (спека 0015, FR-7).
+enum TimerCommandKind {
+  TIMER_COMMAND_KIND_UNSPECIFIED = 0;
+  TIMER_COMMAND_KIND_START = 1;
+  TIMER_COMMAND_KIND_PAUSE = 2;
+  TIMER_COMMAND_KIND_RESET = 3;
+  TIMER_COMMAND_KIND_ADJUST = 4;
+}
+
+// TimerCommand — команда таймера, ретранслируемая сервером от панели
+// авторитетному табло (спека 0015, FR-7). amount_seconds — знаковое
+// смещение, используется только для ADJUST (±1/±2/±3/±5).
+message TimerCommand {
+  TimerCommandKind kind = 1;
+  int32 amount_seconds = 2;
+}
+
+// TimerFrame — полное состояние таймера в момент sampled_unix_ms по часам
+// авторитетного табло (спека 0015, «синхроним полное время»). remaining_cs —
+// сантисекунды (сотые доли секунды); default_cs — текущий дефолт комнаты
+// (сантисекунды). Followers доводят локально между кадрами (клиентское
+// сглаживание), сервер математику таймера не считает.
+message TimerFrame {
+  TimerStatus status = 1;
+  int32 remaining_cs = 2;
+  int64 sampled_unix_ms = 3;
+  int32 default_cs = 4;
+}
+
+// ScoreboardRoom — состав живой комнаты арены с точки зрения текущего
+// подписчика (спека 0015, FR-11/FR-12): сколько табло подключено, какой у
+// этого подписчика порядковый номер (панель — 0) и является ли он
+// источником таймера (табло ordinal 1). sides_swapped — эфемерный swap
+// синий/красный (FR-6).
+// reveal_generation — эфемерный монотонный счётчик «покажи текущий бой»
+// (спека 0015, RevealCurrentBout): растёт на каждый явный клик секретаря;
+// табло, увидев рост, снимает удержание прошлого боя независимо от его
+// состояния. Как и sides_swapped — общий для комнаты, не зависит от роли
+// подписчика.
+message ScoreboardRoom {
+  int32 scoreboard_count = 1;
+  int32 this_ordinal = 2;
+  bool this_is_source = 3;
+  bool sides_swapped = 4;
+  int32 reveal_generation = 5;
+}
+
+// ArenaLiveSnapshot — живой снапшот табло арены целиком (спека 0015): доска
+// ведения (пусто, если на арене никто не стоит — FR-5), последнее известное
+// состояние таймера, состав комнаты для этого подписчика, персистентный
+// дефолт арены (для инициализации/сброса у авторитетного табло) и серверное
+// время в момент отправки кадра (опора клиентской синхронизации часов).
+message ArenaLiveSnapshot {
+  BoutBoard board = 1;
+  TimerFrame timer = 2;
+  ScoreboardRoom room = 3;
+  int32 default_duration_seconds = 4;
+  int64 server_now_unix_ms = 5;
+}
+
+// PoolLayout — раскладка номинации целиком: статус, нераспределённые,
+// пулы. can_undo — доступна ли кнопка «Отменить» (FR-7a).
+message PoolLayout {
+  string nomination_id = 1;
+  PoolLayoutStatus status = 2;
+  repeated FighterRef unassigned = 3;
+  repeated Pool pools = 4;
+  bool can_undo = 5;
+}
+
+message GetLayoutRequest {
+  string nomination_id = 1;
+}
+
+message GetLayoutResponse {
+  PoolLayout layout = 1;
+}
+
+message CreatePoolRequest {
+  string nomination_id = 1;
+}
+
+message CreatePoolResponse {
+  PoolLayout layout = 1;
+}
+
+message DeletePoolRequest {
+  string pool_id = 1;
+}
+
+message DeletePoolResponse {
+  PoolLayout layout = 1;
+}
+
+message ResetLayoutRequest {
+  string nomination_id = 1;
+}
+
+message ResetLayoutResponse {
+  PoolLayout layout = 1;
+}
+
+// AssignFighterRequest — pool_id обязателен (целевой пул); если боец уже
+// состоит в другом пуле этой номинации — это move одним действием (FR-5).
+message AssignFighterRequest {
+  string nomination_id = 1;
+  string fighter_id = 2;
+  string pool_id = 3;
+}
+
+message AssignFighterResponse {
+  PoolLayout layout = 1;
+}
+
+message UnassignFighterRequest {
+  string nomination_id = 1;
+  string fighter_id = 2;
+}
+
+message UnassignFighterResponse {
+  PoolLayout layout = 1;
+}
+
+message AutoDistributeRequest {
+  string nomination_id = 1;
+}
+
+message AutoDistributeResponse {
+  PoolLayout layout = 1;
+}
+
+message UndoRequest {
+  string nomination_id = 1;
+}
+
+message UndoResponse {
+  PoolLayout layout = 1;
+}
+
+message SetLayoutStatusRequest {
+  string nomination_id = 1;
+  PoolLayoutStatus status = 2;
+}
+
+message SetLayoutStatusResponse {
+  PoolLayout layout = 1;
+}
+
+message SeatPoolOnArenaRequest {
+  string pool_id = 1;
+  string arena_id = 2;
+}
+
+message SeatPoolOnArenaResponse {
+  PoolLayout layout = 1;
+}
+
+message UnseatPoolRequest {
+  string pool_id = 1;
+}
+
+message UnseatPoolResponse {
+  PoolLayout layout = 1;
+}
+
+message GetPoolsForArenaRequest {
+  string arena_id = 1;
+}
+
+// GetPoolsForArenaResponse — seated пуст, если на арене сейчас никто не
+// стоит (спека 0011, FR-9).
+message GetPoolsForArenaResponse {
+  Pool seated = 1;
+  repeated Pool available = 2;
+}
+
+message ListPublicPoolsRequest {
+  string nomination_id = 1;
+}
+
+message ListPublicPoolsResponse {
+  repeated Pool pools = 1;
+}
+
+// LivePool — один пул живого снапшота номинации (спека 0014, FR-1..FR-3):
+// сам пул (состав/статус/площадка, как в Pool) + его бои по порядку
+// проведения с состоянием/счётом (BoardBout) + эффективный текущий бой.
+// Отдельная проекция от BoutBoard (та — для одной арены; здесь — все пулы
+// номинации разом, спека 0014 FR-11).
+message LivePool {
+  Pool pool = 1;
+  repeated BoardBout bouts = 2;
+  string current_bout_id = 3;
+}
+
+// NominationLiveSnapshot — живой снапшот номинации целиком (спека 0014):
+// общий payload unary- и streaming-ответа. pools пуст, пока раскладка draft
+// (FR-12).
+message NominationLiveSnapshot {
+  string nomination_id = 1;
+  repeated LivePool pools = 2;
+}
+
+message GetNominationLiveRequest {
+  string nomination_id = 1;
+}
+
+message GetNominationLiveResponse {
+  NominationLiveSnapshot snapshot = 1;
+}
+
+message WatchNominationLiveRequest {
+  string nomination_id = 1;
+}
+
+message WatchNominationLiveResponse {
+  NominationLiveSnapshot snapshot = 1;
+}
+
+message GetBoutBoardRequest {
+  string arena_id = 1;
+}
+
+message GetBoutBoardResponse {
+  BoutBoard board = 1;
+}
+
+// SetCurrentBoutRequest/Response и далее — каждое действие ведения боя имеет
+// собственную пару Request/Response (buf lint: сообщение не переиспользуется
+// между разными RPC, см. аналогичную заметку в bout.proto), хотя ответы по
+// форме идентичны: возвращают обновлённую доску арены, на которой стоит пул
+// (спека 0013, FR-14) — клиенту не нужен отдельный round-trip за доской.
+
+message SetCurrentBoutRequest {
+  string pool_id = 1;
+  string bout_id = 2;
+}
+
+message SetCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message StartCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message StartCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message ScoreCurrentBoutRequest {
+  string pool_id = 1;
+  int32 score_a = 2;
+  int32 score_b = 3;
+}
+
+message ScoreCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message FinishCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message FinishCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message ReopenCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message ReopenCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message ResetCurrentBoutRequest {
+  string pool_id = 1;
+}
+
+message ResetCurrentBoutResponse {
+  BoutBoard board = 1;
+}
+
+message WatchArenaBoardRequest {
+  string arena_id = 1;
+  ScoreboardRole role = 2;
+}
+
+// WatchArenaBoardResponse — событие живого канала табло арены (спека 0015).
+// snapshot — полное состояние (при подключении и на каждое изменение
+// доски/таймера/комнаты/swap); command — ретранслированная команда панели,
+// адресованная авторитетному табло (само значение таймера на сервере не
+// меняется).
+message WatchArenaBoardResponse {
+  oneof event {
+    ArenaLiveSnapshot snapshot = 1;
+    TimerCommand command = 2;
+  }
+}
+
+// PublishTimerFrameRequest — вызывается только авторитетным табло (ordinal 1
+// комнаты арены). Отклоняется (FailedPrecondition), если вызывающий поток —
+// не источник.
+message PublishTimerFrameRequest {
+  string arena_id = 1;
+  TimerFrame frame = 2;
+}
+
+message PublishTimerFrameResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}
+
+message ControlArenaTimerRequest {
+  string arena_id = 1;
+  TimerCommand command = 2;
+}
+
+message ControlArenaTimerResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}
+
+message SetScoreboardSidesRequest {
+  string arena_id = 1;
+  bool swapped = 2;
+}
+
+message SetScoreboardSidesResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}
+
+message RevealCurrentBoutRequest {
+  string arena_id = 1;
+}
+
+message RevealCurrentBoutResponse {
+  ArenaLiveSnapshot snapshot = 1;
+}

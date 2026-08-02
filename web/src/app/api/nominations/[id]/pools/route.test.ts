@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { createPool: vi.fn() },
+  stageAdminClient: { createPool: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { POST } from "./route";
 
@@ -29,18 +29,18 @@ describe("app/api/nominations/[id]/pools route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.createPool).not.toHaveBeenCalled();
+    expect(stageAdminClient.createPool).not.toHaveBeenCalled();
   });
 
   it("creates pool and returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.createPool).mockResolvedValue({
+    vi.mocked(stageAdminClient.createPool).mockResolvedValue({
       layout: { pools: [{ number: 1, name: "Пул 1" }] },
     } as never);
 
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(200);
-    expect(poolAdminClient.createPool).toHaveBeenCalledWith(
+    expect(stageAdminClient.createPool).toHaveBeenCalledWith(
       { nominationId: "n1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -48,7 +48,7 @@ describe("app/api/nominations/[id]/pools route", () => {
 
   it("maps ConnectError FailedPrecondition → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.createPool).mockRejectedValue(
+    vi.mocked(stageAdminClient.createPool).mockRejectedValue(
       new ConnectError("not draft", Code.FailedPrecondition),
     );
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { poolPublicClient } from "@/lib/grpc/client";
+import { stagePublicClient } from "@/lib/grpc/client";
 import { nominationLiveToJson } from "@/lib/grpc/serialize";
 import { emptyNominationLiveSnapshot, type NominationLiveSnapshotDto } from "../lib/types";
 
@@ -18,7 +18,7 @@ import { emptyNominationLiveSnapshot, type NominationLiveSnapshotDto } from "../
 export async function getNominationLive(nominationId: string): Promise<NominationLiveSnapshotDto> {
   if (!nominationId) return emptyNominationLiveSnapshot(nominationId);
   try {
-    const res = await poolPublicClient.getNominationLive({ nominationId });
+    const res = await stagePublicClient.getNominationLive({ nominationId });
     return nominationLiveToJson(res.snapshot) ?? emptyNominationLiveSnapshot(nominationId);
   } catch {
     return emptyNominationLiveSnapshot(nominationId);

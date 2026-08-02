@@ -38,9 +38,9 @@ import (
 	nomdomain "github.com/hema/server/modules/nomination/domain"
 	nomrepo "github.com/hema/server/modules/nomination/repo"
 	nomservice "github.com/hema/server/modules/nomination/service"
-	pooldomain "github.com/hema/server/modules/pool/domain"
-	poolrepo "github.com/hema/server/modules/pool/repo"
-	poolservice "github.com/hema/server/modules/pool/service"
+	stagedomain "github.com/hema/server/modules/stage/domain"
+	stagerepo "github.com/hema/server/modules/stage/repo"
+	stageservice "github.com/hema/server/modules/stage/service"
 	"github.com/hema/server/modules/tournament"
 	tournamentdomain "github.com/hema/server/modules/tournament/domain"
 	tournamentrepo "github.com/hema/server/modules/tournament/repo"
@@ -163,7 +163,7 @@ type Services struct {
 	Arena       *arenaservice.Service
 	Application *appservice.Service
 	Fighter     *fighterservice.Service
-	Pool        *poolservice.Service
+	Pool        *stageservice.Service
 }
 
 // NewServices собирает сервисы поверх пула соединений — та же композиция,
@@ -188,13 +188,13 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 			fighterNominations,
 			activeTournaments,
 		),
-		Pool: poolservice.New(
-			poolrepo.New(pool),
-			platform.NewPoolActiveFightersProvider(pool),
-			platform.NewPoolBoutConductor(pool),
-			platform.NewPoolArenaProvider(pool, activeTournaments),
-			platform.NewPoolNominationProvider(pool, activeTournaments),
-			platform.NewPoolLiveBus(livebus.New()),
+		Pool: stageservice.New(
+			stagerepo.New(pool),
+			platform.NewStageActiveFightersProvider(pool),
+			platform.NewStageBoutConductor(pool),
+			platform.NewStageArenaProvider(pool, activeTournaments),
+			platform.NewStageNominationProvider(pool, activeTournaments),
+			platform.NewStageLiveBus(livebus.New()),
 		),
 	}
 }
@@ -238,7 +238,7 @@ type SeedResult struct {
 // и старые origin_user_id в fighter.fighters переставали бы совпадать с кем-либо
 // (спека 0007, дедуп по origin_user_id).
 //
-// pool/bout — тоже demo-сущности (спека cmd/demo-bouts): pool.pools/
+// stage/bout — тоже demo-сущности (спека cmd/demo-bouts): stage.pools/
 // bout.bouts ссылаются на nomination_id/arena_id обычными UUID-колонками
 // БЕЗ кросс-схемного FK (ADR 0002) — TRUNCATE nomination.nominations/
 // arena.arenas их не каскадирует. Без явной очистки здесь повторный прогон
@@ -248,7 +248,7 @@ type SeedResult struct {
 func Wipe(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
 		"TRUNCATE TABLE bout.bout_events, bout.bouts RESTART IDENTITY CASCADE",
-		"TRUNCATE TABLE pool.pool_members, pool.pools, pool.pool_layouts RESTART IDENTITY CASCADE",
+		"TRUNCATE TABLE stage.pool_members, stage.pools, stage.pool_layouts RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE arena.arenas RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE fighter.participations, fighter.fighters RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE application.events, application.application_current RESTART IDENTITY CASCADE",
@@ -672,7 +672,7 @@ type PoolBoutsResult struct {
 // подходит.
 func SeedPoolsAndBouts(
 	ctx context.Context,
-	poolSvc *poolservice.Service,
+	poolSvc *stageservice.Service,
 	fighterSvc *fighterservice.Service,
 	tournamentID string,
 	nominationIDs []string,
@@ -689,7 +689,7 @@ func SeedPoolsAndBouts(
 
 	// layouts — готовая (ready) раскладка каждой подходящей номинации, чтобы
 	// не перечитывать её повторно на шаге расстановки по аренам ниже.
-	layouts := make(map[string]pooldomain.Layout)
+	layouts := make(map[string]stagedomain.Layout)
 	var eligible []string
 	for _, nomID := range nominationIDs {
 		if activeCounts[nomID] < 2 {
@@ -705,7 +705,7 @@ func SeedPoolsAndBouts(
 		if _, err := poolSvc.AutoDistribute(ctx, nomID); err != nil {
 			return result, fmt.Errorf("auto-distribute nomination %s: %w", nomID, err)
 		}
-		layout, err := poolSvc.SetStatus(ctx, nomID, pooldomain.LayoutReady)
+		layout, err := poolSvc.SetStatus(ctx, nomID, stagedomain.LayoutReady)
 		if err != nil {
 			return result, fmt.Errorf("ready nomination %s: %w", nomID, err)
 		}
@@ -794,7 +794,7 @@ func activeFighterCountsByNomination(ctx context.Context, svc *fighterservice.Se
 // poolWithMostMembers выбирает самый населённый пул раскладки — гарантирует,
 // что показательный пул реально имеет бои (а не 0-1 бойца, если
 // автораспределение легло неровно), не завязываясь на конкретный номер пула.
-func poolWithMostMembers(pools []pooldomain.Pool) string {
+func poolWithMostMembers(pools []stagedomain.Pool) string {
 	best, max := "", -1
 	for _, p := range pools {
 		if len(p.Members) > max {
@@ -807,10 +807,10 @@ func poolWithMostMembers(pools []pooldomain.Pool) string {
 // conductAllBouts проводит пул от первого до последнего боя: старт → счёт →
 // завершение, пока есть текущий бой (ErrNoCurrentBout — пул целиком проведён
 // либо не боевой, спека 0013).
-func conductAllBouts(ctx context.Context, svc *poolservice.Service, poolID, actorID string, rng *rand.Rand) error {
+func conductAllBouts(ctx context.Context, svc *stageservice.Service, poolID, actorID string, rng *rand.Rand) error {
 	for {
 		if _, err := svc.StartCurrentBout(ctx, poolID, actorID); err != nil {
-			if errors.Is(err, pooldomain.ErrNoCurrentBout) {
+			if errors.Is(err, stagedomain.ErrNoCurrentBout) {
 				return nil
 			}
 			return err

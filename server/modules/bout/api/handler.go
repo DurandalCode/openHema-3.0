@@ -51,7 +51,7 @@ func (h *AdminHandler) ListBoutsByNomination(
 
 // ListPublicBoutsByNomination — публичное чтение (спека 0011, FR-11): тот
 // же набор боёв, что и ListBoutsByNomination (см. BoutPublicService в
-// bout.proto — публичная видимость регулируется PoolPublicService, не
+// bout.proto — публичная видимость регулируется StagePublicService, не
 // здесь). Отдельные proto-сообщения от admin-пары (buf lint: сообщение не
 // переиспользуется между RPC разных сервисов) — структурно идентичны,
 // маппинг тот же.

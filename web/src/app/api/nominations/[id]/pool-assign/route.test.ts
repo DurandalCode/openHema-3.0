@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { assignFighter: vi.fn() },
+  stageAdminClient: { assignFighter: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { POST } from "./route";
 
@@ -35,7 +35,7 @@ describe("app/api/nominations/[id]/pool-assign route", () => {
       params: Promise.resolve({ id: "n1" }),
     });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.assignFighter).not.toHaveBeenCalled();
+    expect(stageAdminClient.assignFighter).not.toHaveBeenCalled();
   });
 
   it("returns 400 when fighterId is missing", async () => {
@@ -52,7 +52,7 @@ describe("app/api/nominations/[id]/pool-assign route", () => {
 
   it("assigns fighter and returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.assignFighter).mockResolvedValue({
+    vi.mocked(stageAdminClient.assignFighter).mockResolvedValue({
       layout: { pools: [] },
     } as never);
 
@@ -60,7 +60,7 @@ describe("app/api/nominations/[id]/pool-assign route", () => {
       params: Promise.resolve({ id: "n1" }),
     });
     expect(res.status).toBe(200);
-    expect(poolAdminClient.assignFighter).toHaveBeenCalledWith(
+    expect(stageAdminClient.assignFighter).toHaveBeenCalledWith(
       { nominationId: "n1", fighterId: "f1", poolId: "p1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -68,7 +68,7 @@ describe("app/api/nominations/[id]/pool-assign route", () => {
 
   it("maps ConnectError FailedPrecondition → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.assignFighter).mockRejectedValue(
+    vi.mocked(stageAdminClient.assignFighter).mockRejectedValue(
       new ConnectError("not draft", Code.FailedPrecondition),
     );
     const res = await POST(req({ fighterId: "f1", poolId: "p1" }), {

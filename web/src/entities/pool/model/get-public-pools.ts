@@ -1,6 +1,6 @@
 import "server-only";
 
-import { poolPublicClient } from "@/lib/grpc/client";
+import { stagePublicClient } from "@/lib/grpc/client";
 import { poolsToJson } from "@/lib/grpc/serialize";
 import type { Pool } from "../lib/types";
 
@@ -17,7 +17,7 @@ import type { Pool } from "../lib/types";
 export async function getPublicPools(nominationId: string): Promise<Pool[]> {
   if (!nominationId) return [];
   try {
-    const res = await poolPublicClient.listPublicPools({ nominationId });
+    const res = await stagePublicClient.listPublicPools({ nominationId });
     return poolsToJson(res.pools);
   } catch {
     return [];

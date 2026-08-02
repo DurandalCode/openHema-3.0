@@ -6,14 +6,14 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { getPoolsForArena: vi.fn() },
+  stageAdminClient: { getPoolsForArena: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolToJson: vi.fn((p) => p ?? null),
   poolsToJson: vi.fn((p) => p ?? []),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { GET } from "./route";
 
@@ -30,12 +30,12 @@ describe("app/api/arenas/[id]/pools route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await GET(getReq(), { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.getPoolsForArena).not.toHaveBeenCalled();
+    expect(stageAdminClient.getPoolsForArena).not.toHaveBeenCalled();
   });
 
   it("returns seated=null and available pools when arena is free", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getPoolsForArena).mockResolvedValue({
+    vi.mocked(stageAdminClient.getPoolsForArena).mockResolvedValue({
       seated: undefined,
       available: [{ id: "p1" }, { id: "p2" }],
     } as never);
@@ -44,7 +44,7 @@ describe("app/api/arenas/[id]/pools route", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toEqual({ seated: null, available: [{ id: "p1" }, { id: "p2" }] });
-    expect(poolAdminClient.getPoolsForArena).toHaveBeenCalledWith(
+    expect(stageAdminClient.getPoolsForArena).toHaveBeenCalledWith(
       { arenaId: "a1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -52,7 +52,7 @@ describe("app/api/arenas/[id]/pools route", () => {
 
   it("returns seated pool when arena is occupied", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getPoolsForArena).mockResolvedValue({
+    vi.mocked(stageAdminClient.getPoolsForArena).mockResolvedValue({
       seated: { id: "p1", status: "POOL_STATUS_PREPARING" },
       available: [],
     } as never);
@@ -66,7 +66,7 @@ describe("app/api/arenas/[id]/pools route", () => {
 
   it("maps ConnectError NotFound → 404", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getPoolsForArena).mockRejectedValue(
+    vi.mocked(stageAdminClient.getPoolsForArena).mockRejectedValue(
       new ConnectError("not found", Code.NotFound),
     );
     const res = await GET(getReq(), { params: Promise.resolve({ id: "a1" }) });

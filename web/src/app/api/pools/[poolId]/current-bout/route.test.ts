@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { setCurrentBout: vi.fn() },
+  stageAdminClient: { setCurrentBout: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   boutBoardToJson: vi.fn((b) => b ?? null),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { PUT } from "./route";
 
@@ -33,14 +33,14 @@ describe("app/api/pools/[poolId]/current-bout route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await PUT(putReq({ boutId: "b1" }), { params: Promise.resolve({ poolId: "p1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.setCurrentBout).not.toHaveBeenCalled();
+    expect(stageAdminClient.setCurrentBout).not.toHaveBeenCalled();
   });
 
   it("returns 400 when boutId is missing", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
     const res = await PUT(putReq({}), { params: Promise.resolve({ poolId: "p1" }) });
     expect(res.status).toBe(400);
-    expect(poolAdminClient.setCurrentBout).not.toHaveBeenCalled();
+    expect(stageAdminClient.setCurrentBout).not.toHaveBeenCalled();
   });
 
   it("returns 400 for invalid json", async () => {
@@ -56,7 +56,7 @@ describe("app/api/pools/[poolId]/current-bout route", () => {
 
   it("sets the current bout and returns board JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.setCurrentBout).mockResolvedValue({
+    vi.mocked(stageAdminClient.setCurrentBout).mockResolvedValue({
       board: { pool: { id: "p1" }, bouts: [], currentBoutId: "b1" },
     } as never);
 
@@ -64,7 +64,7 @@ describe("app/api/pools/[poolId]/current-bout route", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toEqual({ board: { pool: { id: "p1" }, bouts: [], currentBoutId: "b1" } });
-    expect(poolAdminClient.setCurrentBout).toHaveBeenCalledWith(
+    expect(stageAdminClient.setCurrentBout).toHaveBeenCalledWith(
       { poolId: "p1", boutId: "b1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -72,7 +72,7 @@ describe("app/api/pools/[poolId]/current-bout route", () => {
 
   it("maps ConnectError FailedPrecondition (bout not in pool) → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.setCurrentBout).mockRejectedValue(
+    vi.mocked(stageAdminClient.setCurrentBout).mockRejectedValue(
       new ConnectError("not in pool", Code.FailedPrecondition),
     );
     const res = await PUT(putReq({ boutId: "b1" }), { params: Promise.resolve({ poolId: "p1" }) });
@@ -81,7 +81,7 @@ describe("app/api/pools/[poolId]/current-bout route", () => {
 
   it("maps ConnectError NotFound → 404", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.setCurrentBout).mockRejectedValue(
+    vi.mocked(stageAdminClient.setCurrentBout).mockRejectedValue(
       new ConnectError("not found", Code.NotFound),
     );
     const res = await PUT(putReq({ boutId: "b1" }), { params: Promise.resolve({ poolId: "p1" }) });

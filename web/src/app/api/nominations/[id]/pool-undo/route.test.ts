@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { undo: vi.fn() },
+  stageAdminClient: { undo: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { POST } from "./route";
 
@@ -29,18 +29,18 @@ describe("app/api/nominations/[id]/pool-undo route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.undo).not.toHaveBeenCalled();
+    expect(stageAdminClient.undo).not.toHaveBeenCalled();
   });
 
   it("undoes and returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.undo).mockResolvedValue({
+    vi.mocked(stageAdminClient.undo).mockResolvedValue({
       layout: { pools: [], canUndo: false },
     } as never);
 
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(200);
-    expect(poolAdminClient.undo).toHaveBeenCalledWith(
+    expect(stageAdminClient.undo).toHaveBeenCalledWith(
       { nominationId: "n1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -48,7 +48,7 @@ describe("app/api/nominations/[id]/pool-undo route", () => {
 
   it("maps ConnectError FailedPrecondition (nothing to undo) → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.undo).mockRejectedValue(
+    vi.mocked(stageAdminClient.undo).mockRejectedValue(
       new ConnectError("nothing to undo", Code.FailedPrecondition),
     );
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });

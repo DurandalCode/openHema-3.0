@@ -11,7 +11,7 @@ import { AuthService } from "@/gen/hema/v1/auth_pb";
 import { BoutAdminService, BoutPublicService } from "@/gen/hema/v1/bout_pb";
 import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
-import { PoolAdminService, PoolPublicService } from "@/gen/hema/v1/pool_pb";
+import { StageAdminService, StagePublicService } from "@/gen/hema/v1/stage_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
 
 // Адрес Go-сервера (gRPC/Connect). Задаётся через окружение.
@@ -135,24 +135,24 @@ export const arenaAdminClient: Client<typeof ArenaAdminService> = createClient(
 );
 
 /**
- * poolAdminClient — клиент PoolAdminService (управление раскладкой бойцов
+ * stageAdminClient — клиент StageAdminService (управление раскладкой бойцов
  * номинации по пулам: создать/удалить пул, DnD, автораспределение, undo,
  * смена статуса draft/ready). Все RPC требуют роль ADMIN; публичного чтения
  * нет (спека 0009, FR-13). Только на сервере (Node runtime).
  */
-export const poolAdminClient: Client<typeof PoolAdminService> = createClient(
-  PoolAdminService,
+export const stageAdminClient: Client<typeof StageAdminService> = createClient(
+  StageAdminService,
   transport,
 );
 
 /**
- * poolPublicClient — публичный клиент PoolPublicService (чтение пулов
+ * stagePublicClient — публичный клиент StagePublicService (чтение пулов
  * номинации: состав, статус, площадка, спека 0011, FR-11). Не требует
  * access-токена; показывает пулы только при готовой (ready) раскладке.
  * Только на сервере (Node runtime).
  */
-export const poolPublicClient: Client<typeof PoolPublicService> = createClient(
-  PoolPublicService,
+export const stagePublicClient: Client<typeof StagePublicService> = createClient(
+  StagePublicService,
   transport,
 );
 

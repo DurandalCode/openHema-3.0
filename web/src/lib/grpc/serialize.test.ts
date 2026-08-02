@@ -9,7 +9,7 @@ import {
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
 import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
-import { NominationLiveSnapshotSchema, ArenaLiveSnapshotSchema, PoolSchema } from "@/gen/hema/v1/pool_pb";
+import { NominationLiveSnapshotSchema, ArenaLiveSnapshotSchema, PoolSchema } from "@/gen/hema/v1/stage_pb";
 import {
   applicationHistoryToJson,
   applicationsToJson,

@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { getBoutBoard: vi.fn() },
+  stageAdminClient: { getBoutBoard: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   boutBoardToJson: vi.fn((b) => b ?? null),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { GET } from "./route";
 
@@ -29,12 +29,12 @@ describe("app/api/arenas/[id]/board route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await GET(getReq(), { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.getBoutBoard).not.toHaveBeenCalled();
+    expect(stageAdminClient.getBoutBoard).not.toHaveBeenCalled();
   });
 
   it("returns the board on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getBoutBoard).mockResolvedValue({
+    vi.mocked(stageAdminClient.getBoutBoard).mockResolvedValue({
       board: { pool: { id: "p1" }, bouts: [], currentBoutId: "" },
     } as never);
 
@@ -42,7 +42,7 @@ describe("app/api/arenas/[id]/board route", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toEqual({ board: { pool: { id: "p1" }, bouts: [], currentBoutId: "" } });
-    expect(poolAdminClient.getBoutBoard).toHaveBeenCalledWith(
+    expect(stageAdminClient.getBoutBoard).toHaveBeenCalledWith(
       { arenaId: "a1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -50,7 +50,7 @@ describe("app/api/arenas/[id]/board route", () => {
 
   it("maps ConnectError NotFound → 404", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getBoutBoard).mockRejectedValue(
+    vi.mocked(stageAdminClient.getBoutBoard).mockRejectedValue(
       new ConnectError("not found", Code.NotFound),
     );
     const res = await GET(getReq(), { params: Promise.resolve({ id: "a1" }) });

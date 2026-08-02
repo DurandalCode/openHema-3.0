@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { setScoreboardSides: vi.fn() },
+  stageAdminClient: { setScoreboardSides: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   arenaLiveToJson: vi.fn((s) => s ?? null),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { POST } from "./route";
 
@@ -32,19 +32,19 @@ describe("app/api/arenas/[id]/scoreboard-sides route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await POST(postReq({ swapped: true }), { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.setScoreboardSides).not.toHaveBeenCalled();
+    expect(stageAdminClient.setScoreboardSides).not.toHaveBeenCalled();
   });
 
   it("returns 400 when swapped is missing/not boolean", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
     const res = await POST(postReq({}), { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(400);
-    expect(poolAdminClient.setScoreboardSides).not.toHaveBeenCalled();
+    expect(stageAdminClient.setScoreboardSides).not.toHaveBeenCalled();
   });
 
   it("swaps sides and returns the snapshot on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.setScoreboardSides).mockResolvedValue({
+    vi.mocked(stageAdminClient.setScoreboardSides).mockResolvedValue({
       snapshot: { room: { sidesSwapped: true } },
     } as never);
 
@@ -53,7 +53,7 @@ describe("app/api/arenas/[id]/scoreboard-sides route", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toEqual({ snapshot: { room: { sidesSwapped: true } } });
-    expect(poolAdminClient.setScoreboardSides).toHaveBeenCalledWith(
+    expect(stageAdminClient.setScoreboardSides).toHaveBeenCalledWith(
       { arenaId: "a1", swapped: true },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -61,7 +61,7 @@ describe("app/api/arenas/[id]/scoreboard-sides route", () => {
 
   it("maps ConnectError NotFound → 404", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.setScoreboardSides).mockRejectedValue(
+    vi.mocked(stageAdminClient.setScoreboardSides).mockRejectedValue(
       new ConnectError("not found", Code.NotFound),
     );
     const res = await POST(postReq({ swapped: false }), { params: Promise.resolve({ id: "a1" }) });

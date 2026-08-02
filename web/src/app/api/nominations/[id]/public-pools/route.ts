@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolPublicClient } from "@/lib/grpc/client";
+import { stagePublicClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { poolsToJson } from "@/lib/grpc/serialize";
 
@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
   const { id } = await ctx.params;
 
   try {
-    const res = await poolPublicClient.listPublicPools({ nominationId: id });
+    const res = await stagePublicClient.listPublicPools({ nominationId: id });
     return NextResponse.json({ pools: poolsToJson(res.pools) });
   } catch (err) {
     return errorResponse(err);

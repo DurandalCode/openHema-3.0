@@ -30,7 +30,7 @@ import {
   type NominationLiveSnapshot,
   type ArenaLiveSnapshot,
   type TimerCommand,
-} from "@/gen/hema/v1/pool_pb";
+} from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
 import type {

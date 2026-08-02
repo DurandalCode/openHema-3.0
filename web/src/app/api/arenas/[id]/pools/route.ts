@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { poolToJson, poolsToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
@@ -22,7 +22,7 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
   const { id } = await ctx.params;
 
   try {
-    const res = await poolAdminClient.getPoolsForArena(
+    const res = await stageAdminClient.getPoolsForArena(
       { arenaId: id },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

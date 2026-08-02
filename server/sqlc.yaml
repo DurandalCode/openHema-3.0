@@ -108,14 +108,14 @@ sql:
               type: UUID
           - db_type: timestamptz
             go_type: time.Time
-  - name: pool
+  - name: stage
     engine: postgresql
-    schema: modules/pool/migrations
-    queries: modules/pool/repo/queries
+    schema: modules/stage/migrations
+    queries: modules/stage/repo/queries
     gen:
       go:
         package: sqlc
-        out: modules/pool/repo/sqlc
+        out: modules/stage/repo/sqlc
         sql_package: pgx/v5
         emit_json_tags: false
         emit_pointers_for_null_types: true

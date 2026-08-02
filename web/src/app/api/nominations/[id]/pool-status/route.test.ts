@@ -6,16 +6,16 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { getLayout: vi.fn(), setLayoutStatus: vi.fn() },
+  stageAdminClient: { getLayout: vi.fn(), setLayoutStatus: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { poolLayoutToJson } from "@/lib/grpc/serialize";
-import { PoolLayoutStatus } from "@/gen/hema/v1/pool_pb";
+import { PoolLayoutStatus } from "@/gen/hema/v1/stage_pb";
 import { GET, POST } from "./route";
 
 function getReq() {
@@ -40,12 +40,12 @@ describe("app/api/nominations/[id]/pool-status route", () => {
       vi.mocked(getAccessToken).mockResolvedValue(undefined);
       const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
       expect(res.status).toBe(401);
-      expect(poolAdminClient.getLayout).not.toHaveBeenCalled();
+      expect(stageAdminClient.getLayout).not.toHaveBeenCalled();
     });
 
     it("maps ConnectError FailedPrecondition → 409", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.getLayout).mockRejectedValue(
+      vi.mocked(stageAdminClient.getLayout).mockRejectedValue(
         new ConnectError("err", Code.FailedPrecondition),
       );
       const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
@@ -54,7 +54,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
 
     it("returns status + canUndo slice from GetLayout on ok", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.getLayout).mockResolvedValue({
+      vi.mocked(stageAdminClient.getLayout).mockResolvedValue({
         layout: { nominationId: "n1" },
       } as never);
       vi.mocked(poolLayoutToJson).mockReturnValue({
@@ -72,7 +72,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
         canUndo: true,
         hasDistributedFighters: false,
       });
-      expect(poolAdminClient.getLayout).toHaveBeenCalledWith(
+      expect(stageAdminClient.getLayout).toHaveBeenCalledWith(
         { nominationId: "n1" },
         { headers: { Authorization: "Bearer token" } },
       );
@@ -83,7 +83,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
     // непустой.
     it("returns hasDistributedFighters:true when a pool has members", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.getLayout).mockResolvedValue({
+      vi.mocked(stageAdminClient.getLayout).mockResolvedValue({
         layout: { nominationId: "n1" },
       } as never);
       vi.mocked(poolLayoutToJson).mockReturnValue({
@@ -103,7 +103,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
 
     it("returns hasDistributedFighters:false when pools are empty", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.getLayout).mockResolvedValue({
+      vi.mocked(stageAdminClient.getLayout).mockResolvedValue({
         layout: { nominationId: "n1" },
       } as never);
       vi.mocked(poolLayoutToJson).mockReturnValue({
@@ -120,7 +120,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
 
     it("maps ConnectError PermissionDenied → 403", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.getLayout).mockRejectedValue(
+      vi.mocked(stageAdminClient.getLayout).mockRejectedValue(
         new ConnectError("forbidden", Code.PermissionDenied),
       );
       const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
@@ -135,7 +135,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
         params: Promise.resolve({ id: "n1" }),
       });
       expect(res.status).toBe(401);
-      expect(poolAdminClient.setLayoutStatus).not.toHaveBeenCalled();
+      expect(stageAdminClient.setLayoutStatus).not.toHaveBeenCalled();
     });
 
     it("returns 400 for invalid status value", async () => {
@@ -144,12 +144,12 @@ describe("app/api/nominations/[id]/pool-status route", () => {
         params: Promise.resolve({ id: "n1" }),
       });
       expect(res.status).toBe(400);
-      expect(poolAdminClient.setLayoutStatus).not.toHaveBeenCalled();
+      expect(stageAdminClient.setLayoutStatus).not.toHaveBeenCalled();
     });
 
     it("sets status to ready and returns layout JSON on ok", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.setLayoutStatus).mockResolvedValue({
+      vi.mocked(stageAdminClient.setLayoutStatus).mockResolvedValue({
         layout: { status: "POOL_LAYOUT_STATUS_READY" },
       } as never);
 
@@ -157,7 +157,7 @@ describe("app/api/nominations/[id]/pool-status route", () => {
         params: Promise.resolve({ id: "n1" }),
       });
       expect(res.status).toBe(200);
-      expect(poolAdminClient.setLayoutStatus).toHaveBeenCalledWith(
+      expect(stageAdminClient.setLayoutStatus).toHaveBeenCalledWith(
         { nominationId: "n1", status: PoolLayoutStatus.READY },
         { headers: { Authorization: "Bearer token" } },
       );
@@ -165,12 +165,12 @@ describe("app/api/nominations/[id]/pool-status route", () => {
 
     it("sets status to draft", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
-      vi.mocked(poolAdminClient.setLayoutStatus).mockResolvedValue({
+      vi.mocked(stageAdminClient.setLayoutStatus).mockResolvedValue({
         layout: { status: "POOL_LAYOUT_STATUS_DRAFT" },
       } as never);
 
       await POST(postReq({ status: "draft" }), { params: Promise.resolve({ id: "n1" }) });
-      expect(poolAdminClient.setLayoutStatus).toHaveBeenCalledWith(
+      expect(stageAdminClient.setLayoutStatus).toHaveBeenCalledWith(
         { nominationId: "n1", status: PoolLayoutStatus.DRAFT },
         { headers: { Authorization: "Bearer token" } },
       );

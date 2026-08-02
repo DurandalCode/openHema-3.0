@@ -16,7 +16,7 @@ import (
 	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
-	poolmodule "github.com/hema/server/modules/pool"
+	stagemodule "github.com/hema/server/modules/stage"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/connectutil"
@@ -102,15 +102,15 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	boutDeps := boutmodule.Deps{Pool: pool}
 	boutmodule.Register(mux, boutDeps, baseOpts, adminOpts)
 
-	poolDeps := poolmodule.Deps{
+	stageDeps := stagemodule.Deps{
 		Pool:        pool,
-		Fighters:    NewPoolActiveFightersProvider(pool),
-		Bouts:       NewPoolBoutConductor(pool),
-		Arenas:      NewPoolArenaProvider(pool, activeTournaments),
-		Nominations: NewPoolNominationProvider(pool, activeTournaments),
-		LiveBus:     NewPoolLiveBus(livebus.New()),
+		Fighters:    NewStageActiveFightersProvider(pool),
+		Bouts:       NewStageBoutConductor(pool),
+		Arenas:      NewStageArenaProvider(pool, activeTournaments),
+		Nominations: NewStageNominationProvider(pool, activeTournaments),
+		LiveBus:     NewStageLiveBus(livebus.New()),
 	}
-	poolmodule.Register(mux, poolDeps, baseOpts, adminOpts)
+	stagemodule.Register(mux, stageDeps, baseOpts, adminOpts)
 
 	// ── Бутстрап первого админа (до начала приёма запросов) ───────
 	auth.Bootstrap(ctx, deps, log,

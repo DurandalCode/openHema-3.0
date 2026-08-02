@@ -25,7 +25,7 @@ function outcomeLabel(bout: BoardBout): string {
  * счёт `A:B`, исход завершённого, подсветка текущего боя. Read-only.
  *
  * `snapshot.pools` пуст, пока раскладка номинации в `draft` (FR-12) — решает
- * сервер (`PoolPublicService`), здесь просто показывается сообщение.
+ * сервер (`StagePublicService`), здесь просто показывается сообщение.
  *
  * Client-компонент: засеян SSR-снапшотом (`initialSnapshot`) и подписан на
  * живой канал через `useNominationLive` (SSE + polling-fallback, спека 0014).
