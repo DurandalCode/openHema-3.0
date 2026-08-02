@@ -288,9 +288,19 @@ type Repository interface {
 	// ReplaceForNomination одной транзакцией удаляет все бои номинации (и их
 	// потоки событий, каскадом на уровне БД) и вставляет новые: на каждый
 	// бой — строку проекции (bouts) и событие scheduled (version 1)
-	// (bouts == nil → только удаление — используется и для генерации, и
-	// для очистки, см. spec «Принятые решения» №3).
+	// (bouts == nil → только удаление, см. spec «Принятые решения» №3).
+	// Используется GenerateForStage (спека 0017): в этом инкременте у
+	// номинации ровно один этап (FR-4), поэтому номинационный replace
+	// эквивалентен этапному — этапная адресация delete-стороны нужна только
+	// расфиксации (ClearForPools/DeleteBoutsByPools), когда этапов у
+	// номинации станет больше одного (0018).
 	ReplaceForNomination(ctx context.Context, nominationID string, bouts []Bout) error
+	// DeleteBoutsByPools удаляет бои (и их потоки событий, каскадом на
+	// уровне БД) перечисленных пулов — используется расфиксацией этапа
+	// (спека 0017, ClearForPools): адресация по пулам этапа, а не по
+	// номинации целиком, чтобы не задеть бои пулов других этапов той же
+	// номинации (FR-8). Пустой список — валидный no-op.
+	DeleteBoutsByPools(ctx context.Context, poolIDs []string) error
 	// ListByNomination возвращает бои номинации, отсортированные по
 	// PoolID, затем SequenceNumber.
 	ListByNomination(ctx context.Context, nominationID string) ([]Bout, error)
@@ -302,9 +312,10 @@ type Repository interface {
 	// PoolProgress возвращает total/started/finished боёв пула (FR-10):
 	// started — бои, вышедшие из not_started (in_progress или finished).
 	PoolProgress(ctx context.Context, poolID string) (total, started, finished int, err error)
-	// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
-	// state ≠ not_started (гейт расфиксации, FR-13).
-	AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error)
+	// AnyStartedInPools — есть ли среди боёв перечисленных пулов хотя бы
+	// один со state ≠ not_started (гейт расфиксации этапа, спека 0017
+	// FR-8/FR-13). Пустой список — валидный no-op: false, без ошибки.
+	AnyStartedInPools(ctx context.Context, poolIDs []string) (bool, error)
 	// Load возвращает полный поток событий боя, упорядоченный по версии.
 	Load(ctx context.Context, boutID string) ([]Event, error)
 	// Append атомарно вставляет событие с version = expectedVersion+1 и

@@ -27,12 +27,16 @@ func New(repo domain.Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// GenerateForNomination формирует бои для каждого пула номинации
-// round-robin'ом (FR-3, спека 0010) и сохраняет их одним вызовом
-// ReplaceForNomination — idempotent replace (spec 0010 «Принятые решения»
-// №3): предыдущие бои номинации стираются, новые вставляются со стартовым
-// состоянием not_started/0:0 и событием scheduled (version 1, спека 0013).
-func (s *Service) GenerateForNomination(ctx context.Context, nominationID string, pools []domain.PoolInput) error {
+// GenerateForStage формирует бои для каждого пула этапа round-robin'ом
+// (FR-3, спека 0010) и сохраняет их одним вызовом ReplaceForNomination —
+// idempotent replace (spec 0010 «Принятые решения» №3): предыдущие бои
+// номинации стираются, новые вставляются со стартовым состоянием
+// not_started/0:0 и событием scheduled (version 1, спека 0013). nominationID
+// сохраняется не для адресации, а как снапшот-поле payload события
+// scheduled (бой по-прежнему принадлежит номинации, спека 0017 план
+// «Модуль bout»): в этом инкременте у номинации ровно один этап (FR-4), так
+// что номинационный replace здесь эквивалентен этапному.
+func (s *Service) GenerateForStage(ctx context.Context, nominationID string, pools []domain.PoolInput) error {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
 		return domain.ErrInvalidInput
@@ -57,14 +61,16 @@ func (s *Service) GenerateForNomination(ctx context.Context, nominationID string
 	return s.repo.ReplaceForNomination(ctx, nominationID, bouts)
 }
 
-// ClearForNomination удаляет все бои номинации (FR-5, спека 0010) — тот же
-// ReplaceForNomination с пустым списком.
-func (s *Service) ClearForNomination(ctx context.Context, nominationID string) error {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
-		return domain.ErrInvalidInput
+// ClearForPools удаляет все бои перечисленных пулов (расфиксация этапа,
+// спека 0017 FR-5/FR-8) — адресация по пулам этапа, а не по номинации:
+// бои пулов других этапов той же номинации не трогаются. Пустой список —
+// валидный no-op (нечего расфиксировать без пулов), не ошибка и не «стереть
+// всё».
+func (s *Service) ClearForPools(ctx context.Context, poolIDs []string) error {
+	if len(poolIDs) == 0 {
+		return nil
 	}
-	return s.repo.ReplaceForNomination(ctx, nominationID, nil)
+	return s.repo.DeleteBoutsByPools(ctx, poolIDs)
 }
 
 // ListByNomination возвращает бои всех пулов номинации (passthrough к
@@ -106,14 +112,15 @@ func (s *Service) PoolProgress(ctx context.Context, poolID string) (int, int, in
 	return s.repo.PoolProgress(ctx, poolID)
 }
 
-// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
-// state ≠ not_started (гейт расфиксации, FR-13).
-func (s *Service) AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
-		return false, domain.ErrInvalidInput
+// AnyStartedInPools — есть ли среди боёв перечисленных пулов хотя бы один
+// со state ≠ not_started (гейт расфиксации этапа, спека 0017 FR-8/FR-13).
+// Пустой список — валидный no-op: false, без ошибки — не «есть начатые
+// бои везде».
+func (s *Service) AnyStartedInPools(ctx context.Context, poolIDs []string) (bool, error) {
+	if len(poolIDs) == 0 {
+		return false, nil
 	}
-	return s.repo.AnyStartedInNomination(ctx, nominationID)
+	return s.repo.AnyStartedInPools(ctx, poolIDs)
 }
 
 // StartBout переводит бой не начат → идёт (FR-4).
