@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-08-02
 - План: `./plan.md`
 
@@ -154,12 +154,12 @@
 
 ## Проверка
 
-- [ ] T19. `make test-all` зелёный.
-- [ ] T20. `pnpm exec tsc --noEmit`.
-- [ ] T21. `go build ./...` + `pnpm build`.
-- [ ] T22. Миграции в полном докеризованном стеке: `docker compose up
+- [x] T19. `make test-all` зелёный.
+- [x] T20. `pnpm exec tsc --noEmit`.
+- [x] T21. `go build ./...` + `pnpm build`.
+- [x] T22. Миграции в полном докеризованном стеке: `docker compose up
       --build` (по чеклисту `server/AGENTS.md` — testcontainers/`make dev`
       недостаточно: менялись имя схемы, состав миграций и пути).
-- [ ] T23. Обновить статус спеки/плана/tasks и строку в
+- [x] T23. Обновить статус спеки/плана/tasks и строку в
       `docs/specs/README.md`; в описании PR — предупреждение про
       `docker compose down -v`.
