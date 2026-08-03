@@ -423,7 +423,8 @@ var _ hemav1connect.StagePublicServiceHandler = (*PublicHandler)(nil)
 
 // ListPublicPools возвращает пулы готовой раскладки номинации с составом,
 // статусом и (если поставлен) площадкой; пустой список, пока раскладка
-// draft (AC-14).
+// draft (AC-14). Stages — этапы номинации (спека 0017, FR-11): ровно один
+// элемент в этом инкременте.
 func (h *PublicHandler) ListPublicPools(
 	ctx context.Context,
 	req *connect.Request[hemav1.ListPublicPoolsRequest],
@@ -432,7 +433,11 @@ func (h *PublicHandler) ListPublicPools(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.ListPublicPoolsResponse{Pools: toProtoPools(pools)}), nil
+	stages, err := h.svc.StagesForNomination(ctx, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ListPublicPoolsResponse{Pools: toProtoPools(pools), Stages: toProtoStages(stages)}), nil
 }
 
 // ---------------------------------------------------------------------
@@ -533,6 +538,37 @@ func toProtoLayout(l domain.Layout) *hemav1.PoolLayout {
 		Unassigned:   toProtoFighterRefs(l.Unassigned),
 		Pools:        toProtoPools(l.Pools),
 		CanUndo:      l.CanUndo,
+		Stage:        toProtoStage(l.Stage),
+	}
+}
+
+// toProtoStage маппит этап номинации (спека 0017, FR-1/FR-11). Виртуальный
+// этап (Stage.ID пуст — строки в БД ещё нет, см. service.stageForRead)
+// маппится как обычно: пустой id, остальные поля — дефолты этапа.
+func toProtoStage(s domain.Stage) *hemav1.Stage {
+	return &hemav1.Stage{
+		Id:           s.ID,
+		NominationId: s.NominationID,
+		Position:     int32(s.Position),
+		Title:        s.Title,
+		Type:         toProtoStageType(s.Type),
+	}
+}
+
+func toProtoStages(stages []domain.Stage) []*hemav1.Stage {
+	out := make([]*hemav1.Stage, 0, len(stages))
+	for _, s := range stages {
+		out = append(out, toProtoStage(s))
+	}
+	return out
+}
+
+func toProtoStageType(t domain.StageType) hemav1.StageType {
+	switch t {
+	case domain.StageTypeGroups:
+		return hemav1.StageType_STAGE_TYPE_GROUPS
+	default:
+		return hemav1.StageType_STAGE_TYPE_UNSPECIFIED
 	}
 }
 
@@ -663,9 +699,14 @@ func toProtoBoardBouts(bouts []domain.BoutRef) []*hemav1.BoardBout {
 }
 
 // toProtoNominationSnapshot маппит живой снапшот номинации (спека 0014,
-// FR-1..FR-3).
+// FR-1..FR-3). Stages — этапы номинации (спека 0017, FR-11): ровно один
+// элемент в этом инкременте.
 func toProtoNominationSnapshot(s domain.NominationSnapshot) *hemav1.NominationLiveSnapshot {
-	out := &hemav1.NominationLiveSnapshot{NominationId: s.NominationID, Pools: make([]*hemav1.LivePool, 0, len(s.Pools))}
+	out := &hemav1.NominationLiveSnapshot{
+		NominationId: s.NominationID,
+		Pools:        make([]*hemav1.LivePool, 0, len(s.Pools)),
+		Stages:       toProtoStages(s.Stages),
+	}
 	for _, p := range s.Pools {
 		out.Pools = append(out.Pools, toProtoLivePool(p))
 	}

@@ -118,6 +118,21 @@ func TestGetLayout_E2E(t *testing.T) {
 	if len(res.Msg.Layout.Unassigned) != 1 {
 		t.Errorf("Unassigned len = %d, want 1", len(res.Msg.Layout.Unassigned))
 	}
+	// Спека 0017, FR-11: раскладка подписана этапом номинации (здесь —
+	// виртуальный, строки в БД ещё нет, но title/type/position заполнены).
+	stage := res.Msg.Layout.Stage
+	if stage == nil {
+		t.Fatalf("expected Layout.Stage to be populated, got nil")
+	}
+	if stage.Title != "Групповой этап" {
+		t.Errorf("Stage.Title = %q, want Групповой этап", stage.Title)
+	}
+	if stage.Type != hemav1.StageType_STAGE_TYPE_GROUPS {
+		t.Errorf("Stage.Type = %v, want STAGE_TYPE_GROUPS", stage.Type)
+	}
+	if stage.Position != 0 {
+		t.Errorf("Stage.Position = %d, want 0", stage.Position)
+	}
 }
 
 func TestGetLayout_E2E_EmptyNominationIDReturnsInvalidArgument(t *testing.T) {
@@ -556,6 +571,13 @@ func TestListPublicPools_E2E_ReadyShowsPools(t *testing.T) {
 	if len(res.Msg.Pools[0].Members) != 1 || res.Msg.Pools[0].Members[0].Name != "A" {
 		t.Errorf("expected member A, got %v", res.Msg.Pools[0].Members)
 	}
+	// Спека 0017, AC-3: ровно один этап в ответе.
+	if len(res.Msg.Stages) != 1 {
+		t.Fatalf("expected exactly 1 stage, got %d", len(res.Msg.Stages))
+	}
+	if res.Msg.Stages[0].Title != "Групповой этап" {
+		t.Errorf("Stages[0].Title = %q, want Групповой этап", res.Msg.Stages[0].Title)
+	}
 }
 
 // AC-14: пока раскладка draft, публичный список пуст (не ошибка).
@@ -839,6 +861,13 @@ func TestGetNominationLive_E2E_ReadyShowsPoolsAndBouts(t *testing.T) {
 	}
 	if lp.CurrentBoutId != "b1" {
 		t.Fatalf("CurrentBoutId = %q, want b1", lp.CurrentBoutId)
+	}
+	// Спека 0017, AC-3: ровно один этап в снапшоте.
+	if len(snap.Stages) != 1 {
+		t.Fatalf("expected exactly 1 stage, got %d", len(snap.Stages))
+	}
+	if snap.Stages[0].Title != "Групповой этап" {
+		t.Errorf("Stages[0].Title = %q, want Групповой этап", snap.Stages[0].Title)
 	}
 }
 

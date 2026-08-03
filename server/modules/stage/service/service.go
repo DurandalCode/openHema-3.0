@@ -773,7 +773,7 @@ func (s *Service) NominationLive(ctx context.Context, nominationID string) (doma
 		current := effectiveCurrentBoutID(pool, sorted)
 		livePools = append(livePools, domain.LivePool{Pool: pool, Bouts: sorted, CurrentBoutID: current})
 	}
-	return domain.NominationSnapshot{NominationID: nominationID, Pools: livePools}, nil
+	return domain.NominationSnapshot{NominationID: nominationID, Stages: stages, Pools: livePools}, nil
 }
 
 // SubscribeNomination — тонкий passthrough к LiveSubscriber (спека 0014,
