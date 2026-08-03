@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { arenaLiveToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
   }
 
   try {
-    const res = await poolAdminClient.setScoreboardSides(
+    const res = await stageAdminClient.setScoreboardSides(
       { arenaId: id, swapped: body.swapped },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

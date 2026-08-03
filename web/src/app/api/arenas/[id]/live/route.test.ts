@@ -5,16 +5,16 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { watchArenaBoard: vi.fn() },
+  stageAdminClient: { watchArenaBoard: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   arenaLiveToJson: vi.fn((s) => s ?? null),
   timerCommandToJson: vi.fn((c) => c ?? null),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
-import { ScoreboardRole } from "@/gen/hema/v1/pool_pb";
+import { ScoreboardRole } from "@/gen/hema/v1/stage_pb";
 import { GET } from "./route";
 
 function getReq(url: string, signal?: AbortSignal) {
@@ -41,7 +41,7 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
       params: Promise.resolve({ id: "a1" }),
     });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.watchArenaBoard).not.toHaveBeenCalled();
+    expect(stageAdminClient.watchArenaBoard).not.toHaveBeenCalled();
   });
 
   it("sets SSE headers", async () => {
@@ -49,7 +49,7 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
     async function* fake() {
       await new Promise(() => {});
     }
-    vi.mocked(poolAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
+    vi.mocked(stageAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
 
     const controller = new AbortController();
     const res = await GET(getReq("http://localhost/api/arenas/a1/live", controller.signal), {
@@ -72,7 +72,7 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
       };
       await new Promise(() => {});
     }
-    vi.mocked(poolAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
+    vi.mocked(stageAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
 
     const controller = new AbortController();
     const req = getReq("http://localhost/api/arenas/a1/live?role=scoreboard", controller.signal);
@@ -91,7 +91,7 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
       })}\n\n`,
     );
 
-    const call = vi.mocked(poolAdminClient.watchArenaBoard).mock.calls[0];
+    const call = vi.mocked(stageAdminClient.watchArenaBoard).mock.calls[0];
     expect(call[0]).toEqual({ arenaId: "a1", role: ScoreboardRole.SCOREBOARD });
     expect(call[1]?.signal).toBe(req.signal);
     expect(call[1]?.headers).toEqual({ Authorization: "Bearer token" });
@@ -104,25 +104,25 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
     async function* fake() {
       await new Promise(() => {});
     }
-    vi.mocked(poolAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
+    vi.mocked(stageAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
 
     const controller1 = new AbortController();
     await GET(getReq("http://localhost/api/arenas/a1/live?role=panel", controller1.signal), {
       params: Promise.resolve({ id: "a1" }),
     });
-    expect(vi.mocked(poolAdminClient.watchArenaBoard).mock.calls[0][0]).toEqual({
+    expect(vi.mocked(stageAdminClient.watchArenaBoard).mock.calls[0][0]).toEqual({
       arenaId: "a1",
       role: ScoreboardRole.PANEL,
     });
     controller1.abort();
 
-    vi.mocked(poolAdminClient.watchArenaBoard).mockClear();
-    vi.mocked(poolAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
+    vi.mocked(stageAdminClient.watchArenaBoard).mockClear();
+    vi.mocked(stageAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
     const controller2 = new AbortController();
     await GET(getReq("http://localhost/api/arenas/a1/live", controller2.signal), {
       params: Promise.resolve({ id: "a1" }),
     });
-    expect(vi.mocked(poolAdminClient.watchArenaBoard).mock.calls[0][0]).toEqual({
+    expect(vi.mocked(stageAdminClient.watchArenaBoard).mock.calls[0][0]).toEqual({
       arenaId: "a1",
       role: ScoreboardRole.PANEL,
     });
@@ -135,7 +135,7 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
     async function* fake() {
       await new Promise(() => {});
     }
-    vi.mocked(poolAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
+    vi.mocked(stageAdminClient.watchArenaBoard).mockReturnValue(fake() as never);
 
     const controller = new AbortController();
     const res = await GET(getReq("http://localhost/api/arenas/a1/live", controller.signal), {
@@ -163,7 +163,7 @@ describe("app/api/arenas/[id]/live route (SSE, admin-only)", () => {
         });
       });
     }
-    vi.mocked(poolAdminClient.watchArenaBoard).mockImplementation(
+    vi.mocked(stageAdminClient.watchArenaBoard).mockImplementation(
       ((req: unknown, opts?: { signal?: AbortSignal }) => fake(req, opts)) as never,
     );
 

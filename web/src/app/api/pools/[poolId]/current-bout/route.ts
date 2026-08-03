@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { boutBoardToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext): Promise<NextResp
   }
 
   try {
-    const res = await poolAdminClient.setCurrentBout(
+    const res = await stageAdminClient.setCurrentBout(
       { poolId, boutId },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

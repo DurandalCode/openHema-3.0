@@ -18,10 +18,10 @@ import {
   type Arena,
 } from "@/gen/hema/v1/arena_pb";
 import {
-  PoolAdminService,
+  StageAdminService,
   PoolSchema,
   GetPoolsForArenaResponseSchema,
-} from "@/gen/hema/v1/pool_pb";
+} from "@/gen/hema/v1/stage_pb";
 
 // E2E-тест BFF route.ts: реальный arenaToJson + реальная proto
 // binary-сериализация через createRouterTransport (in-process). НЕ мокаем
@@ -99,13 +99,13 @@ vi.mock("@/lib/grpc/client", async () => {
         });
       }),
     ),
-    // poolAdminClient — минимальный in-process mock только для GetPoolsForArena
+    // stageAdminClient — минимальный in-process mock только для GetPoolsForArena
     // (используется гейтом FR-10 в POST [id]/archive, спека 0011). Остальные
-    // RPC PoolAdminService этому набору e2e-тестов не нужны.
-    poolAdminClient: createClient(
-      PoolAdminService,
+    // RPC StageAdminService этому набору e2e-тестов не нужны.
+    stageAdminClient: createClient(
+      StageAdminService,
       createRouterTransport((router) => {
-        router.service(PoolAdminService, {
+        router.service(StageAdminService, {
           getPoolsForArena: async () => {
             return create(GetPoolsForArenaResponseSchema, {
               seated: currentMockSeatedPoolID

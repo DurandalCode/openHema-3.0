@@ -26,6 +26,10 @@ type FakeRepo struct {
 	// replaceCalls — spy: аргументы каждого вызова ReplaceForNomination
 	// (для проверки идемпотентного replace-семантики в тестах service).
 	replaceCalls []ReplaceCall
+	// deleteByPoolsCalls — spy: аргументы каждого вызова DeleteBoutsByPools
+	// (для проверки, что расфиксация этапа трогает только свои пулы,
+	// спека 0017 FR-8).
+	deleteByPoolsCalls [][]string
 }
 
 // ReplaceCall — зафиксированный вызов ReplaceForNomination.
@@ -79,8 +83,8 @@ func (r *FakeRepo) Append(_ context.Context, boutID string, expectedVersion int,
 // ReplaceForNomination удаляет все бои номинации (проекция + потоки
 // событий, эмулируя ON DELETE CASCADE) и вставляет новые: на каждый бой —
 // строка проекции (state=not_started, version=1) и событие scheduled
-// (version 1) — как настоящий repo (bouts == nil → только удаление,
-// используется и для генерации, и для очистки).
+// (version 1) — как настоящий repo (bouts == nil → только удаление).
+// Используется GenerateForStage (спека 0017).
 func (r *FakeRepo) ReplaceForNomination(_ context.Context, nominationID string, bouts []domain.Bout) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -119,6 +123,28 @@ func (r *FakeRepo) ReplaceForNomination(_ context.Context, nominationID string, 
 		}
 		r.events[id] = []domain.Event{sched}
 		r.views[id] = b
+	}
+	return nil
+}
+
+// DeleteBoutsByPools удаляет бои (проекция + потоки событий, эмулируя
+// ON DELETE CASCADE) перечисленных пулов, не трогая бои остальных пулов
+// (спека 0017, ClearForPools). Пустой список — no-op.
+func (r *FakeRepo) DeleteBoutsByPools(_ context.Context, poolIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.deleteByPoolsCalls = append(r.deleteByPoolsCalls, append([]string{}, poolIDs...))
+
+	poolSet := make(map[string]struct{}, len(poolIDs))
+	for _, id := range poolIDs {
+		poolSet[id] = struct{}{}
+	}
+	for id, v := range r.views {
+		if _, ok := poolSet[v.PoolID]; ok {
+			delete(r.views, id)
+			delete(r.events, id)
+		}
 	}
 	return nil
 }
@@ -193,14 +219,22 @@ func (r *FakeRepo) PoolProgress(_ context.Context, poolID string) (int, int, int
 	return total, started, finished, nil
 }
 
-// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
-// state ≠ not_started.
-func (r *FakeRepo) AnyStartedInNomination(_ context.Context, nominationID string) (bool, error) {
+// AnyStartedInPools — есть ли среди боёв перечисленных пулов хотя бы один
+// со state ≠ not_started (спека 0017, гейт расфиксации этапа). Пустой
+// список — no-op: false.
+func (r *FakeRepo) AnyStartedInPools(_ context.Context, poolIDs []string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	poolSet := make(map[string]struct{}, len(poolIDs))
+	for _, id := range poolIDs {
+		poolSet[id] = struct{}{}
+	}
 	for _, v := range r.views {
-		if v.NominationID == nominationID && v.State != domain.StateNotStarted {
+		if _, ok := poolSet[v.PoolID]; !ok {
+			continue
+		}
+		if v.State != domain.StateNotStarted {
 			return true, nil
 		}
 	}
@@ -271,4 +305,18 @@ func (r *FakeRepo) ReplaceCalls() []ReplaceCall {
 	defer r.mu.Unlock()
 
 	return append([]ReplaceCall{}, r.replaceCalls...)
+}
+
+// DeleteByPoolsCalls возвращает зафиксированные вызовы DeleteBoutsByPools
+// (для проверки в тестах service, с каким набором пулов был вызван
+// репозиторий, спека 0017).
+func (r *FakeRepo) DeleteByPoolsCalls() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([][]string, len(r.deleteByPoolsCalls))
+	for i, c := range r.deleteByPoolsCalls {
+		out[i] = append([]string{}, c...)
+	}
+	return out
 }

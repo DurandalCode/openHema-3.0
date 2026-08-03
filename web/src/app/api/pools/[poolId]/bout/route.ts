@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { boutBoardToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
   try {
     switch (body.action) {
       case "start": {
-        const res = await poolAdminClient.startCurrentBout({ poolId }, authHeaders);
+        const res = await stageAdminClient.startCurrentBout({ poolId }, authHeaders);
         return NextResponse.json({ board: boutBoardToJson(res.board) });
       }
       case "score": {
@@ -61,22 +61,22 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
             { status: 400 },
           );
         }
-        const res = await poolAdminClient.scoreCurrentBout(
+        const res = await stageAdminClient.scoreCurrentBout(
           { poolId, scoreA: body.scoreA, scoreB: body.scoreB },
           authHeaders,
         );
         return NextResponse.json({ board: boutBoardToJson(res.board) });
       }
       case "finish": {
-        const res = await poolAdminClient.finishCurrentBout({ poolId }, authHeaders);
+        const res = await stageAdminClient.finishCurrentBout({ poolId }, authHeaders);
         return NextResponse.json({ board: boutBoardToJson(res.board) });
       }
       case "reopen": {
-        const res = await poolAdminClient.reopenCurrentBout({ poolId }, authHeaders);
+        const res = await stageAdminClient.reopenCurrentBout({ poolId }, authHeaders);
         return NextResponse.json({ board: boutBoardToJson(res.board) });
       }
       case "reset": {
-        const res = await poolAdminClient.resetCurrentBout({ poolId }, authHeaders);
+        const res = await stageAdminClient.resetCurrentBout({ poolId }, authHeaders);
         return NextResponse.json({ board: boutBoardToJson(res.board) });
       }
     }

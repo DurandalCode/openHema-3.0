@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { autoDistribute: vi.fn() },
+  stageAdminClient: { autoDistribute: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { POST } from "./route";
 
@@ -31,18 +31,18 @@ describe("app/api/nominations/[id]/pool-distribute route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.autoDistribute).not.toHaveBeenCalled();
+    expect(stageAdminClient.autoDistribute).not.toHaveBeenCalled();
   });
 
   it("distributes and returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.autoDistribute).mockResolvedValue({
+    vi.mocked(stageAdminClient.autoDistribute).mockResolvedValue({
       layout: { pools: [], canUndo: true },
     } as never);
 
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(200);
-    expect(poolAdminClient.autoDistribute).toHaveBeenCalledWith(
+    expect(stageAdminClient.autoDistribute).toHaveBeenCalledWith(
       { nominationId: "n1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -50,7 +50,7 @@ describe("app/api/nominations/[id]/pool-distribute route", () => {
 
   it("maps ConnectError FailedPrecondition (no pools) → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.autoDistribute).mockRejectedValue(
+    vi.mocked(stageAdminClient.autoDistribute).mockRejectedValue(
       new ConnectError("no pools", Code.FailedPrecondition),
     );
     const res = await POST(req(), { params: Promise.resolve({ id: "n1" }) });

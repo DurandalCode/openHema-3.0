@@ -7,13 +7,13 @@ vi.mock("@/lib/session/cookies", () => ({
 }));
 vi.mock("@/lib/grpc/client", () => ({
   arenaAdminClient: { archiveArena: vi.fn() },
-  poolAdminClient: { getPoolsForArena: vi.fn() },
+  stageAdminClient: { getPoolsForArena: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   arenaToJson: vi.fn((a) => a),
 }));
 
-import { arenaAdminClient, poolAdminClient } from "@/lib/grpc/client";
+import { arenaAdminClient, stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { arenaToJson } from "@/lib/grpc/serialize";
 import { POST } from "./route";
@@ -21,7 +21,7 @@ import { POST } from "./route";
 describe("app/api/admin/arenas/[id]/archive route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(poolAdminClient.getPoolsForArena).mockResolvedValue({
+    vi.mocked(stageAdminClient.getPoolsForArena).mockResolvedValue({
       seated: undefined,
       available: [],
     } as never);
@@ -66,7 +66,7 @@ describe("app/api/admin/arenas/[id]/archive route", () => {
   // Спека 0011, FR-10/AC-10: нельзя архивировать арену, на которой стоит пул.
   it("returns 409 and does not archive when arena has a seated pool", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getPoolsForArena).mockResolvedValue({
+    vi.mocked(stageAdminClient.getPoolsForArena).mockResolvedValue({
       seated: { id: "p1", nominationId: "n1" },
       available: [],
     } as never);
@@ -74,7 +74,7 @@ describe("app/api/admin/arenas/[id]/archive route", () => {
     const req = new NextRequest("http://localhost/api/admin/arenas/a1/archive", { method: "POST" });
     const res = await POST(req, { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(409);
-    expect(poolAdminClient.getPoolsForArena).toHaveBeenCalledWith(
+    expect(stageAdminClient.getPoolsForArena).toHaveBeenCalledWith(
       { arenaId: "a1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -83,7 +83,7 @@ describe("app/api/admin/arenas/[id]/archive route", () => {
 
   it("propagates errors from GetPoolsForArena without archiving", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getPoolsForArena).mockRejectedValue(
+    vi.mocked(stageAdminClient.getPoolsForArena).mockRejectedValue(
       new ConnectError("boom", Code.Internal),
     );
 

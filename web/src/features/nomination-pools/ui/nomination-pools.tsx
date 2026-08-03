@@ -135,6 +135,9 @@ export function NominationPools({ nominationId }: { nominationId: string }) {
         </Alert>
       )}
 
+      {/* Подпись этапа над составом групп (спека 0017, FR-11, AC-3). */}
+      <h2 className="text-sm font-medium text-muted-foreground">{layout.stage.title}</h2>
+
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
           <UnassignedColumn fighters={layout.unassigned} readOnly={readOnly} />

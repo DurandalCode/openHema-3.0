@@ -18,7 +18,7 @@ NOMINATION_MIGRATIONS_DIR := server/modules/nomination/migrations
 APPLICATION_MIGRATIONS_DIR := server/modules/application/migrations
 FIGHTER_MIGRATIONS_DIR := server/modules/fighter/migrations
 ARENA_MIGRATIONS_DIR := server/modules/arena/migrations
-POOL_MIGRATIONS_DIR := server/modules/pool/migrations
+STAGE_MIGRATIONS_DIR := server/modules/stage/migrations
 BOUT_MIGRATIONS_DIR := server/modules/bout/migrations
 
 .PHONY: help
@@ -60,13 +60,13 @@ migrate: ## Прогон goose-миграций по всем модулям (т
 	$(GOOSE) -dir ../$(APPLICATION_MIGRATIONS_DIR) -table goose_db_version_application postgres "$(DB_URL)" up
 	$(GOOSE) -dir ../$(FIGHTER_MIGRATIONS_DIR) -table goose_db_version_fighter postgres "$(DB_URL)" up
 	$(GOOSE) -dir ../$(ARENA_MIGRATIONS_DIR) -table goose_db_version_arena postgres "$(DB_URL)" up
-	$(GOOSE) -dir ../$(POOL_MIGRATIONS_DIR) -table goose_db_version_pool postgres "$(DB_URL)" up
+	$(GOOSE) -dir ../$(STAGE_MIGRATIONS_DIR) -table goose_db_version_stage postgres "$(DB_URL)" up
 	$(GOOSE) -dir ../$(BOUT_MIGRATIONS_DIR) -table goose_db_version_bout postgres "$(DB_URL)" up
 
 .PHONY: migrate-down
 migrate-down: ## Откат последней миграции во всех модулях
 	$(GOOSE) -dir ../$(BOUT_MIGRATIONS_DIR) -table goose_db_version_bout postgres "$(DB_URL)" down
-	$(GOOSE) -dir ../$(POOL_MIGRATIONS_DIR) -table goose_db_version_pool postgres "$(DB_URL)" down
+	$(GOOSE) -dir ../$(STAGE_MIGRATIONS_DIR) -table goose_db_version_stage postgres "$(DB_URL)" down
 	$(GOOSE) -dir ../$(ARENA_MIGRATIONS_DIR) -table goose_db_version_arena postgres "$(DB_URL)" down
 	$(GOOSE) -dir ../$(FIGHTER_MIGRATIONS_DIR) -table goose_db_version_fighter postgres "$(DB_URL)" down
 	$(GOOSE) -dir ../$(APPLICATION_MIGRATIONS_DIR) -table goose_db_version_application postgres "$(DB_URL)" down

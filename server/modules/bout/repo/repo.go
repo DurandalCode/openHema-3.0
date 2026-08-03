@@ -47,8 +47,9 @@ var _ domain.Repository = (*Repo)(nil)
 // ReplaceForNomination одной транзакцией удаляет все бои номинации (события
 // удаляются каскадом FK, см. миграция 00002) и вставляет новые: на каждый
 // бой — строку проекции (state=not_started, счёт 0:0, version=1) и событие
-// scheduled (version 1) — bouts == nil → только удаление (генерация и
-// очистка используют один и тот же repo-метод, спека 0010).
+// scheduled (version 1) — bouts == nil → только удаление. Используется
+// GenerateForStage (спека 0017): в этом инкременте у номинации ровно один
+// этап (FR-4), поэтому номинационный replace эквивалентен этапному.
 func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bouts []domain.Bout) error {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
@@ -126,6 +127,25 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// DeleteBoutsByPools удаляет бои перечисленных пулов (события — каскадом FK,
+// см. миграция 00002) — расфиксация этапа (спека 0017, ClearForPools):
+// адресация по пулам этапа, не по номинации целиком, чтобы не задеть бои
+// пулов других этапов той же номинации (FR-8). Пустой список — no-op, без
+// обращения к БД.
+func (r *Repo) DeleteBoutsByPools(ctx context.Context, poolIDs []string) error {
+	if len(poolIDs) == 0 {
+		return nil
+	}
+	ids, err := parsePoolIDs(poolIDs)
+	if err != nil {
+		return err
+	}
+	if err := r.q.DeleteBoutsByPools(ctx, ids); err != nil {
+		return fmt.Errorf("delete bouts by pools: %w", err)
 	}
 	return nil
 }
@@ -236,18 +256,36 @@ func (r *Repo) PoolProgress(ctx context.Context, poolID string) (int, int, int, 
 	return int(row.Total), int(row.Started), int(row.Finished), nil
 }
 
-// AnyStartedInNomination — есть ли в номинации хотя бы один бой со
-// state ≠ not_started (гейт расфиксации, FR-13).
-func (r *Repo) AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error) {
-	nid, err := uuid.Parse(nominationID)
-	if err != nil {
-		return false, fmt.Errorf("parse nomination id: %w", err)
+// AnyStartedInPools — есть ли среди боёв перечисленных пулов хотя бы один со
+// state ≠ not_started (гейт расфиксации этапа, спека 0017 FR-8/FR-13).
+// Пустой список — no-op (false), без обращения к БД.
+func (r *Repo) AnyStartedInPools(ctx context.Context, poolIDs []string) (bool, error) {
+	if len(poolIDs) == 0 {
+		return false, nil
 	}
-	got, err := r.q.AnyStartedInNomination(ctx, nid)
+	ids, err := parsePoolIDs(poolIDs)
 	if err != nil {
-		return false, fmt.Errorf("any started in nomination: %w", err)
+		return false, err
+	}
+	got, err := r.q.AnyStartedInPools(ctx, ids)
+	if err != nil {
+		return false, fmt.Errorf("any started in pools: %w", err)
 	}
 	return got, nil
+}
+
+// parsePoolIDs конвертирует список доменных ID пулов в []uuid.UUID для
+// sqlc.arg(pool_ids) параметров ANY(...)-запросов.
+func parsePoolIDs(poolIDs []string) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, len(poolIDs))
+	for i, id := range poolIDs {
+		pid, err := uuid.Parse(id)
+		if err != nil {
+			return nil, fmt.Errorf("parse pool id: %w", err)
+		}
+		ids[i] = pid
+	}
+	return ids, nil
 }
 
 // Load возвращает поток событий боя, упорядоченный по версии.

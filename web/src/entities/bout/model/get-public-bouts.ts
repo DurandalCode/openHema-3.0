@@ -10,7 +10,7 @@ import type { Bout } from "../lib/types";
  * (спека 0011, FR-11). Зовёт публичный gRPC `ListPublicBoutsByNomination`
  * (без access-токена) — тот же набор боёв, что и admin-чтение (спека 0010),
  * без фильтрации по готовности (видимость раскладки/пула регулирует
- * `PoolPublicService`, не этот RPC).
+ * `StagePublicService`, не этот RPC).
  *
  * Возвращает пустой список при пустом nominationId или ошибке gRPC.
  *

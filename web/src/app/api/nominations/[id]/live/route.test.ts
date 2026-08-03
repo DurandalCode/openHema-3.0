@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/grpc/client", () => ({
-  poolPublicClient: { watchNominationLive: vi.fn() },
+  stagePublicClient: { watchNominationLive: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   nominationLiveToJson: vi.fn((s) => s ?? null),
 }));
 
-import { poolPublicClient } from "@/lib/grpc/client";
+import { stagePublicClient } from "@/lib/grpc/client";
 import { GET } from "./route";
 
 function getReq(signal?: AbortSignal) {
@@ -33,7 +33,7 @@ describe("app/api/nominations/[id]/live route (SSE)", () => {
     async function* fake() {
       await new Promise(() => {});
     }
-    vi.mocked(poolPublicClient.watchNominationLive).mockReturnValue(fake() as never);
+    vi.mocked(stagePublicClient.watchNominationLive).mockReturnValue(fake() as never);
 
     const controller = new AbortController();
     const res = await GET(getReq(controller.signal), { params: Promise.resolve({ id: "n1" }) });
@@ -56,7 +56,7 @@ describe("app/api/nominations/[id]/live route (SSE)", () => {
       };
       await new Promise(() => {});
     }
-    vi.mocked(poolPublicClient.watchNominationLive).mockReturnValue(fake() as never);
+    vi.mocked(stagePublicClient.watchNominationLive).mockReturnValue(fake() as never);
 
     const controller = new AbortController();
     const req = getReq(controller.signal);
@@ -72,7 +72,7 @@ describe("app/api/nominations/[id]/live route (SSE)", () => {
     expect(chunk2.text.endsWith("\n\n")).toBe(true);
     expect(chunk2.text).toContain('"currentBoutId":""');
 
-    const call = vi.mocked(poolPublicClient.watchNominationLive).mock.calls[0];
+    const call = vi.mocked(stagePublicClient.watchNominationLive).mock.calls[0];
     expect(call[0]).toEqual({ nominationId: "n1" });
     expect(call[1]?.signal).toBe(req.signal);
 
@@ -84,7 +84,7 @@ describe("app/api/nominations/[id]/live route (SSE)", () => {
     async function* fake() {
       await new Promise(() => {});
     }
-    vi.mocked(poolPublicClient.watchNominationLive).mockReturnValue(fake() as never);
+    vi.mocked(stagePublicClient.watchNominationLive).mockReturnValue(fake() as never);
 
     const controller = new AbortController();
     const res = await GET(getReq(controller.signal), { params: Promise.resolve({ id: "n1" }) });
@@ -109,7 +109,7 @@ describe("app/api/nominations/[id]/live route (SSE)", () => {
         });
       });
     }
-    vi.mocked(poolPublicClient.watchNominationLive).mockImplementation(
+    vi.mocked(stagePublicClient.watchNominationLive).mockImplementation(
       ((req: unknown, opts?: { signal?: AbortSignal }) => fake(req, opts)) as never,
     );
 

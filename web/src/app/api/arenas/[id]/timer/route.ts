@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { arenaLiveToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
-import { TimerCommandKind } from "@/gen/hema/v1/pool_pb";
+import { TimerCommandKind } from "@/gen/hema/v1/stage_pb";
 
 export const runtime = "nodejs";
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
   }
 
   try {
-    const res = await poolAdminClient.controlArenaTimer(
+    const res = await stageAdminClient.controlArenaTimer(
       {
         arenaId: id,
         command: { kind: KIND_TO_PROTO[body.kind], amountSeconds: body.amountSeconds ?? 0 },

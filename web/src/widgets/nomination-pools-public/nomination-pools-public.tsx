@@ -25,7 +25,7 @@ function outcomeLabel(bout: BoardBout): string {
  * счёт `A:B`, исход завершённого, подсветка текущего боя. Read-only.
  *
  * `snapshot.pools` пуст, пока раскладка номинации в `draft` (FR-12) — решает
- * сервер (`PoolPublicService`), здесь просто показывается сообщение.
+ * сервер (`StagePublicService`), здесь просто показывается сообщение.
  *
  * Client-компонент: засеян SSR-снапшотом (`initialSnapshot`) и подписан на
  * живой канал через `useNominationLive` (SSE + polling-fallback, спека 0014).
@@ -38,7 +38,7 @@ export function NominationPoolsPublic({
   initialSnapshot: NominationLiveSnapshotDto;
 }) {
   const snapshot = useNominationLive(nominationId, initialSnapshot);
-  const { pools } = snapshot;
+  const { pools, stages } = snapshot;
 
   if (pools.length === 0) {
     return (
@@ -49,93 +49,99 @@ export function NominationPoolsPublic({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {pools.map((livePool) => {
-        const { pool, bouts, currentBoutId } = livePool;
-        return (
-          <Card key={pool.id}>
-            <CardHeader>
-              <Col gap={2}>
-                <Row align="center" justify="between" gap={2}>
-                  <CardTitle className="text-base">{pool.name}</CardTitle>
-                  <Badge variant="secondary">{pool.members.length}</Badge>
-                </Row>
-                <Row align="center" gap={2} className="flex-wrap">
-                  {pool.arenaId && (
-                    <Badge variant="outline" className="gap-1">
-                      <MapPin className="size-3" />
-                      {pool.arenaName || "—"}
-                    </Badge>
-                  )}
-                  <Badge>{poolStatusLabel(pool.status)}</Badge>
-                </Row>
-              </Col>
-            </CardHeader>
-            <CardContent>
-              <Col gap={3}>
-                <Col gap={1}>
-                  <span className="text-xs font-medium text-muted-foreground">Состав</span>
-                  <Col gap={1}>
-                    {pool.members.map((f) => (
-                      <Row key={f.fighterId} align="center" gap={2} className="text-sm">
-                        <span>{f.name}</span>
-                        {f.club && (
-                          <span className="text-xs text-muted-foreground">({f.club})</span>
-                        )}
-                      </Row>
-                    ))}
-                    {pool.members.length === 0 && (
-                      <p className="text-xs text-muted-foreground">Пусто</p>
+    <Col gap={3}>
+      {/* Подпись этапа над составом групп (спека 0017, FR-11, AC-3). */}
+      {stages[0] && (
+        <h2 className="text-sm font-medium text-muted-foreground">{stages[0].title}</h2>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {pools.map((livePool) => {
+          const { pool, bouts, currentBoutId } = livePool;
+          return (
+            <Card key={pool.id}>
+              <CardHeader>
+                <Col gap={2}>
+                  <Row align="center" justify="between" gap={2}>
+                    <CardTitle className="text-base">{pool.name}</CardTitle>
+                    <Badge variant="secondary">{pool.members.length}</Badge>
+                  </Row>
+                  <Row align="center" gap={2} className="flex-wrap">
+                    {pool.arenaId && (
+                      <Badge variant="outline" className="gap-1">
+                        <MapPin className="size-3" />
+                        {pool.arenaName || "—"}
+                      </Badge>
                     )}
-                  </Col>
+                    <Badge>{poolStatusLabel(pool.status)}</Badge>
+                  </Row>
                 </Col>
-                {bouts.length > 0 && (
-                  <Col gap={1} className="border-t pt-2">
-                    <span className="text-xs font-medium text-muted-foreground">Бои</span>
+              </CardHeader>
+              <CardContent>
+                <Col gap={3}>
+                  <Col gap={1}>
+                    <span className="text-xs font-medium text-muted-foreground">Состав</span>
                     <Col gap={1}>
-                      {bouts.map((bout) => {
-                        const isCurrent = bout.id === currentBoutId;
-                        const finished = bout.state === "BOUT_STATE_FINISHED";
-                        return (
-                          <Col
-                            key={bout.id}
-                            gap={1}
-                            className={cn(
-                              "rounded-md px-1.5 py-1",
-                              isCurrent && "outline outline-2 outline-primary",
-                            )}
-                            data-current={isCurrent || undefined}
-                          >
-                            <Row align="center" justify="between" gap={2} className="flex-wrap">
-                              <span className="text-sm">
-                                {bout.sequenceNumber}. {bout.fighterA.name} — {bout.fighterB.name}
-                              </span>
-                              <Row align="center" gap={2}>
-                                <span className="text-sm font-medium tabular-nums">
-                                  {bout.scoreA}:{bout.scoreB}
-                                </span>
-                                <Badge variant={isCurrent ? "default" : "outline"}>
-                                  {boutStateLabel(bout.state)}
-                                </Badge>
-                              </Row>
-                            </Row>
-                            {finished && (
-                              <span className="text-xs text-muted-foreground">
-                                Исход: {outcomeLabel(bout)}
-                              </span>
-                            )}
-                          </Col>
-                        );
-                      })}
+                      {pool.members.map((f) => (
+                        <Row key={f.fighterId} align="center" gap={2} className="text-sm">
+                          <span>{f.name}</span>
+                          {f.club && (
+                            <span className="text-xs text-muted-foreground">({f.club})</span>
+                          )}
+                        </Row>
+                      ))}
+                      {pool.members.length === 0 && (
+                        <p className="text-xs text-muted-foreground">Пусто</p>
+                      )}
                     </Col>
                   </Col>
-                )}
-                <PoolStandingsTable standings={pool.standings} />
-              </Col>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
+                  {bouts.length > 0 && (
+                    <Col gap={1} className="border-t pt-2">
+                      <span className="text-xs font-medium text-muted-foreground">Бои</span>
+                      <Col gap={1}>
+                        {bouts.map((bout) => {
+                          const isCurrent = bout.id === currentBoutId;
+                          const finished = bout.state === "BOUT_STATE_FINISHED";
+                          return (
+                            <Col
+                              key={bout.id}
+                              gap={1}
+                              className={cn(
+                                "rounded-md px-1.5 py-1",
+                                isCurrent && "outline outline-2 outline-primary",
+                              )}
+                              data-current={isCurrent || undefined}
+                            >
+                              <Row align="center" justify="between" gap={2} className="flex-wrap">
+                                <span className="text-sm">
+                                  {bout.sequenceNumber}. {bout.fighterA.name} — {bout.fighterB.name}
+                                </span>
+                                <Row align="center" gap={2}>
+                                  <span className="text-sm font-medium tabular-nums">
+                                    {bout.scoreA}:{bout.scoreB}
+                                  </span>
+                                  <Badge variant={isCurrent ? "default" : "outline"}>
+                                    {boutStateLabel(bout.state)}
+                                  </Badge>
+                                </Row>
+                              </Row>
+                              {finished && (
+                                <span className="text-xs text-muted-foreground">
+                                  Исход: {outcomeLabel(bout)}
+                                </span>
+                              )}
+                            </Col>
+                          );
+                        })}
+                      </Col>
+                    </Col>
+                  )}
+                  <PoolStandingsTable standings={pool.standings} />
+                </Col>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </Col>
   );
 }

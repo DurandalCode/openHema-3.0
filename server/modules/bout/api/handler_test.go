@@ -174,7 +174,7 @@ func TestListPublicBoutsByNomination_E2E_AvailableWithoutAuth(t *testing.T) {
 		},
 	)
 
-	// Без Authorization: PoolPublicService смонтирован под baseOpts (без
+	// Без Authorization: StagePublicService смонтирован под baseOpts (без
 	// RequireAdmin) и в allowlist глобального Auth-интерсептора.
 	req := connect.NewRequest(&hemav1.ListPublicBoutsByNominationRequest{NominationId: n1})
 	res, err := public.ListPublicBoutsByNomination(context.Background(), req)

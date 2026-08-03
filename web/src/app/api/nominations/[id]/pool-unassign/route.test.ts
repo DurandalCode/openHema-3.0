@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { unassignFighter: vi.fn() },
+  stageAdminClient: { unassignFighter: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { POST } from "./route";
 
@@ -33,7 +33,7 @@ describe("app/api/nominations/[id]/pool-unassign route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await POST(req({ fighterId: "f1" }), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.unassignFighter).not.toHaveBeenCalled();
+    expect(stageAdminClient.unassignFighter).not.toHaveBeenCalled();
   });
 
   it("returns 400 when fighterId is missing", async () => {
@@ -44,13 +44,13 @@ describe("app/api/nominations/[id]/pool-unassign route", () => {
 
   it("unassigns fighter and returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.unassignFighter).mockResolvedValue({
+    vi.mocked(stageAdminClient.unassignFighter).mockResolvedValue({
       layout: { pools: [] },
     } as never);
 
     const res = await POST(req({ fighterId: "f1" }), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(200);
-    expect(poolAdminClient.unassignFighter).toHaveBeenCalledWith(
+    expect(stageAdminClient.unassignFighter).toHaveBeenCalledWith(
       { nominationId: "n1", fighterId: "f1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -58,7 +58,7 @@ describe("app/api/nominations/[id]/pool-unassign route", () => {
 
   it("maps ConnectError FailedPrecondition → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.unassignFighter).mockRejectedValue(
+    vi.mocked(stageAdminClient.unassignFighter).mockRejectedValue(
       new ConnectError("not draft", Code.FailedPrecondition),
     );
     const res = await POST(req({ fighterId: "f1" }), { params: Promise.resolve({ id: "n1" }) });

@@ -36,7 +36,7 @@ var moduleMigrations = []struct {
 	{"application", moduleDir("application")},
 	{"fighter", moduleDir("fighter")},
 	{"arena", moduleDir("arena")},
-	{"pool", moduleDir("pool")},
+	{"stage", moduleDir("stage")},
 	{"bout", moduleDir("bout")},
 }
 

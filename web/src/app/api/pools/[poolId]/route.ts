@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { poolLayoutToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
@@ -20,7 +20,7 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<Next
   const { poolId } = await ctx.params;
 
   try {
-    const res = await poolAdminClient.deletePool(
+    const res = await stageAdminClient.deletePool(
       { poolId },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

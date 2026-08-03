@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { arenaAdminClient, poolAdminClient } from "@/lib/grpc/client";
+import { arenaAdminClient, stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { arenaToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
@@ -26,7 +26,7 @@ export async function POST(_req: NextRequest, ctx: RouteContext): Promise<NextRe
   const authHeaders = { headers: { Authorization: `Bearer ${accessToken}` } };
 
   try {
-    const pools = await poolAdminClient.getPoolsForArena({ arenaId: id }, authHeaders);
+    const pools = await stageAdminClient.getPoolsForArena({ arenaId: id }, authHeaders);
     if (pools.seated) {
       return NextResponse.json(
         { error: "arena has a seated pool, unseat it before archiving" },

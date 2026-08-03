@@ -6,15 +6,15 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { publishTimerFrame: vi.fn() },
+  stageAdminClient: { publishTimerFrame: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   arenaLiveToJson: vi.fn((s) => s ?? null),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
-import { TimerStatus } from "@/gen/hema/v1/pool_pb";
+import { TimerStatus } from "@/gen/hema/v1/stage_pb";
 import { POST } from "./route";
 
 function postReq(body: unknown) {
@@ -33,12 +33,12 @@ describe("app/api/arenas/[id]/timer-frame route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await POST(postReq({}), { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.publishTimerFrame).not.toHaveBeenCalled();
+    expect(stageAdminClient.publishTimerFrame).not.toHaveBeenCalled();
   });
 
   it("publishes the frame and returns the snapshot on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.publishTimerFrame).mockResolvedValue({
+    vi.mocked(stageAdminClient.publishTimerFrame).mockResolvedValue({
       snapshot: { defaultDurationSeconds: 90 },
     } as never);
 
@@ -50,7 +50,7 @@ describe("app/api/arenas/[id]/timer-frame route", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toEqual({ snapshot: { defaultDurationSeconds: 90 } });
-    expect(poolAdminClient.publishTimerFrame).toHaveBeenCalledWith(
+    expect(stageAdminClient.publishTimerFrame).toHaveBeenCalledWith(
       {
         arenaId: "a1",
         frame: {
@@ -66,7 +66,7 @@ describe("app/api/arenas/[id]/timer-frame route", () => {
 
   it("maps ConnectError FailedPrecondition (not the source) → 409", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.publishTimerFrame).mockRejectedValue(
+    vi.mocked(stageAdminClient.publishTimerFrame).mockRejectedValue(
       new ConnectError("not the timer source", Code.FailedPrecondition),
     );
     const res = await POST(

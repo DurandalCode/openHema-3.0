@@ -23,15 +23,15 @@ var publicProcedures = map[string]struct{}{
 	"/hema.v1.FighterPublicService/ListNominationRoster":           {},
 	// Спека 0011: публичный экран номинации (пулы готовой раскладки + их
 	// бои) — read-only, доступен без авторизации (FR-11/FR-13, AC-15).
-	"/hema.v1.PoolPublicService/ListPublicPools":             {},
+	"/hema.v1.StagePublicService/ListPublicPools":             {},
 	"/hema.v1.BoutPublicService/ListPublicBoutsByNomination": {},
 	// Спека 0014: живой снапшот номинации (bout state/score/outcome +
 	// исполнительный статус пула) — публичный экран, без авторизации.
 	// GetNominationLive — unary; WatchNominationLive — server-streaming.
 	// Оба проходят через один и тот же интерсептор Auth (см. ниже — он
 	// полноценный connect.Interceptor, оборачивает и unary, и streaming).
-	"/hema.v1.PoolPublicService/GetNominationLive":   {},
-	"/hema.v1.PoolPublicService/WatchNominationLive": {},
+	"/hema.v1.StagePublicService/GetNominationLive":   {},
+	"/hema.v1.StagePublicService/WatchNominationLive": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт

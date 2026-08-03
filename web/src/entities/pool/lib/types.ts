@@ -7,6 +7,8 @@
  * редактируется.
  */
 
+import type { Stage } from "@/entities/stage/lib/types";
+
 /**
  * PoolLayoutStatus — статус раскладки номинации целиком (спека 0009,
  * урезан спекой 0011 до двух значений: `active/finished` были заглушкой
@@ -76,12 +78,18 @@ export type Pool = {
   standings: PoolStanding[];
 };
 
+/**
+ * PoolLayout — раскладка номинации по пулам (спека 0009) + этап, которому
+ * она принадлежит (спека 0017, FR-11): подпись состава пулов на экранах
+ * админа и зрителя.
+ */
 export type PoolLayout = {
   nominationId: string;
   status: PoolLayoutStatus;
   unassigned: FighterRef[];
   pools: Pool[];
   canUndo: boolean;
+  stage: Stage;
 };
 
 /** poolLayoutStatusLabel — человекочитаемый статус раскладки (RU). */

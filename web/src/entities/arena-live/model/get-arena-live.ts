@@ -1,6 +1,6 @@
 import "server-only";
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { boutBoardToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
 import type { BoutBoard } from "@/entities/pool/lib/types";
@@ -27,7 +27,7 @@ export async function getArenaLiveBoard(arenaId: string): Promise<BoutBoard | nu
   const accessToken = await getAccessToken();
   if (!accessToken) return null;
   try {
-    const res = await poolAdminClient.getBoutBoard(
+    const res = await stageAdminClient.getBoutBoard(
       { arenaId },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

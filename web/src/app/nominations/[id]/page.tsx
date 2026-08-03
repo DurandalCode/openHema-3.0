@@ -17,7 +17,7 @@ type PageProps = { params: Promise<{ id: string }> };
  * 0010) и, если пул поставлен на арену — площадкой и ярлыком «готовится к
  * запуску» (FR-12/AC-12). Read-only, без авторизации, доступен любому
  * гостю/бойцу. Пока раскладка `draft` — пулы не показываются (AC-14):
- * решает сервер (`PoolPublicService`), страница лишь рендерит пустой
+ * решает сервер (`StagePublicService`), страница лишь рендерит пустой
  * список через `NominationPoolsPublic`.
  *
  * SSR: `getNomination`/`getNominationLive` — публичные gRPC, без

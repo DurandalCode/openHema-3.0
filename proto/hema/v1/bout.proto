@@ -6,7 +6,7 @@ option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
 
 // BoutAdminService — чтение боёв, сформированных внутри пулов номинации
 // (спека 0010). Формирование запускается автоматически переходом раскладки
-// пула в ready (PoolAdminService.SetLayoutStatus) — отдельного RPC на
+// пула в ready (StageAdminService.SetLayoutStatus) — отдельного RPC на
 // формирование нет. Все RPC требуют роль ADMIN (RequireAdmin). Публичного
 // чтения в этом инкременте нет (спека 0010, FR-8).
 service BoutAdminService {
@@ -14,7 +14,7 @@ service BoutAdminService {
   // (сформированные при переходе раскладки в ready), отсортированные по
   // pool_id, затем sequence_number (порядок проведения внутри пула,
   // спека FR-3a/FR-3b). Клиент группирует по pool_id самостоятельно
-  // (пулы уже известны из PoolAdminService.GetLayout).
+  // (пулы уже известны из StageAdminService.GetLayout).
   rpc ListBoutsByNomination(ListBoutsByNominationRequest) returns (ListBoutsByNominationResponse);
 }
 
@@ -22,7 +22,7 @@ service BoutAdminService {
 // Не требует роли ADMIN. Тот же набор боёв, что и
 // BoutAdminService.ListBoutsByNomination (бои формируются только для пулов
 // готовой раскладки — фильтровать по готовности отдельно не нужно, публичная
-// видимость раскладки/пула регулируется PoolPublicService).
+// видимость раскладки/пула регулируется StagePublicService).
 service BoutPublicService {
   // ListPublicBoutsByNomination — см. BoutAdminService.ListBoutsByNomination.
   rpc ListPublicBoutsByNomination(ListPublicBoutsByNominationRequest) returns (ListPublicBoutsByNominationResponse);

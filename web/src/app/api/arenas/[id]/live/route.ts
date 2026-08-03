@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { arenaLiveToJson, timerCommandToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
-import { ScoreboardRole } from "@/gen/hema/v1/pool_pb";
+import { ScoreboardRole } from "@/gen/hema/v1/stage_pb";
 
 export const runtime = "nodejs";
 
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<Response
       }, 20000);
 
       try {
-        for await (const resp of poolAdminClient.watchArenaBoard(
+        for await (const resp of stageAdminClient.watchArenaBoard(
           { arenaId: id, role },
           { signal: req.signal, headers: { Authorization: `Bearer ${accessToken}` } },
         )) {

@@ -6,13 +6,13 @@ vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
-  poolAdminClient: { getLayout: vi.fn() },
+  stageAdminClient: { getLayout: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
   poolLayoutToJson: vi.fn((l) => l),
 }));
 
-import { poolAdminClient } from "@/lib/grpc/client";
+import { stageAdminClient } from "@/lib/grpc/client";
 import { getAccessToken } from "@/lib/session/cookies";
 import { poolLayoutToJson } from "@/lib/grpc/serialize";
 import { GET } from "./route";
@@ -30,12 +30,12 @@ describe("app/api/nominations/[id]/pool-layout route", () => {
     vi.mocked(getAccessToken).mockResolvedValue(undefined);
     const res = await GET(req(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(401);
-    expect(poolAdminClient.getLayout).not.toHaveBeenCalled();
+    expect(stageAdminClient.getLayout).not.toHaveBeenCalled();
   });
 
   it("returns layout JSON on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getLayout).mockResolvedValue({
+    vi.mocked(stageAdminClient.getLayout).mockResolvedValue({
       layout: { nominationId: "n1", status: "POOL_LAYOUT_STATUS_DRAFT" },
     } as never);
     vi.mocked(poolLayoutToJson).mockReturnValue({
@@ -47,7 +47,7 @@ describe("app/api/nominations/[id]/pool-layout route", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data).toEqual({ layout: { nominationId: "n1", status: "POOL_LAYOUT_STATUS_DRAFT" } });
-    expect(poolAdminClient.getLayout).toHaveBeenCalledWith(
+    expect(stageAdminClient.getLayout).toHaveBeenCalledWith(
       { nominationId: "n1" },
       { headers: { Authorization: "Bearer token" } },
     );
@@ -55,7 +55,7 @@ describe("app/api/nominations/[id]/pool-layout route", () => {
 
   it("maps ConnectError PermissionDenied → 403", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(poolAdminClient.getLayout).mockRejectedValue(
+    vi.mocked(stageAdminClient.getLayout).mockRejectedValue(
       new ConnectError("forbidden", Code.PermissionDenied),
     );
     const res = await GET(req(), { params: Promise.resolve({ id: "n1" }) });
