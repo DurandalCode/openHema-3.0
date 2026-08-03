@@ -68,76 +68,76 @@
 
 ## Трек A — модуль `stage`
 
-- [ ] T3. **domain** — `domain/domain.go`: `StageType`, `Stage`,
+- [x] T3. **domain** — `domain/domain.go`: `StageType`, `Stage`,
       `DefaultStageTitle`, поле `Stage` в `Layout`, `StageID` в `Pool`;
       порт `Repository` на `stageID` + `EnsureStage`/`StageByNomination`/
       `StagesByNomination`/`PoolsByStage`/`MembersByStage`/
       `AnySeatedInStage`; порт `BoutConductor` — три метода новой адресации.
       Red — через несобирающиеся `service`/`testutil` на следующих шагах.
-- [ ] T4. **testutil (fakes)** — `testutil/fake_repo.go`: хранилище этапов,
+- [x] T4. **testutil (fakes)** — `testutil/fake_repo.go`: хранилище этапов,
       `EnsureStage` (get-or-create) и `StageByNomination` (без создания),
       этапный инвариант членства; `fake_bout_conductor.go` — новые
       сигнатуры с записью полученных `poolIDs` (нужно для проверок «звали
       только со своими пулами»). `var _ domain.Repository = (*FakeRepo)(nil)`.
-- [ ] T5. **service (red→green): авто-этап и чтение без записи** —
+- [x] T5. **service (red→green): авто-этап и чтение без записи** —
       `service/service_test.go`: первая мутирующая операция создаёт этап
       `position=0`/`groups`/«Групповой этап» (AC-2, FR-4); повторные вызовы
       не дублируют; `GetLayout` на номинации без этапа отдаёт виртуальный
       этап и не создаёт строку → затем `stageForRead`/`stageForWrite` в
       `service.go`.
-- [ ] T6. **service (red→green): этапные гейты** — тесты: расфиксация
+- [x] T6. **service (red→green): этапные гейты** — тесты: расфиксация
       второго этапа не блокируется пулом первого на арене и его боями
       (AC-5, FR-8); `draft→ready` зовёт `GenerateForStage` только с пулами
       своего этапа, `ready→draft` — `ClearForPools` только со своими →
       затем правка `SetStatus`/`requireDraft`.
-- [ ] T7. **service (red→green): номинационное остаётся номинационным** —
+- [x] T7. **service (red→green): номинационное остаётся номинационным** —
       тесты: один боец в группах двух этапов допустим (AC-4, FR-7);
       синхронизация приёма заявок считает распределённых по всем этапам
       (AC-6, FR-9); `PruneMembers` чистит по всем этапам → затем правки
       `loadLayoutAndSync`/`ListPublicPools`/`NominationLive`.
-- [ ] T8. **repo + migrations** — `migrations/00001_init.sql` переписывается
+- [x] T8. **repo + migrations** — `migrations/00001_init.sql` переписывается
       в финальную форму по плану (`stages`, `pools.stage_id`,
       `pool_members` с `uq_members_stage_fighter`, `arena_id` +
       `uq_pools_arena`, `current_bout_id`), файлы `00002`–`00004`
       **удаляются**; `repo/queries/stage.sql` — stage-запросы вместо
       layout-запросов; `make sqlc`; `repo/repo.go`. Пересоздать БД.
-- [ ] T9. **api (red→green)** — `api/handler_test.go`: `GetLayout` отдаёт
+- [x] T9. **api (red→green)** — `api/handler_test.go`: `GetLayout` отдаёт
       `stage`, `ListPublicPools`/`GetNominationLive` — `stages` с одним
       элементом (AC-3); остальные RPC отвечают как раньше → затем
       `toProtoStage` и заполнение полей в `api/handler.go`.
 
 ## Трек B — модуль `bout`
 
-- [ ] T10. **service (red→green)** — `modules/bout/service/service_test.go`:
+- [x] T10. **service (red→green)** — `modules/bout/service/service_test.go`:
       `ClearForPools` удаляет бои только перечисленных пулов и не трогает
       бои соседнего пула той же номинации; `AnyStartedInPools` не видит
       начатых боёв вне списка; пустой список — no-op в обоих случаях →
       затем правка трёх методов в `service.go`.
-- [ ] T11. **repo** — `repo/queries/bout.sql`: `DeleteBoutsByPools` и
+- [x] T11. **repo** — `repo/queries/bout.sql`: `DeleteBoutsByPools` и
       `AnyStartedInPools` через `pool_id = ANY(...)`; `make sqlc`;
       `repo/repo.go`. Миграции модуля `bout` **не трогаем**.
 
 ## Трек C — web
 
-- [ ] T12. **serialize (red→green)** — тест в `lib/grpc/`: `stage`
+- [x] T12. **serialize (red→green)** — тест в `lib/grpc/`: `stage`
       пробрасывается в `poolLayoutToJson`, `stages` — в
       `nominationLiveToJson` → затем `stageToJson`/`stagesToJson` и вызовы.
-- [ ] T13. **entities** — `entities/stage/lib/types.ts` (`Stage`,
+- [x] T13. **entities** — `entities/stage/lib/types.ts` (`Stage`,
       `StageType`); поля `stage`/`stages` в типах `entities/pool`.
-- [ ] T14. **ui (red→green)** — `nomination-pools.test.tsx` и
+- [x] T14. **ui (red→green)** — `nomination-pools.test.tsx` и
       `nomination-pools-public.test.tsx`: заголовок этапа отрисован (AC-3)
       → затем заголовок в обоих компонентах. Роуты и адреса не трогаем.
 
 ## Волна 2 — join
 
-- [ ] T15. **адаптер** — `internal/platform/*_bout_conductor.go` под три
+- [x] T15. **адаптер** — `internal/platform/*_bout_conductor.go` под три
       переименованных метода порта (встреча треков A и B).
-- [ ] T16. **интеграционные с БД** — `modules/stage/integration/`:
+- [x] T16. **интеграционные с БД** — `modules/stage/integration/`:
       `uq_members_stage_fighter` разрешает того же бойца во втором этапе и
       запрещает второй пул внутри одного этапа (FR-7);
       `uq_pools_stage_number` разрешает одинаковые номера пулов в разных
       этапах; каскад `DELETE stage → pools → members` отрабатывает.
-- [ ] T17. **демо-сид** — `internal/demoseed`: `TRUNCATE` на
+- [x] T17. **демо-сид** — `internal/demoseed`: `TRUNCATE` на
       `stage.pool_members, stage.pools, stage.stages` (все три обязательно в
       одной команде — новый `FK pools → stages`), комментарий над вызовом
       под новые имена. Логика `SeedPoolsAndBouts` меняться **не должна** —
@@ -147,7 +147,7 @@
       `make demo-registered`, `make demo-bouts`, а печатаемые сидом ссылки
       (живой публичный экран номинации и экран ведения боя) открываются и
       показывают данные.
-- [ ] T18. **регресс** — пересоздать БД, `make demo-bouts`, пройти вручную:
+- [x] T18. **регресс** — пересоздать БД, `make demo-bouts`, пройти вручную:
       раскладка, постановка на арену, ведение боёв, табло с таймером,
       публичный экран, итоговая таблица (AC-1, AC-7); адреса экранов не
       изменились (AC-8).
