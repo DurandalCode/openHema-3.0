@@ -385,7 +385,7 @@ func setLayoutStatus(t *testing.T, c clients, nominationID string, status hemav1
 	t.Helper()
 	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{NominationId: nominationID, Status: status})
 	req.Header().Set("Authorization", adminBearer(t))
-	res, err := c.stage.SetLayoutStatus(context.Background(), req)
+	res, err := c.pool.SetLayoutStatus(context.Background(), req)
 	if err != nil {
 		t.Fatalf("SetLayoutStatus(%v): %v", status, err)
 	}
@@ -736,7 +736,7 @@ func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
 	// после снятия пула с арены (результаты защищены).
 	draftReq := connect.NewRequest(&hemav1.SetLayoutStatusRequest{NominationId: nomID, Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT})
 	draftReq.Header().Set("Authorization", adminBearer(t))
-	_, err = c.stage.SetLayoutStatus(context.Background(), draftReq)
+	_, err = c.pool.SetLayoutStatus(context.Background(), draftReq)
 	if err == nil {
 		t.Fatal("expected SetLayoutStatus(draft) to fail: nomination has a finished bout")
 	}
@@ -849,5 +849,154 @@ func TestIntegration_GetNominationLive_ReflectsConductedBout(t *testing.T) {
 		final.Bouts[0].State != hemav1.BoutState_BOUT_STATE_FINISHED ||
 		final.Bouts[0].ScoreA != 5 || final.Bouts[0].ScoreB != 3 {
 		t.Fatalf("expected the finished bout to keep score 5:3 in the live snapshot, got %+v", final.Bouts)
+	}
+}
+
+// ── Спека 0017: этапные инварианты на уровне БД (uq_members_stage_fighter,
+// uq_pools_stage_number, каскад stage → pools → members). Второй этап нигде
+// не создаётся через интерфейс в этом инкременте (FR-12) — заводится прямой
+// вставкой в stage.stages поверх реального пула соединений (Postgres из
+// testdb.Postgres, тот же, что использует composition root). ──
+
+// insertStage вставляет второй этап номинации напрямую в БД — единственный
+// способ получить состояние «у номинации два этапа» без RPC (спека 0017,
+// «Вне скоупа»: создание этапов через интерфейс — план 0020).
+func insertStage(t *testing.T, pool *pgxpool.Pool, nominationID string, position int, title string) string {
+	t.Helper()
+	var stageID string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO stage.stages (nomination_id, position, title, type, status)
+		 VALUES ($1, $2, $3, 'groups', 'ready') RETURNING id`,
+		nominationID, position, title,
+	).Scan(&stageID)
+	if err != nil {
+		t.Fatalf("insert stage: %v", err)
+	}
+	return stageID
+}
+
+// insertPoolInStage вставляет пул с заданным number в указанный этап.
+func insertPoolInStage(t *testing.T, pool *pgxpool.Pool, stageID, nominationID string, number int) string {
+	t.Helper()
+	var poolID string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO stage.pools (stage_id, nomination_id, number) VALUES ($1, $2, $3) RETURNING id`,
+		stageID, nominationID, number,
+	).Scan(&poolID)
+	if err != nil {
+		t.Fatalf("insert pool in stage: %v", err)
+	}
+	return poolID
+}
+
+// insertMember вставляет членство бойца в пуле; возвращает ошибку без
+// t.Fatalf — вызывающий сам решает, ожидается ли она (проверка уникальности).
+func insertMember(pool *pgxpool.Pool, poolID, stageID, nominationID, fighterID string) error {
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO stage.pool_members (pool_id, stage_id, nomination_id, fighter_id)
+		 VALUES ($1, $2, $3, $4)`,
+		poolID, stageID, nominationID, fighterID,
+	)
+	return err
+}
+
+// TestIntegration_SecondStage_SameFighterAllowed_SecondPoolInStageBlocked
+// проверяет этапный (не номинационный) инвариант членства (спека 0017,
+// FR-7): uq_members_stage_fighter разрешает того же бойца в пуле ВТОРОГО
+// этапа той же номинации (это и есть будущий переход групп → плейофф — не
+// нарушение), но по-прежнему запрещает второй пул ВНУТРИ одного этапа.
+func TestIntegration_SecondStage_SameFighterAllowed_SecondPoolInStageBlocked(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+
+	// Этап 1 (канонический) — через RPC, боец уже в нём.
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := c.pool.CreatePool(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	stage1PoolID := created.Msg.Layout.Pools[0].Id
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f1, PoolId: stage1PoolID})
+	assignReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
+		t.Fatalf("AssignFighter (stage 1): %v", err)
+	}
+
+	// Этап 2 — заведён напрямую в БД (FR-12).
+	stage2ID := insertStage(t, pool, nomID, 1, "Плейофф (заглушка для теста)")
+	stage2PoolA := insertPoolInStage(t, pool, stage2ID, nomID, 1)
+
+	// Тот же боец в пуле ДРУГОГО этапа — допустимо (FR-7).
+	if err := insertMember(pool, stage2PoolA, stage2ID, nomID, f1); err != nil {
+		t.Fatalf("expected same fighter allowed in a different stage's pool, got error: %v", err)
+	}
+
+	// Тот же боец во ВТОРОМ пуле ТОГО ЖЕ этапа — запрещено
+	// (uq_members_stage_fighter, инвариант не ослаблен).
+	stage2PoolB := insertPoolInStage(t, pool, stage2ID, nomID, 2)
+	if err := insertMember(pool, stage2PoolB, stage2ID, nomID, f1); err == nil {
+		t.Fatalf("expected uq_members_stage_fighter to block a second pool within the same stage")
+	}
+}
+
+// TestIntegration_SecondStage_SamePoolNumberAllowed проверяет, что
+// uq_pools_stage_number разрешает одинаковые номера пулов в разных этапах
+// одной номинации (спека 0017: нумерация — по этапу, не по номинации).
+func TestIntegration_SecondStage_SamePoolNumberAllowed(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.CreatePool(context.Background(), createReq); err != nil {
+		t.Fatalf("CreatePool (stage 1): %v", err)
+	}
+	// Пул номер 1 уже существует в этапе 1 (генерируется системой, спека
+	// 0009). Заводим второй этап с пулом того же номера 1 — не должно
+	// конфликтовать (уникальность — (stage_id, number), не
+	// (nomination_id, number)).
+	stage2ID := insertStage(t, pool, nomID, 1, "Плейофф (заглушка для теста)")
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO stage.pools (stage_id, nomination_id, number) VALUES ($1, $2, 1)`,
+		stage2ID, nomID,
+	); err != nil {
+		t.Fatalf("expected pool number 1 allowed in a second stage, got error: %v", err)
+	}
+}
+
+// TestIntegration_DeleteStage_CascadesPoolsAndMembers проверяет каскад
+// FK stage.pools.stage_id / stage.pool_members.pool_id → ON DELETE CASCADE:
+// удаление строки этапа сносит его пулы и членства (спека 0017, миграция
+// 00001_init.sql).
+func TestIntegration_DeleteStage_CascadesPoolsAndMembers(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Пётр", "")
+
+	stageID := insertStage(t, pool, nomID, 1, "Этап на удаление")
+	poolID := insertPoolInStage(t, pool, stageID, nomID, 1)
+	if err := insertMember(pool, poolID, stageID, nomID, f1); err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+
+	if _, err := pool.Exec(context.Background(), `DELETE FROM stage.stages WHERE id = $1`, stageID); err != nil {
+		t.Fatalf("delete stage: %v", err)
+	}
+
+	var poolCount, memberCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM stage.pools WHERE stage_id = $1`, stageID,
+	).Scan(&poolCount); err != nil {
+		t.Fatalf("count pools: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM stage.pool_members WHERE stage_id = $1`, stageID,
+	).Scan(&memberCount); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if poolCount != 0 || memberCount != 0 {
+		t.Fatalf("expected cascade delete of pools and members, got pools=%d members=%d", poolCount, memberCount)
 	}
 }
