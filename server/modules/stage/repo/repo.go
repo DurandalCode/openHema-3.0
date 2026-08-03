@@ -27,10 +27,10 @@ import (
 const uniqueViolation = "23505"
 
 // constraintPoolsArena — имя partial unique index, защищающего инвариант
-// «одна арена ↔ один пул» на уровне данных (см. migrations/00003_pool_arena.sql).
+// «одна арена ↔ один пул» на уровне данных (см. migrations/00001_init.sql).
 const constraintPoolsArena = "uq_pools_arena"
 
-// Repo — адаптер к PostgreSQL для модуля pool.
+// Repo — адаптер к PostgreSQL для модуля stage.
 type Repo struct {
 	pool *pgxpool.Pool
 	q    *sqlc.Queries
@@ -62,63 +62,99 @@ type undoPoolJSON struct {
 	FighterIDs []string `json:"fighter_ids,omitempty"`
 }
 
-// GetLayout возвращает статус, undo-снапшот и пулы номинации. Отсутствие
-// строки раскладки трактуется как draft + UndoNone (lazy-init, FR-14).
-func (r *Repo) GetLayout(ctx context.Context, nominationID string) (domain.LayoutStatus, domain.UndoState, []domain.Pool, error) {
+// ---------------------------------------------------------------------
+// Этапы (спека 0017).
+// ---------------------------------------------------------------------
+
+// EnsureStage — get-or-create канонического этапа номинации (FR-4):
+// SELECT, и если не найдено — INSERT. «Ровно один этап на номинацию» —
+// инвариант сервиса, не БД (нет unique-констрейнта на nomination_id,
+// план «Модуль stage»): при гонке параллельного первого мутирующего вызова
+// возможна кратковременная дублирующая строка — принятый в плане trade-off,
+// снимается конструктором схемы в 0020.
+func (r *Repo) EnsureStage(ctx context.Context, nominationID string) (domain.Stage, error) {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
-		return "", domain.UndoState{}, nil, fmt.Errorf("parse nomination id: %w", err)
+		return domain.Stage{}, fmt.Errorf("parse nomination id: %w", err)
 	}
-
-	status := domain.LayoutDraft
-	var undo domain.UndoState
-	row, err := r.q.GetPoolLayout(ctx, nid)
+	row, err := r.q.GetStageByNomination(ctx, nid)
 	switch {
 	case err == nil:
-		status = domain.LayoutStatus(row.Status)
-		undo, err = decodeUndo(row.UndoKind, row.UndoData)
-		if err != nil {
-			return "", domain.UndoState{}, nil, err
-		}
+		return toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData)
 	case errors.Is(err, pgx.ErrNoRows):
-		// lazy-init: раскладки ещё нет — draft, без undo.
+		inserted, err := r.q.InsertStage(ctx, sqlc.InsertStageParams{
+			NominationID: nid, Position: 0, Title: domain.DefaultStageTitle, Type: string(domain.StageTypeGroups),
+		})
+		if err != nil {
+			return domain.Stage{}, fmt.Errorf("insert stage: %w", err)
+		}
+		return toDomainStage(inserted.ID, inserted.NominationID, inserted.Position, inserted.Title, inserted.Type, inserted.Status, inserted.UndoKind, inserted.UndoData)
 	default:
-		return "", domain.UndoState{}, nil, fmt.Errorf("get pool layout: %w", err)
+		return domain.Stage{}, fmt.Errorf("get stage by nomination: %w", err)
 	}
-
-	pools, err := r.listPools(ctx, nid)
-	if err != nil {
-		return "", domain.UndoState{}, nil, err
-	}
-	return status, undo, pools, nil
 }
 
-func (r *Repo) listPools(ctx context.Context, nid uuid.UUID) ([]domain.Pool, error) {
-	poolRows, err := r.q.ListPoolsByNomination(ctx, nid)
+// StageByNomination — чтение канонического этапа без создания (FR-4:
+// found=false, если строки ещё нет — вызывающий трактует как виртуальный
+// этап).
+func (r *Repo) StageByNomination(ctx context.Context, nominationID string) (domain.Stage, bool, error) {
+	nid, err := uuid.Parse(nominationID)
 	if err != nil {
-		return nil, fmt.Errorf("list pools: %w", err)
+		return domain.Stage{}, false, fmt.Errorf("parse nomination id: %w", err)
 	}
-	memberRows, err := r.q.ListMembersByNomination(ctx, nid)
+	row, err := r.q.GetStageByNomination(ctx, nid)
 	if err != nil {
-		return nil, fmt.Errorf("list members: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Stage{}, false, nil
+		}
+		return domain.Stage{}, false, fmt.Errorf("get stage by nomination: %w", err)
 	}
-	byPool := make(map[uuid.UUID][]domain.FighterRef, len(poolRows))
-	for _, m := range memberRows {
-		byPool[m.PoolID] = append(byPool[m.PoolID], domain.FighterRef{ID: m.FighterID.String()})
+	stage, err := toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData)
+	return stage, true, err
+}
+
+// StageByID резолвит этап по id (пул адресует этап через pool.StageID,
+// напр. SeatPoolOnArena).
+func (r *Repo) StageByID(ctx context.Context, stageID string) (domain.Stage, bool, error) {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return domain.Stage{}, false, fmt.Errorf("parse stage id: %w", err)
 	}
-	out := make([]domain.Pool, 0, len(poolRows))
-	for _, p := range poolRows {
-		out = append(out, domain.Pool{
-			ID: p.ID.String(), NominationID: p.NominationID.String(), Number: int(p.Number),
-			Members: byPool[p.ID], ArenaID: fromNullableUUID(p.ArenaID),
-			CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
-		})
+	row, err := r.q.GetStageByID(ctx, sid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Stage{}, false, nil
+		}
+		return domain.Stage{}, false, fmt.Errorf("get stage by id: %w", err)
+	}
+	stage, err := toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData)
+	return stage, true, err
+}
+
+// StagesByNomination возвращает все этапы номинации (для публичных ответов,
+// repeated stages) — в этой спеке не более одного.
+func (r *Repo) StagesByNomination(ctx context.Context, nominationID string) ([]domain.Stage, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return nil, fmt.Errorf("parse nomination id: %w", err)
+	}
+	rows, err := r.q.ListStagesByNomination(ctx, nid)
+	if err != nil {
+		return nil, fmt.Errorf("list stages by nomination: %w", err)
+	}
+	out := make([]domain.Stage, 0, len(rows))
+	for _, row := range rows {
+		stage, err := toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, stage)
 	}
 	return out, nil
 }
 
-// GetPool возвращает один пул по id (включая ArenaID/CurrentBoutID, спека
-// 0011/0013).
+// GetPool возвращает один пул по id (включая StageID/ArenaID/CurrentBoutID,
+// спека 0011/0013/0017).
 func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) {
 	pid, err := uuid.Parse(poolID)
 	if err != nil {
@@ -140,16 +176,17 @@ func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) 
 		members[i] = domain.FighterRef{ID: id.String()}
 	}
 	return domain.Pool{
-		ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number), Members: members,
+		ID: row.ID.String(), StageID: row.StageID.String(), NominationID: row.NominationID.String(),
+		Number: int(row.Number), Members: members,
 		ArenaID: fromNullableUUID(row.ArenaID), CurrentBoutID: fromNullableUUID(row.CurrentBoutID),
 	}, nil
 }
 
-// CreatePool вставляет пул, материализует раскладку в draft, очищает undo.
-func (r *Repo) CreatePool(ctx context.Context, nominationID string, number int) (domain.Pool, error) {
-	nid, err := uuid.Parse(nominationID)
+// CreatePool вставляет пул в этап, очищает undo этапа.
+func (r *Repo) CreatePool(ctx context.Context, stageID string, number int) (domain.Pool, error) {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return domain.Pool{}, fmt.Errorf("parse nomination id: %w", err)
+		return domain.Pool{}, fmt.Errorf("parse stage id: %w", err)
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -159,20 +196,23 @@ func (r *Repo) CreatePool(ctx context.Context, nominationID string, number int) 
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := r.q.WithTx(tx)
 
-	row, err := q.InsertPool(ctx, sqlc.InsertPoolParams{NominationID: nid, Number: int32(number)})
+	row, err := q.InsertPool(ctx, sqlc.InsertPoolParams{StageID: sid, Number: int32(number)})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Pool{}, domain.ErrNotFound
+		}
 		return domain.Pool{}, fmt.Errorf("insert pool: %w", err)
 	}
-	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
-		return domain.Pool{}, fmt.Errorf("ensure layout: %w", err)
+	if err := q.ClearStageUndo(ctx, sid); err != nil {
+		return domain.Pool{}, fmt.Errorf("clear stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Pool{}, fmt.Errorf("commit: %w", err)
 	}
-	return domain.Pool{ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number)}, nil
+	return domain.Pool{ID: row.ID.String(), StageID: row.StageID.String(), NominationID: row.NominationID.String(), Number: int(row.Number)}, nil
 }
 
-// DeletePool атомарно удаляет пул и записывает undo-снапшот удалённого пула.
+// DeletePool атомарно удаляет пул и записывает undo-снапшот его этапа.
 func (r *Repo) DeletePool(ctx context.Context, poolID string) error {
 	pid, err := uuid.Parse(poolID)
 	if err != nil {
@@ -204,10 +244,10 @@ func (r *Repo) DeletePool(ctx context.Context, poolID string) error {
 	if err != nil {
 		return err
 	}
-	if err := q.SetLayoutUndo(ctx, sqlc.SetLayoutUndoParams{
-		NominationID: poolRow.NominationID, UndoKind: string(domain.UndoDeletePool), UndoData: undoData,
+	if err := q.SetStageUndo(ctx, sqlc.SetStageUndoParams{
+		ID: poolRow.StageID, UndoKind: string(domain.UndoDeletePool), UndoData: undoData,
 	}); err != nil {
-		return fmt.Errorf("set layout undo: %w", err)
+		return fmt.Errorf("set stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -215,13 +255,12 @@ func (r *Repo) DeletePool(ctx context.Context, poolID string) error {
 	return nil
 }
 
-// ResetLayout атомарно удаляет все пулы номинации, записывает undo-снапшот
-// всех пулов с их членствами (kind=reset), гарантирует статус draft
-// (FR-4a, undoable — FR-7a).
-func (r *Repo) ResetLayout(ctx context.Context, nominationID string) error {
-	nid, err := uuid.Parse(nominationID)
+// ResetLayout атомарно удаляет все пулы этапа, записывает undo-снапшот всех
+// пулов с их членствами (kind=reset).
+func (r *Repo) ResetLayout(ctx context.Context, stageID string) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -231,12 +270,12 @@ func (r *Repo) ResetLayout(ctx context.Context, nominationID string) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := r.q.WithTx(tx)
 
-	// Снапшот всех пулов номинации (number + fighter_ids) до удаления.
-	poolRows, err := q.ListPoolsByNomination(ctx, nid)
+	// Снапшот всех пулов этапа (number + fighter_ids) до удаления.
+	poolRows, err := q.ListPoolsByStage(ctx, sid)
 	if err != nil {
 		return fmt.Errorf("list pools: %w", err)
 	}
-	memberRows, err := q.ListMembersByNomination(ctx, nid)
+	memberRows, err := q.ListMembersByStage(ctx, sid)
 	if err != nil {
 		return fmt.Errorf("list members: %w", err)
 	}
@@ -249,17 +288,17 @@ func (r *Repo) ResetLayout(ctx context.Context, nominationID string) error {
 		pools = append(pools, undoPoolJSON{Number: int(p.Number), FighterIDs: byPool[p.ID]})
 	}
 
-	if err := q.DeleteAllPoolsByNomination(ctx, nid); err != nil {
+	if err := q.DeleteAllPoolsByStage(ctx, sid); err != nil {
 		return fmt.Errorf("delete all pools: %w", err)
 	}
 	undoData, err := encodeUndo(undoDataJSON{Pools: pools})
 	if err != nil {
 		return err
 	}
-	if err := q.SetLayoutUndo(ctx, sqlc.SetLayoutUndoParams{
-		NominationID: nid, UndoKind: string(domain.UndoReset), UndoData: undoData,
+	if err := q.SetStageUndo(ctx, sqlc.SetStageUndoParams{
+		ID: sid, UndoKind: string(domain.UndoReset), UndoData: undoData,
 	}); err != nil {
-		return fmt.Errorf("set layout undo: %w", err)
+		return fmt.Errorf("set stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -267,16 +306,15 @@ func (r *Repo) ResetLayout(ctx context.Context, nominationID string) error {
 	return nil
 }
 
-// UndoReset пересоздаёт все пулы из снапшота с теми же номерами и членами,
-// очищает undo (AC-13a4). Идемпотентно: повторный вызов даёт тот же результат
-// (InsertPool на свободный номер + InsertMember; если пул с номером уже
-// существует — UNIQUE(nomination_id, number) даст конфликт, но после undo
-// undo обнулён, повторный undo не должен доходить сюда; для надёжности
-// используем тот же инвариант «любая мутация обнуляет undo» → номера свободны).
-func (r *Repo) UndoReset(ctx context.Context, nominationID string, pools []domain.ResetPool) error {
-	nid, err := uuid.Parse(nominationID)
+// UndoReset пересоздаёт все пулы этапа из снапшота с теми же номерами и
+// членами, очищает undo (AC-13a4). Идемпотентно: повторный вызов даёт тот
+// же результат (InsertPool на свободный номер + InsertMember; если пул с
+// номером уже существует — UNIQUE(stage_id, number) даст конфликт, но после
+// undo undo обнулён, повторный undo не должен доходить сюда).
+func (r *Repo) UndoReset(ctx context.Context, stageID string, pools []domain.ResetPool) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -291,20 +329,18 @@ func (r *Repo) UndoReset(ctx context.Context, nominationID string, pools []domai
 		if err != nil {
 			return err
 		}
-		poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{NominationID: nid, Number: int32(p.Number)})
+		poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{StageID: sid, Number: int32(p.Number)})
 		if err != nil {
 			return fmt.Errorf("insert pool %d: %w", p.Number, err)
 		}
 		for _, fid := range fids {
-			if err := q.InsertMember(ctx, sqlc.InsertMemberParams{
-				PoolID: poolRow.ID, NominationID: nid, FighterID: fid,
-			}); err != nil {
+			if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: poolRow.ID, FighterID: fid}); err != nil {
 				return fmt.Errorf("insert member: %w", err)
 			}
 		}
 	}
-	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
-		return fmt.Errorf("ensure layout: %w", err)
+	if err := q.ClearStageUndo(ctx, sid); err != nil {
+		return fmt.Errorf("clear stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -312,12 +348,12 @@ func (r *Repo) UndoReset(ctx context.Context, nominationID string, pools []domai
 	return nil
 }
 
-// AssignFighter кладёт бойца в пул: move одним действием, если боец уже был
-// в другом пуле этой номинации (FR-1/FR-5).
-func (r *Repo) AssignFighter(ctx context.Context, nominationID, fighterID, poolID string) error {
-	nid, err := uuid.Parse(nominationID)
+// AssignFighter кладёт бойца в пул этапа: move одним действием, если боец
+// уже был в другом пуле ЭТОГО этапа (спека 0017, FR-1/FR-5/FR-7).
+func (r *Repo) AssignFighter(ctx context.Context, stageID, fighterID, poolID string) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 	fid, err := uuid.Parse(fighterID)
 	if err != nil {
@@ -342,19 +378,19 @@ func (r *Repo) AssignFighter(ctx context.Context, nominationID, fighterID, poolI
 		}
 		return fmt.Errorf("get pool: %w", err)
 	}
-	if poolRow.NominationID != nid {
+	if poolRow.StageID != sid {
 		return domain.ErrNotFound
 	}
 	if err := q.DeleteMemberByFighter(ctx, sqlc.DeleteMemberByFighterParams{
-		NominationID: nid, FighterID: fid,
+		StageID: sid, FighterID: fid,
 	}); err != nil {
 		return fmt.Errorf("delete existing membership: %w", err)
 	}
-	if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: pid, NominationID: nid, FighterID: fid}); err != nil {
+	if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: pid, FighterID: fid}); err != nil {
 		return fmt.Errorf("insert member: %w", err)
 	}
-	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
-		return fmt.Errorf("ensure layout: %w", err)
+	if err := q.ClearStageUndo(ctx, sid); err != nil {
+		return fmt.Errorf("clear stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -362,11 +398,11 @@ func (r *Repo) AssignFighter(ctx context.Context, nominationID, fighterID, poolI
 	return nil
 }
 
-// UnassignFighter убирает бойца из пула, если он там был (идемпотентно).
-func (r *Repo) UnassignFighter(ctx context.Context, nominationID, fighterID string) error {
-	nid, err := uuid.Parse(nominationID)
+// UnassignFighter убирает бойца из пула этапа, если он там был (идемпотентно).
+func (r *Repo) UnassignFighter(ctx context.Context, stageID, fighterID string) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 	fid, err := uuid.Parse(fighterID)
 	if err != nil {
@@ -381,12 +417,12 @@ func (r *Repo) UnassignFighter(ctx context.Context, nominationID, fighterID stri
 	q := r.q.WithTx(tx)
 
 	if err := q.DeleteMemberByFighter(ctx, sqlc.DeleteMemberByFighterParams{
-		NominationID: nid, FighterID: fid,
+		StageID: sid, FighterID: fid,
 	}); err != nil {
 		return fmt.Errorf("delete membership: %w", err)
 	}
-	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
-		return fmt.Errorf("ensure layout: %w", err)
+	if err := q.ClearStageUndo(ctx, sid); err != nil {
+		return fmt.Errorf("clear stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -394,12 +430,12 @@ func (r *Repo) UnassignFighter(ctx context.Context, nominationID, fighterID stri
 	return nil
 }
 
-// ApplyAutoDistribute атомарно применяет assignments и записывает undo
+// ApplyAutoDistribute атомарно применяет assignments и записывает undo этапа
 // (kind=auto).
-func (r *Repo) ApplyAutoDistribute(ctx context.Context, nominationID string, assignments []domain.Assignment) error {
-	nid, err := uuid.Parse(nominationID)
+func (r *Repo) ApplyAutoDistribute(ctx context.Context, stageID string, assignments []domain.Assignment) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -419,7 +455,7 @@ func (r *Repo) ApplyAutoDistribute(ctx context.Context, nominationID string, ass
 		if err != nil {
 			return fmt.Errorf("parse pool id: %w", err)
 		}
-		if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: pid, NominationID: nid, FighterID: fid}); err != nil {
+		if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: pid, FighterID: fid}); err != nil {
 			return fmt.Errorf("insert member: %w", err)
 		}
 		fighterIDs = append(fighterIDs, a.FighterID)
@@ -429,10 +465,10 @@ func (r *Repo) ApplyAutoDistribute(ctx context.Context, nominationID string, ass
 	if err != nil {
 		return err
 	}
-	if err := q.SetLayoutUndo(ctx, sqlc.SetLayoutUndoParams{
-		NominationID: nid, UndoKind: string(domain.UndoAuto), UndoData: undoData,
+	if err := q.SetStageUndo(ctx, sqlc.SetStageUndoParams{
+		ID: sid, UndoKind: string(domain.UndoAuto), UndoData: undoData,
 	}); err != nil {
-		return fmt.Errorf("set layout undo: %w", err)
+		return fmt.Errorf("set stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -440,11 +476,11 @@ func (r *Repo) ApplyAutoDistribute(ctx context.Context, nominationID string, ass
 	return nil
 }
 
-// UndoAuto удаляет членства перечисленных fighterIDs, очищает undo.
-func (r *Repo) UndoAuto(ctx context.Context, nominationID string, fighterIDs []string) error {
-	nid, err := uuid.Parse(nominationID)
+// UndoAuto удаляет членства перечисленных fighterIDs в этапе, очищает undo.
+func (r *Repo) UndoAuto(ctx context.Context, stageID string, fighterIDs []string) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 	fids, err := parseUUIDs(fighterIDs)
 	if err != nil {
@@ -459,12 +495,12 @@ func (r *Repo) UndoAuto(ctx context.Context, nominationID string, fighterIDs []s
 	q := r.q.WithTx(tx)
 
 	if err := q.DeleteMembersByFighterIDs(ctx, sqlc.DeleteMembersByFighterIDsParams{
-		NominationID: nid, FighterIds: fids,
+		StageID: sid, FighterIds: fids,
 	}); err != nil {
 		return fmt.Errorf("delete members: %w", err)
 	}
-	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
-		return fmt.Errorf("ensure layout: %w", err)
+	if err := q.ClearStageUndo(ctx, sid); err != nil {
+		return fmt.Errorf("clear stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -472,11 +508,11 @@ func (r *Repo) UndoAuto(ctx context.Context, nominationID string, fighterIDs []s
 	return nil
 }
 
-// UndoDeletePool пересоздаёт пул с тем же number и членами, очищает undo.
-func (r *Repo) UndoDeletePool(ctx context.Context, nominationID string, number int, fighterIDs []string) error {
-	nid, err := uuid.Parse(nominationID)
+// UndoDeletePool пересоздаёт пул этапа с тем же number и членами, очищает undo.
+func (r *Repo) UndoDeletePool(ctx context.Context, stageID string, number int, fighterIDs []string) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
 	fids, err := parseUUIDs(fighterIDs)
 	if err != nil {
@@ -490,19 +526,17 @@ func (r *Repo) UndoDeletePool(ctx context.Context, nominationID string, number i
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := r.q.WithTx(tx)
 
-	poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{NominationID: nid, Number: int32(number)})
+	poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{StageID: sid, Number: int32(number)})
 	if err != nil {
 		return fmt.Errorf("insert pool: %w", err)
 	}
 	for _, fid := range fids {
-		if err := q.InsertMember(ctx, sqlc.InsertMemberParams{
-			PoolID: poolRow.ID, NominationID: nid, FighterID: fid,
-		}); err != nil {
+		if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: poolRow.ID, FighterID: fid}); err != nil {
 			return fmt.Errorf("insert member: %w", err)
 		}
 	}
-	if err := q.EnsureLayoutAndClearUndo(ctx, nid); err != nil {
-		return fmt.Errorf("ensure layout: %w", err)
+	if err := q.ClearStageUndo(ctx, sid); err != nil {
+		return fmt.Errorf("clear stage undo: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
@@ -510,8 +544,9 @@ func (r *Repo) UndoDeletePool(ctx context.Context, nominationID string, number i
 	return nil
 }
 
-// PruneMembers удаляет членства бойцов, которых нет среди activeFighterIDs
-// (FR-15). Не трогает undo.
+// PruneMembers удаляет членства бойцов номинации (по всем её этапам),
+// которых нет среди activeFighterIDs (FR-15). Не трогает undo. Остаётся
+// номинационным (спека 0017, FR-9).
 func (r *Repo) PruneMembers(ctx context.Context, nominationID string, activeFighterIDs []string) error {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
@@ -529,19 +564,104 @@ func (r *Repo) PruneMembers(ctx context.Context, nominationID string, activeFigh
 	return nil
 }
 
-// SetStatus задаёт статус раскладки, очищает undo.
-func (r *Repo) SetStatus(ctx context.Context, nominationID string, status domain.LayoutStatus) error {
-	nid, err := uuid.Parse(nominationID)
+// SetStatus задаёт статус этапа, очищает undo.
+func (r *Repo) SetStatus(ctx context.Context, stageID string, status domain.LayoutStatus) error {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("parse stage id: %w", err)
 	}
-	if err := r.q.SetLayoutStatus(ctx, sqlc.SetLayoutStatusParams{
-		NominationID: nid, Status: string(status),
+	if err := r.q.SetStageStatus(ctx, sqlc.SetStageStatusParams{
+		ID: sid, Status: string(status),
 	}); err != nil {
-		return fmt.Errorf("set layout status: %w", err)
+		return fmt.Errorf("set stage status: %w", err)
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------
+// Чтения пулов/членств по этапу и по номинации целиком (спека 0017).
+// ---------------------------------------------------------------------
+
+// PoolsByStage возвращает bare-пулы этапа (без Members — см. MembersByStage).
+func (r *Repo) PoolsByStage(ctx context.Context, stageID string) ([]domain.Pool, error) {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return nil, fmt.Errorf("parse stage id: %w", err)
+	}
+	rows, err := r.q.ListPoolsByStage(ctx, sid)
+	if err != nil {
+		return nil, fmt.Errorf("list pools by stage: %w", err)
+	}
+	out := make([]domain.Pool, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, domain.Pool{
+			ID: p.ID.String(), StageID: p.StageID.String(), NominationID: p.NominationID.String(), Number: int(p.Number),
+			ArenaID: fromNullableUUID(p.ArenaID), CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
+		})
+	}
+	return out, nil
+}
+
+// MembersByStage возвращает сырые членства этапа.
+func (r *Repo) MembersByStage(ctx context.Context, stageID string) ([]domain.PoolMember, error) {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return nil, fmt.Errorf("parse stage id: %w", err)
+	}
+	rows, err := r.q.ListMembersByStage(ctx, sid)
+	if err != nil {
+		return nil, fmt.Errorf("list members by stage: %w", err)
+	}
+	out := make([]domain.PoolMember, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, domain.PoolMember{PoolID: m.PoolID.String(), FighterID: m.FighterID.String()})
+	}
+	return out, nil
+}
+
+// PoolsByNomination возвращает bare-пулы номинации целиком, по всем её
+// этапам (спека 0017, FR-9).
+func (r *Repo) PoolsByNomination(ctx context.Context, nominationID string) ([]domain.Pool, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return nil, fmt.Errorf("parse nomination id: %w", err)
+	}
+	rows, err := r.q.ListPoolsByNomination(ctx, nid)
+	if err != nil {
+		return nil, fmt.Errorf("list pools by nomination: %w", err)
+	}
+	out := make([]domain.Pool, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, domain.Pool{
+			ID: p.ID.String(), StageID: p.StageID.String(), NominationID: p.NominationID.String(), Number: int(p.Number),
+			ArenaID: fromNullableUUID(p.ArenaID), CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
+		})
+	}
+	return out, nil
+}
+
+// MembersByNomination возвращает сырые членства номинации целиком, по всем
+// её этапам.
+func (r *Repo) MembersByNomination(ctx context.Context, nominationID string) ([]domain.PoolMember, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return nil, fmt.Errorf("parse nomination id: %w", err)
+	}
+	rows, err := r.q.ListMembersByNomination(ctx, nid)
+	if err != nil {
+		return nil, fmt.Errorf("list members by nomination: %w", err)
+	}
+	out := make([]domain.PoolMember, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, domain.PoolMember{PoolID: m.PoolID.String(), FighterID: m.FighterID.String()})
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------
+// Арена/ведение боя (спека 0011/0013, poolID-адресация не задета спекой
+// 0017).
+// ---------------------------------------------------------------------
 
 // SeatPool закрепляет пул за площадкой (спека 0011, FR-7). Нарушение
 // partial unique index uq_pools_arena (арена уже занята другим пулом,
@@ -604,13 +724,14 @@ func (r *Repo) PoolsForArena(ctx context.Context, arenaID string) (domain.Pool, 
 		members[i] = domain.FighterRef{ID: id.String()}
 	}
 	return domain.Pool{
-		ID: row.ID.String(), NominationID: row.NominationID.String(), Number: int(row.Number), Members: members,
+		ID: row.ID.String(), StageID: row.StageID.String(), NominationID: row.NominationID.String(),
+		Number: int(row.Number), Members: members,
 		ArenaID: fromNullableUUID(row.ArenaID), CurrentBoutID: fromNullableUUID(row.CurrentBoutID),
 	}, true, nil
 }
 
-// ReadyUnseatedPools возвращает пулы в статусе «готов», ещё не поставленные
-// ни на одну арену (FR-9).
+// ReadyUnseatedPools возвращает пулы в статусе «готов» (раскладка их этапа
+// ready), ещё не поставленные ни на одну арену (FR-9).
 func (r *Repo) ReadyUnseatedPools(ctx context.Context) ([]domain.Pool, error) {
 	rows, err := r.q.ListReadyUnseatedPools(ctx)
 	if err != nil {
@@ -627,7 +748,8 @@ func (r *Repo) ReadyUnseatedPools(ctx context.Context) ([]domain.Pool, error) {
 			members[i] = domain.FighterRef{ID: id.String()}
 		}
 		out = append(out, domain.Pool{
-			ID: p.ID.String(), NominationID: p.NominationID.String(), Number: int(p.Number), Members: members,
+			ID: p.ID.String(), StageID: p.StageID.String(), NominationID: p.NominationID.String(),
+			Number: int(p.Number), Members: members,
 			ArenaID: fromNullableUUID(p.ArenaID), CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
 		})
 	}
@@ -656,18 +778,35 @@ func (r *Repo) SetCurrentBout(ctx context.Context, poolID, boutID string) error 
 	return nil
 }
 
-// AnySeatedInNomination — стоит ли хотя бы один пул номинации на арене
-// (гейт FR-3).
-func (r *Repo) AnySeatedInNomination(ctx context.Context, nominationID string) (bool, error) {
-	nid, err := uuid.Parse(nominationID)
+// AnySeatedInStage — стоит ли хотя бы один пул этапа на арене (гейт FR-8
+// спеки 0017, было AnySeatedInNomination).
+func (r *Repo) AnySeatedInStage(ctx context.Context, stageID string) (bool, error) {
+	sid, err := uuid.Parse(stageID)
 	if err != nil {
-		return false, fmt.Errorf("parse nomination id: %w", err)
+		return false, fmt.Errorf("parse stage id: %w", err)
 	}
-	exists, err := r.q.ExistsSeatedInNomination(ctx, nid)
+	exists, err := r.q.ExistsSeatedInStage(ctx, sid)
 	if err != nil {
-		return false, fmt.Errorf("exists seated in nomination: %w", err)
+		return false, fmt.Errorf("exists seated in stage: %w", err)
 	}
 	return exists, nil
+}
+
+// ---------------------------------------------------------------------
+// Конверсии/хелперы.
+// ---------------------------------------------------------------------
+
+// toDomainStage собирает domain.Stage из полей строки stage.stages (общая
+// форма у GetStageByNomination/GetStageByID/InsertStage/ListStagesByNomination).
+func toDomainStage(id, nominationID uuid.UUID, position int32, title, stageType, status, undoKind string, undoData []byte) (domain.Stage, error) {
+	undo, err := decodeUndo(undoKind, undoData)
+	if err != nil {
+		return domain.Stage{}, err
+	}
+	return domain.Stage{
+		ID: id.String(), NominationID: nominationID.String(), Position: int(position),
+		Title: title, Type: domain.StageType(stageType), Status: domain.LayoutStatus(status), Undo: undo,
+	}, nil
 }
 
 func decodeUndo(kind string, data []byte) (domain.UndoState, error) {
