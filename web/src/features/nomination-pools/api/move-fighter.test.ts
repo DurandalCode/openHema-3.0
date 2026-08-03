@@ -20,7 +20,14 @@ function pool(id: string, members: FighterRef[]): Pool {
   };
 }
 function layout(pools: Pool[], unassigned: FighterRef[] = [], canUndo = false): PoolLayout {
-  return { nominationId: "n1", status: "POOL_LAYOUT_STATUS_DRAFT", unassigned, pools, canUndo };
+  return {
+    nominationId: "n1",
+    status: "POOL_LAYOUT_STATUS_DRAFT",
+    unassigned,
+    pools,
+    canUndo,
+    stage: { id: "stage-1", nominationId: "n1", position: 0, title: "Групповой этап", type: "STAGE_TYPE_GROUPS" },
+  };
 }
 
 describe("moveFighterInLayout", () => {

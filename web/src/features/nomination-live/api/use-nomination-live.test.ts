@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNominationLive } from "./use-nomination-live";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
 
-const initial: NominationLiveSnapshotDto = { nominationId: "n1", pools: [] };
+const initial: NominationLiveSnapshotDto = { nominationId: "n1", pools: [], stages: [] };
 const updated: NominationLiveSnapshotDto = {
   nominationId: "n1",
   pools: [
@@ -24,6 +24,9 @@ const updated: NominationLiveSnapshotDto = {
       bouts: [],
       currentBoutId: "",
     },
+  ],
+  stages: [
+    { id: "stage-1", nominationId: "n1", position: 0, title: "Групповой этап", type: "STAGE_TYPE_GROUPS" },
   ],
 };
 

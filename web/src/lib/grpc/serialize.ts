@@ -24,12 +24,14 @@ import {
   NominationLiveSnapshotSchema,
   ArenaLiveSnapshotSchema,
   TimerCommandSchema,
+  StageSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
   type NominationLiveSnapshot,
   type ArenaLiveSnapshot,
   type TimerCommand,
+  type Stage,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -75,6 +77,10 @@ import type {
   NominationLiveSnapshotDto,
   LivePoolDto,
 } from "@/entities/nomination-live/lib/types";
+import type {
+  Stage as StageDto,
+  StageType as StageTypeDto,
+} from "@/entities/stage/lib/types";
 import type {
   ArenaLiveSnapshotDto,
   TimerFrameDto,
@@ -347,10 +353,35 @@ function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
 }
 
 /**
+ * stageToJson превращает protobuf-сообщение Stage в обычный JSON-объект
+ * (спека 0017): копия полей 1:1 (id/nominationId/position/title/type),
+ * `type` — строка, в которую сериализует generated-enum (`STAGE_TYPE_GROUPS`),
+ * без доменного маппинга.
+ */
+export function stageToJson(stage: Stage | undefined): StageDto | null {
+  if (!stage) return null;
+  const raw = toJson(StageSchema, stage) as Partial<StageDto>;
+  return {
+    id: raw.id ?? "",
+    nominationId: raw.nominationId ?? "",
+    position: raw.position ?? 0,
+    title: raw.title ?? "",
+    type: (raw.type as StageTypeDto) ?? "STAGE_TYPE_UNSPECIFIED",
+  };
+}
+
+/** stagesToJson превращает массив protobuf Stage в массив DTO (спека 0017). */
+export function stagesToJson(stages: Stage[] | undefined): StageDto[] {
+  if (!stages) return [];
+  return stages.map((s) => stageToJson(s)).filter((s): s is StageDto => s !== null);
+}
+
+/**
  * poolLayoutToJson превращает protobuf-сообщение PoolLayout в обычный
  * JSON-объект (спека 0009). `status` — строковый литерал; `pools`/
  * `unassigned` — нормализованные массивы (без undefined-полей). Каждый пул
- * несёт свой статус/площадку (спека 0011).
+ * несёт свой статус/площадку (спека 0011). `stage` — этап, которому
+ * принадлежит раскладка (спека 0017, FR-11).
  */
 export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto | null {
   if (!layout) return null;
@@ -361,6 +392,13 @@ export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto 
     unassigned: Array.isArray(raw.unassigned) ? raw.unassigned.map(poolFighterRefToJson) : [],
     pools: Array.isArray(raw.pools) ? raw.pools.map(poolRawToDto) : [],
     canUndo: raw.canUndo ?? false,
+    stage: stageToJson(layout.stage) ?? {
+      id: "",
+      nominationId: "",
+      position: 0,
+      title: "",
+      type: "STAGE_TYPE_UNSPECIFIED",
+    },
   };
 }
 
@@ -445,7 +483,8 @@ export function boutBoardToJson(board: BoutBoard | undefined): BoutBoardDto | nu
  * в обычный JSON-объект (спека 0014): живой снапшот номинации — пулы готовой
  * раскладки (пусто при `draft`, FR-12) с их боями (состояние/счёт/текущий
  * бой). По образцу `boutBoardToJson`, нормализует вложенные `Pool`/`BoardBout`
- * теми же приватными хелперами.
+ * теми же приватными хелперами. `stages` — этапы номинации (спека 0017,
+ * FR-11).
  */
 export function nominationLiveToJson(
   snapshot: NominationLiveSnapshot | undefined,
@@ -465,6 +504,7 @@ export function nominationLiveToJson(
           }),
         )
       : [],
+    stages: stagesToJson(snapshot.stages),
   };
 }
 

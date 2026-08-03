@@ -9,7 +9,12 @@ import {
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
 import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
-import { NominationLiveSnapshotSchema, ArenaLiveSnapshotSchema, PoolSchema } from "@/gen/hema/v1/stage_pb";
+import {
+  NominationLiveSnapshotSchema,
+  ArenaLiveSnapshotSchema,
+  PoolSchema,
+  PoolLayoutSchema,
+} from "@/gen/hema/v1/stage_pb";
 import {
   applicationHistoryToJson,
   applicationsToJson,
@@ -21,6 +26,7 @@ import {
   nominationsToJson,
   nominationToJson,
   nominationLiveToJson,
+  poolLayoutToJson,
   poolToJson,
   tournamentToJson,
   userToJson,
@@ -495,6 +501,41 @@ describe("poolToJson", () => {
   });
 });
 
+describe("poolLayoutToJson", () => {
+  // Спека 0017 (FR-2, T12): PoolLayout несёт этап, которому принадлежит
+  // раскладка — stageToJson пробрасывает его 1:1 в JSON.
+  it("passes through the stage field (спека 0017)", () => {
+    const layout = fromJson(PoolLayoutSchema, {
+      nominationId: "n1",
+      status: "POOL_LAYOUT_STATUS_DRAFT",
+      unassigned: [],
+      pools: [],
+      canUndo: false,
+      stage: {
+        id: "stage-1",
+        nominationId: "n1",
+        position: 0,
+        title: "Групповой этап",
+        type: "STAGE_TYPE_GROUPS",
+      },
+    });
+
+    const json = poolLayoutToJson(layout);
+
+    expect(json?.stage).toEqual({
+      id: "stage-1",
+      nominationId: "n1",
+      position: 0,
+      title: "Групповой этап",
+      type: "STAGE_TYPE_GROUPS",
+    });
+  });
+
+  it("returns null for undefined", () => {
+    expect(poolLayoutToJson(undefined)).toBeNull();
+  });
+});
+
 describe("arenasToJson", () => {
   it("converts an array of protobuf Arenas", () => {
     const a = fromJson(ArenaSchema, { id: "a1", name: "A", status: "ARENA_STATUS_ACTIVE" });
@@ -566,6 +607,17 @@ describe("nominationLiveToJson", () => {
           currentBoutId: "bout-2",
         },
       ],
+      // Спека 0017 (FR-2, T12): этапы номинации — stagesToJson пробрасывает
+      // их 1:1 в JSON рядом с pools.
+      stages: [
+        {
+          id: "stage-1",
+          nominationId: "nom-1",
+          position: 0,
+          title: "Групповой этап",
+          type: "STAGE_TYPE_GROUPS",
+        },
+      ],
     });
 
     const json = nominationLiveToJson(snapshot);
@@ -573,6 +625,15 @@ describe("nominationLiveToJson", () => {
     expect(json).not.toBeNull();
     expect(json?.nominationId).toBe("nom-1");
     expect(json?.pools).toHaveLength(1);
+    expect(json?.stages).toEqual([
+      {
+        id: "stage-1",
+        nominationId: "nom-1",
+        position: 0,
+        title: "Групповой этап",
+        type: "STAGE_TYPE_GROUPS",
+      },
+    ]);
 
     const lp = json!.pools[0];
     expect(lp.pool.id).toBe("pool-1");
@@ -611,7 +672,7 @@ describe("nominationLiveToJson", () => {
 
     const json = nominationLiveToJson(snapshot);
 
-    expect(json).toEqual({ nominationId: "nom-2", pools: [] });
+    expect(json).toEqual({ nominationId: "nom-2", pools: [], stages: [] });
   });
 });
 

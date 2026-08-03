@@ -6,6 +6,7 @@
  */
 
 import type { Pool, BoardBout } from "@/entities/pool/lib/types";
+import type { Stage } from "@/entities/stage/lib/types";
 
 export { outcomeOf } from "@/entities/pool/lib/types";
 
@@ -22,14 +23,18 @@ export type LivePoolDto = {
 
 /**
  * NominationLiveSnapshotDto — живой снапшот номинации целиком. `pools` пуст,
- * пока раскладка номинации в `draft` (FR-12, как `ListPublicPools`).
+ * пока раскладка номинации в `draft` (FR-12, как `ListPublicPools`). `stages`
+ * — этапы номинации (спека 0017, FR-11): подпись состава пулов на публичном
+ * экране. Ровно один элемент в этом инкременте; `repeated` сразу — модель
+ * допускает несколько (FR-2).
  */
 export type NominationLiveSnapshotDto = {
   nominationId: string;
   pools: LivePoolDto[];
+  stages: Stage[];
 };
 
 /** emptyNominationLiveSnapshot — безопасный фолбэк (ошибка gRPC/draft). */
 export function emptyNominationLiveSnapshot(nominationId: string): NominationLiveSnapshotDto {
-  return { nominationId, pools: [] };
+  return { nominationId, pools: [], stages: [] };
 }
