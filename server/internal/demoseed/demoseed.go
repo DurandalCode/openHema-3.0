@@ -245,10 +245,14 @@ type SeedResult struct {
 // демо копил бы осиротевшие пулы/бои прошлых запусков (мусор в «доступные
 // пулы для постановки», спека 0011 FR-9, даже если сам сценарий их не видел
 // раньше — cmd/demo и cmd/demo-registered тоже вызывают Wipe).
+//
+// stage.pool_members/stage.pools/stage.stages — одной командой (спека
+// 0017): pools.stage_id — FK ON DELETE CASCADE на stages, отдельный
+// TRUNCATE stages потребовал бы CASCADE или упал бы на ссылке.
 func Wipe(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
 		"TRUNCATE TABLE bout.bout_events, bout.bouts RESTART IDENTITY CASCADE",
-		"TRUNCATE TABLE stage.pool_members, stage.pools, stage.pool_layouts RESTART IDENTITY CASCADE",
+		"TRUNCATE TABLE stage.pool_members, stage.pools, stage.stages RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE arena.arenas RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE fighter.participations, fighter.fighters RESTART IDENTITY CASCADE",
 		"TRUNCATE TABLE application.events, application.application_current RESTART IDENTITY CASCADE",
