@@ -62,7 +62,7 @@ func seedInProgressBout(t *testing.T, repo *testutil.FakeRepo) string {
 	return boutID
 }
 
-func TestGenerateForNomination_CollectsAllPoolsInOneReplaceCall(t *testing.T) {
+func TestGenerateForStage_CollectsAllPoolsInOneReplaceCall(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	svc := service.New(repo)
 
@@ -71,8 +71,8 @@ func TestGenerateForNomination_CollectsAllPoolsInOneReplaceCall(t *testing.T) {
 		{PoolID: "p2", Fighters: []domain.FighterRef{{ID: "d"}, {ID: "e"}}},
 	}
 
-	if err := svc.GenerateForNomination(context.Background(), n1, pools); err != nil {
-		t.Fatalf("GenerateForNomination: %v", err)
+	if err := svc.GenerateForStage(context.Background(), n1, pools); err != nil {
+		t.Fatalf("GenerateForStage: %v", err)
 	}
 
 	calls := repo.ReplaceCalls()
@@ -104,7 +104,7 @@ func TestGenerateForNomination_CollectsAllPoolsInOneReplaceCall(t *testing.T) {
 	}
 }
 
-func TestGenerateForNomination_SkipsPoolsWithFewerThanTwoFighters(t *testing.T) {
+func TestGenerateForStage_SkipsPoolsWithFewerThanTwoFighters(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	svc := service.New(repo)
 
@@ -113,8 +113,8 @@ func TestGenerateForNomination_SkipsPoolsWithFewerThanTwoFighters(t *testing.T) 
 		{PoolID: "solo", Fighters: []domain.FighterRef{{ID: "a"}}},
 	}
 
-	if err := svc.GenerateForNomination(context.Background(), n1, pools); err != nil {
-		t.Fatalf("GenerateForNomination: %v", err)
+	if err := svc.GenerateForStage(context.Background(), n1, pools); err != nil {
+		t.Fatalf("GenerateForStage: %v", err)
 	}
 
 	calls := repo.ReplaceCalls()
@@ -126,11 +126,11 @@ func TestGenerateForNomination_SkipsPoolsWithFewerThanTwoFighters(t *testing.T) 
 	}
 }
 
-func TestGenerateForNomination_EmptyNominationIDReturnsErrInvalidInput(t *testing.T) {
+func TestGenerateForStage_EmptyNominationIDReturnsErrInvalidInput(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	svc := service.New(repo)
 
-	err := svc.GenerateForNomination(context.Background(), "", []domain.PoolInput{{PoolID: "p1", Fighters: []domain.FighterRef{{ID: "a"}, {ID: "b"}}}})
+	err := svc.GenerateForStage(context.Background(), "", []domain.PoolInput{{PoolID: "p1", Fighters: []domain.FighterRef{{ID: "a"}, {ID: "b"}}}})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}
@@ -139,41 +139,62 @@ func TestGenerateForNomination_EmptyNominationIDReturnsErrInvalidInput(t *testin
 	}
 }
 
-func TestClearForNomination_CallsReplaceWithNil(t *testing.T) {
+// T10 (spec 0017, FR-8): ClearForPools deletes bouts of the listed pools
+// only, leaving bouts of another pool in the same nomination untouched.
+func TestClearForPools_DeletesOnlyListedPools_LeavesOtherPoolBoutsUntouched(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	repo.SeedBouts(n1,
+		domain.Bout{PoolID: "p1", NominationID: n1, RoundNumber: 1, SequenceNumber: 1},
+		domain.Bout{PoolID: "p2", NominationID: n1, RoundNumber: 1, SequenceNumber: 1},
+	)
+
+	if err := svc.ClearForPools(context.Background(), []string{"p1"}); err != nil {
+		t.Fatalf("ClearForPools: %v", err)
+	}
+
+	calls := repo.DeleteByPoolsCalls()
+	if len(calls) != 1 || len(calls[0]) != 1 || calls[0][0] != "p1" {
+		t.Fatalf("expected exactly 1 DeleteBoutsByPools([p1]) call, got %+v", calls)
+	}
+
+	p1Bouts, err := svc.BoutsByPool(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("BoutsByPool(p1): %v", err)
+	}
+	if len(p1Bouts) != 0 {
+		t.Fatalf("expected p1 bouts cleared, got %d", len(p1Bouts))
+	}
+
+	p2Bouts, err := svc.BoutsByPool(context.Background(), "p2")
+	if err != nil {
+		t.Fatalf("BoutsByPool(p2): %v", err)
+	}
+	if len(p2Bouts) != 1 {
+		t.Fatalf("expected p2 (another pool in the same nomination) bouts untouched, got %d", len(p2Bouts))
+	}
+}
+
+// T10 (spec 0017, FR-8): an empty pool-ID list is a valid no-op — not an
+// error, and it must not clear bouts of every pool.
+func TestClearForPools_EmptyPoolIDs_NoOp(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	svc := service.New(repo)
 	repo.SeedBouts(n1, domain.Bout{PoolID: "p1", NominationID: n1, RoundNumber: 1, SequenceNumber: 1})
 
-	if err := svc.ClearForNomination(context.Background(), n1); err != nil {
-		t.Fatalf("ClearForNomination: %v", err)
+	if err := svc.ClearForPools(context.Background(), nil); err != nil {
+		t.Fatalf("ClearForPools(empty): %v", err)
 	}
 
-	calls := repo.ReplaceCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected exactly 1 ReplaceForNomination call, got %d", len(calls))
+	if len(repo.DeleteByPoolsCalls()) != 0 {
+		t.Fatalf("repo must not be called with an empty pool list")
 	}
-	if calls[0].NominationID != n1 {
-		t.Errorf("NominationID = %q, want %q", calls[0].NominationID, n1)
-	}
-	if len(calls[0].Bouts) != 0 {
-		t.Errorf("expected nil/empty bouts on clear, got %d", len(calls[0].Bouts))
-	}
-
-	list, err := repo.ListByNomination(context.Background(), n1)
+	got, err := svc.BoutsByPool(context.Background(), "p1")
 	if err != nil {
-		t.Fatalf("ListByNomination: %v", err)
+		t.Fatalf("BoutsByPool: %v", err)
 	}
-	if len(list) != 0 {
-		t.Fatalf("expected bouts cleared, got %d", len(list))
-	}
-}
-
-func TestClearForNomination_EmptyNominationIDReturnsErrInvalidInput(t *testing.T) {
-	repo := testutil.NewFakeRepo()
-	svc := service.New(repo)
-
-	if err := svc.ClearForNomination(context.Background(), ""); !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if len(got) != 1 {
+		t.Fatalf("expected empty pool list to be a no-op, got %d bouts left", len(got))
 	}
 }
 
@@ -207,15 +228,15 @@ func TestListByNomination_EmptyNominationIDReturnsErrInvalidInput(t *testing.T) 
 	}
 }
 
-func TestGenerateForNomination_WritesScheduledStateAndVersion(t *testing.T) {
+func TestGenerateForStage_WritesScheduledStateAndVersion(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	svc := service.New(repo)
 
 	pools := []domain.PoolInput{
 		{PoolID: poolIDConst, Fighters: []domain.FighterRef{{ID: fighterAIDLC}, {ID: fighterBIDLC}}},
 	}
-	if err := svc.GenerateForNomination(context.Background(), n1, pools); err != nil {
-		t.Fatalf("GenerateForNomination: %v", err)
+	if err := svc.GenerateForStage(context.Background(), n1, pools); err != nil {
+		t.Fatalf("GenerateForStage: %v", err)
 	}
 
 	list, err := svc.ListByNomination(context.Background(), n1)
@@ -495,25 +516,44 @@ func TestPoolProgress_CountsStartedAndFinished(t *testing.T) {
 	}
 }
 
-func TestAnyStartedInNomination(t *testing.T) {
+// T10 (spec 0017, FR-8): AnyStartedInPools only looks within the given pool
+// list, ignoring started bouts that live outside it.
+func TestAnyStartedInPools_OnlyLooksWithinGivenPools(t *testing.T) {
 	repo := testutil.NewFakeRepo()
 	svc := service.New(repo)
+	repo.SeedBouts(n1, domain.Bout{PoolID: "p2", NominationID: n1, RoundNumber: 1, SequenceNumber: 1, State: domain.StateInProgress})
 
-	got, err := svc.AnyStartedInNomination(context.Background(), n1)
+	got, err := svc.AnyStartedInPools(context.Background(), []string{"p1"})
 	if err != nil {
-		t.Fatalf("AnyStartedInNomination: %v", err)
+		t.Fatalf("AnyStartedInPools: %v", err)
 	}
 	if got {
-		t.Fatal("expected false before any bout started")
+		t.Fatal("expected false: the started bout is in p2, outside the requested pool list")
 	}
 
-	seedInProgressBout(t, repo)
-	got, err = svc.AnyStartedInNomination(context.Background(), n1)
+	got, err = svc.AnyStartedInPools(context.Background(), []string{"p1", "p2"})
 	if err != nil {
-		t.Fatalf("AnyStartedInNomination: %v", err)
+		t.Fatalf("AnyStartedInPools: %v", err)
 	}
 	if !got {
-		t.Fatal("expected true after a bout started")
+		t.Fatal("expected true: p2 is in the requested pool list and has a started bout")
+	}
+}
+
+// T10 (spec 0017, FR-8): an empty pool-ID list is a valid no-op — not an
+// error, and it must not report started bouts that live outside it as if
+// they were in scope.
+func TestAnyStartedInPools_EmptyPoolIDs_NoOp(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	repo.SeedBouts(n1, domain.Bout{PoolID: "p1", NominationID: n1, RoundNumber: 1, SequenceNumber: 1, State: domain.StateInProgress})
+
+	got, err := svc.AnyStartedInPools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("AnyStartedInPools(empty): %v", err)
+	}
+	if got {
+		t.Fatal("expected false: an empty pool list must not report started bouts anywhere")
 	}
 }
 

@@ -1,11 +1,11 @@
 //go:build integration
 
 // Package integration — сквозные тесты модуля bout на реальной PostgreSQL
-// (testcontainers). См. ADR 0010. GenerateForNomination/ClearForNomination
-// не имеют публичного RPC (триггерятся из stage.SetLayoutStatus — см.
-// modules/stage/integration для сквозного pool×bout пути, spec 0010 T19) —
-// здесь они вызываются напрямую через bout-сервис поверх реальной БД;
-// ListBoutsByNomination проверяется через реальный Connect × PG.
+// (testcontainers). См. ADR 0010. GenerateForStage/ClearForPools не имеют
+// публичного RPC (триггерятся из stage.SetLayoutStatus — см.
+// modules/stage/integration для сквозного pool×bout пути, spec 0010 T19,
+// спека 0017 FR-8) — здесь они вызываются напрямую через bout-сервис поверх
+// реальной БД; ListBoutsByNomination проверяется через реальный Connect × PG.
 package integration
 
 import (
@@ -94,11 +94,11 @@ func TestIntegration_MigrationsApplied(t *testing.T) {
 	setup(t)
 }
 
-// TestIntegration_GenerateForNomination_MultiplePools проверяет, что
-// GenerateForNomination формирует бои для нескольких пулов одной номинации
+// TestIntegration_GenerateForStage_MultiplePools проверяет, что
+// GenerateForStage формирует бои для нескольких пулов одной номинации
 // и ListBoutsByNomination возвращает их отсортированными по
 // pool_id, sequence_number через реальный Connect × PG.
-func TestIntegration_GenerateForNomination_MultiplePools(t *testing.T) {
+func TestIntegration_GenerateForStage_MultiplePools(t *testing.T) {
 	c, svc, _ := setup(t)
 	nomID := uuid.NewString()
 	poolA := uuid.NewString()
@@ -112,12 +112,12 @@ func TestIntegration_GenerateForNomination_MultiplePools(t *testing.T) {
 		return out
 	}
 
-	err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolA, Fighters: fighters(3)}, // C(3,2) = 3 bouts
 		{PoolID: poolB, Fighters: fighters(2)}, // C(2,2) = 1 bout
 	})
 	if err != nil {
-		t.Fatalf("GenerateForNomination: %v", err)
+		t.Fatalf("GenerateForStage: %v", err)
 	}
 
 	bouts := listBouts(t, c, nomID)
@@ -137,7 +137,7 @@ func TestIntegration_GenerateForNomination_MultiplePools(t *testing.T) {
 }
 
 // TestIntegration_ReplaceForNomination_TransactionalReplace проверяет, что
-// повторный вызов GenerateForNomination полностью заменяет прежний набор
+// повторный вызов GenerateForStage полностью заменяет прежний набор
 // боёв номинации (delete+insert одной транзакцией) — старые бои не
 // остаются вперемешку с новыми (FR-6).
 func TestIntegration_ReplaceForNomination_TransactionalReplace(t *testing.T) {
@@ -147,10 +147,10 @@ func TestIntegration_ReplaceForNomination_TransactionalReplace(t *testing.T) {
 
 	f1, f2, f3 := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	first := []domain.FighterRef{{ID: f1, Name: "A"}, {ID: f2, Name: "B"}}
-	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolID, Fighters: first},
 	}); err != nil {
-		t.Fatalf("GenerateForNomination (first): %v", err)
+		t.Fatalf("GenerateForStage (first): %v", err)
 	}
 	if got := listBouts(t, c, nomID); len(got) != 1 {
 		t.Fatalf("expected 1 bout after first generate, got %d", len(got))
@@ -158,10 +158,10 @@ func TestIntegration_ReplaceForNomination_TransactionalReplace(t *testing.T) {
 
 	// Другой состав (3 бойца вместо 2) — должен полностью заменить прежний.
 	second := []domain.FighterRef{{ID: f1, Name: "A"}, {ID: f2, Name: "B"}, {ID: f3, Name: "C"}}
-	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolID, Fighters: second},
 	}); err != nil {
-		t.Fatalf("GenerateForNomination (second): %v", err)
+		t.Fatalf("GenerateForStage (second): %v", err)
 	}
 	got := listBouts(t, c, nomID)
 	if len(got) != 3 {
@@ -169,29 +169,37 @@ func TestIntegration_ReplaceForNomination_TransactionalReplace(t *testing.T) {
 	}
 }
 
-// TestIntegration_ClearForNomination_DeletesAllBouts проверяет, что
-// ClearForNomination (вызывается pool при возврате ready → draft) удаляет
-// все бои номинации.
-func TestIntegration_ClearForNomination_DeletesAllBouts(t *testing.T) {
+// TestIntegration_ClearForPools_DeletesOnlyListedPoolBouts проверяет, что
+// ClearForPools (вызывается stage при расфиксации этапа, спека 0017 FR-8)
+// удаляет бои перечисленных пулов и не трогает бои другого пула той же
+// номинации.
+func TestIntegration_ClearForPools_DeletesOnlyListedPoolBouts(t *testing.T) {
 	c, svc, _ := setup(t)
 	nomID := uuid.NewString()
 	poolID := uuid.NewString()
+	otherPoolID := uuid.NewString()
 
 	f1, f2 := uuid.NewString(), uuid.NewString()
-	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	f3, f4 := uuid.NewString(), uuid.NewString()
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: f1}, {ID: f2}}},
+		{PoolID: otherPoolID, Fighters: []domain.FighterRef{{ID: f3}, {ID: f4}}},
 	}); err != nil {
-		t.Fatalf("GenerateForNomination: %v", err)
+		t.Fatalf("GenerateForStage: %v", err)
 	}
-	if got := listBouts(t, c, nomID); len(got) != 1 {
-		t.Fatalf("expected 1 bout before clear, got %d", len(got))
+	if got := listBouts(t, c, nomID); len(got) != 2 {
+		t.Fatalf("expected 2 bouts before clear, got %d", len(got))
 	}
 
-	if err := svc.ClearForNomination(context.Background(), nomID); err != nil {
-		t.Fatalf("ClearForNomination: %v", err)
+	if err := svc.ClearForPools(context.Background(), []string{poolID}); err != nil {
+		t.Fatalf("ClearForPools: %v", err)
 	}
-	if got := listBouts(t, c, nomID); len(got) != 0 {
-		t.Fatalf("expected 0 bouts after clear, got %d: %+v", len(got), got)
+	got := listBouts(t, c, nomID)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 bout left (other pool untouched) after clear, got %d: %+v", len(got), got)
+	}
+	if got[0].PoolId != otherPoolID {
+		t.Fatalf("expected remaining bout to belong to otherPoolID %s, got %s", otherPoolID, got[0].PoolId)
 	}
 }
 
@@ -243,10 +251,10 @@ func generateSingleBout(t *testing.T, svc *boutservice.Service, poolID string) s
 	t.Helper()
 	nomID := uuid.NewString()
 	fa, fb := uuid.NewString(), uuid.NewString()
-	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: fa, Name: "A"}, {ID: fb, Name: "B"}}},
 	}); err != nil {
-		t.Fatalf("GenerateForNomination: %v", err)
+		t.Fatalf("GenerateForStage: %v", err)
 	}
 	bouts, err := svc.ListByNomination(context.Background(), nomID)
 	if err != nil {
@@ -394,12 +402,12 @@ func TestIntegration_Append_ProjectionAtomicWithEvent(t *testing.T) {
 		t.Fatalf("PoolProgress = %d/%d/%d, want 1/1/0", total, started, finished)
 	}
 
-	anyStarted, err := repo.AnyStartedInNomination(context.Background(), got.NominationID)
+	anyStarted, err := repo.AnyStartedInPools(context.Background(), []string{got.PoolID})
 	if err != nil {
-		t.Fatalf("AnyStartedInNomination: %v", err)
+		t.Fatalf("AnyStartedInPools: %v", err)
 	}
 	if !anyStarted {
-		t.Fatal("expected AnyStartedInNomination to be true")
+		t.Fatal("expected AnyStartedInPools to be true")
 	}
 }
 
@@ -415,10 +423,10 @@ func TestIntegration_Regenerate_CascadesEventDeletion(t *testing.T) {
 	poolID := uuid.NewString()
 
 	f1, f2, f3 := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: f1, Name: "A"}, {ID: f2, Name: "B"}}},
 	}); err != nil {
-		t.Fatalf("GenerateForNomination (first): %v", err)
+		t.Fatalf("GenerateForStage (first): %v", err)
 	}
 	first, err := svc.ListByNomination(context.Background(), nomID)
 	if err != nil {
@@ -439,10 +447,10 @@ func TestIntegration_Regenerate_CascadesEventDeletion(t *testing.T) {
 
 	// Регенерация другим составом — старая строка bouts удаляется и должна
 	// каскадно удалить её события.
-	if err := svc.GenerateForNomination(context.Background(), nomID, []domain.PoolInput{
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
 		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: f1, Name: "A"}, {ID: f2, Name: "B"}, {ID: f3, Name: "C"}}},
 	}); err != nil {
-		t.Fatalf("GenerateForNomination (second): %v", err)
+		t.Fatalf("GenerateForStage (second): %v", err)
 	}
 
 	if _, err := repo.Load(context.Background(), oldBoutID); !errors.Is(err, domain.ErrNotFound) {
