@@ -33,7 +33,7 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/stage.proto` — `STAGE_TYPE_BRACKET`, `BracketConfig`,
+- [x] T1. `proto/hema/v1/stage.proto` — `STAGE_TYPE_BRACKET`, `BracketConfig`,
       `Stage.status`/`Stage.bracket`, `Pool.stage_id`, `BracketSlotState`,
       `BracketSlot`/`BracketPair`/`BracketHalf`/`BracketRound`/`Bracket`;
       шесть новых RPC (`ListStages`, `CreateStage`, `DeleteStage`,
@@ -43,7 +43,7 @@
       (не `position`) везде — в `BracketSlot` и в запросах. Затем
       `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
-- [ ] T2. `server/modules/stage/migrations/00002_bracket.sql` (goose) — тип
+- [x] T2. `server/modules/stage/migrations/00002_bracket.sql` (goose) — тип
       `bracket` в `chk_stages_type`, колонки `bracket_size`/`third_place`
       с `chk_stages_bracket`, `pool_members.slot` + `uq_members_pool_slot`.
       Прогнать `make migrate` и откат `migrate-down` на локальной БД.

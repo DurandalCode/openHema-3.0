@@ -9,18 +9,41 @@ option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
 // интерсептором RequireAdmin). Публичного чтения нет (спека 0009, FR-13):
 // пулы — служебная раскладка организатора.
 service StageAdminService {
-  // GetLayout возвращает текущую раскладку номинации: статус, список
+  // ListStages возвращает этапы номинации (спека 0018, FR-18). Материализует
+  // групповой этап, если строки ещё нет (0017, FR-4) — единственное место,
+  // где виртуальный этап получает постоянный id.
+  rpc ListStages(ListStagesRequest) returns (ListStagesResponse);
+  // CreateStage добавляет номинации этап-сетку (спека 0018, FR-2): размер и
+  // флаг боя за 3-е место задаются один раз и не редактируются (FR-4).
+  // Новый этап встаёт следующим по порядку. type = GROUPS отклоняется —
+  // групповой этап система создаёт сама (0017, FR-4).
+  rpc CreateStage(CreateStageRequest) returns (CreateStageResponse);
+  // DeleteStage удаляет этап-сетку, пока в ней не начат ни один бой (FR-3).
+  // Групповой этап удалить нельзя.
+  rpc DeleteStage(DeleteStageRequest) returns (DeleteStageResponse);
+  // GetBracket возвращает админский вид сетки: дерево слотов, разрешённое
+  // из посева и материализованных боёв (FR-7/FR-19), плюс кого ещё можно
+  // посеять. Чтение — без материализации боёв.
+  rpc GetBracket(GetBracketRequest) returns (GetBracketResponse);
+  // SeedBracketSlot сажает бойца в слот первого круга (FR-7/FR-8): занятый
+  // слот и уже посеянный боец — обмен местами; занятый слот и новый боец —
+  // отказ. Только в draft.
+  rpc SeedBracketSlot(SeedBracketSlotRequest) returns (SeedBracketSlotResponse);
+  // ClearBracketSlot освобождает слот (FR-8). Идемпотентно. Только в draft.
+  rpc ClearBracketSlot(ClearBracketSlotRequest) returns (ClearBracketSlotResponse);
+  // GetLayout возвращает текущую раскладку этапа (спека 0018, FR-18 —
+  // адресация переехала с номинации на этап): статус, список
   // нераспределённых бойцов и список пулов с их бойцами (lazy-init —
   // отсутствие раскладки трактуется как draft с пустыми пулами, FR-14).
   rpc GetLayout(GetLayoutRequest) returns (GetLayoutResponse);
-  // CreatePool создаёт пул в номинации. Имя генерируется системой как
+  // CreatePool создаёт пул в этапе. Имя генерируется системой как
   // «Пул N», где N — наименьший свободный положительный номер (FR-3).
-  // Только в draft.
+  // Только в draft группового этапа — на сетке отклоняется (спека 0018).
   rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
   // DeletePool удаляет пул; все его бойцы возвращаются в нераспределённые
   // (FR-4). Undoable. Только в draft.
   rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
-  // ResetLayout удаляет все пулы номинации разом и возвращает всех бойцов
+  // ResetLayout удаляет все пулы этапа разом и возвращает всех бойцов
   // в нераспределённые, статус остаётся draft (FR-4a). Только в draft.
   rpc ResetLayout(ResetLayoutRequest) returns (ResetLayoutResponse);
   // AssignFighter перемещает бойца в пул: из нераспределённых либо из
@@ -37,9 +60,10 @@ service StageAdminService {
   // автораспределение или удаление пула (FR-7a). Только в draft.
   rpc Undo(UndoRequest) returns (UndoResponse);
   // SetLayoutStatus переключает статус раскладки draft↔ready (FR-9, спека
-  // 0009). draft→ready фиксирует состав и формирует бои всех пулов
-  // номинации (спека 0010); ready→draft отклоняется, если хотя бы один пул
-  // номинации стоит на арене (спека 0011, FR-3).
+  // 0009). draft→ready фиксирует состав и формирует бои всех пулов этапа
+  // (спека 0010; на сетке — FR-9/FR-10/FR-11 спеки 0018); ready→draft
+  // отклоняется, если хотя бы один пул этапа стоит на арене (спека 0011,
+  // FR-3; спека 0017 FR-8 — в пределах этапа).
   rpc SetLayoutStatus(SetLayoutStatusRequest) returns (SetLayoutStatusResponse);
   // SeatPoolOnArena ставит готовый пул (PoolStatus READY) на активную
   // свободную площадку целиком, вместе с его боями (спека 0011, FR-7).
@@ -170,11 +194,22 @@ enum BoutState {
   BOUT_STATE_FINISHED = 3;
 }
 
-// StageType — тип этапа номинации (спека 0017, ADR 0014 §1/§3). В этом
-// инкременте существует ровно одно значение; BRACKET придёт со спекой 0018.
+// StageType — тип этапа номинации (ADR 0014 §1/§3). GROUPS — круговая
+// система внутри групп (0009/0010/0016). BRACKET — сетка на выбывание со
+// вручную посеянными слотами (спека 0018).
 enum StageType {
   STAGE_TYPE_UNSPECIFIED = 0;
   STAGE_TYPE_GROUPS = 1;
+  STAGE_TYPE_BRACKET = 2;
+}
+
+// BracketConfig — параметры этапа-сетки (спека 0018, FR-1; ADR 0014 §1a).
+// size — число слотов первого круга (степень двойки, 4..32); third_place —
+// нужен ли бой за 3-е место. Задаётся при создании этапа (CreateStage) и
+// не редактируется (FR-4) — изменить параметры можно только пересозданием.
+message BracketConfig {
+  int32 size = 1;
+  bool third_place = 2;
 }
 
 // FighterRef — проекция бойца для экрана управления пулами (DnD): id для
@@ -185,17 +220,21 @@ message FighterRef {
   string club = 3;
 }
 
-// Stage — этап номинации (спека 0017, FR-1). Статуса здесь нет намеренно:
-// статус фиксации состава уже едет в PoolLayout.status — дублировать его в
-// двух местах ради одного инкремента незачем. position — порядковый номер;
-// несколько этапов могут делить одну позицию (параллельные ветки схемы,
-// ADR 0014 §1), поэтому уникальности по (nomination_id, position) нет.
+// Stage — этап номинации (спека 0017, FR-1; расширен спекой 0018).
+// position — порядковый номер; несколько этапов могут делить одну позицию
+// (параллельные ветки схемы, ADR 0014 §1), поэтому уникальности по
+// (nomination_id, position) нет. status — статус фиксации состава этого
+// этапа (спека 0018, FR-18/FR-19a): раньше жил только в PoolLayout.status,
+// пока этап был один — со списком этапов нужен в каждой строке списка.
+// bracket заполнен только у type = BRACKET (спека 0018, FR-1).
 message Stage {
   string id = 1;
   string nomination_id = 2;
   int32 position = 3;
   string title = 4;
   StageType type = 5;
+  PoolLayoutStatus status = 6;
+  BracketConfig bracket = 7;
 }
 
 // PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
@@ -227,6 +266,10 @@ message PoolStanding {
 // «все места нулевые». Осознанно не заполняется на путях, связанных с
 // ареной/табло (GetPoolsForArena/GetBoutBoard — спека 0015 уже оставляет
 // итоговые таблицы вне табло).
+// stage_id (спека 0018, FR-18) — этап-владелец контейнера: у группового
+// этапа контейнер — пул, у этапа-сетки — половина круга (FR-12/FR-12a).
+// name у контейнера сетки — «1/4 финала, верхняя половина» вместо «Пул N»
+// (FR-19a).
 message Pool {
   string id = 1;
   string nomination_id = 2;
@@ -238,6 +281,7 @@ message Pool {
   string arena_name = 8;
   string nomination_name = 9;
   repeated PoolStanding standings = 10;
+  string stage_id = 11;
 }
 
 // BoardBout — проекция одного боя пула для доски ведения (спека 0013,
@@ -262,6 +306,80 @@ message BoutBoard {
   Pool pool = 1;
   repeated BoardBout bouts = 2;
   string current_bout_id = 3;
+}
+
+// ---------------------------------------------------------------------
+// Спека 0018: плейофф-сетка с ручным посевом.
+// ---------------------------------------------------------------------
+
+// BracketSlotState — состояние слота сетки: занят бойцом, пуст (бай при
+// недоборе, FR-9) либо ждёт победителя ещё не сыгранной пары (FR-13).
+enum BracketSlotState {
+  BRACKET_SLOT_STATE_UNSPECIFIED = 0;
+  BRACKET_SLOT_STATE_FILLED = 1;
+  BRACKET_SLOT_STATE_EMPTY = 2;
+  BRACKET_SLOT_STATE_PENDING = 3;
+}
+
+// BracketSlot — один слот круга. slot — сквозной номер слота внутри круга
+// (1-based); тем же именем адресуется в SeedBracketSlot/ClearBracketSlot
+// (не position — у Stage.position уже другой смысл). source_label
+// заполнен только у PENDING: «Победитель пары 3, 1/4 финала» (FR-13) —
+// сервер формирует его сам, клиент не собирает строку из чисел.
+message BracketSlot {
+  int32 slot = 1;
+  BracketSlotState state = 2;
+  FighterRef fighter = 3;
+  string source_label = 4;
+}
+
+// BracketPair — пара круга: слоты 2i-1 и 2i (FR-6). bout заполнен, только
+// когда пара материализована (обе стороны известны, FR-13). resolved —
+// пара разрешена: бой завершён, либо разрешение не требовало боя (бай,
+// пустая пара) — из этого складывается «половина завершена» (FR-17).
+message BracketPair {
+  int32 index = 1;
+  BracketSlot slot_a = 2;
+  BracketSlot slot_b = 3;
+  BoardBout bout = 4;
+  bool resolved = 5;
+}
+
+// BracketHalf — половина круга: контейнер боёв (FR-12/FR-12a). half: 1 —
+// верхняя, 2 — нижняя; у неделимого круга (финал, бой за 3-е место) ровно
+// один элемент с half = 1 и пустым title. container — тот же Pool, что и у
+// группы (members/standings пусты); с ним работают все RPC арены и табло,
+// а container.name — подпись контейнера («1/4 финала, верхняя половина»,
+// FR-19a), которую видит секретарь на экране площадки.
+message BracketHalf {
+  int32 half = 1;
+  string title = 2;
+  Pool container = 3;
+  repeated BracketPair pairs = 4;
+  string current_bout_id = 5;
+}
+
+// BracketRound — круг сетки. number: 1 — первый круг, R — финал,
+// R+1 — бой за 3-е место. halves — одна или две половины (FR-6a).
+message BracketRound {
+  int32 number = 1;
+  string title = 2;
+  bool third_place = 3;
+  repeated BracketHalf halves = 4;
+}
+
+// Bracket — сетка целиком: этап + круги. unassigned заполняется только на
+// админском пути (кого ещё можно посеять, FR-7); в публичном снапшоте
+// пуст. champion/third_place_winner — отображение, выведенное из
+// завершённых боёв (FR-20), не доменный факт: протокол и призёры — план
+// 0021.
+message Bracket {
+  Stage stage = 1;
+  repeated BracketRound rounds = 2;
+  repeated FighterRef unassigned = 3;
+  bool can_undo = 4;
+  FighterRef champion = 5;
+  FighterRef third_place_winner = 6;
 }
 
 // ScoreboardRole — роль подписчика живого канала табло арены (спека 0015):
@@ -356,8 +474,11 @@ message PoolLayout {
   Stage stage = 6;
 }
 
+// GetLayoutRequest — адресуется этапом (спека 0018, FR-18): раскладка
+// принадлежит этапу, а не номинации целиком (0017 держала адресацию
+// номинационной, пока этап был один).
 message GetLayoutRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
 }
 
 message GetLayoutResponse {
@@ -365,7 +486,7 @@ message GetLayoutResponse {
 }
 
 message CreatePoolRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
 }
 
 message CreatePoolResponse {
@@ -381,7 +502,7 @@ message DeletePoolResponse {
 }
 
 message ResetLayoutRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
 }
 
 message ResetLayoutResponse {
@@ -389,9 +510,9 @@ message ResetLayoutResponse {
 }
 
 // AssignFighterRequest — pool_id обязателен (целевой пул); если боец уже
-// состоит в другом пуле этой номинации — это move одним действием (FR-5).
+// состоит в другом пуле этого этапа — это move одним действием (FR-5).
 message AssignFighterRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
   string fighter_id = 2;
   string pool_id = 3;
 }
@@ -401,7 +522,7 @@ message AssignFighterResponse {
 }
 
 message UnassignFighterRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
   string fighter_id = 2;
 }
 
@@ -410,7 +531,7 @@ message UnassignFighterResponse {
 }
 
 message AutoDistributeRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
 }
 
 message AutoDistributeResponse {
@@ -418,7 +539,7 @@ message AutoDistributeResponse {
 }
 
 message UndoRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
 }
 
 message UndoResponse {
@@ -426,12 +547,71 @@ message UndoResponse {
 }
 
 message SetLayoutStatusRequest {
-  string nomination_id = 1;
+  string stage_id = 1;
   PoolLayoutStatus status = 2;
 }
 
 message SetLayoutStatusResponse {
   PoolLayout layout = 1;
+}
+
+// --- спека 0018: этапы, посев сетки ---
+
+message ListStagesRequest {
+  string nomination_id = 1;
+}
+
+message ListStagesResponse {
+  repeated Stage stages = 1;
+}
+
+// CreateStageRequest — в этом инкременте принимается только type = BRACKET
+// (FR-2); GROUPS материализуется системой (0017, FR-4), явно не создаётся.
+message CreateStageRequest {
+  string nomination_id = 1;
+  StageType type = 2;
+  string title = 3;
+  BracketConfig bracket = 4;
+}
+
+message CreateStageResponse {
+  Stage created = 1;
+  repeated Stage stages = 2;
+}
+
+message DeleteStageRequest {
+  string stage_id = 1;
+}
+
+message DeleteStageResponse {
+  repeated Stage stages = 1;
+}
+
+message GetBracketRequest {
+  string stage_id = 1;
+}
+
+message GetBracketResponse {
+  Bracket bracket = 1;
+}
+
+message SeedBracketSlotRequest {
+  string stage_id = 1;
+  int32 slot = 2;
+  string fighter_id = 3;
+}
+
+message SeedBracketSlotResponse {
+  Bracket bracket = 1;
+}
+
+message ClearBracketSlotRequest {
+  string stage_id = 1;
+  int32 slot = 2;
+}
+
+message ClearBracketSlotResponse {
+  Bracket bracket = 1;
 }
 
 message SeatPoolOnArenaRequest {
@@ -466,10 +646,12 @@ message ListPublicPoolsRequest {
   string nomination_id = 1;
 }
 
+// ListPublicPoolsResponse — pools содержит только контейнеры групповых
+// этапов (спека 0018): сетка публикуется отдельно через
+// NominationLiveSnapshot.brackets, а не как список безымянных пулов.
 message ListPublicPoolsResponse {
   repeated Pool pools = 1;
-  // stages — этапы номинации (спека 0017). Ровно один элемент в этом
-  // инкременте; repeated сразу — модель допускает несколько (FR-2).
+  // stages — этапы номинации (спека 0017), все, включая bracket (0018).
   repeated Stage stages = 2;
 }
 
@@ -488,10 +670,17 @@ message LivePool {
 // общий payload unary- и streaming-ответа. pools пуст, пока раскладка draft
 // (FR-12). stages — этапы номинации (спека 0017); заполнен независимо от
 // готовности раскладки.
+// NominationLiveSnapshot — pools содержит только контейнеры групповых
+// этапов, как ListPublicPoolsResponse; brackets — сетки номинации (спека
+// 0018, FR-19), заполнены только для зафиксированных bracket-этапов, как
+// pools заполнен только для готовой раскладки (0014, FR-12). unassigned
+// внутри Bracket здесь не заполняется — публичный снапшот не показывает
+// админский посев.
 message NominationLiveSnapshot {
   string nomination_id = 1;
   repeated LivePool pools = 2;
   repeated Stage stages = 3;
+  repeated Bracket brackets = 4;
 }
 
 message GetNominationLiveRequest {
