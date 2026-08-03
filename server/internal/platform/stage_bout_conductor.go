@@ -32,9 +32,11 @@ func NewStageBoutConductor(pool *pgxpool.Pool) *StageBoutConductor {
 
 var _ stagedomain.BoutConductor = (*StageBoutConductor)(nil)
 
-// GenerateForNomination формирует бои каждого пула номинации (round-robin,
-// FR-3) на переходе раскладки draft → ready.
-func (g *StageBoutConductor) GenerateForNomination(ctx context.Context, nominationID string, pools []stagedomain.BoutPoolInput) error {
+// GenerateForStage формирует бои каждого пула этапа (round-robin, FR-3) на
+// переходе раскладки draft → ready. nominationID не адресует (это по-прежнему
+// пулы этапа) — штампуется в payload события Scheduled (спека 0017, план
+// «Модуль bout»).
+func (g *StageBoutConductor) GenerateForStage(ctx context.Context, nominationID string, pools []stagedomain.BoutPoolInput) error {
 	in := make([]boutdomain.PoolInput, len(pools))
 	for i, p := range pools {
 		fighters := make([]boutdomain.FighterRef, len(p.Fighters))
@@ -43,13 +45,14 @@ func (g *StageBoutConductor) GenerateForNomination(ctx context.Context, nominati
 		}
 		in[i] = boutdomain.PoolInput{PoolID: p.PoolID, Fighters: fighters}
 	}
-	return g.svc.GenerateForNomination(ctx, nominationID, in)
+	return g.svc.GenerateForStage(ctx, nominationID, in)
 }
 
-// ClearForNomination удаляет все бои номинации на переходе раскладки
-// ready → draft (гейтится AnyStartedInNomination на стороне stage, FR-13).
-func (g *StageBoutConductor) ClearForNomination(ctx context.Context, nominationID string) error {
-	return g.svc.ClearForNomination(ctx, nominationID)
+// ClearForPools удаляет бои перечисленных пулов на переходе раскладки этапа
+// ready → draft (гейтится AnyStartedInPools на стороне stage, FR-13/спека
+// 0017 FR-8) — не трогает бои пулов других этапов той же номинации.
+func (g *StageBoutConductor) ClearForPools(ctx context.Context, poolIDs []string) error {
+	return g.svc.ClearForPools(ctx, poolIDs)
 }
 
 // StartBout переводит бой не начат → идёт (спека 0013, FR-4).
@@ -111,10 +114,10 @@ func (g *StageBoutConductor) PoolProgress(ctx context.Context, poolID string) (t
 	return total, started, finished, mapBoutErr(err)
 }
 
-// AnyStartedInNomination — есть ли в номинации хотя бы один бой со state ≠
-// not_started (гейт FR-13, AC-12).
-func (g *StageBoutConductor) AnyStartedInNomination(ctx context.Context, nominationID string) (bool, error) {
-	ok, err := g.svc.AnyStartedInNomination(ctx, nominationID)
+// AnyStartedInPools — есть ли среди боёв перечисленных пулов хотя бы один
+// со state ≠ not_started (гейт расфиксации этапа, спека 0017 FR-8/FR-13).
+func (g *StageBoutConductor) AnyStartedInPools(ctx context.Context, poolIDs []string) (bool, error) {
+	ok, err := g.svc.AnyStartedInPools(ctx, poolIDs)
 	return ok, mapBoutErr(err)
 }
 
