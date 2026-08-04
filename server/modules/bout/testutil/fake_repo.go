@@ -23,19 +23,26 @@ type FakeRepo struct {
 	events map[string][]domain.Event // boutID -> поток событий, упорядоченный по версии
 	views  map[string]domain.Bout    // boutID -> текущая проекция
 
-	// replaceCalls — spy: аргументы каждого вызова ReplaceForNomination
+	// replaceCalls — spy: аргументы каждого вызова ReplaceForPools
 	// (для проверки идемпотентного replace-семантики в тестах service).
 	replaceCalls []ReplaceCall
+	// scheduleCalls — spy: аргументы каждого вызова ScheduleBouts (спека
+	// 0018, FR-14).
+	scheduleCalls [][]domain.Bout
+	// deleteBoutsCalls — spy: аргументы каждого вызова DeleteBouts (спека
+	// 0018, FR-16) — точечное удаление боёв по id, в отличие от
+	// deleteByPoolsCalls ниже (удаление по пулам).
+	deleteBoutsCalls [][]string
 	// deleteByPoolsCalls — spy: аргументы каждого вызова DeleteBoutsByPools
 	// (для проверки, что расфиксация этапа трогает только свои пулы,
 	// спека 0017 FR-8).
 	deleteByPoolsCalls [][]string
 }
 
-// ReplaceCall — зафиксированный вызов ReplaceForNomination.
+// ReplaceCall — зафиксированный вызов ReplaceForPools.
 type ReplaceCall struct {
-	NominationID string
-	Bouts        []domain.Bout
+	PoolIDs []string
+	Bouts   []domain.Bout
 }
 
 // NewFakeRepo создаёт пустой fake-репозиторий.
@@ -80,24 +87,51 @@ func (r *FakeRepo) Append(_ context.Context, boutID string, expectedVersion int,
 	return nil
 }
 
-// ReplaceForNomination удаляет все бои номинации (проекция + потоки
+// ReplaceForPools удаляет бои перечисленных пулов (проекция + потоки
 // событий, эмулируя ON DELETE CASCADE) и вставляет новые: на каждый бой —
 // строка проекции (state=not_started, version=1) и событие scheduled
 // (version 1) — как настоящий repo (bouts == nil → только удаление).
-// Используется GenerateForStage (спека 0017).
-func (r *FakeRepo) ReplaceForNomination(_ context.Context, nominationID string, bouts []domain.Bout) error {
+// Используется GenerateForStage: адресация удаления — явный список пулов
+// этапа, не номинация целиком (спека 0018 — регресс латентного бага 0017,
+// см. testutil "не трогает бои пулов другого этапа той же номинации").
+func (r *FakeRepo) ReplaceForPools(_ context.Context, poolIDs []string, bouts []domain.Bout) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.replaceCalls = append(r.replaceCalls, ReplaceCall{NominationID: nominationID, Bouts: append([]domain.Bout{}, bouts...)})
+	r.replaceCalls = append(r.replaceCalls, ReplaceCall{PoolIDs: append([]string{}, poolIDs...), Bouts: append([]domain.Bout{}, bouts...)})
 
+	poolSet := make(map[string]struct{}, len(poolIDs))
+	for _, id := range poolIDs {
+		poolSet[id] = struct{}{}
+	}
 	for id, v := range r.views {
-		if v.NominationID == nominationID {
+		if _, ok := poolSet[v.PoolID]; ok {
 			delete(r.views, id)
 			delete(r.events, id)
 		}
 	}
 
+	r.insertScheduled(bouts)
+	return nil
+}
+
+// ScheduleBouts вставляет проекции + события scheduled для перечисленных
+// боёв, не удаляя ничего (спека 0018, FR-14) — точечная материализация пары
+// сетки, в отличие от ReplaceForPools (полная замена состава контейнера).
+func (r *FakeRepo) ScheduleBouts(_ context.Context, bouts []domain.Bout) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.scheduleCalls = append(r.scheduleCalls, append([]domain.Bout{}, bouts...))
+	r.insertScheduled(bouts)
+	return nil
+}
+
+// insertScheduled — общая логика вставки боёв со стартовым состоянием
+// (state=not_started, version=1) и событием scheduled (version 1),
+// используемая и ReplaceForPools, и ScheduleBouts. Вызывающий уже держит
+// r.mu.
+func (r *FakeRepo) insertScheduled(bouts []domain.Bout) {
 	for _, b := range bouts {
 		id := b.ID
 		if id == "" {
@@ -123,6 +157,21 @@ func (r *FakeRepo) ReplaceForNomination(_ context.Context, nominationID string, 
 		}
 		r.events[id] = []domain.Event{sched}
 		r.views[id] = b
+	}
+}
+
+// DeleteBouts точечно удаляет перечисленные бои (проекция + потоки событий,
+// эмулируя ON DELETE CASCADE) по id — снятие продвижения при пересмотре
+// результата (спека 0018, FR-16). Пустой список — no-op.
+func (r *FakeRepo) DeleteBouts(_ context.Context, ids []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.deleteBoutsCalls = append(r.deleteBoutsCalls, append([]string{}, ids...))
+
+	for _, id := range ids {
+		delete(r.views, id)
+		delete(r.events, id)
 	}
 	return nil
 }
@@ -242,7 +291,7 @@ func (r *FakeRepo) AnyStartedInPools(_ context.Context, poolIDs []string) (bool,
 }
 
 // SeedBouts — тестовый хелпер: кладёт бои напрямую (проекция + синтетическое
-// событие scheduled), в обход ReplaceForNomination (без записи в spy).
+// событие scheduled), в обход ReplaceForPools (без записи в spy).
 // Автоматически присваивает ID, если не задан.
 func (r *FakeRepo) SeedBouts(nominationID string, bouts ...domain.Bout) {
 	r.mu.Lock()
@@ -298,13 +347,39 @@ func (r *FakeRepo) SeedEvents(boutID string, events ...domain.Event) (domain.Bou
 	return view, nil
 }
 
-// ReplaceCalls возвращает зафиксированные вызовы ReplaceForNomination (для
+// ReplaceCalls возвращает зафиксированные вызовы ReplaceForPools (для
 // проверки в тестах service, сколько раз и с чем был вызван репозиторий).
 func (r *FakeRepo) ReplaceCalls() []ReplaceCall {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return append([]ReplaceCall{}, r.replaceCalls...)
+}
+
+// ScheduleCalls возвращает зафиксированные вызовы ScheduleBouts (спека
+// 0018, FR-14).
+func (r *FakeRepo) ScheduleCalls() [][]domain.Bout {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([][]domain.Bout, len(r.scheduleCalls))
+	for i, c := range r.scheduleCalls {
+		out[i] = append([]domain.Bout{}, c...)
+	}
+	return out
+}
+
+// DeleteBoutsCalls возвращает зафиксированные вызовы DeleteBouts — точечное
+// удаление по id (спека 0018, FR-16), в отличие от DeleteByPoolsCalls ниже.
+func (r *FakeRepo) DeleteBoutsCalls() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([][]string, len(r.deleteBoutsCalls))
+	for i, c := range r.deleteBoutsCalls {
+		out[i] = append([]string{}, c...)
+	}
+	return out
 }
 
 // DeleteByPoolsCalls возвращает зафиксированные вызовы DeleteBoutsByPools

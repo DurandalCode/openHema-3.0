@@ -44,16 +44,50 @@ func New(pool *pgxpool.Pool) *Repo {
 
 var _ domain.Repository = (*Repo)(nil)
 
-// ReplaceForNomination одной транзакцией удаляет все бои номинации (события
-// удаляются каскадом FK, см. миграция 00002) и вставляет новые: на каждый
+// ReplaceForPools одной транзакцией удаляет бои перечисленных пулов
+// (события — каскадом FK, см. миграция 00002) и вставляет новые: на каждый
 // бой — строку проекции (state=not_started, счёт 0:0, version=1) и событие
 // scheduled (version 1) — bouts == nil → только удаление. Используется
-// GenerateForStage (спека 0017): в этом инкременте у номинации ровно один
-// этап (FR-4), поэтому номинационный replace эквивалентен этапному.
-func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bouts []domain.Bout) error {
-	nid, err := uuid.Parse(nominationID)
+// GenerateForStage: адресация удаления — явный список пулов этапа, не
+// номинация целиком (спека 0018 — до неё был ReplaceForNomination,
+// безвредный лишь пока у номинации был ровно один этап, 0017 FR-4; см.
+// domain.Repository.ReplaceForPools и docs/specs/0018-playoff-bracket/
+// plan.md «Риски»).
+func (r *Repo) ReplaceForPools(ctx context.Context, poolIDs []string, bouts []domain.Bout) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("parse nomination id: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if len(poolIDs) > 0 {
+		ids, err := parsePoolIDs(poolIDs)
+		if err != nil {
+			return err
+		}
+		if err := q.DeleteBoutsByPools(ctx, ids); err != nil {
+			return fmt.Errorf("delete bouts: %w", err)
+		}
+	}
+
+	if err := insertScheduledBouts(ctx, q, bouts); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// ScheduleBouts одной транзакцией вставляет проекции + события scheduled
+// для перечисленных боёв, не удаляя ничего — точечная материализация пары
+// сетки (спека 0018, FR-14), в отличие от ReplaceForPools (полная замена
+// состава контейнера). Пустой список — no-op, без обращения к БД.
+func (r *Repo) ScheduleBouts(ctx context.Context, bouts []domain.Bout) error {
+	if len(bouts) == 0 {
+		return nil
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -63,15 +97,39 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := r.q.WithTx(tx)
 
-	if err := q.DeleteBoutsByNomination(ctx, nid); err != nil {
-		return fmt.Errorf("delete bouts: %w", err)
+	if err := insertScheduledBouts(ctx, q, bouts); err != nil {
+		return err
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// insertScheduledBouts вставляет проекцию + событие scheduled (version 1)
+// для каждого боя — общая логика ReplaceForPools и ScheduleBouts. bout.ID
+// используется как есть, если задан (ScheduleBout генерирует его в service,
+// чтобы вернуть вызывающему синхронно); иначе генерируется здесь
+// (GenerateForStage не нуждается в id вставленных боёв).
+func insertScheduledBouts(ctx context.Context, q *sqlc.Queries, bouts []domain.Bout) error {
 	now := time.Now()
 	for _, b := range bouts {
+		id := b.ID
+		if id == "" {
+			id = uuid.NewString()
+		}
+		boutID, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("parse bout id: %w", err)
+		}
 		poolID, err := uuid.Parse(b.PoolID)
 		if err != nil {
 			return fmt.Errorf("parse pool id: %w", err)
+		}
+		nominationID, err := uuid.Parse(b.NominationID)
+		if err != nil {
+			return fmt.Errorf("parse nomination id: %w", err)
 		}
 		fighterAID, err := uuid.Parse(b.FighterA.ID)
 		if err != nil {
@@ -82,9 +140,10 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 			return fmt.Errorf("parse fighter b id: %w", err)
 		}
 
-		row, err := q.InsertBout(ctx, sqlc.InsertBoutParams{
+		if _, err := q.InsertBout(ctx, sqlc.InsertBoutParams{
+			ID:             boutID,
 			PoolID:         poolID,
-			NominationID:   nid,
+			NominationID:   nominationID,
 			RoundNumber:    int32(b.RoundNumber),
 			SequenceNumber: int32(b.SequenceNumber),
 			FighterAID:     fighterAID,
@@ -97,14 +156,13 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 			ScoreA:         0,
 			ScoreB:         0,
 			Version:        1,
-		})
-		if err != nil {
+		}); err != nil {
 			return fmt.Errorf("insert bout: %w", err)
 		}
 
 		payload, err := marshalPayload(domain.Payload{
 			PoolID:         b.PoolID,
-			NominationID:   nominationID,
+			NominationID:   b.NominationID,
 			RoundNumber:    b.RoundNumber,
 			SequenceNumber: b.SequenceNumber,
 			FighterA:       b.FighterA,
@@ -114,7 +172,7 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 			return fmt.Errorf("marshal scheduled payload: %w", err)
 		}
 		if err := q.AppendEvent(ctx, sqlc.AppendEventParams{
-			BoutID:     row.ID,
+			BoutID:     boutID,
 			Version:    1,
 			EventType:  string(domain.EventScheduled),
 			Payload:    payload,
@@ -124,9 +182,26 @@ func (r *Repo) ReplaceForNomination(ctx context.Context, nominationID string, bo
 			return fmt.Errorf("insert scheduled event: %w", err)
 		}
 	}
+	return nil
+}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit: %w", err)
+// DeleteBouts точечно удаляет перечисленные бои (события — каскадом FK,
+// см. миграция 00002) по id — снятие продвижения при пересмотре результата
+// (спека 0018, FR-16). Пустой список — no-op, без обращения к БД.
+func (r *Repo) DeleteBouts(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	boutIDs := make([]uuid.UUID, len(ids))
+	for i, id := range ids {
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("parse bout id: %w", err)
+		}
+		boutIDs[i] = parsed
+	}
+	if err := r.q.DeleteBoutsByIDs(ctx, boutIDs); err != nil {
+		return fmt.Errorf("delete bouts by ids: %w", err)
 	}
 	return nil
 }

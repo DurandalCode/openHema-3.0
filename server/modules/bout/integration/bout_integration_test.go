@@ -136,11 +136,11 @@ func TestIntegration_GenerateForStage_MultiplePools(t *testing.T) {
 	}
 }
 
-// TestIntegration_ReplaceForNomination_TransactionalReplace проверяет, что
+// TestIntegration_ReplaceForPools_TransactionalReplace проверяет, что
 // повторный вызов GenerateForStage полностью заменяет прежний набор
-// боёв номинации (delete+insert одной транзакцией) — старые бои не
+// боёв пула (delete+insert одной транзакцией) — старые бои не
 // остаются вперемешку с новыми (FR-6).
-func TestIntegration_ReplaceForNomination_TransactionalReplace(t *testing.T) {
+func TestIntegration_ReplaceForPools_TransactionalReplace(t *testing.T) {
 	c, svc, _ := setup(t)
 	nomID := uuid.NewString()
 	poolID := uuid.NewString()
@@ -207,7 +207,7 @@ func TestIntegration_ClearForPools_DeletesOnlyListedPoolBouts(t *testing.T) {
 // UNIQUE(pool_id, sequence_number) в bout.bouts реально держит инвариант
 // на уровне БД, а не только в доменной логике: конструируем через репо
 // заведомо конфликтующие бои (тот же pool_id + sequence_number дважды) —
-// ReplaceForNomination должен откатить транзакцию целиком и вернуть ошибку.
+// ReplaceForPools должен откатить транзакцию целиком и вернуть ошибку.
 func TestIntegration_UniqueConstraint_PoolSequenceNumber(t *testing.T) {
 	_, _, pool := setup(t)
 	repo := boutrepo.New(pool)
@@ -222,7 +222,7 @@ func TestIntegration_UniqueConstraint_PoolSequenceNumber(t *testing.T) {
 			FighterA: domain.FighterRef{ID: fa}, FighterB: domain.FighterRef{ID: fc}},
 	}
 
-	if err := repo.ReplaceForNomination(context.Background(), nomID, conflicting); err == nil {
+	if err := repo.ReplaceForPools(context.Background(), []string{poolID}, conflicting); err == nil {
 		t.Fatal("expected UNIQUE(pool_id, sequence_number) violation, got nil error")
 	}
 
@@ -412,7 +412,7 @@ func TestIntegration_Append_ProjectionAtomicWithEvent(t *testing.T) {
 }
 
 // TestIntegration_Regenerate_CascadesEventDeletion проверяет, что
-// регенерация боёв номинации (ReplaceForNomination, вызывается при
+// регенерация боёв пула (ReplaceForPools, вызывается при
 // draft→ready, спека 0010) удаляет старые строки bouts вместе с их
 // потоками событий каскадом FK (ON DELETE CASCADE, миграция 00002) — а не
 // только явным DELETE в коде.

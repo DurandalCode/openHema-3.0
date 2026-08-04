@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/hema/server/modules/bout/domain"
 )
 
@@ -28,14 +30,16 @@ func New(repo domain.Repository) *Service {
 }
 
 // GenerateForStage формирует бои для каждого пула этапа round-robin'ом
-// (FR-3, спека 0010) и сохраняет их одним вызовом ReplaceForNomination —
-// idempotent replace (spec 0010 «Принятые решения» №3): предыдущие бои
-// номинации стираются, новые вставляются со стартовым состоянием
-// not_started/0:0 и событием scheduled (version 1, спека 0013). nominationID
-// сохраняется не для адресации, а как снапшот-поле payload события
-// scheduled (бой по-прежнему принадлежит номинации, спека 0017 план
-// «Модуль bout»): в этом инкременте у номинации ровно один этап (FR-4), так
-// что номинационный replace здесь эквивалентен этапному.
+// (FR-3, спека 0010) и сохраняет их одним вызовом ReplaceForPools —
+// idempotent replace (spec 0010 «Принятые решения» №3): прежние бои
+// перечисленных пулов стираются, новые вставляются со стартовым состоянием
+// not_started/0:0 и событием scheduled (version 1, спека 0013). Адресация
+// удаления — явный список пулов этапа (все p.PoolID из pools), а не
+// номинация целиком (спека 0018): бои пулов другого этапа той же номинации
+// не трогаются — это регресс латентного бага 0017, где номинационный
+// replace стёр бы их при фиксации второго этапа. nominationID сохраняется
+// не для адресации, а как снапшот-поле payload события scheduled (бой
+// по-прежнему принадлежит номинации, спека 0017 план «Модуль bout»).
 func (s *Service) GenerateForStage(ctx context.Context, nominationID string, pools []domain.PoolInput) error {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
@@ -43,8 +47,10 @@ func (s *Service) GenerateForStage(ctx context.Context, nominationID string, poo
 	}
 
 	now := time.Now()
+	poolIDs := make([]string, 0, len(pools))
 	var bouts []domain.Bout
 	for _, p := range pools {
+		poolIDs = append(poolIDs, p.PoolID)
 		for _, pairing := range domain.GenerateRoundRobin(p.Fighters) {
 			ev, err := domain.Scheduled(p.PoolID, nominationID, pairing.RoundNumber, pairing.SequenceNumber, pairing.A, pairing.B, now)
 			if err != nil {
@@ -58,7 +64,47 @@ func (s *Service) GenerateForStage(ctx context.Context, nominationID string, poo
 			bouts = append(bouts, bt)
 		}
 	}
-	return s.repo.ReplaceForNomination(ctx, nominationID, bouts)
+	return s.repo.ReplaceForPools(ctx, poolIDs, bouts)
+}
+
+// ScheduleBout материализует единичный бой (пару сетки, спека 0018, FR-14)
+// без удаления чего-либо — в отличие от GenerateForStage/ReplaceForPools,
+// это точечная вставка, а не замена состава контейнера. Совместим по смыслу
+// с портом modules/stage/domain.BoutConductor.ScheduleBout (round/sequence —
+// координаты пары внутри своего контейнера, как у GenerateForStage).
+// Возвращает id созданного боя.
+func (s *Service) ScheduleBout(ctx context.Context, nominationID, poolID string, round, sequence int, a, b domain.FighterRef) (string, error) {
+	nominationID = strings.TrimSpace(nominationID)
+	poolID = strings.TrimSpace(poolID)
+	if nominationID == "" || poolID == "" {
+		return "", domain.ErrInvalidInput
+	}
+
+	ev, err := domain.Scheduled(poolID, nominationID, round, sequence, a, b, time.Now())
+	if err != nil {
+		return "", err
+	}
+	bt, err := domain.Rebuild("pending", []domain.Event{ev})
+	if err != nil {
+		return "", err
+	}
+	bt.ID = uuid.NewString() // назначается здесь, а не репозиторием: id нужен вызывающему сразу
+
+	if err := s.repo.ScheduleBouts(ctx, []domain.Bout{bt}); err != nil {
+		return "", err
+	}
+	return bt.ID, nil
+}
+
+// DeleteBouts точечно удаляет перечисленные бои (снятие продвижения при
+// пересмотре результата, спека 0018, FR-16). Тонкая обёртка над репо —
+// валидация состояния (например, что следующий бой ещё не начат) — забота
+// вызывающего модуля (stage).
+func (s *Service) DeleteBouts(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.repo.DeleteBouts(ctx, ids)
 }
 
 // ClearForPools удаляет все бои перечисленных пулов (расфиксация этапа,

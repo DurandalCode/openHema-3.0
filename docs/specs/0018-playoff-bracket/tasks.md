@@ -73,17 +73,17 @@
 
 ## Server — трек B (модуль `bout`)
 
-- [ ] T6. **порт и фейк (red→green)** — `modules/bout/domain/domain.go`:
+- [x] T6. **порт и фейк (red→green)** — `modules/bout/domain/domain.go`:
       `ReplaceForNomination` → `ReplaceForPools(poolIDs, bouts)`,
       `ScheduleBouts`, `DeleteBouts` в порту `Repository`;
       `modules/bout/testutil/fake_repo.go` — реализация новых методов.
-- [ ] T7. **service (red→green)** — `modules/bout/service/service_test.go`:
+- [x] T7. **service (red→green)** — `modules/bout/service/service_test.go`:
       `GenerateForStage` через `ReplaceForPools` **не трогает бои пулов
       другого этапа той же номинации** (регресс на латентный баг 0017);
       `ScheduleBout` создаёт поток с событием `scheduled` и заданными
       round/sequence; `DeleteBouts` удаляет только перечисленные потоки →
       затем `service.go`.
-- [ ] T8. **repo (PG)** — `modules/bout/repo/repo.go`: `ReplaceForPools`
+- [x] T8. **repo (PG)** — `modules/bout/repo/repo.go`: `ReplaceForPools`
       (delete by pools + insert в одной транзакции), `ScheduleBouts`,
       `DeleteBouts` (каскад событий на уровне БД).
 
