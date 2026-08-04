@@ -102,47 +102,47 @@
 
 ## Server — волна 2 (join: repo → service → api → wiring)
 
-- [ ] T11. **testutil** — `modules/stage/testutil/fake_repo.go` +
+- [x] T11. **testutil** — `modules/stage/testutil/fake_repo.go` +
       `fake_bout_conductor.go`: новые методы порта (посев со слотами,
       этапы, контейнеры, `ScheduleBout`/`DeleteBouts`), `var _
       domain.Repository = (*FakeRepo)(nil)`.
-- [ ] T12. **service — этапы (red→green)** —
+- [x] T12. **service — этапы (red→green)** —
       `modules/stage/service/bracket_test.go`: `CreateStage` (позиция
       `max+1`, две половины первого круга, валидация размера, отказ для
       `GROUPS`), `DeleteStage` (гейты «только сетка» и «нет начатых боёв»),
       `ListStages` (материализация группового этапа) → затем
       `service/bracket.go`.
-- [ ] T13. **service — посев (red→green)** — там же: `SeedBracketSlot`
+- [x] T13. **service — посев (red→green)** — там же: `SeedBracketSlot`
       (диапазон слота, выбор контейнера по `HalfOfSlot`, обмен местами,
       `ErrSlotOccupied`), `ClearBracketSlot`, `ResetLayout`/`Undo` на
       сетке (снапшот со слотами), `GetBracket` (резолв + `unassigned`,
       **без** материализации).
-- [ ] T14. **service — фиксация и материализация (red→green)** — там же:
+- [x] T14. **service — фиксация и материализация (red→green)** — там же:
       `SetStatus` для сетки (гейт `< 2` посеянных; создание контейнеров
       кругов ≥ 2; `syncBracket` формирует бои только полных пар; баи
       продвигаются без боя), расфиксация (бои и контейнеры ≥ 2 удаляются,
       посев остаётся), `computeHalfStatus`.
-- [ ] T15. **service — ведение (red→green)** —
+- [x] T15. **service — ведение (red→green)** —
       `modules/stage/service/service_test.go`: ничья в сетке отклоняется
       (`ErrDrawNotAllowed`), в группе — нет; завершение боя материализует
       следующую пару; `Reopen`/`Reset` снимают продвижение и удаляют
       неначатый бой; начатый следующий бой → `ErrDownstreamStarted`;
       `CreatePool`/`AutoDistribute` на сетке → `ErrStageTypeMismatch`.
-- [ ] T16. **service — реконсиляция и подпись контейнера (red→green)** —
+- [x] T16. **service — реконсиляция и подпись контейнера (red→green)** —
       `PruneMembers` не трогает зафиксированные сетки, в черновике работает
       как раньше (AC-16, FR-22); `Pool.Name` заполняется сервисом через
       `ContainerTitle` — «Пул N» у группы, «1/4 финала, верхняя половина» у
       сетки (FR-19a), в т.ч. в списке готовых контейнеров для площадки.
-- [ ] T17. **service — переезд адресации** — `service.go`: методы раскладки
+- [x] T17. **service — переезд адресации** — `service.go`: методы раскладки
       принимают `stageID`; `stageForWrite` → `StageByID`; `NominationLive`
       отдаёт `brackets`; `ListPublicPools` — только групповые контейнеры;
       регресс-тесты групповых сценариев не меняют **ожиданий** (FR-23).
-- [ ] T18. **repo** — `modules/stage/repo/queries/stage.sql` (`CreateStage`,
+- [x] T18. **repo** — `modules/stage/repo/queries/stage.sql` (`CreateStage`,
       `DeleteStage`, `MaxStagePosition`, `SeedsByStage`, `SeedSlot` с
       обменом в транзакции, `DeleteContainers`, `slot` в `AssignFighter`,
       исключение зафиксированных сеток в `PruneMembers`); `make sqlc`;
       `repo/repo.go` — реализация порта.
-- [ ] T19. **api + wiring + интеграционные (red→green)** —
+- [x] T19. **api + wiring + интеграционные (red→green)** —
       `modules/stage/api/handler_test.go`: шесть новых RPC (счастливый путь
       + коды ошибок), существующие RPC на `stage_id`, `brackets` в живом
       снапшоте → затем `handler.go` (мапперы `bracketToProto`/`stageToProto`/
