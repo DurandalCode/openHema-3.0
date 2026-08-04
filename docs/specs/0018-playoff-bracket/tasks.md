@@ -184,19 +184,19 @@
 
 ## Волна 4 — страницы, сид, проверка
 
-- [ ] T26. **страницы админки** —
+- [x] T26. **страницы админки** —
       `app/(admin)/admin/nominations/[id]/stages/page.tsx` (список этапов +
       добавление) и `.../stages/[stageId]/page.tsx` (групповой этап →
       существующий экран раскладки, сетка → посев/сетка); удалить
       `.../[id]/pools/page.tsx`; поправить ссылки в списке номинаций.
-- [ ] T27. **публичный экран** — `app/nominations/[id]/page.tsx` +
+- [x] T27. **публичный экран** — `app/nominations/[id]/page.tsx` +
       `widgets/nomination-pools-public`: группы как раньше, сетки — через
       `widgets/bracket-view` из живого снапшота; тест на рендер обоих типов
       этапов (AC-12).
-- [ ] T28. **демо-сид** — `server/internal/demoseed` + `cmd/demo-bouts`:
+- [x] T28. **демо-сид** — `server/internal/demoseed` + `cmd/demo-bouts`:
       номинации добавляется этап-сетка с частично сыгранными половинами
       кругов (проверка AC-5a/AC-11 в браузере одним `make demo-bouts`).
-- [ ] T29. `make test-all` зелёный; `pnpm exec tsc --noEmit`;
+- [x] T29. `make test-all` зелёный; `pnpm exec tsc --noEmit`;
       `go build ./...` + `pnpm build`.
 - [ ] T30. **Регресс на реальном стеке** — `docker compose up --build`
       (миграция `00002` в прод-образе), `make demo-bouts`, затем вручную:
