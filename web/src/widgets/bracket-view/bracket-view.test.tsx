@@ -204,7 +204,15 @@ const thirdPlaceRound: BracketHalf[] = [
 ];
 
 const bracket: Bracket = {
-  stage: { id: "stage-1", nominationId: "n1", position: 1, title: "Плейофф", type: "STAGE_TYPE_GROUPS" },
+  stage: {
+    id: "stage-1",
+    nominationId: "n1",
+    position: 1,
+    title: "Плейофф",
+    type: "STAGE_TYPE_BRACKET",
+    status: "POOL_LAYOUT_STATUS_READY",
+    bracket: { size: 8, thirdPlace: true },
+  },
   rounds: [
     { number: 1, title: "1/4 финала", thirdPlace: false, halves: quarterfinal },
     { number: 2, title: "Полуфинал", thirdPlace: false, halves: semifinal },

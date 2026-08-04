@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNominationLive } from "./use-nomination-live";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
 
-const initial: NominationLiveSnapshotDto = { nominationId: "n1", pools: [], stages: [] };
+const initial: NominationLiveSnapshotDto = { nominationId: "n1", pools: [], stages: [], brackets: [] };
 const updated: NominationLiveSnapshotDto = {
   nominationId: "n1",
+  brackets: [],
   pools: [
     {
       pool: {
@@ -26,7 +27,15 @@ const updated: NominationLiveSnapshotDto = {
     },
   ],
   stages: [
-    { id: "stage-1", nominationId: "n1", position: 0, title: "Групповой этап", type: "STAGE_TYPE_GROUPS" },
+    {
+      id: "stage-1",
+      nominationId: "n1",
+      position: 0,
+      title: "Групповой этап",
+      type: "STAGE_TYPE_GROUPS",
+      status: "POOL_LAYOUT_STATUS_READY",
+      bracket: null,
+    },
   ],
 };
 

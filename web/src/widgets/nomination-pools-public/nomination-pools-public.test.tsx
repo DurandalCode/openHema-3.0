@@ -63,8 +63,17 @@ const snapshot: NominationLiveSnapshotDto = {
     },
   ],
   stages: [
-    { id: "stage-1", nominationId: "n1", position: 0, title: "Групповой этап", type: "STAGE_TYPE_GROUPS" },
+    {
+      id: "stage-1",
+      nominationId: "n1",
+      position: 0,
+      title: "Групповой этап",
+      type: "STAGE_TYPE_GROUPS",
+      status: "POOL_LAYOUT_STATUS_READY",
+      bracket: null,
+    },
   ],
+  brackets: [],
 };
 
 describe("NominationPoolsPublic", () => {
@@ -115,7 +124,7 @@ describe("NominationPoolsPublic", () => {
     render(
       <NominationPoolsPublic
         nominationId="n1"
-        initialSnapshot={{ nominationId: "n1", pools: [], stages: [] }}
+        initialSnapshot={{ nominationId: "n1", pools: [], stages: [], brackets: [] }}
       />,
     );
     expect(screen.getByText(/раскладка по группам ещё формируется/i)).toBeInTheDocument();
