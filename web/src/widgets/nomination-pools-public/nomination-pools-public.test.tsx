@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { NominationPoolsPublic } from "./nomination-pools-public";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
+import type { Bracket } from "@/entities/bracket/lib/types";
 
 // useNominationLive открывает EventSource/делает fetch на клиенте — здесь
 // проверяем чистый рендер по снапшоту, поэтому мокаем хук возвращающим ровно
@@ -76,6 +77,85 @@ const snapshot: NominationLiveSnapshotDto = {
   brackets: [],
 };
 
+// Спека 0018, AC-12: сетка живёт в отдельном этапе номинации, показывается
+// на публичном экране рядом с группами, а не вместо них. Полуфинал на одну
+// пару достаточен, чтобы проверить и подпись этапа, и содержимое пары/боя.
+const bracket: Bracket = {
+  stage: {
+    id: "stage-2",
+    nominationId: "n1",
+    position: 1,
+    title: "Плейофф",
+    type: "STAGE_TYPE_BRACKET",
+    status: "POOL_LAYOUT_STATUS_READY",
+    bracket: { size: 4, thirdPlace: false },
+  },
+  rounds: [
+    {
+      number: 1,
+      title: "Полуфинал",
+      thirdPlace: false,
+      halves: [
+        {
+          half: 1,
+          title: "",
+          container: {
+            id: "pool-sf",
+            nominationId: "n1",
+            nominationName: "Longsword",
+            number: 1,
+            name: "Полуфинал",
+            members: [],
+            status: "POOL_STATUS_ACTIVE",
+            arenaId: "",
+            arenaName: "",
+            standings: [],
+          },
+          currentBoutId: "bout-sf",
+          pairs: [
+            {
+              index: 1,
+              slotA: {
+                slot: 1,
+                state: "BRACKET_SLOT_STATE_FILLED",
+                fighter: { fighterId: "f5", name: "Fighter Five", club: "" },
+                sourceLabel: "",
+              },
+              slotB: {
+                slot: 2,
+                state: "BRACKET_SLOT_STATE_FILLED",
+                fighter: { fighterId: "f6", name: "Fighter Six", club: "" },
+                sourceLabel: "",
+              },
+              bout: {
+                id: "bout-sf",
+                roundNumber: 1,
+                sequenceNumber: 1,
+                fighterA: { fighterId: "f5", name: "Fighter Five", club: "" },
+                fighterB: { fighterId: "f6", name: "Fighter Six", club: "" },
+                state: "BOUT_STATE_IN_PROGRESS",
+                scoreA: 2,
+                scoreB: 1,
+              },
+              resolved: false,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  unassigned: [],
+  canUndo: false,
+  champion: null,
+  thirdPlaceWinner: null,
+};
+
+const snapshotWithBracket: NominationLiveSnapshotDto = {
+  ...snapshot,
+  stages: [...snapshot.stages, bracket.stage],
+  brackets: [bracket],
+};
+
 describe("NominationPoolsPublic", () => {
   it("renders pool executive status, bout state badges, score and outcome of a finished bout", () => {
     render(<NominationPoolsPublic nominationId="n1" initialSnapshot={snapshot} />);
@@ -140,5 +220,22 @@ describe("NominationPoolsPublic", () => {
     );
 
     expect(container).toHaveTextContent("Групповой этап");
+  });
+
+  // AC-12: guest открывает публичный экран номинации с групповым этапом и
+  // сеткой — видит и группы, и сетку с парами/счётом/состояниями одновременно.
+  it("renders both a groups stage and a bracket stage simultaneously (AC-12)", () => {
+    const { container } = render(
+      <NominationPoolsPublic nominationId="n1" initialSnapshot={snapshotWithBracket} />,
+    );
+
+    // Группы (спека 0017) продолжают отображаться как раньше.
+    expect(container).toHaveTextContent("Групповой этап");
+    expect(container).toHaveTextContent("Пул 1");
+    // Сетка (спека 0018, FR-19) рендерится рядом, под подписью своего этапа.
+    expect(container).toHaveTextContent("Плейофф");
+    expect(container).toHaveTextContent("Fighter Five");
+    expect(container).toHaveTextContent("Fighter Six");
+    expect(container).toHaveTextContent("2:1");
   });
 });
