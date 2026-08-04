@@ -421,13 +421,22 @@ func (s *Service) buildBracket(ctx context.Context, stage domain.Stage, includeU
 				pairs = append(pairs, pv)
 			}
 
-			sortedContainerBouts, err := s.bouts.BoutsByPool(ctx, rawContainer.ID)
-			if err != nil {
-				return domain.Bracket{}, err
+			// Контейнер круга >= 2 может ещё не существовать (создаётся только
+			// lockBracket'ом при фиксации, план «service/bracket.go») — резолв
+			// (view) уже знает про этот круг чисто вычислительно, но читать
+			// его бои нечего: rawContainer — нулевое значение, CurrentBoutID
+			// остаётся пустым.
+			var currentBoutID string
+			if rawContainer.ID != "" {
+				sortedContainerBouts, err := s.bouts.BoutsByPool(ctx, rawContainer.ID)
+				if err != nil {
+					return domain.Bracket{}, err
+				}
+				currentBoutID = effectiveCurrentBoutID(rawContainer, sortedContainerBouts)
 			}
 			halves = append(halves, domain.BracketHalfView{
 				Number: h.Number, Title: h.Title, Container: container, Pairs: pairs,
-				CurrentBoutID: effectiveCurrentBoutID(rawContainer, sortedContainerBouts),
+				CurrentBoutID: currentBoutID,
 			})
 		}
 		rounds = append(rounds, domain.BracketRoundView{
