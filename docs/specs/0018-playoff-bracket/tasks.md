@@ -89,11 +89,11 @@
 
 ## Web — трек C (отображение сетки)
 
-- [ ] T9. **entities/bracket** — `web/src/entities/bracket/lib/types.ts`
+- [x] T9. **entities/bracket** — `web/src/entities/bracket/lib/types.ts`
       (`Bracket`, `BracketRound`, `BracketHalf`, `BracketPair`,
       `BracketSlot`, `BracketConfig`) + `lib/labels.ts` (подписи состояний
       слота/половины) + тесты меток.
-- [ ] T10. **widgets/bracket-view (red→green)** —
+- [x] T10. **widgets/bracket-view (red→green)** —
       `web/src/widgets/bracket-view/bracket-view.test.tsx` на фикстурах:
       круги → половины → пары; подпись пары-источника у pending; «бай» у
       пустого слота; счёт и состояние боя; площадка и статус половины;

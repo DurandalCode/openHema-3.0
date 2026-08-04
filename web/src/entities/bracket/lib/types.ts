@@ -1,0 +1,112 @@
+/**
+ * Плейофф-сетка номинации (спека 0018, ADR 0014 §1a/§3/§4): дерево слотов
+ * этапа-сетки, вычисленное сервером из посева и завершённых боёв
+ * (`ResolveBracket`, `plan.md` §«Server (модули и слои)»). Read-only проекция
+ * — клиент ничего не пересчитывает, только отображает готовые круги/пары.
+ *
+ * Сериализуемая форма (без bigint/Date), формы полей — camelCase-перевод
+ * proto-сообщений `Bracket`/`BracketRound`/`BracketHalf`/`BracketPair`/
+ * `BracketSlot`/`BracketSlotState`/`BracketConfig` (`plan.md`, «Контракты
+ * (proto)»). `FighterRef`/`BoardBout`/`Pool` переиспользуются из
+ * `entities/pool` — та же форма, что и у групп (0011/0013), сетка не заводит
+ * вторую копию.
+ */
+
+import type { BoardBout, FighterRef, Pool } from "@/entities/pool/lib/types";
+import type { Stage } from "@/entities/stage/lib/types";
+
+/**
+ * BracketConfig — параметры этапа-сетки (FR-1): `size` — число слотов
+ * первого круга (степень двойки 4/8/16/32), `thirdPlace` — включён ли бой за
+ * 3-е место. Задаётся при создании этапа и не редактируется (FR-4).
+ */
+export type BracketConfig = {
+  size: number;
+  thirdPlace: boolean;
+};
+
+/**
+ * BracketSlotState — состояние слота круга (FR-9/FR-13): занят бойцом,
+ * законно пуст (недобор/бай) либо ждёт победителя ещё не сыгранной пары
+ * предыдущего круга.
+ */
+export type BracketSlotState =
+  | "BRACKET_SLOT_STATE_UNSPECIFIED"
+  | "BRACKET_SLOT_STATE_FILLED"
+  | "BRACKET_SLOT_STATE_EMPTY"
+  | "BRACKET_SLOT_STATE_PENDING";
+
+/**
+ * BracketSlot — один слот круга. `slot` — сквозной номер слота внутри круга
+ * (1-based, тем же именем адресуется посев — `plan.md`). `fighter` заполнен
+ * только у `FILLED` (иначе — объект с пустыми полями, как `FighterRef` везде
+ * в проекте, а не `null` — `entities/pool/lib/types.ts`). `sourceLabel`
+ * заполнен только у `PENDING`: «Победитель пары 3, 1/4 финала» (FR-13) —
+ * строку формирует сервер, клиент её не собирает.
+ */
+export type BracketSlot = {
+  slot: number;
+  state: BracketSlotState;
+  fighter: FighterRef;
+  sourceLabel: string;
+};
+
+/**
+ * BracketPair — пара круга: слоты `2i-1` и `2i` (FR-6). `bout` заполнен,
+ * только когда пара материализована (обе стороны известны, FR-13) — иначе
+ * `null`, как `BoutBoard.pool` для свободной арены (`entities/pool/lib/types.ts`).
+ * `resolved` — пара разрешена: бой завершён либо разрешение боя не
+ * потребовало (бай, пара из двух пустых слотов) — из этого складывается
+ * «половина завершена» (FR-17).
+ */
+export type BracketPair = {
+  index: number;
+  slotA: BracketSlot;
+  slotB: BracketSlot;
+  bout: BoardBout | null;
+  resolved: boolean;
+};
+
+/**
+ * BracketHalf — половина круга: контейнер боёв (FR-12/FR-12a). `half`: 1 —
+ * верхняя, 2 — нижняя; у неделимого круга (финал, бой за 3-е место) ровно
+ * один элемент с `half = 1` и пустым `title`. `container` — тот же `Pool`,
+ * что и у группы: его `name` уже несёт готовую подпись контейнера
+ * («1/4 финала, верхняя половина», FR-19a), `status`/`arenaId`/`arenaName` —
+ * тот же исполнительный статус, что и у пула (0011/0013).
+ */
+export type BracketHalf = {
+  half: number;
+  title: string;
+  container: Pool;
+  pairs: BracketPair[];
+  currentBoutId: string;
+};
+
+/**
+ * BracketRound — круг сетки. `number`: 1 — первый круг, растёт к финалу;
+ * бой за 3-е место — последний круг с `thirdPlace = true`. `halves` — одна
+ * или две половины (FR-6a).
+ */
+export type BracketRound = {
+  number: number;
+  title: string;
+  thirdPlace: boolean;
+  halves: BracketHalf[];
+};
+
+/**
+ * Bracket — сетка целиком: этап + круги. `unassigned` заполнен только на
+ * админском пути (кого ещё можно посеять, FR-7); в публичном снапшоте пуст.
+ * `champion`/`thirdPlaceWinner` — `null`, пока финал/бой за 3-е место не
+ * завершены; это отображение, выведенное из завершённых боёв (FR-20), не
+ * доменный факт — итоговый протокол номинации остаётся за планом 0021.
+ */
+export type Bracket = {
+  stage: Stage;
+  rounds: BracketRound[];
+  unassigned: FighterRef[];
+  canUndo: boolean;
+  champion: FighterRef | null;
+  thirdPlaceWinner: FighterRef | null;
+};
