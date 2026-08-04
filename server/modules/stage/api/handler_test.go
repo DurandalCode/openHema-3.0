@@ -81,6 +81,19 @@ func setupFull(t *testing.T) (
 	return adminClient, publicClient, repo, fighters, arenas, nominations, bouts, liveBus
 }
 
+// stageIDFor — тестовый хелпер (спека 0018, T19): резолвит id канонического
+// (группового) этапа номинации, материализуя его при необходимости — на
+// реальном админском пути это делает ListStages до перехода к конкретному
+// этапу (адресация раскладки переехала с nomination_id на stage_id, FR-18).
+func stageIDFor(t *testing.T, repo *testutil.FakeRepo, nominationID string) string {
+	t.Helper()
+	stage, err := repo.EnsureStage(context.Background(), nominationID)
+	if err != nil {
+		t.Fatalf("stageIDFor(%q): %v", nominationID, err)
+	}
+	return stage.ID
+}
+
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
@@ -102,10 +115,10 @@ func userBearer(t *testing.T) string {
 }
 
 func TestGetLayout_E2E(t *testing.T) {
-	admin, _, fighters := setup(t)
+	admin, repo, fighters := setup(t)
 	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A", Club: "X"})
 
-	req := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.GetLayoutRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	res, err := admin.GetLayout(context.Background(), req)
@@ -138,7 +151,7 @@ func TestGetLayout_E2E(t *testing.T) {
 func TestGetLayout_E2E_EmptyNominationIDReturnsInvalidArgument(t *testing.T) {
 	admin, _, _ := setup(t)
 
-	req := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: ""})
+	req := connect.NewRequest(&hemav1.GetLayoutRequest{StageId: ""})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	_, err := admin.GetLayout(context.Background(), req)
@@ -148,18 +161,18 @@ func TestGetLayout_E2E_EmptyNominationIDReturnsInvalidArgument(t *testing.T) {
 }
 
 func TestGetLayout_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
-	admin, _, _ := setup(t)
+	admin, repo, _ := setup(t)
 
-	_, err := admin.GetLayout(context.Background(), connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: n1}))
+	_, err := admin.GetLayout(context.Background(), connect.NewRequest(&hemav1.GetLayoutRequest{StageId: stageIDFor(t, repo, n1)}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
 	}
 }
 
 func TestGetLayout_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
-	admin, _, _ := setup(t)
+	admin, repo, _ := setup(t)
 
-	req := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.GetLayoutRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", userBearer(t))
 
 	_, err := admin.GetLayout(context.Background(), req)
@@ -169,10 +182,10 @@ func TestGetLayout_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
 }
 
 func TestCreatePool_E2E(t *testing.T) {
-	admin, _, fighters := setup(t)
+	admin, repo, fighters := setup(t)
 	fighters.Set(n1)
 
-	req := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	res, err := admin.CreatePool(context.Background(), req)
@@ -195,7 +208,7 @@ func TestCreatePool_E2E_ForbiddenInReadyReturnsFailedPrecondition(t *testing.T) 
 	fighters.Set(n1)
 	repo.SeedStatus(n1, domain.LayoutReady)
 
-	req := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	_, err := admin.CreatePool(context.Background(), req)
@@ -241,7 +254,7 @@ func TestResetLayout_E2E(t *testing.T) {
 	fighters.Set(n1, domain.FighterRef{ID: "b1"})
 	repo.SeedPool(n1, 1, "b1")
 
-	req := connect.NewRequest(&hemav1.ResetLayoutRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.ResetLayoutRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	res, err := admin.ResetLayout(context.Background(), req)
@@ -263,13 +276,13 @@ func TestUndo_E2E_UndoReset(t *testing.T) {
 	repo.SeedPool(n1, 1, "b1")
 	repo.SeedPool(n1, 2, "b2")
 
-	resetReq := connect.NewRequest(&hemav1.ResetLayoutRequest{NominationId: n1})
+	resetReq := connect.NewRequest(&hemav1.ResetLayoutRequest{StageId: stageIDFor(t, repo, n1)})
 	resetReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := admin.ResetLayout(context.Background(), resetReq); err != nil {
 		t.Fatalf("ResetLayout: %v", err)
 	}
 
-	req := connect.NewRequest(&hemav1.UndoRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.UndoRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 	res, err := admin.Undo(context.Background(), req)
 	if err != nil {
@@ -285,7 +298,7 @@ func TestAssignFighter_E2E(t *testing.T) {
 	fighters.Set(n1, domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool(n1, 1)
 
-	req := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: n1, FighterId: "b1", PoolId: poolID})
+	req := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, repo, n1), FighterId: "b1", PoolId: poolID})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	res, err := admin.AssignFighter(context.Background(), req)
@@ -305,7 +318,7 @@ func TestUnassignFighter_E2E(t *testing.T) {
 	fighters.Set(n1, domain.FighterRef{ID: "b1"})
 	repo.SeedPool(n1, 1, "b1")
 
-	req := connect.NewRequest(&hemav1.UnassignFighterRequest{NominationId: n1, FighterId: "b1"})
+	req := connect.NewRequest(&hemav1.UnassignFighterRequest{StageId: stageIDFor(t, repo, n1), FighterId: "b1"})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	res, err := admin.UnassignFighter(context.Background(), req)
@@ -322,7 +335,7 @@ func TestAutoDistribute_E2E(t *testing.T) {
 	fighters.Set(n1, domain.FighterRef{ID: "b1"})
 	repo.SeedPool(n1, 1)
 
-	req := connect.NewRequest(&hemav1.AutoDistributeRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.AutoDistributeRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	res, err := admin.AutoDistribute(context.Background(), req)
@@ -338,10 +351,10 @@ func TestAutoDistribute_E2E(t *testing.T) {
 }
 
 func TestAutoDistribute_E2E_NoPoolsReturnsFailedPrecondition(t *testing.T) {
-	admin, _, fighters := setup(t)
+	admin, repo, fighters := setup(t)
 	fighters.Set(n1, domain.FighterRef{ID: "b1"})
 
-	req := connect.NewRequest(&hemav1.AutoDistributeRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.AutoDistributeRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	_, err := admin.AutoDistribute(context.Background(), req)
@@ -355,13 +368,13 @@ func TestUndo_E2E(t *testing.T) {
 	fighters.Set(n1, domain.FighterRef{ID: "b1"})
 	repo.SeedPool(n1, 1)
 
-	autoReq := connect.NewRequest(&hemav1.AutoDistributeRequest{NominationId: n1})
+	autoReq := connect.NewRequest(&hemav1.AutoDistributeRequest{StageId: stageIDFor(t, repo, n1)})
 	autoReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := admin.AutoDistribute(context.Background(), autoReq); err != nil {
 		t.Fatalf("AutoDistribute: %v", err)
 	}
 
-	req := connect.NewRequest(&hemav1.UndoRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.UndoRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 	res, err := admin.Undo(context.Background(), req)
 	if err != nil {
@@ -373,10 +386,10 @@ func TestUndo_E2E(t *testing.T) {
 }
 
 func TestUndo_E2E_NothingToUndoReturnsFailedPrecondition(t *testing.T) {
-	admin, _, fighters := setup(t)
+	admin, repo, fighters := setup(t)
 	fighters.Set(n1)
 
-	req := connect.NewRequest(&hemav1.UndoRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.UndoRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 
 	_, err := admin.Undo(context.Background(), req)
@@ -386,11 +399,11 @@ func TestUndo_E2E_NothingToUndoReturnsFailedPrecondition(t *testing.T) {
 }
 
 func TestSetLayoutStatus_E2E(t *testing.T) {
-	admin, _, fighters := setup(t)
+	admin, repo, fighters := setup(t)
 	fighters.Set(n1)
 
 	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{
-		NominationId: n1, Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY,
+		StageId: stageIDFor(t, repo, n1), Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY,
 	})
 	req.Header().Set("Authorization", adminBearer(t))
 
@@ -404,14 +417,14 @@ func TestSetLayoutStatus_E2E(t *testing.T) {
 }
 
 func TestSetLayoutStatus_E2E_InvalidTargetReturnsInvalidArgument(t *testing.T) {
-	admin, _, fighters := setup(t)
+	admin, repo, fighters := setup(t)
 	fighters.Set(n1)
 
 	// active/finished убраны спекой 0011 (enum значения зарезервированы) —
 	// UNSPECIFIED остаётся единственным «невалидным целевым статусом»,
 	// доступным на проводе.
 	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{
-		NominationId: n1, Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_UNSPECIFIED,
+		StageId: stageIDFor(t, repo, n1), Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_UNSPECIFIED,
 	})
 	req.Header().Set("Authorization", adminBearer(t))
 
@@ -1451,7 +1464,7 @@ func TestGetLayout_E2E_StandingsPopulatedAfterFinishedBout(t *testing.T) {
 	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "A"}, domain.FighterRef{ID: "f2", Name: "B"})
 	poolID := finishedStandingsBout(t, repo, bouts)
 
-	req := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: n1})
+	req := connect.NewRequest(&hemav1.GetLayoutRequest{StageId: stageIDFor(t, repo, n1)})
 	req.Header().Set("Authorization", adminBearer(t))
 	res, err := admin.GetLayout(context.Background(), req)
 	if err != nil {
@@ -1560,5 +1573,319 @@ func TestGetBoutBoard_E2E_StandingsNotPopulated(t *testing.T) {
 	}
 	if len(res.Msg.Board.Pool.Standings) != 0 {
 		t.Fatalf("expected empty standings on bout board, got %+v", res.Msg.Board.Pool.Standings)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0018: этапы, посев сетки — шесть новых RPC (T19).
+// ---------------------------------------------------------------------
+
+func TestListStages_E2E_MaterializesGroups(t *testing.T) {
+	admin, repo, fighters := setup(t)
+	fighters.Set(n1)
+
+	req := connect.NewRequest(&hemav1.ListStagesRequest{NominationId: n1})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.ListStages(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListStages: %v", err)
+	}
+	if len(res.Msg.Stages) != 1 || res.Msg.Stages[0].Type != hemav1.StageType_STAGE_TYPE_GROUPS {
+		t.Fatalf("expected 1 materialized groups stage, got %+v", res.Msg.Stages)
+	}
+	if got := repo.StageCount(); got != 1 {
+		t.Fatalf("expected ListStages to materialize the stage row, got %d", got)
+	}
+}
+
+func TestListStages_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _ := setup(t)
+	_, err := admin.ListStages(context.Background(), connect.NewRequest(&hemav1.ListStagesRequest{NominationId: n1}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestListStages_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _ := setup(t)
+	req := connect.NewRequest(&hemav1.ListStagesRequest{NominationId: n1})
+	req.Header().Set("Authorization", userBearer(t))
+	_, err := admin.ListStages(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestCreateStage_E2E_HappyPath(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1)
+
+	listReq := connect.NewRequest(&hemav1.ListStagesRequest{NominationId: n1})
+	listReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ListStages(context.Background(), listReq); err != nil {
+		t.Fatalf("ListStages: %v", err)
+	}
+
+	req := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 8, ThirdPlace: true},
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.CreateStage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("CreateStage: %v", err)
+	}
+	if res.Msg.Created == nil || res.Msg.Created.Type != hemav1.StageType_STAGE_TYPE_BRACKET {
+		t.Fatalf("expected created bracket stage, got %+v", res.Msg.Created)
+	}
+	if res.Msg.Created.Bracket == nil || res.Msg.Created.Bracket.Size != 8 || !res.Msg.Created.Bracket.ThirdPlace {
+		t.Fatalf("unexpected bracket config: %+v", res.Msg.Created.Bracket)
+	}
+	if res.Msg.Created.Position != 1 {
+		t.Fatalf("expected position 1 (after groups at 0), got %d", res.Msg.Created.Position)
+	}
+	if len(res.Msg.Stages) != 2 {
+		t.Fatalf("expected 2 stages in response, got %d", len(res.Msg.Stages))
+	}
+}
+
+// В этом инкременте CreateStage принимает только type = BRACKET; GROUPS
+// отклоняется на уровне хендлера, не доходя до сервиса (план, таблица RPC).
+func TestCreateStage_E2E_GroupsTypeReturnsInvalidArgument(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1)
+
+	req := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_GROUPS, Title: "Группа",
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	_, err := admin.CreateStage(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestCreateStage_E2E_InvalidSizeReturnsInvalidArgument(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1)
+
+	req := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 6},
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	_, err := admin.CreateStage(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestCreateStage_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1)
+	req := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 4},
+	})
+	_, err := admin.CreateStage(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestCreateStage_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1)
+	req := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 4},
+	})
+	req.Header().Set("Authorization", userBearer(t))
+	_, err := admin.CreateStage(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+// AC-14: этап-сетку без начатых боёв можно удалить; групповой этап удалить
+// нельзя.
+func TestDeleteStage_E2E_HappyPathAndGroupsRejected(t *testing.T) {
+	admin, repo, fighters := setup(t)
+	fighters.Set(n1)
+	groupsStageID := stageIDFor(t, repo, n1)
+
+	delGroupsReq := connect.NewRequest(&hemav1.DeleteStageRequest{StageId: groupsStageID})
+	delGroupsReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.DeleteStage(context.Background(), delGroupsReq); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition for groups stage, got %v", connect.CodeOf(err))
+	}
+
+	createReq := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 4},
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	createRes, err := admin.CreateStage(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateStage: %v", err)
+	}
+
+	delReq := connect.NewRequest(&hemav1.DeleteStageRequest{StageId: createRes.Msg.Created.Id})
+	delReq.Header().Set("Authorization", adminBearer(t))
+	delRes, err := admin.DeleteStage(context.Background(), delReq)
+	if err != nil {
+		t.Fatalf("DeleteStage: %v", err)
+	}
+	for _, s := range delRes.Msg.Stages {
+		if s.Id == createRes.Msg.Created.Id {
+			t.Fatalf("expected stage removed from response, got %+v", delRes.Msg.Stages)
+		}
+	}
+}
+
+func TestDeleteStage_E2E_NotFoundReturnsNotFound(t *testing.T) {
+	admin, _, _ := setup(t)
+	req := connect.NewRequest(&hemav1.DeleteStageRequest{StageId: "missing-stage"})
+	req.Header().Set("Authorization", adminBearer(t))
+	_, err := admin.DeleteStage(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %v", connect.CodeOf(err))
+	}
+}
+
+// Посев: счастливый путь (Seed/GetBracket/Clear) + коды ошибок (занятый
+// слот, невалидный слот).
+func TestBracketSeeding_E2E_SeedGetClear(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "Alice"}, domain.FighterRef{ID: "f2", Name: "Bob"})
+
+	createReq := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 4},
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	createRes, err := admin.CreateStage(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateStage: %v", err)
+	}
+	stageID := createRes.Msg.Created.Id
+
+	seedReq := connect.NewRequest(&hemav1.SeedBracketSlotRequest{StageId: stageID, Slot: 1, FighterId: "f1"})
+	seedReq.Header().Set("Authorization", adminBearer(t))
+	seedRes, err := admin.SeedBracketSlot(context.Background(), seedReq)
+	if err != nil {
+		t.Fatalf("SeedBracketSlot: %v", err)
+	}
+	slotA := seedRes.Msg.Bracket.Rounds[0].Halves[0].Pairs[0].SlotA
+	if slotA.State != hemav1.BracketSlotState_BRACKET_SLOT_STATE_FILLED || slotA.Fighter.FighterId != "f1" || slotA.Fighter.Name != "Alice" {
+		t.Fatalf("unexpected slotA: %+v", slotA)
+	}
+
+	// Занятый слот, ещё не посеянный боец — FailedPrecondition (ErrSlotOccupied).
+	occupiedReq := connect.NewRequest(&hemav1.SeedBracketSlotRequest{StageId: stageID, Slot: 1, FighterId: "f2"})
+	occupiedReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.SeedBracketSlot(context.Background(), occupiedReq); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+
+	// Невалидный слот — InvalidArgument.
+	invalidReq := connect.NewRequest(&hemav1.SeedBracketSlotRequest{StageId: stageID, Slot: 99, FighterId: "f2"})
+	invalidReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.SeedBracketSlot(context.Background(), invalidReq); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+
+	getReq := connect.NewRequest(&hemav1.GetBracketRequest{StageId: stageID})
+	getReq.Header().Set("Authorization", adminBearer(t))
+	getRes, err := admin.GetBracket(context.Background(), getReq)
+	if err != nil {
+		t.Fatalf("GetBracket: %v", err)
+	}
+	if getRes.Msg.Bracket.Stage.Id != stageID {
+		t.Fatalf("expected bracket stage id %q, got %q", stageID, getRes.Msg.Bracket.Stage.Id)
+	}
+	foundUnassigned := false
+	for _, u := range getRes.Msg.Bracket.Unassigned {
+		if u.FighterId == "f2" {
+			foundUnassigned = true
+		}
+	}
+	if !foundUnassigned {
+		t.Fatalf("expected f2 to be unassigned, got %+v", getRes.Msg.Bracket.Unassigned)
+	}
+
+	clearReq := connect.NewRequest(&hemav1.ClearBracketSlotRequest{StageId: stageID, Slot: 1})
+	clearReq.Header().Set("Authorization", adminBearer(t))
+	clearRes, err := admin.ClearBracketSlot(context.Background(), clearReq)
+	if err != nil {
+		t.Fatalf("ClearBracketSlot: %v", err)
+	}
+	if clearRes.Msg.Bracket.Rounds[0].Halves[0].Pairs[0].SlotA.State != hemav1.BracketSlotState_BRACKET_SLOT_STATE_EMPTY {
+		t.Fatalf("expected slot1 empty after clear, got %+v", clearRes.Msg.Bracket.Rounds[0].Halves[0].Pairs[0].SlotA)
+	}
+	// Идемпотентно.
+	if _, err := admin.ClearBracketSlot(context.Background(), clearReq); err != nil {
+		t.Fatalf("expected idempotent clear, got %v", err)
+	}
+}
+
+func TestGetBracket_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _ := setup(t)
+	_, err := admin.GetBracket(context.Background(), connect.NewRequest(&hemav1.GetBracketRequest{StageId: "any"}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+// FR-19: живой снапшот номинации отдаёт зафиксированные сетки отдельным
+// полем brackets, без unassigned (публичный путь не показывает посев).
+func TestGetNominationLive_E2E_IncludesReadyBrackets(t *testing.T) {
+	admin, public, _, fighters, _, _, _, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1", Name: "Alice"}, domain.FighterRef{ID: "f2", Name: "Bob"})
+
+	createReq := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: n1, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: "Плейофф",
+		Bracket: &hemav1.BracketConfig{Size: 4},
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	createRes, err := admin.CreateStage(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateStage: %v", err)
+	}
+	stageID := createRes.Msg.Created.Id
+
+	seed := func(slot int32, fid string) {
+		req := connect.NewRequest(&hemav1.SeedBracketSlotRequest{StageId: stageID, Slot: slot, FighterId: fid})
+		req.Header().Set("Authorization", adminBearer(t))
+		if _, err := admin.SeedBracketSlot(context.Background(), req); err != nil {
+			t.Fatalf("SeedBracketSlot: %v", err)
+		}
+	}
+	seed(1, "f1")
+	seed(2, "f2")
+
+	statusReq := connect.NewRequest(&hemav1.SetLayoutStatusRequest{StageId: stageID, Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY})
+	statusReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.SetLayoutStatus(context.Background(), statusReq); err != nil {
+		t.Fatalf("SetLayoutStatus: %v", err)
+	}
+
+	liveReq := connect.NewRequest(&hemav1.GetNominationLiveRequest{NominationId: n1})
+	res, err := public.GetNominationLive(context.Background(), liveReq)
+	if err != nil {
+		t.Fatalf("GetNominationLive: %v", err)
+	}
+	if len(res.Msg.Snapshot.Brackets) != 1 {
+		t.Fatalf("expected 1 bracket in live snapshot, got %d", len(res.Msg.Snapshot.Brackets))
+	}
+	if res.Msg.Snapshot.Brackets[0].Stage.Id != stageID {
+		t.Fatalf("unexpected bracket stage id: %q", res.Msg.Snapshot.Brackets[0].Stage.Id)
+	}
+	if len(res.Msg.Snapshot.Brackets[0].Unassigned) != 0 {
+		t.Fatalf("expected public bracket snapshot without unassigned, got %+v", res.Msg.Snapshot.Brackets[0].Unassigned)
+	}
+	// Групповой этап (пустой, никаких пулов) не даёт lishних записей в pools.
+	if len(res.Msg.Snapshot.Pools) != 0 {
+		t.Fatalf("expected no group pools, got %+v", res.Msg.Snapshot.Pools)
 	}
 }
