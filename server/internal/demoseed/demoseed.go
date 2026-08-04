@@ -153,6 +153,13 @@ var arenaSeeds = []arenaSeed{
 		Name:        "Тренировочная зона",
 		Description: "Разминочная площадка без зрительских мест.",
 	},
+	{
+		// Отдельная от showcase-пулов SeedPoolsAndBouts арена (спека 0018,
+		// cmd/demo-bouts): верхняя половина «1/4 финала» демо-сетки ведётся
+		// здесь, пока три первых ристалища заняты показательными группами.
+		Name:        "Ристалище 4",
+		Description: "Дополнительная арена. Здесь ведётся верхняя половина плейофф-сетки.",
+	},
 }
 
 // Services — собранные сервисы всех модулей, нужные сценариям наполнения.
@@ -700,16 +707,24 @@ func SeedPoolsAndBouts(
 			continue // некого расставлять по парам — бои не сформируются (0010, FR-4)
 		}
 
+		// Адресация раскладки — этапом, не номинацией (спека 0018, FR-18):
+		// групповой этап материализуется ListStages (0017, FR-4) — тем же
+		// путём, что и админский экран этапов.
+		groupsStageID, err := groupsStageID(ctx, poolSvc, nomID)
+		if err != nil {
+			return result, fmt.Errorf("resolve groups stage for nomination %s: %w", nomID, err)
+		}
+
 		poolCount := (activeCounts[nomID] + targetPoolSize - 1) / targetPoolSize
 		for i := 0; i < poolCount; i++ {
-			if _, err := poolSvc.CreatePool(ctx, nomID); err != nil {
+			if _, err := poolSvc.CreatePool(ctx, groupsStageID); err != nil {
 				return result, fmt.Errorf("create pool for nomination %s: %w", nomID, err)
 			}
 		}
-		if _, err := poolSvc.AutoDistribute(ctx, nomID); err != nil {
+		if _, err := poolSvc.AutoDistribute(ctx, groupsStageID); err != nil {
 			return result, fmt.Errorf("auto-distribute nomination %s: %w", nomID, err)
 		}
-		layout, err := poolSvc.SetStatus(ctx, nomID, stagedomain.LayoutReady)
+		layout, err := poolSvc.SetStatus(ctx, groupsStageID, stagedomain.LayoutReady)
 		if err != nil {
 			return result, fmt.Errorf("ready nomination %s: %w", nomID, err)
 		}
@@ -768,6 +783,24 @@ func SeedPoolsAndBouts(
 	}
 
 	return result, nil
+}
+
+// groupsStageID возвращает id группового этапа номинации, материализуя его
+// при первом обращении (спека 0017, FR-4 — ListStages, единственное место с
+// EnsureStage на write-пути, план «service/service.go»). Раскладка
+// адресуется этапом, а не номинацией (спека 0018, FR-18) — демо-сид следует
+// тому же пути, что и админский экран `/admin/nominations/{id}/stages`.
+func groupsStageID(ctx context.Context, svc *stageservice.Service, nominationID string) (string, error) {
+	stages, err := svc.ListStages(ctx, nominationID)
+	if err != nil {
+		return "", err
+	}
+	for _, st := range stages {
+		if st.Type == stagedomain.StageTypeGroups {
+			return st.ID, nil
+		}
+	}
+	return "", fmt.Errorf("groups stage not found for nomination %s", nominationID)
 }
 
 // activeFighterCountsByNomination считает активных бойцов с активным

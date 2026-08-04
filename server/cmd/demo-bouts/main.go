@@ -99,6 +99,34 @@ func main() {
 		"preparing_pool", pools.PreparingPoolID,
 	)
 
+	// Плейофф-сетка (спека 0018): добавляем её той же номинации, чья
+	// групповая раскладка уже целиком проведена (FinishedPoolID) — на
+	// публичном экране этой номинации сразу видно и группы, и сетку
+	// одновременно (AC-12). Верхняя половина «1/4 финала» ведётся на
+	// отдельной («Ристалище 4») арене параллельно трём показательным пулам
+	// групп — арены 1-3 уже заняты.
+	var bracketArenaID string
+	if len(result.ArenaIDs) > 3 {
+		bracketArenaID = result.ArenaIDs[3]
+	}
+	var bracketNominationID string
+	if len(pools.NominationIDs) > 0 {
+		bracketNominationID = pools.NominationIDs[0]
+	}
+	bracket, err := demoseed.SeedBracketStage(
+		ctx, svc.Pool, svc.Fighter,
+		result.TournamentID, bracketNominationID, bracketArenaID, organizerID, rng,
+	)
+	if err != nil {
+		log.Error("seed bracket stage", "err", err)
+		os.Exit(1)
+	}
+	log.Info("добавили плейофф-сетку",
+		"nomination", bracket.NominationID,
+		"stage", bracket.StageID,
+		"seeded_slots", bracket.SeededSlots,
+	)
+
 	fmt.Println()
 	fmt.Println("Готово: пулы сформированы, три площадки ведут турнирный день.")
 	fmt.Println("Тестовые учётки (пароль одинаковый для всей группы):")
@@ -113,5 +141,11 @@ func main() {
 	}
 	if pools.RunningArenaID != "" {
 		fmt.Printf("Ведение этого боя (admin):                     /admin/arenas/%s\n", pools.RunningArenaID)
+	}
+	if bracket.StageID != "" {
+		fmt.Printf("Плейофф-сетка (admin, посев+ведение):          /admin/nominations/%s/stages/%s\n", bracket.NominationID, bracket.StageID)
+	}
+	if bracketArenaID != "" {
+		fmt.Printf("Ведение верхней половины 1/4 финала (admin):    /admin/arenas/%s\n", bracketArenaID)
 	}
 }
