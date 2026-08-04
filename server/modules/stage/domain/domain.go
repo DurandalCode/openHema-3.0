@@ -61,6 +61,30 @@ var (
 	// (ADR 0011 п.3, AC-15): после прозрачного повтора на стороне
 	// bout/adapter конфликт остался неустранимым.
 	ErrConcurrency = errors.New("pool: concurrent bout modification conflict")
+
+	// Спека 0018: этап-сетка с ручным посевом (ADR 0014 §1a/§3/§4).
+
+	// ErrStageTypeMismatch — операция не применима к типу этапа (например,
+	// AutoDistribute/CreatePool на сетке, план «service/service.go»).
+	ErrStageTypeMismatch = errors.New("pool: operation not applicable to this stage type")
+	// ErrDrawNotAllowed — завершение боя сетки с равным счётом отклонено:
+	// ничья в сетке недопустима (FR-15, AC-6).
+	ErrDrawNotAllowed = errors.New("pool: a draw is not allowed in a bracket stage")
+	// ErrDownstreamStarted — пересмотр результата (reopen/reset) отклонён:
+	// следующий бой победителя уже начат, результат уже «уехал» дальше
+	// (FR-16, AC-9).
+	ErrDownstreamStarted = errors.New("pool: the downstream bout has already started")
+	// ErrSlotOccupied — посадка бойца в занятый слот сетки отклонена: слот
+	// сначала освобождают, либо (для уже посеянного бойца) действие
+	// становится обменом местами (FR-8).
+	ErrSlotOccupied = errors.New("pool: slot is already occupied")
+	// ErrStageNotDeletable — удаление этапа отклонено: групповой этап
+	// удалить нельзя, этап-сетку — только пока в ней нет начатых боёв
+	// (FR-3, AC-14).
+	ErrStageNotDeletable = errors.New("pool: stage is not deletable")
+	// ErrNotEnoughSeeds — фиксация посева отклонена: посеяно меньше двух
+	// бойцов, сетка из одного участника не разыгрывает ничего (FR-11, AC-4).
+	ErrNotEnoughSeeds = errors.New("pool: not enough seeded fighters to lock the bracket")
 )
 
 // LayoutStatus — статус раскладки номинации целиком (FR-9). Урезан спекой
@@ -133,12 +157,20 @@ const (
 	UndoReset      UndoKind = "reset"
 )
 
+// ResetMember — один боец в снапшоте пула на момент сброса раскладки
+// (спека 0018): слот, в котором он стоял, если пул принадлежит этапу-сетке.
+// Slot == 0 — членство без слота (группа, спека 0017 и ранее).
+type ResetMember struct {
+	FighterID string
+	Slot      int
+}
+
 // ResetPool — снапшот одного пула номинации на момент сброса раскладки (для
-// UndoReset): номер пула + его бойцы. Восстановление пересоздаёт пул с тем же
-// номером и членствами (AC-13a4).
+// UndoReset): номер пула + его бойцы (со слотами — спека 0018, FR-8).
+// Восстановление пересоздаёт пул с тем же номером и членствами (AC-13a4).
 type ResetPool struct {
-	Number     int
-	FighterIDs []string
+	Number  int
+	Members []ResetMember
 }
 
 // UndoState — снапшот последнего undoable-действия раскладки.
@@ -152,17 +184,19 @@ type UndoState struct {
 	// под тем же номером/именем, FR-3).
 	PoolNumber int
 	// Pools — для UndoReset: снапшот всех пулов номинации на момент сброса
-	// (восстановить все пулы с их бойцами, AC-13a4).
+	// (восстановить все пулы с их бойцами и слотами, AC-13a4, спека 0018).
 	Pools []ResetPool
 }
 
-// StageType — тип этапа номинации (спека 0017, FR-3; ADR 0014 §1/§3). В этом
-// инкременте существует ровно одно значение — групповой (круговая система
-// внутри групп, механика 0009/0010/0016). Второй тип (bracket) придёт со
-// спекой 0018.
+// StageType — тип этапа номинации (спека 0017, FR-3; ADR 0014 §1/§3):
+// групповой (круговая система внутри групп, механика 0009/0010/0016) или
+// сетка на выбывание (плейофф, спека 0018, FR-1).
 type StageType string
 
-const StageTypeGroups StageType = "groups"
+const (
+	StageTypeGroups  StageType = "groups"
+	StageTypeBracket StageType = "bracket"
+)
 
 // DefaultStageTitle — название авто-создаваемого группового этапа (спека
 // 0017, FR-4).
@@ -171,8 +205,10 @@ const DefaultStageTitle = "Групповой этап"
 // Stage — этап номинации (спека 0017, FR-1). Status/Undo переезжают сюда с
 // раскладки номинации целиком (FR-6): это ровно то, чем была pool_layouts —
 // владелец статуса фиксации состава и undo-снапшота, — плюс идентичность
-// (Position/Title/Type) и принадлежность номинации. В этой спеке у каждой
-// номинации ровно один этап (position=0, type=groups, FR-2/FR-4).
+// (Position/Title/Type) и принадлежность номинации.
+//
+// Bracket — параметры этапа-сетки (спека 0018, FR-1); заполнен только у
+// Type == StageTypeBracket, у группового этапа — нулевое значение.
 type Stage struct {
 	ID           string
 	NominationID string
@@ -181,6 +217,7 @@ type Stage struct {
 	Type         StageType
 	Status       LayoutStatus
 	Undo         UndoState
+	Bracket      BracketConfig
 }
 
 // PoolMember — сырое членство: боец в пуле (репозиторное чтение, без
@@ -248,8 +285,9 @@ type Repository interface {
 	// AssignFighter кладёт бойца в пул: upsert членства по (stage_id,
 	// fighter_id) — move одним действием, если боец уже был в другом пуле
 	// этого этапа (спека 0017, FR-7: тот же боец в пуле другого этапа той
-	// же номинации не трогается). Очищает undo этапа.
-	AssignFighter(ctx context.Context, stageID, fighterID, poolID string) error
+	// же номинации не трогается). Очищает undo этапа. slot — номер слота
+	// сетки (спека 0018, FR-7); 0 у группового этапа, где слотов нет.
+	AssignFighter(ctx context.Context, stageID, fighterID, poolID string, slot int) error
 	// UnassignFighter убирает бойца из пула этапа, если он там был
 	// (идемпотентно). Очищает undo этапа.
 	UnassignFighter(ctx context.Context, stageID, fighterID string) error
@@ -291,8 +329,38 @@ type Repository interface {
 	// разным этапам, план «Модуль stage»).
 	StageByID(ctx context.Context, stageID string) (Stage, bool, error)
 	// StagesByNomination возвращает все этапы номинации (для публичных
-	// ответов, repeated stages) — в этой спеке не более одного.
+	// ответов, repeated stages) — начиная со спеки 0018 может быть больше
+	// одного (групповой + одна или несколько сеток).
 	StagesByNomination(ctx context.Context, nominationID string) ([]Stage, error)
+
+	// CreateStage вставляет новый этап номинации (спека 0018, FR-2):
+	// позицию (`max+1`, MaxStagePosition) вычисляет вызывающий — репозиторий
+	// только пишет переданные значения. В этом инкременте type всегда
+	// StageTypeBracket (создание группового этапа остаётся
+	// EnsureStage/автоматическим).
+	CreateStage(ctx context.Context, nominationID string, position int, title string, stageType StageType, bracket BracketConfig) (Stage, error)
+	// DeleteStage удаляет этап вместе с его контейнерами и членствами
+	// (каскад БД) — гейты (тип bracket, нет начатых боёв) проверяет
+	// вызывающий (service.DeleteStage) до вызова (FR-3, AC-14).
+	DeleteStage(ctx context.Context, stageID string) error
+	// MaxStagePosition возвращает наибольшую position среди этапов
+	// номинации (0, если этапов ещё нет) — CreateStage встаёт под max+1
+	// (FR-2).
+	MaxStagePosition(ctx context.Context, nominationID string) (int, error)
+
+	// SeedSlot сажает бойца в слот первого круга сетки (спека 0018,
+	// FR-7/FR-8): upsert членства (containerPoolID, fighterID, slot).
+	// Занятый слот — обязанность вызывающего (service.SeedBracketSlot)
+	// развести на обмен/отказ *до* вызова.
+	SeedSlot(ctx context.Context, stageID, containerPoolID, fighterID string, slot int) error
+	// SeedsByStage возвращает текущий посев первого круга этапа (слот →
+	// боец) — сырые членства с непустым slot, по обоим контейнерам первого
+	// круга.
+	SeedsByStage(ctx context.Context, stageID string) ([]Seed, error)
+	// DeleteContainers удаляет контейнеры (пулы) по id, каскадом членства —
+	// расфиксация сетки удаляет так круги >= 2 (посев первого круга
+	// остаётся), DeleteStage — все контейнеры этапа целиком.
+	DeleteContainers(ctx context.Context, poolIDs []string) error
 
 	// PoolsByStage возвращает bare-пулы этапа (без обогащённых членств —
 	// см. MembersByStage) для админ-раскладки одного этапа (loadLayout).
@@ -418,6 +486,17 @@ type BoutBoard struct {
 type BoutConductor interface {
 	GenerateForStage(ctx context.Context, nominationID string, pools []BoutPoolInput) error
 	ClearForPools(ctx context.Context, poolIDs []string) error
+
+	// ScheduleBout материализует один бой пары сетки (спека 0018, FR-14):
+	// создаёт бой в контейнере poolID с заданными координатами
+	// (round/sequence — порядковый номер боя внутри контейнера, спека 0010)
+	// и участниками; возвращает id созданного боя. В отличие от
+	// GenerateForStage — точечная вставка, ничего не удаляет.
+	ScheduleBout(ctx context.Context, nominationID, poolID string, round, sequence int, a, b FighterRef) (string, error)
+	// DeleteBouts точечно удаляет перечисленные бои (снятие продвижения при
+	// пересмотре результата, FR-16) — в отличие от ClearForPools, не
+	// трогает остальные бои контейнера.
+	DeleteBouts(ctx context.Context, boutIDs []string) error
 
 	StartBout(ctx context.Context, boutID, actorID string) error
 	ScoreBout(ctx context.Context, boutID, actorID string, scoreA, scoreB int) error

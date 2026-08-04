@@ -50,18 +50,18 @@
 
 ## Server — трек A (домен сетки)
 
-- [ ] T3. **domain (red→green)** — `modules/stage/domain/bracket_test.go` →
+- [x] T3. **domain (red→green)** — `modules/stage/domain/bracket_test.go` →
       `bracket.go`: `BracketConfig`, `Seed`, `Slot`/`Pair`/`Half`/`Round`,
       `BracketView`, `ResolveBracket`. Таблица случаев: размеры 4/8/16/32,
       полный посев, недобор с баем, каскад бая, продвижение победителя,
       pending-метки пары-источника, бронза (в т.ч. полуфинал-бай), чемпион,
       «половина завершена» (план, правила 1–7).
-- [ ] T4. **domain — координаты и подписи (red→green)** — там же:
+- [x] T4. **domain — координаты и подписи (red→green)** — там же:
       `RoundTitle`, `RoundCount`, `ValidBracketSize`, `HalvesInRound`,
       `ContainerNumberOf`/`ContainerCoords` (взаимная обратимость),
       `PairOfBout`, `HalfOfSlot`, `ContainerTitle` (FR-19a),
       `SourceLabel` (FR-13).
-- [ ] T5. **domain — типы и порты** — `modules/stage/domain/domain.go`:
+- [x] T5. **domain — типы и порты** — `modules/stage/domain/domain.go`:
       `StageTypeBracket`, `Stage.Bracket`, `Pool.StageID`, новые ошибки
       (`ErrStageTypeMismatch`, `ErrDrawNotAllowed`, `ErrDownstreamStarted`,
       `ErrSlotOccupied`, `ErrStageNotDeletable`, `ErrNotEnoughSeeds`),
