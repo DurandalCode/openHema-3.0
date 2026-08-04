@@ -39,21 +39,23 @@ const poolZoneId = (poolId: string) => `zone:pool:${poolId}`;
 const fighterDragId = (fighterId: string) => `fighter:${fighterId}`;
 
 /**
- * NominationPools — экран управления составом номинации: нераспределённые
+ * NominationPools — экран управления составом этапа: нераспределённые
  * бойцы + пулы, drag & drop, автораспределение, undo, статус draft/ready
- * (спека 0009). В `ready` — read-only (FR-11).
+ * (спека 0009). В `ready` — read-only (FR-11). Адресуется `stageId` (спека
+ * 0018, FR-18); `nominationId` для боёв (`useBouts`, ручка не переехала на
+ * этап) берётся из загруженной раскладки (`layout.stage.nominationId`).
  */
-export function NominationPools({ nominationId }: { nominationId: string }) {
-  const { data: layout, isLoading, error } = useLayout(nominationId);
-  const createPool = useCreatePool(nominationId);
-  const deletePool = useDeletePool(nominationId);
-  const resetLayout = useResetLayout(nominationId);
-  const assign = useAssignFighter(nominationId);
-  const unassign = useUnassignFighter(nominationId);
-  const autoDistribute = useAutoDistribute(nominationId);
-  const undo = useUndo(nominationId);
-  const setStatus = useSetLayoutStatus(nominationId);
-  const { data: bouts } = useBouts(nominationId, layout?.status);
+export function NominationPools({ stageId }: { stageId: string }) {
+  const { data: layout, isLoading, error } = useLayout(stageId);
+  const createPool = useCreatePool(stageId);
+  const deletePool = useDeletePool(stageId);
+  const resetLayout = useResetLayout(stageId);
+  const assign = useAssignFighter(stageId);
+  const unassign = useUnassignFighter(stageId);
+  const autoDistribute = useAutoDistribute(stageId);
+  const undo = useUndo(stageId);
+  const setStatus = useSetLayoutStatus(stageId);
+  const { data: bouts } = useBouts(layout?.stage.nominationId ?? "", layout?.status);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
 

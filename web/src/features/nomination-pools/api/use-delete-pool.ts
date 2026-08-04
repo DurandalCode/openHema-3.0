@@ -8,7 +8,7 @@ import { nominationPoolsKeys } from "./keys";
  * useDeletePool — мутация удаления пула; его бойцы возвращаются в
  * нераспределённые (только draft, undoable — FR-4/FR-7a).
  */
-export function useDeletePool(nominationId: string) {
+export function useDeletePool(stageId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (poolId: string) => {
@@ -17,7 +17,7 @@ export function useDeletePool(nominationId: string) {
       return res.layout;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(nominationId) });
+      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
     },
   });
 }

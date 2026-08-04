@@ -9,16 +9,16 @@ import { nominationPoolsKeys } from "./keys";
  * нераспределённых бойцов по существующим пулам, минимизируя
  * одноклубников (FR-6/FR-7). Только draft, undoable.
  */
-export function useAutoDistribute(nominationId: string) {
+export function useAutoDistribute(stageId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await autoDistributeRequest(nominationId);
+      const res = await autoDistributeRequest(stageId);
       if (!res.ok) throw new Error(res.error);
       return res.layout;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(nominationId) });
+      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
     },
   });
 }

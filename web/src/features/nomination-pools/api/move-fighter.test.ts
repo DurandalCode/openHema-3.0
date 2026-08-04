@@ -26,7 +26,15 @@ function layout(pools: Pool[], unassigned: FighterRef[] = [], canUndo = false): 
     unassigned,
     pools,
     canUndo,
-    stage: { id: "stage-1", nominationId: "n1", position: 0, title: "Групповой этап", type: "STAGE_TYPE_GROUPS" },
+    stage: {
+      id: "stage-1",
+      nominationId: "n1",
+      position: 0,
+      title: "Групповой этап",
+      type: "STAGE_TYPE_GROUPS",
+      status: "POOL_LAYOUT_STATUS_DRAFT",
+      bracket: null,
+    },
   };
 }
 

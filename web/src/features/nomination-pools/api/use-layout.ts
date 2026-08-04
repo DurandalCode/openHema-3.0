@@ -4,15 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { getLayoutRequest } from "./requests";
 import { nominationPoolsKeys } from "./keys";
 
-/** useLayout — раскладка номинации по пулам для клиентских компонентов админки. */
-export function useLayout(nominationId: string) {
+/** useLayout — раскладка этапа по пулам для клиентских компонентов админки (спека 0018, FR-18). */
+export function useLayout(stageId: string) {
   return useQuery({
-    queryKey: nominationPoolsKeys.layout(nominationId),
+    queryKey: nominationPoolsKeys.layout(stageId),
     queryFn: async () => {
-      const res = await getLayoutRequest(nominationId);
+      const res = await getLayoutRequest(stageId);
       if (!res.ok) throw new Error(res.error);
       return res.layout;
     },
-    enabled: nominationId.length > 0,
+    enabled: stageId.length > 0,
   });
 }

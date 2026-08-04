@@ -169,15 +169,15 @@
 
 ## Web — трек E (фичи)
 
-- [ ] T23. **features/stage-management (red→green)** — `api/` (список,
+- [x] T23. **features/stage-management (red→green)** — `api/` (список,
       создание, удаление) + `ui/` (карточки этапов, диалог создания:
       название, размер 4/8/16/32, флаг боя за 3-е место) с тестами на
       fetch-моках.
-- [ ] T24. **features/bracket-seeding (red→green)** — `api/` (посев,
+- [x] T24. **features/bracket-seeding (red→green)** — `api/` (посев,
       освобождение слота, reset, undo, фиксация) + `ui/` (DnD `@dnd-kit`:
       нераспределённые слева, пары первого круга по половинам справа;
       занятый слот; фиксация с ошибкой «меньше двух посеянных») с тестами.
-- [ ] T25. **features/nomination-pools — переезд на `stage_id`** —
+- [x] T25. **features/nomination-pools — переезд на `stage_id`** —
       `api/requests.ts`, ключи RQ, хуки; `entities/stage/lib/types.ts`
       (+`status`, `bracket`); UI-ожидания существующих тестов **не
       меняются** (FR-23).

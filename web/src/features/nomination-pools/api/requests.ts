@@ -9,79 +9,81 @@ export type BoutsResult =
   | { ok: true; bouts: Bout[] }
   | { ok: false; error: string };
 
-/** getLayoutRequest — GET /api/nominations/[id]/pool-layout (только admin). */
-export async function getLayoutRequest(nominationId: string): Promise<PoolLayoutResult> {
-  return fetchLayout(`/api/nominations/${encodeURIComponent(nominationId)}/pool-layout`, {
+/**
+ * getLayoutRequest — GET /api/stages/[stageId]/layout (только admin).
+ *
+ * Спека 0018, FR-18: адресация раскладки переехала с номинации на этап
+ * (`stage_id`), чтобы у номинации могло быть несколько этапов (группы +
+ * сетка). Поведение групповой раскладки не меняется (FR-23) — только путь.
+ */
+export async function getLayoutRequest(stageId: string): Promise<PoolLayoutResult> {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/layout`, {
     method: "GET",
   });
 }
 
-/** createPoolRequest — POST /api/nominations/[id]/pools (только admin, draft). */
-export async function createPoolRequest(nominationId: string): Promise<PoolLayoutResult> {
-  return fetchLayout(`/api/nominations/${encodeURIComponent(nominationId)}/pools`, {
+/** createPoolRequest — POST /api/stages/[stageId]/pools (только admin, draft). */
+export async function createPoolRequest(stageId: string): Promise<PoolLayoutResult> {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/pools`, {
     method: "POST",
   });
 }
 
-/** deletePoolRequest — DELETE /api/pools/[poolId] (только admin, draft, undoable). */
+/** deletePoolRequest — DELETE /api/pools/[poolId] (только admin, draft, undoable). Адресуется своим id, не этапом. */
 export async function deletePoolRequest(poolId: string): Promise<PoolLayoutResult> {
   return fetchLayout(`/api/pools/${encodeURIComponent(poolId)}`, { method: "DELETE" });
 }
 
-/** resetLayoutRequest — POST /api/nominations/[id]/pool-layout/reset (только admin, draft). */
-export async function resetLayoutRequest(nominationId: string): Promise<PoolLayoutResult> {
-  return fetchLayout(
-    `/api/nominations/${encodeURIComponent(nominationId)}/pool-layout/reset`,
-    { method: "POST" },
-  );
+/** resetLayoutRequest — POST /api/stages/[stageId]/reset (только admin, draft). */
+export async function resetLayoutRequest(stageId: string): Promise<PoolLayoutResult> {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/reset`, { method: "POST" });
 }
 
-/** assignFighterRequest — POST /api/nominations/[id]/pool-assign (DnD: в пул/move). */
+/** assignFighterRequest — POST /api/stages/[stageId]/assign (DnD: в пул/move). */
 export async function assignFighterRequest(
-  nominationId: string,
+  stageId: string,
   fighterId: string,
   poolId: string,
 ): Promise<PoolLayoutResult> {
-  return fetchLayout(`/api/nominations/${encodeURIComponent(nominationId)}/pool-assign`, {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fighterId, poolId }),
   });
 }
 
-/** unassignFighterRequest — POST /api/nominations/[id]/pool-unassign (DnD: в нераспределённые). */
+/** unassignFighterRequest — POST /api/stages/[stageId]/unassign (DnD: в нераспределённые). */
 export async function unassignFighterRequest(
-  nominationId: string,
+  stageId: string,
   fighterId: string,
 ): Promise<PoolLayoutResult> {
-  return fetchLayout(`/api/nominations/${encodeURIComponent(nominationId)}/pool-unassign`, {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/unassign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fighterId }),
   });
 }
 
-/** autoDistributeRequest — POST /api/nominations/[id]/pool-distribute («Распределить по группам»). */
-export async function autoDistributeRequest(nominationId: string): Promise<PoolLayoutResult> {
-  return fetchLayout(
-    `/api/nominations/${encodeURIComponent(nominationId)}/pool-distribute`,
-    { method: "POST" },
-  );
-}
-
-/** undoRequest — POST /api/nominations/[id]/pool-undo («Отменить»). */
-export async function undoRequest(nominationId: string): Promise<PoolLayoutResult> {
-  return fetchLayout(`/api/nominations/${encodeURIComponent(nominationId)}/pool-undo`, {
+/** autoDistributeRequest — POST /api/stages/[stageId]/distribute («Распределить по группам»). */
+export async function autoDistributeRequest(stageId: string): Promise<PoolLayoutResult> {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/distribute`, {
     method: "POST",
   });
 }
 
-/** setLayoutStatusRequest — POST /api/nominations/[id]/pool-status (draft↔ready). */
+/** undoRequest — POST /api/stages/[stageId]/undo («Отменить»). */
+export async function undoRequest(stageId: string): Promise<PoolLayoutResult> {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/undo`, {
+    method: "POST",
+  });
+}
+
+/** setLayoutStatusRequest — POST /api/stages/[stageId]/status (draft↔ready). */
 export async function setLayoutStatusRequest(
-  nominationId: string,
+  stageId: string,
   status: "draft" | "ready",
 ): Promise<PoolLayoutResult> {
-  return fetchLayout(`/api/nominations/${encodeURIComponent(nominationId)}/pool-status`, {
+  return fetchLayout(`/api/stages/${encodeURIComponent(stageId)}/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
@@ -90,7 +92,10 @@ export async function setLayoutStatusRequest(
 
 /**
  * fetchBouts — GET /api/nominations/[id]/bouts (только admin; бои видны
- * только когда раскладка пулов в ready, спека 0010, AC-5).
+ * только когда раскладка пулов в ready, спека 0010, AC-5). Остаётся
+ * адресован номинацией — этой ручки трек 0018 не переносит (план,
+ * «BFF»: список меняемых путей ограничен раскладкой/сеткой), бои видны сразу
+ * по всем этапам номинации.
  */
 export async function fetchBouts(nominationId: string): Promise<BoutsResult> {
   try {

@@ -13,18 +13,23 @@ import { nominationPoolsKeys } from "./keys";
  * и просто включение `enabled` при переходе в ready не рефетчит уже
  * закэшированные (пусть и устаревшие по составу) бои, пока не истечёт
  * staleTime.
+ *
+ * `bouts` остаётся адресован `nominationId` (спека 0018 не переносит эту
+ * ручку на `stage_id`, см. `requests.ts`), который здесь недоступен —
+ * инвалидируем по префиксу ключа (`["nomination-pools", "bouts"]`), это
+ * задевает бои всех этапов, но экран раскладки рендерит один этап за раз.
  */
-export function useSetLayoutStatus(nominationId: string) {
+export function useSetLayoutStatus(stageId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (status: "draft" | "ready") => {
-      const res = await setLayoutStatusRequest(nominationId, status);
+      const res = await setLayoutStatusRequest(stageId, status);
       if (!res.ok) throw new Error(res.error);
       return res.layout;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(nominationId) });
-      qc.invalidateQueries({ queryKey: nominationPoolsKeys.bouts(nominationId) });
+      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
+      qc.invalidateQueries({ queryKey: ["nomination-pools", "bouts"] });
     },
   });
 }
