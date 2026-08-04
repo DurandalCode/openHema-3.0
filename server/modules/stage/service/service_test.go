@@ -46,6 +46,21 @@ func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testuti
 	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, arenas, nominations, liveBus
 }
 
+// stageIDFor — тестовый хелпер (спека 0018, T17): резолвит id канонического
+// (группового) этапа номинации, материализуя его при необходимости — то,
+// что на реальном админском пути делает ListStages до перехода к
+// конкретному этапу (адресация раскладки переехала с nominationID на
+// stageID, FR-18). Используется вместо литерального "n1" во всех местах,
+// где регрессные тесты 0017 звали методы раскладки по номинации.
+func stageIDFor(t *testing.T, repo *testutil.FakeRepo, nominationID string) string {
+	t.Helper()
+	stage, err := repo.EnsureStage(context.Background(), nominationID)
+	if err != nil {
+		t.Fatalf("stageIDFor(%q): %v", nominationID, err)
+	}
+	return stage.ID
+}
+
 func poolNumbers(pools []domain.Pool) []int {
 	out := make([]int, len(pools))
 	for i, p := range pools {
@@ -83,12 +98,12 @@ func memberIDs(p domain.Pool) map[string]bool {
 // AC-1: начальный экран — draft, все активные бойцы в нераспределённых,
 // пулов нет.
 func TestGetLayout_AC1_InitialLazyDraft(t *testing.T) {
-	svc, _, fighters, _, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1",
 		domain.FighterRef{ID: "f1", Name: "A", Club: "X"},
 		domain.FighterRef{ID: "f2", Name: "B", Club: "Y"},
 	)
-	layout, err := svc.GetLayout(context.Background(), "n1")
+	layout, err := svc.GetLayout(context.Background(), stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,14 +128,14 @@ func TestGetLayout_EmptyNominationID(t *testing.T) {
 
 // AC-2: создание пула — свободный номер, переиспользование после удаления.
 func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
-	svc, _, fighters, _, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1")
 	ctx := context.Background()
 
-	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	l2, err := svc.CreatePool(ctx, "n1")
+	l2, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,7 +161,7 @@ func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
 		t.Fatalf("expected 1 pool after delete, got %d", len(l3.Pools))
 	}
 
-	l4, err := svc.CreatePool(ctx, "n1")
+	l4, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -156,13 +171,13 @@ func TestCreatePool_AC2_FreeNumberReuse(t *testing.T) {
 }
 
 func TestCreatePool_ForbiddenInReady(t *testing.T) {
-	svc, _, fighters, _, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1")
 	ctx := context.Background()
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := svc.CreatePool(ctx, "n1"); !errors.Is(err, domain.ErrNotDraft) {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("expected ErrNotDraft, got %v", err)
 	}
 }
@@ -204,7 +219,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 		svc, repo, fighters, _, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		poolID := repo.SeedPool("n1", 1)
-		layout, err := svc.AssignFighter(ctx, "n1", "b1", poolID)
+		layout, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "b1", poolID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -220,7 +235,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 		svc, repo, fighters, _, _ := newService()
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		repo.SeedPool("n1", 1, "b1")
-		layout, err := svc.UnassignFighter(ctx, "n1", "b1")
+		layout, err := svc.UnassignFighter(ctx, stageIDFor(t, repo, "n1"), "b1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -237,7 +252,7 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 		fighters.Set("n1", domain.FighterRef{ID: "b1"})
 		p1 := repo.SeedPool("n1", 1, "b1")
 		p2 := repo.SeedPool("n1", 2)
-		layout, err := svc.AssignFighter(ctx, "n1", "b1", p2)
+		layout, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "b1", p2)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -255,9 +270,9 @@ func TestAssignUnassignMove_AC4to7(t *testing.T) {
 
 // AC-8: автораспределение без пулов отклоняется.
 func TestAutoDistribute_AC8_NoPools(t *testing.T) {
-	svc, _, fighters, _, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
-	_, err := svc.AutoDistribute(context.Background(), "n1")
+	_, err := svc.AutoDistribute(context.Background(), stageIDFor(t, repo, "n1"))
 	if !errors.Is(err, domain.ErrNoPools) {
 		t.Fatalf("expected ErrNoPools, got %v", err)
 	}
@@ -268,7 +283,7 @@ func TestAutoDistribute_AC9_NoUnassignedIsNoop(t *testing.T) {
 	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
-	layout, err := svc.AutoDistribute(context.Background(), "n1")
+	layout, err := svc.AutoDistribute(context.Background(), stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -295,7 +310,7 @@ func TestAutoDistribute_AC10_BasicScenario(t *testing.T) {
 	p := repo.SeedPool("n1", 1)
 	q := repo.SeedPool("n1", 2)
 
-	layout, err := svc.AutoDistribute(context.Background(), "n1")
+	layout, err := svc.AutoDistribute(context.Background(), stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -322,7 +337,7 @@ func TestAutoDistribute_AC11_DoesNotTouchAlreadyAssigned(t *testing.T) {
 	p := repo.SeedPool("n1", 1, "R1")
 	q := repo.SeedPool("n1", 2)
 
-	layout, err := svc.AutoDistribute(context.Background(), "n1")
+	layout, err := svc.AutoDistribute(context.Background(), stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -345,7 +360,7 @@ func TestAutoDistribute_AC12_EmptyClubNotCommon(t *testing.T) {
 	)
 	p := repo.SeedPool("n1", 1)
 
-	layout, err := svc.AutoDistribute(context.Background(), "n1")
+	layout, err := svc.AutoDistribute(context.Background(), stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -362,7 +377,7 @@ func TestAutoDistribute_AC13_Deterministic(t *testing.T) {
 		fighters.Set("n1", redBlueFighters()...)
 		p := repo.SeedPool("n1", 1)
 		repo.SeedPool("n1", 2)
-		layout, err := svc.AutoDistribute(context.Background(), "n1")
+		layout, err := svc.AutoDistribute(context.Background(), stageIDFor(t, repo, "n1"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -384,10 +399,10 @@ func TestUndo_AC13a_UndoAutoPreservesManual(t *testing.T) {
 	q := repo.SeedPool("n1", 2)
 	ctx := context.Background()
 
-	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	layout, err := svc.Undo(ctx, "n1")
+	layout, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -412,7 +427,7 @@ func TestUndo_AC13a2_UndoDeletePool(t *testing.T) {
 	if _, err := svc.DeletePool(ctx, poolID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	layout, err := svc.Undo(ctx, "n1")
+	layout, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -438,10 +453,10 @@ func TestUndo_AC13a3_LatestActionWins(t *testing.T) {
 	if _, err := svc.DeletePool(ctx, poolID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	afterAuto, err := svc.AutoDistribute(ctx, "n1")
+	afterAuto, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -449,7 +464,7 @@ func TestUndo_AC13a3_LatestActionWins(t *testing.T) {
 		t.Fatalf("expected undo available")
 	}
 
-	layout, err := svc.Undo(ctx, "n1")
+	layout, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -468,14 +483,14 @@ func TestUndo_AC13b_AnyMutationClearsUndo(t *testing.T) {
 	repo.SeedPool("n1", 1)
 	ctx := context.Background()
 
-	afterAuto, err := svc.AutoDistribute(ctx, "n1")
+	afterAuto, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !afterAuto.CanUndo {
 		t.Fatalf("expected undo available after auto-distribute")
 	}
-	afterCreate, err := svc.CreatePool(ctx, "n1")
+	afterCreate, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -486,9 +501,9 @@ func TestUndo_AC13b_AnyMutationClearsUndo(t *testing.T) {
 
 // AC-13c: undo без предыдущего mutating-действия отклоняется.
 func TestUndo_AC13c_NothingToUndo(t *testing.T) {
-	svc, _, fighters, _, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1")
-	_, err := svc.Undo(context.Background(), "n1")
+	_, err := svc.Undo(context.Background(), stageIDFor(t, repo, "n1"))
 	if !errors.Is(err, domain.ErrNothingToUndo) {
 		t.Fatalf("expected ErrNothingToUndo, got %v", err)
 	}
@@ -500,13 +515,13 @@ func TestUndo_AC13d_ForbiddenInReady(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 	ctx := context.Background()
-	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	_, err := svc.Undo(ctx, "n1")
+	_, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("expected ErrNotDraft, got %v", err)
 	}
@@ -514,9 +529,9 @@ func TestUndo_AC13d_ForbiddenInReady(t *testing.T) {
 
 // AC-14: переход draft → ready.
 func TestSetStatus_AC14_DraftToReady(t *testing.T) {
-	svc, _, fighters, _, _ := newService()
+	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1")
-	layout, err := svc.SetStatus(context.Background(), "n1", domain.LayoutReady)
+	layout, err := svc.SetStatus(context.Background(), stageIDFor(t, repo, "n1"), domain.LayoutReady)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -526,10 +541,10 @@ func TestSetStatus_AC14_DraftToReady(t *testing.T) {
 }
 
 func TestSetStatus_InvalidTarget(t *testing.T) {
-	svc, _, _, _, _ := newService()
+	svc, repo, _, _, _ := newService()
 	// active/finished убраны спекой 0011 — статус раскладки урезан до
 	// draft/ready; любое иное значение отклоняется как невалидный вход.
-	_, err := svc.SetStatus(context.Background(), "n1", domain.LayoutStatus("active"))
+	_, err := svc.SetStatus(context.Background(), stageIDFor(t, repo, "n1"), domain.LayoutStatus("active"))
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}
@@ -541,26 +556,26 @@ func TestReadyBlocksMutations_AC15(t *testing.T) {
 	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1)
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if _, err := svc.CreatePool(ctx, "n1"); !errors.Is(err, domain.ErrNotDraft) {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("CreatePool: expected ErrNotDraft, got %v", err)
 	}
 	if _, err := svc.DeletePool(ctx, poolID); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("DeletePool: expected ErrNotDraft, got %v", err)
 	}
-	if _, err := svc.AssignFighter(ctx, "n1", "b1", poolID); !errors.Is(err, domain.ErrNotDraft) {
+	if _, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "b1", poolID); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("AssignFighter: expected ErrNotDraft, got %v", err)
 	}
-	if _, err := svc.UnassignFighter(ctx, "n1", "b1"); !errors.Is(err, domain.ErrNotDraft) {
+	if _, err := svc.UnassignFighter(ctx, stageIDFor(t, repo, "n1"), "b1"); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("UnassignFighter: expected ErrNotDraft, got %v", err)
 	}
-	if _, err := svc.AutoDistribute(ctx, "n1"); !errors.Is(err, domain.ErrNotDraft) {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("AutoDistribute: expected ErrNotDraft, got %v", err)
 	}
-	if _, err := svc.ResetLayout(ctx, "n1"); !errors.Is(err, domain.ErrNotDraft) {
+	if _, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1")); !errors.Is(err, domain.ErrNotDraft) {
 		t.Fatalf("ResetLayout: expected ErrNotDraft, got %v", err)
 	}
 }
@@ -571,10 +586,10 @@ func TestSetStatus_AC16_ReadyToDraftPreservesPools(t *testing.T) {
 	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	layout, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -600,7 +615,7 @@ func TestSetStatus_T12_DraftToReadyGeneratesBouts(t *testing.T) {
 	p1 := repo.SeedPool("n1", 1, "f1", "f2", "withdrawn")
 	p2 := repo.SeedPool("n1", 2, "f3")
 
-	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutReady)
+	layout, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -636,14 +651,14 @@ func TestSetStatus_T12_ReadyToDraftClearsBouts(t *testing.T) {
 	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1, "b1")
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(bouts.GenerateCalls) != 1 {
 		t.Fatalf("expected 1 generate call before draft transition, got %d", len(bouts.GenerateCalls))
 	}
 
-	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	layout, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -664,9 +679,9 @@ func TestSetStatus_T12_SameStatusDoesNotTouchBoutGenerator(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("draft to draft", func(t *testing.T) {
-		svc, _, fighters, bouts, _ := newService()
+		svc, repo, fighters, bouts, _ := newService()
 		fighters.Set("n1")
-		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+		if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(bouts.GenerateCalls) != 0 || len(bouts.ClearCalls) != 0 {
@@ -675,15 +690,15 @@ func TestSetStatus_T12_SameStatusDoesNotTouchBoutGenerator(t *testing.T) {
 	})
 
 	t.Run("ready to ready", func(t *testing.T) {
-		svc, _, fighters, bouts, _ := newService()
+		svc, repo, fighters, bouts, _ := newService()
 		fighters.Set("n1")
-		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(bouts.GenerateCalls) != 1 {
 			t.Fatalf("expected 1 generate call for the actual transition, got %d", len(bouts.GenerateCalls))
 		}
-		if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+		if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(bouts.GenerateCalls) != 1 {
@@ -706,7 +721,7 @@ func TestSetStatus_T12_GenerateErrorPreventsStatusChange(t *testing.T) {
 	wantErr := errors.New("bout generation failed")
 	bouts.GenerateErr = wantErr
 
-	_, err := svc.SetStatus(ctx, "n1", domain.LayoutReady)
+	_, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected generate error, got %v", err)
 	}
@@ -729,7 +744,7 @@ func TestSetStatus_T12_ClearErrorPreventsStatusChange(t *testing.T) {
 	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	callsAfterReady := repo.SetStatusCalls
@@ -737,7 +752,7 @@ func TestSetStatus_T12_ClearErrorPreventsStatusChange(t *testing.T) {
 	wantErr := errors.New("bout clear failed")
 	bouts.ClearErr = wantErr
 
-	_, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	_, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected clear error, got %v", err)
 	}
@@ -769,7 +784,7 @@ func TestReconciliation_AC17_WithdrawnFighterHiddenAndPruned(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1", Club: "X"}) // b2/withdrawn не активен
 	repo.SeedPool("n1", 1, "b1", "withdrawn-b2")
 
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -800,12 +815,12 @@ func TestReconciliation_AC17a_ReturnedFighterGoesToUnassigned(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1", "b2")
 
-	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	fighters.Set("n1", domain.FighterRef{ID: "b1"}, domain.FighterRef{ID: "b2"})
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -832,7 +847,7 @@ func TestResetLayout_AC17b(t *testing.T) {
 	repo.SeedPool("n1", 2, "b2")
 	repo.SeedPool("n1", 3)
 
-	layout, err := svc.ResetLayout(ctx, "n1")
+	layout, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -863,7 +878,7 @@ func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
 	repo.SeedPool("n1", 2, "b3")
 	repo.SeedPool("n1", 3) // пустой
 
-	afterReset, err := svc.ResetLayout(ctx, "n1")
+	afterReset, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -874,7 +889,7 @@ func TestUndo_AC13a4_UndoResetRestoresAllPools(t *testing.T) {
 		t.Fatalf("expected reset to remove all pools, got %d", len(afterReset.Pools))
 	}
 
-	layout, err := svc.Undo(ctx, "n1")
+	layout, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -922,10 +937,10 @@ func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
 
-	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	first, err := svc.Undo(ctx, "n1")
+	first, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -936,7 +951,7 @@ func TestUndo_AC13a4_RepeatUndoAfterResetGivesNothingToUndo(t *testing.T) {
 		t.Fatalf("expected CanUndo=false after undo (undo cleared)")
 	}
 	// Повторный undo — undo очищен, откатывать нечего.
-	_, err = svc.Undo(ctx, "n1")
+	_, err = svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if !errors.Is(err, domain.ErrNothingToUndo) {
 		t.Fatalf("expected ErrNothingToUndo on repeat undo, got %v", err)
 	}
@@ -952,7 +967,7 @@ func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
 	// b2 — нераспределённый, чтобы авто что-то расставило и записало undo.
 
 	// Сначала авто — создаёт undo (auto).
-	afterAuto, err := svc.AutoDistribute(ctx, "n1")
+	afterAuto, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -960,7 +975,7 @@ func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
 		t.Fatalf("expected CanUndo=true after auto")
 	}
 	// Затем сброс — обнуляет undo авто, но создаёт свой (reset).
-	afterReset, err := svc.ResetLayout(ctx, "n1")
+	afterReset, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -969,7 +984,7 @@ func TestUndo_AC13b_ResetCreatesItsOwnUndo(t *testing.T) {
 	}
 	// Undo после сброса восстанавливает раскладку (как она была до сброса, т.е.
 	// с пулом 1 + b1 и b2 — авто расставило b2 в единственный пул).
-	layout, err := svc.Undo(ctx, "n1")
+	layout, err := svc.Undo(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -992,7 +1007,7 @@ func TestSetStatus_AC3_CannotUnfixWhilePoolSeated(t *testing.T) {
 	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	arenas.Set(domain.ArenaRef{ID: "a1", Name: "Ристалище 1", Active: true})
@@ -1000,7 +1015,7 @@ func TestSetStatus_AC3_CannotUnfixWhilePoolSeated(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	_, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if !errors.Is(err, domain.ErrPoolSeated) {
 		t.Fatalf("expected ErrPoolSeated, got %v", err)
 	}
@@ -1020,7 +1035,7 @@ func TestSetStatus_AC3_UnfixWorksAfterUnseat(t *testing.T) {
 	svc, repo, fighters, _, arenas, _ := newServiceWithArenas()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	arenas.Set(domain.ArenaRef{ID: "a1", Name: "R1", Active: true})
@@ -1031,7 +1046,7 @@ func TestSetStatus_AC3_UnfixWorksAfterUnseat(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	layout, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1265,7 +1280,7 @@ func TestListPublicPools_AC11to13_ReadyShowsCompositionAndArena(t *testing.T) {
 	)
 	p1 := repo.SeedPool("n1", 1, "f1") // будет на арене
 	p2 := repo.SeedPool("n1", 2, "f2") // просто готов
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	arenas.Set(domain.ArenaRef{ID: "a1", Name: "Ристалище 1", Active: true})
@@ -1393,7 +1408,7 @@ func TestListPublicPools_EnrichesNominationName(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "f1", Name: "A", Club: "X"})
 	repo.SeedPool("n1", 1, "f1")
 	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1414,7 +1429,7 @@ func TestGetLayout_EnrichesNominationName(t *testing.T) {
 	p1 := repo.SeedPool("n1", 1, "f1")
 	nominations.Set(domain.NominationRef{ID: "n1", Title: "Длинный меч"})
 
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1444,7 +1459,7 @@ func TestSync_AC7_FirstAssignSyncsTrue(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	poolID := repo.SeedPool("n1", 1)
 
-	if _, err := svc.AssignFighter(ctx, "n1", "b1", poolID); err != nil {
+	if _, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "b1", poolID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1460,10 +1475,10 @@ func TestSync_AC7_FirstAssignSyncsTrue(t *testing.T) {
 // спай не вызывается.
 func TestSync_AC8_CreatePoolDoesNotSync(t *testing.T) {
 	ctx := context.Background()
-	svc, _, fighters, _, _, nominations, _ := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1")
 
-	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, called := nominations.LastSynced("n1"); called {
@@ -1478,7 +1493,7 @@ func TestSync_UnassignFighterLastFighterSyncsFalse(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 
-	if _, err := svc.UnassignFighter(ctx, "n1", "b1"); err != nil {
+	if _, err := svc.UnassignFighter(ctx, stageIDFor(t, repo, "n1"), "b1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1537,7 +1552,7 @@ func TestSync_ResetLayoutEmptyingLayoutSyncsFalse(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 
-	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1553,10 +1568,10 @@ func TestSync_ResetLayoutEmptyingLayoutSyncsFalse(t *testing.T) {
 // вызывается.
 func TestSync_ResetLayoutNoopDoesNotSync(t *testing.T) {
 	ctx := context.Background()
-	svc, _, fighters, _, _, nominations, _ := newServiceWithNominations()
+	svc, repo, fighters, _, _, nominations, _ := newServiceWithNominations()
 	fighters.Set("n1")
 
-	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, called := nominations.LastSynced("n1"); called {
@@ -1571,7 +1586,7 @@ func TestSync_FirstAutoDistributeSyncsTrue(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 
-	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1591,7 +1606,7 @@ func TestSync_AutoDistributeNoopDoesNotSync(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1, "b1")
 
-	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, called := nominations.LastSynced("n1"); called {
@@ -1608,14 +1623,14 @@ func TestSync_UndoAuto_CrossesBoundaryDownward(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "b1"})
 	repo.SeedPool("n1", 1)
 
-	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if value, called := nominations.LastSynced("n1"); !called || !value {
 		t.Fatalf("expected sync(true) after auto-distribute, got value=%v called=%v", value, called)
 	}
 
-	if _, err := svc.Undo(ctx, "n1"); err != nil {
+	if _, err := svc.Undo(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1643,7 +1658,7 @@ func TestSync_UndoDeletePool_CrossesBoundaryUpward(t *testing.T) {
 		t.Fatalf("expected sync(false) after DeletePool empties layout, got value=%v called=%v", value, called)
 	}
 
-	if _, err := svc.Undo(ctx, "n1"); err != nil {
+	if _, err := svc.Undo(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1664,14 +1679,14 @@ func TestSync_UndoReset_CrossesBoundaryUpward(t *testing.T) {
 	repo.SeedPool("n1", 1, "b1")
 	repo.SeedPool("n1", 2, "b2")
 
-	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if value, called := nominations.LastSynced("n1"); !called || value {
 		t.Fatalf("expected sync(false) after ResetLayout, got value=%v called=%v", value, called)
 	}
 
-	if _, err := svc.Undo(ctx, "n1"); err != nil {
+	if _, err := svc.Undo(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1694,7 +1709,7 @@ func TestSync_AssignFighterMove_StaysAboveBoundary(t *testing.T) {
 	repo.SeedPool("n1", 1, "b1")
 	p2 := repo.SeedPool("n1", 2)
 
-	if _, err := svc.AssignFighter(ctx, "n1", "b1", p2); err != nil {
+	if _, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "b1", p2); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -1986,7 +2001,7 @@ func TestGetLayout_AC9AC10_StatusReflectsBoutProgress(t *testing.T) {
 	bouts.SeedBout(poolID, domain.BoutRef{ID: "b1", SequenceNumber: 1, State: domain.BoutStateInProgress})
 	bouts.SeedBout(poolID, domain.BoutRef{ID: "b2", SequenceNumber: 2, State: domain.BoutStateNotStarted})
 
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2005,7 +2020,7 @@ func TestGetLayout_AC9AC10_StatusReflectsBoutProgress(t *testing.T) {
 	if _, err := svc.FinishCurrentBout(ctx, poolID, "a1"); err != nil {
 		t.Fatalf("finish b2: %v", err)
 	}
-	layout, err = svc.GetLayout(ctx, "n1")
+	layout, err = svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2049,12 +2064,12 @@ func TestSetStatus_AC12_CannotUnfixWhileBoutsStarted(t *testing.T) {
 	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	poolID := repo.SeedPool("n1", 1, "f1")
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	bouts.SetAnyStartedForPool(poolID, true)
 
-	_, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	_, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if !errors.Is(err, domain.ErrHasResults) {
 		t.Fatalf("expected ErrHasResults, got %v", err)
 	}
@@ -2296,28 +2311,28 @@ func TestPublish_SetStatus_TransitionsPublish(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1")
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft); err != nil {
 		t.Fatalf("draft->draft: %v", err)
 	}
 	if got := liveBus.PublishedCount("n1"); got != 0 {
 		t.Fatalf("expected no publish on draft->draft no-op, got %d", got)
 	}
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("draft->ready: %v", err)
 	}
 	if got := liveBus.PublishedCount("n1"); got != 1 {
 		t.Fatalf("expected 1 publish after draft->ready, got %d", got)
 	}
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("ready->ready: %v", err)
 	}
 	if got := liveBus.PublishedCount("n1"); got != 1 {
 		t.Fatalf("expected still 1 publish after ready->ready no-op, got %d", got)
 	}
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft); err != nil {
 		t.Fatalf("ready->draft: %v", err)
 	}
 	if got := liveBus.PublishedCount("n1"); got != 2 {
@@ -2333,7 +2348,7 @@ func TestPublish_SetStatus_GenerateErrorDoesNotPublish(t *testing.T) {
 	repo.SeedPool("n1", 1, "b1")
 	bouts.GenerateErr = errors.New("boom")
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err == nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err == nil {
 		t.Fatalf("expected error")
 	}
 	if got := liveBus.PublishedCount("n1"); got != 0 {
@@ -2350,25 +2365,25 @@ func TestPublish_DraftOnlyMutatorsDoNotPublish(t *testing.T) {
 	svc, repo, fighters, _, liveBus := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1", Club: "X"}, domain.FighterRef{ID: "f2", Club: "Y"})
 
-	layout, err := svc.CreatePool(ctx, "n1")
+	layout, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("CreatePool: %v", err)
 	}
 	poolID := layout.Pools[0].ID
 
-	if _, err := svc.AssignFighter(ctx, "n1", "f1", poolID); err != nil {
+	if _, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "f1", poolID); err != nil {
 		t.Fatalf("AssignFighter: %v", err)
 	}
-	if _, err := svc.UnassignFighter(ctx, "n1", "f1"); err != nil {
+	if _, err := svc.UnassignFighter(ctx, stageIDFor(t, repo, "n1"), "f1"); err != nil {
 		t.Fatalf("UnassignFighter: %v", err)
 	}
-	if _, err := svc.AutoDistribute(ctx, "n1"); err != nil {
+	if _, err := svc.AutoDistribute(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("AutoDistribute: %v", err)
 	}
-	if _, err := svc.Undo(ctx, "n1"); err != nil {
+	if _, err := svc.Undo(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("Undo: %v", err)
 	}
-	if _, err := svc.ResetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.ResetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("ResetLayout: %v", err)
 	}
 	poolID2 := repo.SeedPool("n1", 1, "f1")
@@ -2389,7 +2404,7 @@ func TestPublish_ReadOnlyMethodsDoNotPublish(t *testing.T) {
 	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
 	seedBoutBoardPool(t, repo, bouts, "arena-1")
 
-	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("GetLayout: %v", err)
 	}
 	if _, err := svc.GetBoutBoard(ctx, "arena-1"); err != nil {
@@ -2785,7 +2800,7 @@ func TestGetLayout_Standings_EmptyWithoutFinishedBouts(t *testing.T) {
 		State: domain.BoutStateNotStarted,
 	})
 
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2809,7 +2824,7 @@ func TestGetLayout_Standings_PopulatedAfterFinishedBout(t *testing.T) {
 		State: domain.BoutStateFinished, ScoreA: 5, ScoreB: 2,
 	})
 
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2851,7 +2866,7 @@ func TestGetLayout_Standings_ReflectsRescoreAfterReopen(t *testing.T) {
 		t.Fatalf("set current: %v", err)
 	}
 
-	layout, err := svc.GetLayout(ctx, "n1")
+	layout, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2870,7 +2885,7 @@ func TestGetLayout_Standings_ReflectsRescoreAfterReopen(t *testing.T) {
 		t.Fatalf("finish: %v", err)
 	}
 
-	layout, err = svc.GetLayout(ctx, "n1")
+	layout, err = svc.GetLayout(ctx, stageIDFor(t, repo, "n1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2922,7 +2937,7 @@ func TestStage_FR4_FirstMutationCreatesDefaultStage(t *testing.T) {
 	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1")
 
-	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -2953,10 +2968,10 @@ func TestStage_FR4_RepeatedMutationsDoNotDuplicateStage(t *testing.T) {
 	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 
-	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := svc.CreatePool(ctx, "n1"); err != nil {
+	if _, err := svc.CreatePool(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	stages, err := repo.StagesByNomination(ctx, "n1")
@@ -2968,32 +2983,26 @@ func TestStage_FR4_RepeatedMutationsDoNotDuplicateStage(t *testing.T) {
 	}
 }
 
-// AC-2/FR-4: GetLayout на номинации без этапа возвращает виртуальный этап
-// (те же дефолты, пустой id) и НЕ создаёт строку в БД — read-only (это и
-// есть суть разделения stageForRead/stageForWrite).
-func TestStage_AC2_GetLayoutVirtualStageDoesNotWrite(t *testing.T) {
+// Спека 0018, FR-18: адресация раскладки переехала с номинации на этап —
+// GetLayout больше не резолвит "виртуальный этап" по номинации (это
+// оставалось особенностью 0017, пока этап был один); несуществующий stageID
+// — ErrNotFound, без побочной записи в БД. Материализация группового этапа
+// — исключительно на ListStages (см. TestListStages_*), не на GetLayout.
+func TestStage_AC2_GetLayoutUnknownStageIDDoesNotWrite(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, fighters, _, _ := newService()
 	fighters.Set("n1")
 
-	layout, err := svc.GetLayout(ctx, "n1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if layout.Stage.ID != "" {
-		t.Errorf("Stage.ID = %q, want empty (virtual stage)", layout.Stage.ID)
-	}
-	if layout.Stage.Position != 0 || layout.Stage.Type != domain.StageTypeGroups ||
-		layout.Stage.Title != domain.DefaultStageTitle || layout.Stage.Status != domain.LayoutDraft {
-		t.Errorf("virtual Stage = %+v, want defaults with empty ID", layout.Stage)
+	if _, err := svc.GetLayout(ctx, "missing-stage"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 	if got := repo.StageCount(); got != 0 {
 		t.Fatalf("expected GetLayout not to create a stage row, got %d stages in storage", got)
 	}
 
 	// Повторный GetLayout — тоже read-only.
-	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if _, err := svc.GetLayout(ctx, "missing-stage"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 	if got := repo.StageCount(); got != 0 {
 		t.Fatalf("expected repeated GetLayout still not to create a stage row, got %d", got)
@@ -3011,7 +3020,7 @@ func TestSetStatus_Stage0017_AC5_UnfixNotBlockedByOtherStageSeatedPool(t *testin
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1") // материализует канонический этап 1
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -3021,7 +3030,7 @@ func TestSetStatus_Stage0017_AC5_UnfixNotBlockedByOtherStageSeatedPool(t *testin
 		t.Fatalf("seat pool2: %v", err)
 	}
 
-	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	layout, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if err != nil {
 		t.Fatalf("expected unfix to succeed despite the other stage's seated pool, got error: %v", err)
 	}
@@ -3038,7 +3047,7 @@ func TestSetStatus_Stage0017_AC5_UnfixNotBlockedByOtherStageStartedBouts(t *test
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 	repo.SeedPool("n1", 1, "f1")
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -3046,7 +3055,7 @@ func TestSetStatus_Stage0017_AC5_UnfixNotBlockedByOtherStageStartedBouts(t *test
 	pool2 := repo.SeedPoolInStage(stage2, 1, "f2")
 	bouts.SetAnyStartedForPool(pool2, true)
 
-	layout, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft)
+	layout, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft)
 	if err != nil {
 		t.Fatalf("expected unfix to succeed despite the other stage's started bouts, got error: %v", err)
 	}
@@ -3066,7 +3075,7 @@ func TestSetStatus_Stage0017_GenerateCalledOnlyWithThisStagePools(t *testing.T) 
 	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
 	repo.SeedPoolInStage(stage2, 1, "f2")
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(bouts.GenerateCalls) != 1 {
@@ -3090,10 +3099,10 @@ func TestSetStatus_Stage0017_ClearCalledOnlyWithThisStagePools(t *testing.T) {
 	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
 	pool2 := repo.SeedPoolInStage(stage2, 1, "f2")
 
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutReady); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutReady); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := svc.SetStatus(ctx, "n1", domain.LayoutDraft); err != nil {
+	if _, err := svc.SetStatus(ctx, stageIDFor(t, repo, "n1"), domain.LayoutDraft); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(bouts.ClearCalls) != 1 {
@@ -3114,13 +3123,13 @@ func TestAssignFighter_Stage0017_AC4_SameFighterInTwoStagesAllowed(t *testing.T)
 	fighters.Set("n1", domain.FighterRef{ID: "f1"})
 
 	poolID := repo.SeedPool("n1", 1)
-	if _, err := svc.AssignFighter(ctx, "n1", "f1", poolID); err != nil {
+	if _, err := svc.AssignFighter(ctx, stageIDFor(t, repo, "n1"), "f1", poolID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
 	pool2 := repo.SeedPoolInStage(stage2, 1)
-	if err := repo.AssignFighter(ctx, stage2, "f1", pool2); err != nil {
+	if err := repo.AssignFighter(ctx, stage2, "f1", pool2, 0); err != nil {
 		t.Fatalf("expected fighter to be assignable to a pool of a different stage, got error: %v", err)
 	}
 
@@ -3159,14 +3168,14 @@ func TestSync_Stage0017_AC6_CountsDistributedAcrossAllStages(t *testing.T) {
 	// (канонический) на момент вызова ещё не существует.
 	stage2 := repo.SeedStage("n1", 1, "Второй этап", domain.StageTypeGroups)
 	pool2 := repo.SeedPoolInStage(stage2, 1)
-	if err := repo.AssignFighter(ctx, stage2, "f2", pool2); err != nil {
+	if err := repo.AssignFighter(ctx, stage2, "f2", pool2, 0); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// UnassignFighter на несуществующем членстве этапа 1 — идемпотентный
 	// no-op, но всё равно материализует этап 1 и триггерит sync по
 	// результирующему состоянию НОМИНАЦИИ ЦЕЛИКОМ.
-	if _, err := svc.UnassignFighter(ctx, "n1", "does-not-exist"); err != nil {
+	if _, err := svc.UnassignFighter(ctx, stageIDFor(t, repo, "n1"), "does-not-exist"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	value, called := nominations.LastSynced("n1")
@@ -3197,7 +3206,7 @@ func TestReconciliation_Stage0017_PruneMembersAcrossAllStages(t *testing.T) {
 	pool2 := repo.SeedPoolInStage(stage2, 1, "withdrawn-in-stage2")
 	_ = pool2
 
-	if _, err := svc.GetLayout(ctx, "n1"); err != nil {
+	if _, err := svc.GetLayout(ctx, stageIDFor(t, repo, "n1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

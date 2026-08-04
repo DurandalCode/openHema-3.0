@@ -242,6 +242,61 @@ type Layout struct {
 	CanUndo      bool
 }
 
+// ---------------------------------------------------------------------
+// Спека 0018: сетка целиком для внешнего представления (service/api
+// граница, FR-19). Отдельно от BracketView (bracket.go) — то чистый
+// результат ResolveBracket (Slot.Fighter — что дано на входе, Pair.Bout —
+// внутренний BracketBout резолва); эти типы обогащены для показа: Fighter в
+// Slot уже содержит имя/клуб (сервис передаёт в ResolveBracket уже
+// обогащённые посев и бои), Bout в BracketPairView — это BoutRef, та же
+// проекция, что у BoutBoard/LivePool (совместим с api-маппером
+// toProtoBoardBouts без отдельного варианта), а Container — обогащённый
+// Pool (статус/арена/имя), как в Layout.Pools.
+// ---------------------------------------------------------------------
+
+// BracketPairView — пара круга для внешнего представления (FR-13/FR-17):
+// слоты — как в чистом резолве (Slot из bracket.go), Bout — обогащённая
+// проекция боя (nil, если пара ещё не материализована).
+type BracketPairView struct {
+	Index    int
+	A, B     Slot
+	Bout     *BoutRef
+	Resolved bool
+}
+
+// BracketHalfView — половина круга для внешнего представления (FR-12/
+// FR-12a/FR-19a): тот же контейнер (Pool), что и у группы — с обогащённым
+// статусом (FR-17, знаменатель — разрешённые пары, не материализованные
+// бои) и подписью (ContainerTitle).
+type BracketHalfView struct {
+	Number        int
+	Title         string
+	Container     Pool
+	Pairs         []BracketPairView
+	CurrentBoutID string
+}
+
+// BracketRoundView — круг сетки для внешнего представления.
+type BracketRoundView struct {
+	Number     int
+	Title      string
+	ThirdPlace bool
+	Halves     []BracketHalfView
+}
+
+// Bracket — сетка целиком: этап + круги (FR-19). Unassigned заполняется
+// только на админском пути (кого ещё можно посеять, FR-7); в публичном
+// снапшоте пуст (NominationLive). Champion/ThirdPlaceWinner — отображение,
+// выведенное из завершённых боёв (FR-20), не доменный факт.
+type Bracket struct {
+	Stage            Stage
+	Rounds           []BracketRoundView
+	Unassigned       []FighterRef
+	CanUndo          bool
+	Champion         FighterRef
+	ThirdPlaceWinner FighterRef
+}
+
 // ArenaPools — данные для страницы конкретной арены (спека 0011, FR-9): пул,
 // который сейчас на ней стоит (если есть), и список готовых пулов,
 // доступных для постановки.
@@ -559,15 +614,19 @@ type LivePool struct {
 	CurrentBoutID string
 }
 
-// NominationSnapshot — живой снапшот номинации целиком (спека 0014). Pools
-// пуст, пока раскладка номинации в статусе draft (FR-12) — публично нечего
-// показывать, как и ListPublicPools. Stages — этапы номинации (спека 0017,
-// FR-11): не менее одного элемента (виртуальный singleton, если строк в БД
-// ещё нет — см. service.stagesForRead).
+// NominationSnapshot — живой снапшот номинации целиком (спека 0014). Pools —
+// только контейнеры ГРУППОВЫХ этапов (спека 0018); пуст, пока групповой
+// этап в статусе draft (FR-12) — публично нечего показывать, как и
+// ListPublicPools. Brackets — сетки номинации (спека 0018, FR-19),
+// заполнены только для зафиксированных (ready) bracket-этапов, без
+// unassigned (публичный путь не показывает админский посев). Stages —
+// этапы номинации (спека 0017, FR-11): не менее одного элемента
+// (виртуальный singleton, если строк в БД ещё нет — см. service.stagesForRead).
 type NominationSnapshot struct {
 	NominationID string
 	Stages       []Stage
 	Pools        []LivePool
+	Brackets     []Bracket
 }
 
 // ArenaRef — проекция площадки для постановки пула (спека 0011, план

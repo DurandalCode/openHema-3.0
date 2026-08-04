@@ -42,7 +42,15 @@ type Pool struct {
 	NominationID   string
 	NominationName string
 	Number         int
-	Members        []FighterRef
+	// Name — подпись контейнера (спека 0018, FR-19a): «Пул N» у группового
+	// этапа, «1/4 финала, верхняя половина» у сетки (domain.ContainerTitle).
+	// Заполняется службой при обогащении (service.enrichPools/
+	// applyArenaAndStatus/buildBracket) — не хранится в БД, вычисляется на
+	// чтении. Раньше собиралась в api (`poolName(number)`); переехала сюда,
+	// потому что подпись сетки зависит от конфига этапа, которого у
+	// мапперов api нет.
+	Name    string
+	Members []FighterRef
 	ArenaID        string
 	ArenaName      string
 	Status         PoolStatus
