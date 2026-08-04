@@ -14,6 +14,8 @@ import {
   ArenaLiveSnapshotSchema,
   PoolSchema,
   PoolLayoutSchema,
+  StageSchema,
+  BracketSchema,
 } from "@/gen/hema/v1/stage_pb";
 import {
   applicationHistoryToJson,
@@ -22,12 +24,14 @@ import {
   arenaToJson,
   arenasToJson,
   arenaLiveToJson,
+  bracketToJson,
   nominationParticipantsToJson,
   nominationsToJson,
   nominationToJson,
   nominationLiveToJson,
   poolLayoutToJson,
   poolToJson,
+  stageToJson,
   tournamentToJson,
   userToJson,
 } from "@/lib/grpc/serialize";
@@ -496,8 +500,230 @@ describe("poolToJson", () => {
     expect(json?.standings).toEqual([]);
   });
 
+  // Спека 0018 (T20): контейнер несёт stage_id — этап, которому принадлежит
+  // (круг сетки — тоже "пул" на уровне БД, FR-11a).
+  it("passes through stageId (спека 0018)", () => {
+    const pool = fromJson(PoolSchema, {
+      id: "pool-1",
+      nominationId: "n1",
+      number: 1,
+      name: "1/4 финала, верхняя половина",
+      status: "POOL_STATUS_NOT_READY",
+      stageId: "stage-bracket-1",
+    });
+
+    const json = poolToJson(pool);
+
+    expect(json?.stageId).toBe("stage-bracket-1");
+  });
+
+  it("normalizes an omitted stageId to an empty string", () => {
+    const pool = fromJson(PoolSchema, { id: "pool-1", nominationId: "n1", name: "Пул 1" });
+
+    const json = poolToJson(pool);
+
+    expect(json?.stageId).toBe("");
+  });
+
   it("returns null for undefined", () => {
     expect(poolToJson(undefined)).toBeNull();
+  });
+});
+
+describe("stageToJson", () => {
+  it("converts a bracket stage with status/bracket config (спека 0018)", () => {
+    const stage = fromJson(StageSchema, {
+      id: "stage-1",
+      nominationId: "n1",
+      position: 1,
+      title: "Плейофф",
+      type: "STAGE_TYPE_BRACKET",
+      status: "POOL_LAYOUT_STATUS_READY",
+      bracket: { size: 8, thirdPlace: true },
+    });
+
+    const json = stageToJson(stage);
+
+    expect(json).toEqual({
+      id: "stage-1",
+      nominationId: "n1",
+      position: 1,
+      title: "Плейофф",
+      type: "STAGE_TYPE_BRACKET",
+      status: "POOL_LAYOUT_STATUS_READY",
+      bracket: { size: 8, thirdPlace: true },
+    });
+  });
+
+  it("normalizes a group stage without bracket config to bracket: null and status default", () => {
+    const stage = fromJson(StageSchema, {
+      id: "stage-2",
+      nominationId: "n1",
+      position: 0,
+      title: "Групповой этап",
+      type: "STAGE_TYPE_GROUPS",
+    });
+
+    const json = stageToJson(stage);
+
+    expect(json?.status).toBe("POOL_LAYOUT_STATUS_UNSPECIFIED");
+    expect(json?.bracket).toBeNull();
+  });
+
+  it("returns null for undefined", () => {
+    expect(stageToJson(undefined)).toBeNull();
+  });
+});
+
+describe("bracketToJson", () => {
+  it("converts a filled protobuf Bracket to plain JSON (rounds → halves → pairs → slots)", () => {
+    const bracket = fromJson(BracketSchema, {
+      stage: {
+        id: "stage-1",
+        nominationId: "n1",
+        position: 1,
+        title: "Плейофф",
+        type: "STAGE_TYPE_BRACKET",
+        status: "POOL_LAYOUT_STATUS_READY",
+        bracket: { size: 4, thirdPlace: true },
+      },
+      rounds: [
+        {
+          number: 1,
+          title: "1/2 финала",
+          thirdPlace: false,
+          halves: [
+            {
+              half: 1,
+              title: "1/2 финала, верхняя половина",
+              container: {
+                id: "pool-1",
+                nominationId: "n1",
+                number: 1,
+                name: "1/2 финала, верхняя половина",
+                status: "POOL_STATUS_ACTIVE",
+                stageId: "stage-1",
+              },
+              pairs: [
+                {
+                  index: 1,
+                  slotA: {
+                    slot: 1,
+                    state: "BRACKET_SLOT_STATE_FILLED",
+                    fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+                    sourceLabel: "",
+                  },
+                  slotB: {
+                    slot: 2,
+                    state: "BRACKET_SLOT_STATE_FILLED",
+                    fighter: { fighterId: "f2", name: "Fighter Two", club: "Berkut" },
+                    sourceLabel: "",
+                  },
+                  bout: {
+                    id: "bout-1",
+                    roundNumber: 1,
+                    sequenceNumber: 1,
+                    fighterA: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+                    fighterB: { fighterId: "f2", name: "Fighter Two", club: "Berkut" },
+                    state: "BOUT_STATE_IN_PROGRESS",
+                    scoreA: 3,
+                    scoreB: 2,
+                  },
+                  resolved: false,
+                },
+              ],
+              currentBoutId: "bout-1",
+            },
+          ],
+        },
+        {
+          number: 2,
+          title: "Финал",
+          thirdPlace: false,
+          halves: [
+            {
+              half: 1,
+              title: "",
+              container: {
+                id: "pool-2",
+                nominationId: "n1",
+                number: 1,
+                name: "Финал",
+                status: "POOL_STATUS_NOT_READY",
+                stageId: "stage-1",
+              },
+              pairs: [
+                {
+                  index: 1,
+                  slotA: {
+                    slot: 1,
+                    state: "BRACKET_SLOT_STATE_PENDING",
+                    sourceLabel: "Победитель пары 1, 1/2 финала",
+                  },
+                  slotB: {
+                    slot: 2,
+                    state: "BRACKET_SLOT_STATE_PENDING",
+                    sourceLabel: "Победитель пары 2, 1/2 финала",
+                  },
+                  resolved: false,
+                },
+              ],
+              currentBoutId: "",
+            },
+          ],
+        },
+      ],
+      unassigned: [{ fighterId: "f5", name: "Fighter Five", club: "" }],
+      canUndo: true,
+    });
+
+    const json = bracketToJson(bracket);
+
+    expect(json).not.toBeNull();
+    expect(json?.stage.id).toBe("stage-1");
+    expect(json?.stage.bracket).toEqual({ size: 4, thirdPlace: true });
+    expect(json?.rounds).toHaveLength(2);
+    expect(json?.rounds[0].halves).toHaveLength(1);
+
+    const firstPair = json!.rounds[0].halves[0].pairs[0];
+    expect(firstPair.slotA.fighter.name).toBe("Fighter One");
+    expect(firstPair.bout?.state).toBe("BOUT_STATE_IN_PROGRESS");
+    expect(firstPair.resolved).toBe(false);
+
+    const finalPair = json!.rounds[1].halves[0].pairs[0];
+    expect(finalPair.slotA.state).toBe("BRACKET_SLOT_STATE_PENDING");
+    expect(finalPair.slotA.sourceLabel).toBe("Победитель пары 1, 1/2 финала");
+    // pending slot has no fighter yet — normalized to empty FighterRef, not undefined
+    expect(finalPair.slotA.fighter).toEqual({ fighterId: "", name: "", club: "" });
+    expect(finalPair.bout).toBeNull();
+
+    expect(json?.unassigned).toEqual([{ fighterId: "f5", name: "Fighter Five", club: "" }]);
+    expect(json?.canUndo).toBe(true);
+    expect(json?.champion).toBeNull();
+    expect(json?.thirdPlaceWinner).toBeNull();
+  });
+
+  it("normalizes champion/thirdPlaceWinner when the final/bronze bout is finished", () => {
+    const bracket = fromJson(BracketSchema, {
+      stage: {
+        id: "stage-1",
+        nominationId: "n1",
+        position: 1,
+        title: "Плейофф",
+        type: "STAGE_TYPE_BRACKET",
+      },
+      champion: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+      thirdPlaceWinner: { fighterId: "f3", name: "Fighter Three", club: "" },
+    });
+
+    const json = bracketToJson(bracket);
+
+    expect(json?.champion).toEqual({ fighterId: "f1", name: "Fighter One", club: "Sokol" });
+    expect(json?.thirdPlaceWinner).toEqual({ fighterId: "f3", name: "Fighter Three", club: "" });
+  });
+
+  it("returns null for undefined", () => {
+    expect(bracketToJson(undefined)).toBeNull();
   });
 });
 
@@ -528,6 +754,8 @@ describe("poolLayoutToJson", () => {
       position: 0,
       title: "Групповой этап",
       type: "STAGE_TYPE_GROUPS",
+      status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
+      bracket: null,
     });
   });
 
@@ -618,6 +846,24 @@ describe("nominationLiveToJson", () => {
           type: "STAGE_TYPE_GROUPS",
         },
       ],
+      // Спека 0018 (T20): плейофф-сетки номинации — bracketToJson на
+      // proto-подсообщениях snapshot.brackets, рядом с pools/stages.
+      brackets: [
+        {
+          stage: {
+            id: "stage-2",
+            nominationId: "nom-1",
+            position: 1,
+            title: "Плейофф",
+            type: "STAGE_TYPE_BRACKET",
+            status: "POOL_LAYOUT_STATUS_READY",
+            bracket: { size: 4, thirdPlace: false },
+          },
+          rounds: [],
+          unassigned: [],
+          canUndo: false,
+        },
+      ],
     });
 
     const json = nominationLiveToJson(snapshot);
@@ -632,8 +878,13 @@ describe("nominationLiveToJson", () => {
         position: 0,
         title: "Групповой этап",
         type: "STAGE_TYPE_GROUPS",
+        status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
+        bracket: null,
       },
     ]);
+    expect(json?.brackets).toHaveLength(1);
+    expect(json?.brackets[0].stage.id).toBe("stage-2");
+    expect(json?.brackets[0].stage.bracket).toEqual({ size: 4, thirdPlace: false });
 
     const lp = json!.pools[0];
     expect(lp.pool.id).toBe("pool-1");
@@ -672,7 +923,7 @@ describe("nominationLiveToJson", () => {
 
     const json = nominationLiveToJson(snapshot);
 
-    expect(json).toEqual({ nominationId: "nom-2", pools: [], stages: [] });
+    expect(json).toEqual({ nominationId: "nom-2", pools: [], stages: [], brackets: [] });
   });
 });
 
