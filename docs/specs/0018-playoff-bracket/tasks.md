@@ -156,14 +156,14 @@
 
 ## Web — трек D (BFF)
 
-- [ ] T20. **serialize (red→green)** — `web/src/lib/grpc/serialize.ts`:
+- [x] T20. **serialize (red→green)** — `web/src/lib/grpc/serialize.ts`:
       `stageToJson` (+`status`/`bracket`), `poolToJson` (+`stageId`),
       новый `bracketToJson`, `nominationLiveToJson` (+`brackets`) с тестами.
-- [ ] T21. **BFF — этапы (red→green)** —
+- [x] T21. **BFF — этапы (red→green)** —
       `app/api/nominations/[id]/stages/route.ts` (GET/POST),
       `app/api/stages/[stageId]/route.ts` (DELETE) + `*.test.ts`: маппинг
       `connect.Code` → HTTP, admin-гейт.
-- [ ] T22. **BFF — состав и сетка (red→green)** —
+- [x] T22. **BFF — состав и сетка (red→green)** —
       `app/api/stages/[stageId]/{layout,pools,reset,assign,unassign,distribute,undo,status,bracket,seed}/route.ts`
       + тесты; удалить `app/api/nominations/[id]/pool-*`.
 
