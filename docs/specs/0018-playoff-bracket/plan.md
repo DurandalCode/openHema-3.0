@@ -4,7 +4,7 @@
 > проекта. Заполняется только когда в `spec.md` нет открытых
 > `[NEEDS CLARIFICATION]`.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-08-03
 - Спека: `./spec.md`
 - Решение: `docs/adr/0014-nomination-format-stages.md` (§1, §1a, §3, §4, §8)
