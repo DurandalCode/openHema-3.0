@@ -16,6 +16,8 @@ import {
   PoolLayoutSchema,
   StageSchema,
   BracketSchema,
+  SeedingRuleSchema,
+  StageBuildPreviewSchema,
 } from "@/gen/hema/v1/stage_pb";
 import {
   applicationHistoryToJson,
@@ -31,7 +33,11 @@ import {
   nominationLiveToJson,
   poolLayoutToJson,
   poolToJson,
+  ruleDtoToProto,
+  seedingRuleToJson,
+  stageBuildPreviewToJson,
   stageToJson,
+  tieResolutionDtoToProto,
   tournamentToJson,
   userToJson,
 } from "@/lib/grpc/serialize";
@@ -574,6 +580,221 @@ describe("stageToJson", () => {
 
   it("returns null for undefined", () => {
     expect(stageToJson(undefined)).toBeNull();
+  });
+
+  // Спека 0019 (T15): groups/rule заполнены только у явно созданного
+  // group-этапа со связанным правилом — presence решает «есть/нет», не
+  // значения полей.
+  it("maps groups/rule when the proto fields are filled (спека 0019)", () => {
+    const stage = fromJson(StageSchema, {
+      id: "stage-3",
+      nominationId: "n1",
+      position: 1,
+      title: "Группы за 1-8",
+      type: "STAGE_TYPE_GROUPS",
+      status: "POOL_LAYOUT_STATUS_DRAFT",
+      groups: { groupCount: 4 },
+      rule: {
+        sourceKind: "STAGE_SOURCE_KIND_STAGE",
+        sourceStageId: "stage-0",
+        selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+        placeFrom: 1,
+        placeTo: 2,
+        method: "STAGE_LAYOUT_METHOD_SNAKE",
+      },
+    });
+
+    const json = stageToJson(stage);
+
+    expect(json?.groups).toEqual({ groupCount: 4 });
+    expect(json?.rule).toEqual({
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceStageId: "stage-0",
+      selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+      placeFrom: 1,
+      placeTo: 2,
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+  });
+
+  it("normalizes an open place_to upper bound (0) and roster source (спека 0019)", () => {
+    const stage = fromJson(StageSchema, {
+      id: "stage-4",
+      nominationId: "n1",
+      position: 0,
+      title: "Группы",
+      type: "STAGE_TYPE_GROUPS",
+      groups: { groupCount: 2 },
+      rule: {
+        sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+        selector: "STAGE_SELECTOR_KIND_ALL",
+        method: "STAGE_LAYOUT_METHOD_SNAKE",
+      },
+    });
+
+    const json = stageToJson(stage);
+
+    expect(json?.rule).toEqual({
+      sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+      sourceStageId: "",
+      selector: "STAGE_SELECTOR_KIND_ALL",
+      placeFrom: 0,
+      placeTo: 0,
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+  });
+});
+
+describe("seedingRuleToJson", () => {
+  it("converts a filled protobuf SeedingRule to plain JSON (спека 0019)", () => {
+    const rule = fromJson(SeedingRuleSchema, {
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceStageId: "stage-0",
+      selector: "STAGE_SELECTOR_KIND_OVERALL_PLACES",
+      placeFrom: 3,
+      placeTo: 0,
+      method: "STAGE_LAYOUT_METHOD_SEEDED",
+    });
+
+    const json = seedingRuleToJson(rule);
+
+    expect(json).toEqual({
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceStageId: "stage-0",
+      selector: "STAGE_SELECTOR_KIND_OVERALL_PLACES",
+      placeFrom: 3,
+      placeTo: 0,
+      method: "STAGE_LAYOUT_METHOD_SEEDED",
+    });
+  });
+
+  it("returns null for undefined", () => {
+    expect(seedingRuleToJson(undefined)).toBeNull();
+  });
+});
+
+describe("stageBuildPreviewToJson", () => {
+  it("converts a filled protobuf StageBuildPreview to plain JSON (entries/ties/unselected/overlaps, спека 0019)", () => {
+    const preview = fromJson(StageBuildPreviewSchema, {
+      entries: [
+        {
+          fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+          originLabel: "Группа 1, место 1",
+          sourcePlace: 1,
+          overallPlace: 1,
+          targetPoolNumber: 0,
+          targetSlot: 1,
+        },
+      ],
+      unselected: [{ fighterId: "f9", name: "Fighter Nine", club: "" }],
+      capacity: 8,
+      ties: [
+        {
+          sourcePoolId: "pool-1",
+          groupLabel: "Группа 1",
+          place: 2,
+          contenders: [
+            { fighterId: "f2", name: "Fighter Two", club: "" },
+            { fighterId: "f3", name: "Fighter Three", club: "" },
+          ],
+          slotsLeft: 1,
+        },
+      ],
+      overlaps: [{ fighterId: "f4", name: "Fighter Four", club: "" }],
+      sourceUnfinishedBouts: 2,
+    });
+
+    const json = stageBuildPreviewToJson(preview);
+
+    expect(json).toEqual({
+      entries: [
+        {
+          fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+          originLabel: "Группа 1, место 1",
+          sourcePlace: 1,
+          overallPlace: 1,
+          targetPoolNumber: 0,
+          targetSlot: 1,
+        },
+      ],
+      unselected: [{ fighterId: "f9", name: "Fighter Nine", club: "" }],
+      capacity: 8,
+      ties: [
+        {
+          sourcePoolId: "pool-1",
+          groupLabel: "Группа 1",
+          place: 2,
+          contenders: [
+            { fighterId: "f2", name: "Fighter Two", club: "" },
+            { fighterId: "f3", name: "Fighter Three", club: "" },
+          ],
+          slotsLeft: 1,
+        },
+      ],
+      overlaps: [{ fighterId: "f4", name: "Fighter Four", club: "" }],
+      sourceUnfinishedBouts: 2,
+    });
+  });
+
+  it("normalizes empty repeated fields to empty arrays", () => {
+    const preview = fromJson(StageBuildPreviewSchema, { capacity: 4 });
+
+    const json = stageBuildPreviewToJson(preview);
+
+    expect(json).toEqual({
+      entries: [],
+      unselected: [],
+      capacity: 4,
+      ties: [],
+      overlaps: [],
+      sourceUnfinishedBouts: 0,
+    });
+  });
+
+  it("returns null for undefined", () => {
+    expect(stageBuildPreviewToJson(undefined)).toBeNull();
+  });
+});
+
+describe("ruleDtoToProto", () => {
+  it("maps a DTO SeedingRule to a plain proto-shaped object with numeric enums (спека 0019)", () => {
+    const proto = ruleDtoToProto({
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceStageId: "stage-0",
+      selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+      placeFrom: 1,
+      placeTo: 2,
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+
+    expect(proto).toEqual({
+      sourceKind: 2,
+      sourceStageId: "stage-0",
+      selector: 2,
+      placeFrom: 1,
+      placeTo: 2,
+      method: 1,
+    });
+  });
+
+  it("returns undefined for null (снять правило)", () => {
+    expect(ruleDtoToProto(null)).toBeUndefined();
+  });
+
+  it("returns undefined for undefined", () => {
+    expect(ruleDtoToProto(undefined)).toBeUndefined();
+  });
+});
+
+describe("tieResolutionDtoToProto", () => {
+  it("maps a DTO TieResolution to a plain proto-shaped object", () => {
+    const proto = tieResolutionDtoToProto({
+      sourcePoolId: "pool-1",
+      place: 2,
+      fighterIds: ["f2", "f3"],
+    });
+
+    expect(proto).toEqual({ sourcePoolId: "pool-1", place: 2, fighterIds: ["f2", "f3"] });
   });
 });
 

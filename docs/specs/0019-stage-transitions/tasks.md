@@ -125,11 +125,11 @@
 
 ## Web — трек C (BFF)
 
-- [ ] T14. **BFF (red→green)** — `app/api/stages/[stageId]/rule/route.ts`
+- [x] T14. **BFF (red→green)** — `app/api/stages/[stageId]/rule/route.ts`
       (PUT), `app/api/stages/[stageId]/build/preview/route.ts` (POST),
       `app/api/stages/[stageId]/build/route.ts` (POST) + `*.test.ts`: тело
       `ties`, маппинг `connect.Code` → HTTP.
-- [ ] T15. **BFF — создание этапа** — расширение
+- [x] T15. **BFF — создание этапа** — расширение
       `app/api/nominations/[id]/stages/route.ts` (тип, `group_count`,
       правило) + сериализация новых сообщений в `lib/grpc/serialize.ts`,
       тесты.
