@@ -141,12 +141,12 @@
 
 ## Web — трек C (BFF)
 
-- [ ] T16. **BFF — этап и формат (red→green)** — `app/api/stages/[stageId]/
+- [x] T16. **BFF — этап и формат (red→green)** — `app/api/stages/[stageId]/
       route.ts` (`PATCH` → `UpdateStage`), `app/api/nominations/[id]/format/
       route.ts` (`POST`, тело `{presetId}` либо `{sourceNominationId}` →
       `ApplyFormat`) + `*.test.ts` (маппинг `connect.Code` → HTTP, валидация
       тела: ровно один источник).
-- [ ] T17. **BFF — библиотека пресетов (red→green)** — `app/api/formats/
+- [x] T17. **BFF — библиотека пресетов (red→green)** — `app/api/formats/
       route.ts` (`GET`/`POST`), `app/api/formats/[presetId]/route.ts`
       (`PATCH`/`DELETE`) + тесты; сериализация `SchemaIssue`/`FormatPreset` в
       `web/src/lib/grpc/serialize.ts`; `issues` в существующем

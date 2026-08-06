@@ -18,6 +18,9 @@ import {
   BracketSchema,
   SeedingRuleSchema,
   StageBuildPreviewSchema,
+  SchemaIssueSchema,
+  FormatStageSpecSchema,
+  FormatPresetSchema,
 } from "@/gen/hema/v1/stage_pb";
 import {
   applicationHistoryToJson,
@@ -27,6 +30,9 @@ import {
   arenasToJson,
   arenaLiveToJson,
   bracketToJson,
+  formatPresetsToJson,
+  formatPresetToJson,
+  formatStageSpecToJson,
   nominationParticipantsToJson,
   nominationsToJson,
   nominationToJson,
@@ -34,6 +40,8 @@ import {
   poolLayoutToJson,
   poolToJson,
   ruleDtoToProto,
+  schemaIssuesToJson,
+  schemaIssueToJson,
   seedingRuleToJson,
   stageBuildPreviewToJson,
   stageToJson,
@@ -1249,5 +1257,220 @@ describe("arenaLiveToJson", () => {
     });
     expect(json?.defaultDurationSeconds).toBe(90);
     expect(json?.serverNowUnixMs).toBe("0");
+  });
+});
+
+describe("schemaIssueToJson / schemaIssuesToJson", () => {
+  it("converts a filled protobuf SchemaIssue to plain JSON (спека 0020, FR-8)", () => {
+    const issue = fromJson(SchemaIssueSchema, {
+      severity: "SCHEMA_ISSUE_SEVERITY_WARNING",
+      code: "SCHEMA_ISSUE_CODE_COVERAGE_GAP",
+      stageIds: ["stage-1", "stage-2"],
+      message: "Между ветками есть разрыв покрытия.",
+    });
+
+    const json = schemaIssueToJson(issue);
+
+    expect(json).toEqual({
+      severity: "SCHEMA_ISSUE_SEVERITY_WARNING",
+      code: "SCHEMA_ISSUE_CODE_COVERAGE_GAP",
+      stageIds: ["stage-1", "stage-2"],
+      message: "Между ветками есть разрыв покрытия.",
+    });
+  });
+
+  it("normalizes an issue with no stage_ids to an empty array and default severity/code", () => {
+    const issue = fromJson(SchemaIssueSchema, {
+      message: "",
+    });
+
+    const json = schemaIssueToJson(issue);
+
+    expect(json).toEqual({
+      severity: "SCHEMA_ISSUE_SEVERITY_UNSPECIFIED",
+      code: "SCHEMA_ISSUE_CODE_UNSPECIFIED",
+      stageIds: [],
+      message: "",
+    });
+  });
+
+  it("returns null for undefined", () => {
+    expect(schemaIssueToJson(undefined)).toBeNull();
+  });
+
+  it("converts an array of issues, preserving order", () => {
+    const issues = [
+      fromJson(SchemaIssueSchema, {
+        severity: "SCHEMA_ISSUE_SEVERITY_ERROR",
+        code: "SCHEMA_ISSUE_CODE_NO_GROUP_COUNT",
+        stageIds: ["stage-1"],
+        message: "Правилу нужно число групп.",
+      }),
+      fromJson(SchemaIssueSchema, {
+        severity: "SCHEMA_ISSUE_SEVERITY_INFO",
+        code: "SCHEMA_ISSUE_CODE_TAIL_UNCOVERED",
+        stageIds: ["stage-2"],
+        message: "Хвост состава источника никуда не идёт.",
+      }),
+    ];
+
+    const json = schemaIssuesToJson(issues);
+
+    expect(json).toHaveLength(2);
+    expect(json[0].code).toBe("SCHEMA_ISSUE_CODE_NO_GROUP_COUNT");
+    expect(json[1].code).toBe("SCHEMA_ISSUE_CODE_TAIL_UNCOVERED");
+  });
+
+  it("returns an empty array for undefined", () => {
+    expect(schemaIssuesToJson(undefined)).toEqual([]);
+  });
+});
+
+describe("formatStageSpecToJson", () => {
+  it("converts a bracket-typed spec with a stage source, filling groups with zero value (спека 0020, FR-11)", () => {
+    const spec = fromJson(FormatStageSpecSchema, {
+      title: "Плейофф",
+      type: "STAGE_TYPE_BRACKET",
+      bracket: { size: 8, thirdPlace: true },
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceIndex: 0,
+      selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+      placeFrom: 1,
+      placeTo: 2,
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+
+    const json = formatStageSpecToJson(spec);
+
+    expect(json).toEqual({
+      title: "Плейофф",
+      type: "STAGE_TYPE_BRACKET",
+      bracket: { size: 8, thirdPlace: true },
+      groups: { groupCount: 0 },
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceIndex: 0,
+      selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+      placeFrom: 1,
+      placeTo: 2,
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+  });
+
+  it("converts a groups-typed spec with no source, filling bracket with zero value", () => {
+    const spec = fromJson(FormatStageSpecSchema, {
+      title: "Группы",
+      type: "STAGE_TYPE_GROUPS",
+      groups: { groupCount: 4 },
+      sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+      selector: "STAGE_SELECTOR_KIND_ALL",
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+
+    const json = formatStageSpecToJson(spec);
+
+    expect(json?.bracket).toEqual({ size: 0, thirdPlace: false });
+    expect(json?.groups).toEqual({ groupCount: 4 });
+    expect(json?.sourceIndex).toBe(0);
+  });
+
+  it("returns null for undefined", () => {
+    expect(formatStageSpecToJson(undefined)).toBeNull();
+  });
+});
+
+describe("formatPresetToJson / formatPresetsToJson", () => {
+  it("converts a filled protobuf FormatPreset to plain JSON, incl. ISO timestamps (спека 0020, FR-11/FR-12)", () => {
+    const preset = fromJson(FormatPresetSchema, {
+      id: "preset-1",
+      name: "Группы (2) → двойной плейофф",
+      stages: [
+        {
+          title: "Группы",
+          type: "STAGE_TYPE_GROUPS",
+          groups: { groupCount: 2 },
+          sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+          selector: "STAGE_SELECTOR_KIND_ALL",
+          method: "STAGE_LAYOUT_METHOD_SNAKE",
+        },
+        {
+          title: "Плейофф",
+          type: "STAGE_TYPE_BRACKET",
+          bracket: { size: 8, thirdPlace: false },
+          sourceKind: "STAGE_SOURCE_KIND_STAGE",
+          sourceIndex: 0,
+          selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+          placeFrom: 1,
+          placeTo: 2,
+          method: "STAGE_LAYOUT_METHOD_SEEDED",
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-07-07T00:00:00Z",
+    });
+
+    const json = formatPresetToJson(preset);
+
+    expect(json?.id).toBe("preset-1");
+    expect(json?.name).toBe("Группы (2) → двойной плейофф");
+    expect(json?.createdAt).toBe("2026-01-01T00:00:00Z");
+    expect(json?.updatedAt).toBe("2026-07-07T00:00:00Z");
+    expect(json?.stages).toHaveLength(2);
+    expect(json?.stages[0]).toEqual({
+      title: "Группы",
+      type: "STAGE_TYPE_GROUPS",
+      bracket: { size: 0, thirdPlace: false },
+      groups: { groupCount: 2 },
+      sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+      sourceIndex: 0,
+      selector: "STAGE_SELECTOR_KIND_ALL",
+      placeFrom: 0,
+      placeTo: 0,
+      method: "STAGE_LAYOUT_METHOD_SNAKE",
+    });
+    expect(json?.stages[1]).toEqual({
+      title: "Плейофф",
+      type: "STAGE_TYPE_BRACKET",
+      bracket: { size: 8, thirdPlace: false },
+      groups: { groupCount: 0 },
+      sourceKind: "STAGE_SOURCE_KIND_STAGE",
+      sourceIndex: 0,
+      selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+      placeFrom: 1,
+      placeTo: 2,
+      method: "STAGE_LAYOUT_METHOD_SEEDED",
+    });
+  });
+
+  it("normalizes an empty stages list", () => {
+    const preset = fromJson(FormatPresetSchema, {
+      id: "preset-2",
+      name: "Пустой",
+    });
+
+    const json = formatPresetToJson(preset);
+
+    expect(json?.stages).toEqual([]);
+    expect(json?.createdAt).toBe("");
+    expect(json?.updatedAt).toBe("");
+  });
+
+  it("returns null for undefined", () => {
+    expect(formatPresetToJson(undefined)).toBeNull();
+  });
+
+  it("converts an array of presets, preserving order", () => {
+    const presets = [
+      fromJson(FormatPresetSchema, { id: "p1", name: "A" }),
+      fromJson(FormatPresetSchema, { id: "p2", name: "B" }),
+    ];
+
+    const json = formatPresetsToJson(presets);
+
+    expect(json).toHaveLength(2);
+    expect(json.map((p) => p.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("returns an empty array for undefined", () => {
+    expect(formatPresetsToJson(undefined)).toEqual([]);
   });
 });
