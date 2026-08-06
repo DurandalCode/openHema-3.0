@@ -221,6 +221,101 @@ func TestSetStageRule_T9_EmptyStageID(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
+// T20: каскадный пересчёт позиций и цикл источников (спека 0020, FR-3/FR-4).
+// ---------------------------------------------------------------------
+
+// groupsRule — правило отбора для ЦЕЛЕВОГО группового этапа (Method=Snake,
+// в отличие от groupPlacesRule выше, ориентированного на цель-сетку).
+func groupsRule(sourceStageID string, from, to int) domain.SeedingRule {
+	return domain.SeedingRule{
+		SourceKind:    domain.SourceKindStage,
+		SourceStageID: sourceStageID,
+		Selector:      domain.SelectorKindGroupPlaces,
+		PlaceFrom:     from,
+		PlaceTo:       to,
+		Method:        domain.LayoutMethodSnake,
+	}
+}
+
+// AC-4: смена источника ветки пересчитывает не только её собственную
+// позицию, но и позиции ВСЕХ этапов, которые (транзитивно) от неё зависят —
+// уровни схемы перестраиваются сами, без ручного порядка.
+func TestSetStageRule_T20_CascadesDependentPositions(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1")
+
+	a, err := repo.CreateStage(ctx, "n1", 0, "A", domain.StageTypeGroups,
+		domain.BracketConfig{}, domain.GroupsConfig{GroupCount: 2}, domain.SeedingRule{})
+	if err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	a2, err := repo.CreateStage(ctx, "n1", 2, "A2", domain.StageTypeGroups,
+		domain.BracketConfig{}, domain.GroupsConfig{GroupCount: 2}, domain.SeedingRule{})
+	if err != nil {
+		t.Fatalf("seed A2: %v", err)
+	}
+	// b и e раскладываются "как есть" (raw-посев через repo, минуя
+	// service.CreateStage) на заведомо больших позициях — исходная
+	// консистентность позиций для этого теста не важна: проверяется, что
+	// SetStageRule пересчитает их с нуля.
+	b, err := repo.CreateStage(ctx, "n1", 5, "B", domain.StageTypeGroups,
+		domain.BracketConfig{}, domain.GroupsConfig{GroupCount: 2}, groupsRule(a.ID, 1, 2))
+	if err != nil {
+		t.Fatalf("seed B: %v", err)
+	}
+	e, err := repo.CreateStage(ctx, "n1", 6, "E", domain.StageTypeBracket,
+		domain.BracketConfig{Size: 4}, domain.GroupsConfig{}, groupPlacesRule(b.ID, 1, 2))
+	if err != nil {
+		t.Fatalf("seed E (sourced from B): %v", err)
+	}
+
+	// Переключаем источник B с A(pos0) на A2(pos2) — A2 позиционно раньше
+	// ТЕКУЩЕЙ (ещё не пересчитанной) позиции B (5), значит источник
+	// допустим (FR-2).
+	updatedB, err := svc.SetStageRule(ctx, b.ID, groupsRule(a2.ID, 1, 2))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updatedB.Position != a2.Position+1 {
+		t.Fatalf("expected B repositioned to A2.Position+1=%d, got %d", a2.Position+1, updatedB.Position)
+	}
+
+	updatedE, found, err := repo.StageByID(ctx, e.ID)
+	if err != nil || !found {
+		t.Fatalf("unexpected error/found reading E: %v %v", err, found)
+	}
+	if updatedE.Position != updatedB.Position+1 {
+		t.Fatalf("expected E cascaded to B.Position+1=%d, got %d", updatedB.Position+1, updatedE.Position)
+	}
+}
+
+// AC-5: назначить источником этап, который сам (прямо или транзитивно)
+// питается от целевого этапа — отклоняется как цикл, а не молча зависает.
+func TestSetStageRule_T20_ErrSourceCycle(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1")
+
+	a, err := repo.CreateStage(ctx, "n1", 0, "A", domain.StageTypeGroups,
+		domain.BracketConfig{}, domain.GroupsConfig{GroupCount: 2}, domain.SeedingRule{})
+	if err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	b, err := repo.CreateStage(ctx, "n1", 1, "B", domain.StageTypeGroups,
+		domain.BracketConfig{}, domain.GroupsConfig{GroupCount: 2}, groupsRule(a.ID, 1, 2))
+	if err != nil {
+		t.Fatalf("seed B (sources A): %v", err)
+	}
+
+	// Прямой цикл длины 2: A уже (транзитивно) не зависит от B, но
+	// попытка сделать B источником A замкнула бы A -> B -> A.
+	if _, err := svc.SetStageRule(ctx, a.ID, groupsRule(b.ID, 1, 1)); !errors.Is(err, domain.ErrSourceCycle) {
+		t.Fatalf("expected ErrSourceCycle, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
 // T10/T11: PreviewStageBuild / BuildStage. Общие хелперы построения
 // источника (групповой этап с результатами боёв).
 // ---------------------------------------------------------------------

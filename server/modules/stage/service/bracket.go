@@ -101,14 +101,16 @@ func (s *Service) validateRuleSourceForCreate(ctx context.Context, nominationID 
 	return nil
 }
 
-// DeleteStage удаляет этап-сетку (0018, FR-3) либо явно созданный групповой
-// этап (спека 0019, FR-7a): гейты — этап должен быть удаляемым (не
-// авто-этап 0017 — узнаётся по GroupCount=0 у типа groups, у него правил и
-// явного создания не бывает, FR-9), «нет начатых боёв в контейнерах этапа»
-// и «этап не служит источником для другого этапа» (ErrStageIsSource,
-// AC-19) — иначе удаление молча оборвало бы ссылку правила зависимой
-// ветки. Удаляет бои этапа (ClearForPools), затем строку этапа — контейнеры
-// и членства уходят каскадом БД (репозиторий).
+// DeleteStage удаляет любой этап номинации — этап-сетку (0018, FR-3),
+// явно созданный групповой этап (спека 0019, FR-7a) либо авто-этап (0017,
+// FR-4) — по общим основаниям (спека 0020, FR-5: прежний отдельный запрет
+// на удаление авто-этапа снят, он больше не особенный): «нет начатых боёв в
+// контейнерах этапа» и «этап не служит источником для другого этапа»
+// (ErrStageIsSource, AC-19) — иначе удаление молча оборвало бы ссылку
+// правила зависимой ветки. Удаление единственного этапа номинации
+// возвращает схему к пустой — очередной ListStages снова материализует
+// пустой авто-этап (0020, FR-6). Удаляет бои этапа (ClearForPools), затем
+// строку этапа — контейнеры и членства уходят каскадом БД (репозиторий).
 func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Stage, error) {
 	stageID = strings.TrimSpace(stageID)
 	if stageID == "" {
@@ -120,9 +122,6 @@ func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Sta
 	}
 	if !found {
 		return nil, domain.ErrNotFound
-	}
-	if stage.Type == domain.StageTypeGroups && stage.Groups.GroupCount == 0 {
-		return nil, domain.ErrStageNotDeletable // авто-этап (0017, FR-4)
 	}
 
 	sources, err := s.repo.StagesBySource(ctx, stageID)
@@ -159,20 +158,29 @@ func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Sta
 	return s.stagesForRead(ctx, stage.NominationID)
 }
 
-// ListStages возвращает этапы номинации (FR-18). Материализует групповой
-// этап, если строки ещё нет (0017, FR-4) — единственное место, где
-// EnsureStage вызывается на write-пути (план «service/service.go»): админский
-// путь всегда начинается со списка этапов, поэтому дальше stage.id
-// гарантированно непустой у всех мутирующих RPC.
-func (s *Service) ListStages(ctx context.Context, nominationID string) ([]domain.Stage, error) {
+// ListStages возвращает этапы номинации (FR-18) вместе с диагностикой схемы
+// (спека 0020, FR-8): DiagnoseSchema — чистая функция от того же набора
+// этапов, отдельного чтения не требует. Материализует групповой этап, если
+// строки ещё нет (0017, FR-4) — единственное место, где EnsureStage
+// вызывается на write-пути (план «service/service.go»): админский путь
+// всегда начинается со списка этапов, поэтому дальше stage.id гарантированно
+// непустой у всех мутирующих RPC. Диагностика ничего не блокирует сама по
+// себе (FR-9) — коды, отклоняющие формирование (SelectorOverlap/
+// NoGroupCount/…), проверяются тем же путём, что и гейты SetStageRule/
+// BuildStage; она лишь объясняет заранее.
+func (s *Service) ListStages(ctx context.Context, nominationID string) ([]domain.Stage, []domain.SchemaIssue, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
-		return nil, domain.ErrInvalidInput
+		return nil, nil, domain.ErrInvalidInput
 	}
 	if _, err := s.repo.EnsureStage(ctx, nominationID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return s.repo.StagesByNomination(ctx, nominationID)
+	stages, err := s.repo.StagesByNomination(ctx, nominationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stages, domain.DiagnoseSchema(stages), nil
 }
 
 // bracketStage резолвит этап-сетку по id: не найден → ErrNotFound; найден,
