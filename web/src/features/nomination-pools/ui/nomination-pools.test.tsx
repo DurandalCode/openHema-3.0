@@ -18,6 +18,8 @@ const layout: PoolLayout = {
     type: "STAGE_TYPE_GROUPS",
     status: "POOL_LAYOUT_STATUS_DRAFT",
     bracket: null,
+    groups: null,
+    rule: null,
   },
 };
 

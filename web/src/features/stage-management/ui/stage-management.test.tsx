@@ -12,6 +12,8 @@ const groupsStage: Stage = {
   type: "STAGE_TYPE_GROUPS",
   status: "POOL_LAYOUT_STATUS_READY",
   bracket: null,
+  groups: null,
+  rule: null,
 };
 
 const bracketStage: Stage = {
@@ -22,10 +24,45 @@ const bracketStage: Stage = {
   type: "STAGE_TYPE_BRACKET",
   status: "POOL_LAYOUT_STATUS_DRAFT",
   bracket: { size: 8, thirdPlace: true },
+  groups: null,
+  rule: null,
+};
+
+const ruledBracketStage: Stage = {
+  id: "s3",
+  nominationId: "n1",
+  position: 1,
+  title: "Утешительная сетка",
+  type: "STAGE_TYPE_BRACKET",
+  status: "POOL_LAYOUT_STATUS_DRAFT",
+  bracket: { size: 4, thirdPlace: false },
+  groups: null,
+  rule: {
+    sourceKind: "STAGE_SOURCE_KIND_STAGE",
+    sourceStageId: "s1",
+    selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+    placeFrom: 3,
+    placeTo: 0,
+    method: "STAGE_LAYOUT_METHOD_SEEDED",
+  },
+};
+
+const explicitGroupsStage: Stage = {
+  id: "s4",
+  nominationId: "n1",
+  position: 0,
+  title: "Слабые",
+  type: "STAGE_TYPE_GROUPS",
+  status: "POOL_LAYOUT_STATUS_DRAFT",
+  bracket: null,
+  groups: { groupCount: 2 },
+  rule: null,
 };
 
 const deleteMutate = vi.fn();
 const createMutate = vi.fn((_vars, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+const resetLayoutMutate = vi.fn();
+const resetBracketMutate = vi.fn();
 let stagesData: Stage[] = [groupsStage, bracketStage];
 let deleteError: Error | null = null;
 let createError: Error | null = null;
@@ -43,6 +80,17 @@ vi.mock("../api/use-create-stage", () => ({
     error: createError,
     reset: vi.fn(),
   }),
+}));
+vi.mock("@/features/nomination-pools/api/use-reset-layout", () => ({
+  useResetLayout: () => ({ mutate: resetLayoutMutate, isPending: false, error: null }),
+}));
+vi.mock("@/features/bracket-seeding/api/use-reset-bracket", () => ({
+  useResetBracket: () => ({ mutate: resetBracketMutate, isPending: false, error: null }),
+}));
+vi.mock("@/features/stage-build/ui/build-stage-dialog", () => ({
+  BuildStageDialog: ({ stage }: { stage: Stage }) => (
+    <button type="button">Сформировать: {stage.title}</button>
+  ),
 }));
 
 describe("StageManagement", () => {
@@ -66,10 +114,16 @@ describe("StageManagement", () => {
     expect(screen.getByText("сетка")).toBeInTheDocument();
   });
 
-  it("shows a delete button only for the bracket stage (AC-14: groups is not deletable)", () => {
+  it("shows a delete button only for the bracket stage (auto-stage is not deletable)", () => {
     render(<StageManagement nominationId="n1" />);
     expect(screen.queryByLabelText("Удалить Групповой этап")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Удалить Плейофф")).toBeInTheDocument();
+  });
+
+  it("shows a delete button for an explicitly created groups stage (0019, FR-7a)", () => {
+    stagesData = [groupsStage, explicitGroupsStage];
+    render(<StageManagement nominationId="n1" />);
+    expect(screen.getByLabelText("Удалить Слабые")).toBeInTheDocument();
   });
 
   it("deleting the bracket stage calls the mutation with its id", () => {
@@ -84,17 +138,38 @@ describe("StageManagement", () => {
     expect(screen.getByText("stage is not deletable")).toBeInTheDocument();
   });
 
+  it("does not show build/reset actions for a stage without a rule", () => {
+    render(<StageManagement nominationId="n1" />);
+    expect(screen.queryByText("Сформировать: Плейофф")).not.toBeInTheDocument();
+    expect(screen.queryByText("Расформировать")).not.toBeInTheDocument();
+  });
+
+  it("shows build/reset quick actions for a stage with a seeding rule (0019, FR-13/FR-17)", () => {
+    stagesData = [groupsStage, ruledBracketStage];
+    render(<StageManagement nominationId="n1" />);
+    expect(screen.getByText("Сформировать: Утешительная сетка")).toBeInTheDocument();
+    expect(screen.getByText("Расформировать")).toBeInTheDocument();
+  });
+
+  it("resetting a rule-bearing bracket stage calls useResetBracket, not useResetLayout", () => {
+    stagesData = [groupsStage, ruledBracketStage];
+    render(<StageManagement nominationId="n1" />);
+    fireEvent.click(screen.getByText("Расформировать"));
+    expect(resetBracketMutate).toHaveBeenCalled();
+    expect(resetLayoutMutate).not.toHaveBeenCalled();
+  });
+
   it("creating a stage opens the dialog and submits the form with default size 8", () => {
     render(<StageManagement nominationId="n1" />);
 
     fireEvent.click(screen.getByRole("button", { name: /Добавить этап/i }));
     const titleInput = screen.getByLabelText("Название");
     fireEvent.change(titleInput, { target: { value: "Плейофф 16" } });
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Бой за 3-е место" }));
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
 
     expect(createMutate).toHaveBeenCalledWith(
-      { title: "Плейофф 16", bracketSize: 8, thirdPlace: true },
+      { type: "bracket", title: "Плейофф 16", bracketSize: 8, thirdPlace: true },
       expect.anything(),
     );
   });

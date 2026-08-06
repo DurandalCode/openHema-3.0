@@ -51,27 +51,81 @@ func (h *AdminHandler) ListStages(
 	return connect.NewResponse(&hemav1.ListStagesResponse{Stages: toProtoStages(stages)}), nil
 }
 
-// CreateStage добавляет номинации этап-сетку (FR-2). В этом инкременте
-// принимается только type = BRACKET (FR-2) — GROUPS/UNSPECIFIED отклоняются
-// с InvalidArgument до вызова сервиса (групповой этап создаёт только
-// EnsureStage, 0017 FR-4); служба service.CreateStage сама типа не
-// принимает — она всегда создаёт bracket (план «service/bracket.go»).
+// CreateStage добавляет номинации новый этап — сетку (0018, FR-2) либо
+// групповой этап (спека 0019, FR-7). UNSPECIFIED отклоняется с
+// InvalidArgument до вызова сервиса; остальные гейты по типу (валидный
+// размер сетки, group_count у групп) — в service.CreateStage.
 func (h *AdminHandler) CreateStage(
 	ctx context.Context,
 	req *connect.Request[hemav1.CreateStageRequest],
 ) (*connect.Response[hemav1.CreateStageResponse], error) {
-	if req.Msg.Type != hemav1.StageType_STAGE_TYPE_BRACKET {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("stage: only BRACKET can be created explicitly"))
+	var stageType domain.StageType
+	switch req.Msg.Type {
+	case hemav1.StageType_STAGE_TYPE_BRACKET:
+		stageType = domain.StageTypeBracket
+	case hemav1.StageType_STAGE_TYPE_GROUPS:
+		stageType = domain.StageTypeGroups
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("stage: type must be BRACKET or GROUPS"))
 	}
 	cfg := domain.BracketConfig{}
 	if req.Msg.Bracket != nil {
 		cfg = domain.BracketConfig{Size: int(req.Msg.Bracket.Size), ThirdPlace: req.Msg.Bracket.ThirdPlace}
 	}
-	created, stages, err := h.svc.CreateStage(ctx, req.Msg.NominationId, req.Msg.Title, cfg)
+	created, stages, err := h.svc.CreateStage(ctx, req.Msg.NominationId, stageType, req.Msg.Title, cfg,
+		domainGroupsConfig(req.Msg.Groups), domainSeedingRule(req.Msg.Rule))
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.CreateStageResponse{Created: toProtoStage(created), Stages: toProtoStages(stages)}), nil
+}
+
+// SetStageRule задаёт или снимает правило отбора этапа (спека 0019, FR-1/
+// FR-6). Rule не заполнен в запросе (nil) — снять правило.
+func (h *AdminHandler) SetStageRule(
+	ctx context.Context,
+	req *connect.Request[hemav1.SetStageRuleRequest],
+) (*connect.Response[hemav1.SetStageRuleResponse], error) {
+	stage, err := h.svc.SetStageRule(ctx, req.Msg.StageId, domainSeedingRule(req.Msg.Rule))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SetStageRuleResponse{Stage: toProtoStage(stage)}), nil
+}
+
+// PreviewStageBuild считает, кто будет отобран текущим правилом этапа и
+// куда каждый попадёт, без применения (спека 0019, FR-15).
+func (h *AdminHandler) PreviewStageBuild(
+	ctx context.Context,
+	req *connect.Request[hemav1.PreviewStageBuildRequest],
+) (*connect.Response[hemav1.PreviewStageBuildResponse], error) {
+	preview, err := h.svc.PreviewStageBuild(ctx, req.Msg.StageId, domainTieResolutions(req.Msg.Ties))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.PreviewStageBuildResponse{Preview: toProtoStageBuildPreview(preview)}), nil
+}
+
+// BuildStage применяет план последнего PreviewStageBuild этого же вызова
+// (спека 0019, FR-16): результат — Layout у целевого группового этапа,
+// Bracket у целевой сетки (service.BuildStage возвращает ровно одно из
+// двух, второе остаётся нулевым — Bracket.Stage.ID пуст, если применения к
+// сетке не было).
+func (h *AdminHandler) BuildStage(
+	ctx context.Context,
+	req *connect.Request[hemav1.BuildStageRequest],
+) (*connect.Response[hemav1.BuildStageResponse], error) {
+	layout, bracket, err := h.svc.BuildStage(ctx, req.Msg.StageId, domainTieResolutions(req.Msg.Ties))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	resp := &hemav1.BuildStageResponse{}
+	if bracket.Stage.ID != "" {
+		resp.Result = &hemav1.BuildStageResponse_Bracket{Bracket: toProtoBracket(bracket)}
+	} else {
+		resp.Result = &hemav1.BuildStageResponse_Layout{Layout: toProtoLayout(layout)}
+	}
+	return connect.NewResponse(resp), nil
 }
 
 // DeleteStage удаляет этап-сетку, пока в ней не начат ни один бой (FR-3).
@@ -623,8 +677,18 @@ func mapError(err error) error {
 		errors.Is(err, domain.ErrDownstreamStarted),
 		errors.Is(err, domain.ErrSlotOccupied),
 		errors.Is(err, domain.ErrStageNotDeletable),
-		errors.Is(err, domain.ErrNotEnoughSeeds):
+		errors.Is(err, domain.ErrNotEnoughSeeds),
+		errors.Is(err, domain.ErrNoSeedingRule),
+		errors.Is(err, domain.ErrStageNotEmpty),
+		errors.Is(err, domain.ErrRuleLocked),
+		errors.Is(err, domain.ErrSelectorOverlap),
+		errors.Is(err, domain.ErrCapacityExceeded),
+		errors.Is(err, domain.ErrTieUnresolved),
+		errors.Is(err, domain.ErrStageIsSource):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, domain.ErrInvalidRule),
+		errors.Is(err, domain.ErrSourceNotAllowed):
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -653,11 +717,197 @@ func toProtoStage(s domain.Stage) *hemav1.Stage {
 		Title:        s.Title,
 		Type:         toProtoStageType(s.Type),
 		Status:       toProtoStatus(s.Status),
+		Groups:       toProtoGroupsConfig(s.Groups),
+		Rule:         toProtoSeedingRule(s.Rule),
 	}
 	if s.Type == domain.StageTypeBracket {
 		out.Bracket = &hemav1.BracketConfig{Size: int32(s.Bracket.Size), ThirdPlace: s.Bracket.ThirdPlace}
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------
+// Спека 0019: переходы между этапами (правило отбора, превью, формирование).
+// ---------------------------------------------------------------------
+
+// toProtoGroupsConfig — Stage.groups заполнен только у явно созданного
+// группового этапа (GroupCount > 0, FR-8); у авто-этапа (0017, FR-4,
+// GroupCount = 0) — nil (FR-9).
+func toProtoGroupsConfig(g domain.GroupsConfig) *hemav1.GroupsConfig {
+	if g.GroupCount <= 0 {
+		return nil
+	}
+	return &hemav1.GroupsConfig{GroupCount: int32(g.GroupCount)}
+}
+
+func domainGroupsConfig(g *hemav1.GroupsConfig) domain.GroupsConfig {
+	if g == nil {
+		return domain.GroupsConfig{}
+	}
+	return domain.GroupsConfig{GroupCount: int(g.GroupCount)}
+}
+
+// toProtoSeedingRule — Stage.rule не заполнен (nil), если у этапа правила
+// нет (FR-1) — presence, а не нулевые значения полей, отличает «нет
+// правила» от заданного.
+func toProtoSeedingRule(r domain.SeedingRule) *hemav1.SeedingRule {
+	if r.IsZero() {
+		return nil
+	}
+	return &hemav1.SeedingRule{
+		SourceKind:    toProtoStageSourceKind(r.SourceKind),
+		SourceStageId: r.SourceStageID,
+		Selector:      toProtoStageSelectorKind(r.Selector),
+		PlaceFrom:     int32(r.PlaceFrom),
+		PlaceTo:       int32(r.PlaceTo),
+		Method:        toProtoStageLayoutMethod(r.Method),
+	}
+}
+
+func domainSeedingRule(r *hemav1.SeedingRule) domain.SeedingRule {
+	if r == nil {
+		return domain.SeedingRule{}
+	}
+	return domain.SeedingRule{
+		SourceKind:    domainSourceKind(r.SourceKind),
+		SourceStageID: r.SourceStageId,
+		Selector:      domainSelectorKind(r.Selector),
+		PlaceFrom:     int(r.PlaceFrom),
+		PlaceTo:       int(r.PlaceTo),
+		Method:        domainLayoutMethod(r.Method),
+	}
+}
+
+func toProtoStageSourceKind(k domain.SourceKind) hemav1.StageSourceKind {
+	switch k {
+	case domain.SourceKindRoster:
+		return hemav1.StageSourceKind_STAGE_SOURCE_KIND_ROSTER
+	case domain.SourceKindStage:
+		return hemav1.StageSourceKind_STAGE_SOURCE_KIND_STAGE
+	default:
+		return hemav1.StageSourceKind_STAGE_SOURCE_KIND_UNSPECIFIED
+	}
+}
+
+func domainSourceKind(k hemav1.StageSourceKind) domain.SourceKind {
+	switch k {
+	case hemav1.StageSourceKind_STAGE_SOURCE_KIND_ROSTER:
+		return domain.SourceKindRoster
+	case hemav1.StageSourceKind_STAGE_SOURCE_KIND_STAGE:
+		return domain.SourceKindStage
+	default:
+		return ""
+	}
+}
+
+func toProtoStageSelectorKind(k domain.SelectorKind) hemav1.StageSelectorKind {
+	switch k {
+	case domain.SelectorKindAll:
+		return hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_ALL
+	case domain.SelectorKindGroupPlaces:
+		return hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_GROUP_PLACES
+	case domain.SelectorKindOverallPlaces:
+		return hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_OVERALL_PLACES
+	default:
+		return hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_UNSPECIFIED
+	}
+}
+
+func domainSelectorKind(k hemav1.StageSelectorKind) domain.SelectorKind {
+	switch k {
+	case hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_ALL:
+		return domain.SelectorKindAll
+	case hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_GROUP_PLACES:
+		return domain.SelectorKindGroupPlaces
+	case hemav1.StageSelectorKind_STAGE_SELECTOR_KIND_OVERALL_PLACES:
+		return domain.SelectorKindOverallPlaces
+	default:
+		return ""
+	}
+}
+
+func toProtoStageLayoutMethod(m domain.LayoutMethod) hemav1.StageLayoutMethod {
+	switch m {
+	case domain.LayoutMethodSnake:
+		return hemav1.StageLayoutMethod_STAGE_LAYOUT_METHOD_SNAKE
+	case domain.LayoutMethodSeeded:
+		return hemav1.StageLayoutMethod_STAGE_LAYOUT_METHOD_SEEDED
+	default:
+		return hemav1.StageLayoutMethod_STAGE_LAYOUT_METHOD_UNSPECIFIED
+	}
+}
+
+func domainLayoutMethod(m hemav1.StageLayoutMethod) domain.LayoutMethod {
+	switch m {
+	case hemav1.StageLayoutMethod_STAGE_LAYOUT_METHOD_SNAKE:
+		return domain.LayoutMethodSnake
+	case hemav1.StageLayoutMethod_STAGE_LAYOUT_METHOD_SEEDED:
+		return domain.LayoutMethodSeeded
+	default:
+		return ""
+	}
+}
+
+func domainTieResolutions(in []*hemav1.TieResolution) []domain.TieResolution {
+	out := make([]domain.TieResolution, 0, len(in))
+	for _, t := range in {
+		out = append(out, domain.TieResolution{SourcePoolID: t.SourcePoolId, Place: int(t.Place), FighterIDs: t.FighterIds})
+	}
+	return out
+}
+
+// toProtoStageBuildEntries объединяет отобранных (Entries) с планом
+// раскладки (Groups/Seeds — заполнено ровно одно из двух, по типу целевого
+// этапа) в проекцию для показа (FR-15): у кого какой TargetPoolNumber/
+// TargetSlot.
+func toProtoStageBuildEntries(preview domain.StageBuildPreview) []*hemav1.StageBuildEntry {
+	slotByFighter := make(map[string]int32, len(preview.Seeds))
+	for _, sp := range preview.Seeds {
+		slotByFighter[sp.FighterID] = int32(sp.Slot)
+	}
+	poolByFighter := make(map[string]int32, len(preview.Groups))
+	for _, g := range preview.Groups {
+		for _, fid := range g.FighterIDs {
+			poolByFighter[fid] = int32(g.Number)
+		}
+	}
+	out := make([]*hemav1.StageBuildEntry, 0, len(preview.Entries))
+	for _, sf := range preview.Entries {
+		out = append(out, &hemav1.StageBuildEntry{
+			Fighter:          toProtoFighterRef(sf.Fighter),
+			OriginLabel:      sf.OriginLabel,
+			SourcePlace:      int32(sf.GroupPlace),
+			OverallPlace:     int32(sf.OverallPlace),
+			TargetPoolNumber: poolByFighter[sf.Fighter.ID],
+			TargetSlot:       slotByFighter[sf.Fighter.ID],
+		})
+	}
+	return out
+}
+
+func toProtoStageBuildTies(ties []domain.TieAsk) []*hemav1.StageBuildTie {
+	out := make([]*hemav1.StageBuildTie, 0, len(ties))
+	for _, t := range ties {
+		out = append(out, &hemav1.StageBuildTie{
+			SourcePoolId: t.SourcePoolID,
+			GroupLabel:   t.GroupLabel,
+			Place:        int32(t.Place),
+			Contenders:   toProtoFighterRefs(t.Contenders),
+			SlotsLeft:    int32(t.SlotsLeft),
+		})
+	}
+	return out
+}
+
+func toProtoStageBuildPreview(preview domain.StageBuildPreview) *hemav1.StageBuildPreview {
+	return &hemav1.StageBuildPreview{
+		Entries:               toProtoStageBuildEntries(preview),
+		Unselected:            toProtoFighterRefs(preview.Unselected),
+		Capacity:              int32(preview.Capacity),
+		Ties:                  toProtoStageBuildTies(preview.Ties),
+		Overlaps:              toProtoFighterRefs(preview.Overlaps),
+		SourceUnfinishedBouts: int32(preview.SourceUnfinishedBouts),
+	}
 }
 
 func toProtoStages(stages []domain.Stage) []*hemav1.Stage {

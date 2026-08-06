@@ -1649,8 +1649,10 @@ func TestCreateStage_E2E_HappyPath(t *testing.T) {
 	}
 }
 
-// В этом инкременте CreateStage принимает только type = BRACKET; GROUPS
-// отклоняется на уровне хендлера, не доходя до сервиса (план, таблица RPC).
+// CreateStage с type = GROUPS без groups (спека 0019, FR-7/FR-8) отклоняется
+// сервисом — group_count обязателен для явно созданного группового этапа.
+// Счастливый путь GROUPS — TestCreateStage_E2E_GroupsHappyPath
+// (seeding_test.go).
 func TestCreateStage_E2E_GroupsTypeReturnsInvalidArgument(t *testing.T) {
 	admin, _, fighters := setup(t)
 	fighters.Set(n1)

@@ -23,6 +23,12 @@ type stageRow struct {
 	// bracket — конфиг этапа-сетки (спека 0018, FR-1): нулевое значение у
 	// группового этапа.
 	bracket domain.BracketConfig
+	// groups — конфиг явно созданного группового этапа (спека 0019, FR-8):
+	// нулевое значение у сетки и у авто-этапа (FR-9).
+	groups domain.GroupsConfig
+	// rule — правило отбора этапа (спека 0019, FR-1): нулевое значение —
+	// правила нет, состав набирается руками.
+	rule domain.SeedingRule
 }
 
 // memberRow — один боец в пуле: fighterID + номер слота посева (спека 0018,
@@ -506,10 +512,10 @@ func (r *FakeRepo) StagesByNomination(_ context.Context, nominationID string) ([
 	return out, nil
 }
 
-// CreateStage вставляет новый этап номинации (спека 0018, FR-2). Не
-// регистрируется как канонический — EnsureStage/StageByNomination его не
-// подхватят (в этом инкременте type всегда bracket).
-func (r *FakeRepo) CreateStage(_ context.Context, nominationID string, position int, title string, stageType domain.StageType, bracket domain.BracketConfig) (domain.Stage, error) {
+// CreateStage вставляет новый этап номинации (спека 0018, FR-2; спека 0019 —
+// groups/rule, FR-7/FR-8). Не регистрируется как канонический —
+// EnsureStage/StageByNomination его не подхватят.
+func (r *FakeRepo) CreateStage(_ context.Context, nominationID string, position int, title string, stageType domain.StageType, bracket domain.BracketConfig, groups domain.GroupsConfig, rule domain.SeedingRule) (domain.Stage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -517,9 +523,90 @@ func (r *FakeRepo) CreateStage(_ context.Context, nominationID string, position 
 	st := &stageRow{
 		id: id, nominationID: nominationID, position: position, title: title,
 		stageType: stageType, status: domain.LayoutDraft, bracket: bracket,
+		groups: groups, rule: rule,
 	}
 	r.stages[id] = st
 	return toDomainStage(st), nil
+}
+
+// SetSeedingRule пишет правило отбора этапа и пересчитанную позицию,
+// очищает undo (спека 0019, FR-6/FR-10). Гейты (состав пуст, источник
+// валиден) и вычисление position — забота вызывающего (service.SetStageRule).
+func (r *FakeRepo) SetSeedingRule(_ context.Context, stageID string, rule domain.SeedingRule, position int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	st, ok := r.stages[stageID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	st.rule = rule
+	st.position = position
+	st.undo = domain.UndoState{}
+	return nil
+}
+
+// StagesBySource возвращает соседние этапы, питающиеся от sourceStageID
+// (спека 0019): проверка пересечения селекторов (FR-11) и гейт удаления
+// источника, пока ветка существует (FR-7a).
+func (r *FakeRepo) StagesBySource(_ context.Context, sourceStageID string) ([]domain.Stage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.Stage, 0)
+	for _, st := range r.stages {
+		if st.rule.SourceKind == domain.SourceKindStage && st.rule.SourceStageID == sourceStageID {
+			out = append(out, toDomainStage(st))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// ApplyStageBuild атомарно применяет план формирования этапа (спека 0019,
+// FR-16): groups — создаёт по пулу на каждую запланированную группу (число
+// пулов = число групп конфига, даже если какая-то из них осталась пустой);
+// seeds — сажает бойцов в существующие контейнеры первого круга сетки
+// (созданные CreateStage, спека 0018) по слоту, резолвя половину через
+// domain.HalfOfSlot(bracket-конфиг этапа). Записывает undo_kind=UndoBuild
+// (FR-21) — снапшота не несёт: состояние до формирования гарантированно
+// пустое (FR-18), откат сводится к очистке состава (см. service.Undo).
+func (r *FakeRepo) ApplyStageBuild(_ context.Context, stageID string, groups []domain.BuildGroup, seeds []domain.SeedPlan) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	st, ok := r.stages[stageID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+
+	for _, g := range groups {
+		id := uuid.NewString()
+		r.pools[id] = &poolRow{
+			id: id, stageID: stageID, nominationID: st.nominationID, number: g.Number,
+			members: membersOf(g.FighterIDs...),
+		}
+	}
+
+	if len(seeds) > 0 {
+		containerByHalf := make(map[int]*poolRow, 2)
+		for _, p := range r.pools {
+			if p.stageID == stageID {
+				containerByHalf[p.number] = p
+			}
+		}
+		for _, sd := range seeds {
+			half := domain.HalfOfSlot(st.bracket, sd.Slot)
+			target, ok := containerByHalf[half]
+			if !ok {
+				return domain.ErrNotFound
+			}
+			target.members = append(target.members, memberRow{fighterID: sd.FighterID, slot: sd.Slot})
+		}
+	}
+
+	r.setUndoLocked(stageID, domain.UndoState{Kind: domain.UndoBuild})
+	return nil
 }
 
 // DeleteStage удаляет этап вместе с его контейнерами и членствами (каскад).
@@ -848,7 +935,7 @@ func toDomainStage(s *stageRow) domain.Stage {
 	return domain.Stage{
 		ID: s.id, NominationID: s.nominationID, Position: s.position,
 		Title: s.title, Type: s.stageType, Status: s.status, Undo: s.undo,
-		Bracket: s.bracket,
+		Bracket: s.bracket, Groups: s.groups, Rule: s.rule,
 	}
 }
 

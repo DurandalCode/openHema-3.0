@@ -16,38 +16,62 @@ import (
 // Этапы (FR-2/FR-3/FR-18).
 // ---------------------------------------------------------------------
 
-// CreateStage добавляет номинации этап-сетку (FR-2): валидирует размер
-// (FR-1), ставит position = max+1, создаёт этап и два контейнера первого
-// круга (верхняя/нижняя половина, number 1 и 2) — они же держат посев своей
-// половины слотов (план, решение 3). Тип этапа всегда bracket — групповой
-// этап создаётся только автоматически (ListStages/EnsureStage, 0017 FR-4);
-// отказ для type=GROUPS — забота вызывающего RPC-хендлера (план, таблица
-// RPC), не этого метода.
-func (s *Service) CreateStage(ctx context.Context, nominationID, title string, cfg domain.BracketConfig) (domain.Stage, []domain.Stage, error) {
+// CreateStage добавляет номинации новый этап — сетку (0018, FR-2) либо
+// явный групповой этап (спека 0019, FR-7): валидирует параметры типа (FR-1,
+// FR-8), опционально принимает правило отбора (FR-6 — можно задать сразу
+// при создании), вычисляет позицию (0019, FR-10 — resolveStagePosition) и
+// создаёт строку этапа. Для bracket дополнительно создаёт два контейнера
+// первого круга (верхняя/нижняя половина, number 1 и 2, план 0018 решение
+// 3) — они же держат посев своей половины слотов; групповой этап своих
+// пулов при создании не получает (их создаёт CreatePool либо BuildStage,
+// спека 0019). Авто-этап (0017, FR-4) этим методом не создаётся —
+// материализуется отдельно (ListStages/EnsureStage).
+func (s *Service) CreateStage(ctx context.Context, nominationID string, stageType domain.StageType, title string, bracket domain.BracketConfig, groups domain.GroupsConfig, rule domain.SeedingRule) (domain.Stage, []domain.Stage, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	title = strings.TrimSpace(title)
 	if nominationID == "" || title == "" {
 		return domain.Stage{}, nil, domain.ErrInvalidInput
 	}
-	if !domain.ValidBracketSize(cfg.Size) {
+	switch stageType {
+	case domain.StageTypeBracket:
+		if !domain.ValidBracketSize(bracket.Size) || groups.GroupCount != 0 {
+			return domain.Stage{}, nil, domain.ErrInvalidInput
+		}
+	case domain.StageTypeGroups:
+		if groups.GroupCount < 1 || bracket != (domain.BracketConfig{}) {
+			return domain.Stage{}, nil, domain.ErrInvalidInput
+		}
+	default:
 		return domain.Stage{}, nil, domain.ErrInvalidInput
 	}
 
-	maxPos, err := s.repo.MaxStagePosition(ctx, nominationID)
+	if !rule.IsZero() {
+		if err := rule.Validate(stageType == domain.StageTypeBracket); err != nil {
+			return domain.Stage{}, nil, err
+		}
+		if err := s.validateRuleSourceForCreate(ctx, nominationID, rule); err != nil {
+			return domain.Stage{}, nil, err
+		}
+	}
+
+	position, err := s.resolveStagePosition(ctx, nominationID, rule)
 	if err != nil {
 		return domain.Stage{}, nil, err
 	}
-	stage, err := s.repo.CreateStage(ctx, nominationID, maxPos+1, title, domain.StageTypeBracket, cfg)
+	stage, err := s.repo.CreateStage(ctx, nominationID, position, title, stageType, bracket, groups, rule)
 	if err != nil {
 		return domain.Stage{}, nil, err
 	}
-	// Первый круг всегда делится на две половины (FR-6a): при валидном
-	// размере (4/8/16/32) в нём минимум две пары.
-	if _, err := s.repo.CreatePool(ctx, stage.ID, domain.ContainerNumberOf(cfg, 1, 1)); err != nil {
-		return domain.Stage{}, nil, err
-	}
-	if _, err := s.repo.CreatePool(ctx, stage.ID, domain.ContainerNumberOf(cfg, 1, 2)); err != nil {
-		return domain.Stage{}, nil, err
+
+	if stageType == domain.StageTypeBracket {
+		// Первый круг всегда делится на две половины (FR-6a): при валидном
+		// размере (4/8/16/32) в нём минимум две пары.
+		if _, err := s.repo.CreatePool(ctx, stage.ID, domain.ContainerNumberOf(bracket, 1, 1)); err != nil {
+			return domain.Stage{}, nil, err
+		}
+		if _, err := s.repo.CreatePool(ctx, stage.ID, domain.ContainerNumberOf(bracket, 1, 2)); err != nil {
+			return domain.Stage{}, nil, err
+		}
 	}
 
 	stages, err := s.repo.StagesByNomination(ctx, nominationID)
@@ -57,10 +81,34 @@ func (s *Service) CreateStage(ctx context.Context, nominationID, title string, c
 	return stage, stages, nil
 }
 
-// DeleteStage удаляет этап-сетку (FR-3): гейты — тип bracket (групповой этап
-// удалить нельзя) и «нет начатых боёв в контейнерах этапа». Удаляет бои
-// этапа (ClearForPools), затем строку этапа — контейнеры и членства уходят
-// каскадом БД (репозиторий).
+// validateRuleSourceForCreate — вариант validateRuleSource (service/
+// seeding.go) для создаваемого этапа (спека 0019, FR-2): целевого id ещё
+// нет, поэтому self-reference и «раньше по позиции» не проверяются —
+// вычисляемая resolveStagePosition позиция нового этапа (source.Position+1,
+// 0 либо MaxStagePosition+1) не может оказаться раньше источника ни в одном
+// из трёх случаев, инвариант соблюдается конструктивно.
+func (s *Service) validateRuleSourceForCreate(ctx context.Context, nominationID string, rule domain.SeedingRule) error {
+	if rule.SourceKind != domain.SourceKindStage {
+		return nil
+	}
+	src, found, err := s.repo.StageByID(ctx, rule.SourceStageID)
+	if err != nil {
+		return err
+	}
+	if !found || src.NominationID != nominationID || src.Type != domain.StageTypeGroups {
+		return domain.ErrSourceNotAllowed
+	}
+	return nil
+}
+
+// DeleteStage удаляет этап-сетку (0018, FR-3) либо явно созданный групповой
+// этап (спека 0019, FR-7a): гейты — этап должен быть удаляемым (не
+// авто-этап 0017 — узнаётся по GroupCount=0 у типа groups, у него правил и
+// явного создания не бывает, FR-9), «нет начатых боёв в контейнерах этапа»
+// и «этап не служит источником для другого этапа» (ErrStageIsSource,
+// AC-19) — иначе удаление молча оборвало бы ссылку правила зависимой
+// ветки. Удаляет бои этапа (ClearForPools), затем строку этапа — контейнеры
+// и членства уходят каскадом БД (репозиторий).
 func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Stage, error) {
 	stageID = strings.TrimSpace(stageID)
 	if stageID == "" {
@@ -73,8 +121,16 @@ func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Sta
 	if !found {
 		return nil, domain.ErrNotFound
 	}
-	if stage.Type != domain.StageTypeBracket {
-		return nil, domain.ErrStageNotDeletable
+	if stage.Type == domain.StageTypeGroups && stage.Groups.GroupCount == 0 {
+		return nil, domain.ErrStageNotDeletable // авто-этап (0017, FR-4)
+	}
+
+	sources, err := s.repo.StagesBySource(ctx, stageID)
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) > 0 {
+		return nil, domain.ErrStageIsSource
 	}
 
 	pools, err := s.repo.PoolsByStage(ctx, stageID)

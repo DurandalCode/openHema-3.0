@@ -26,6 +26,11 @@ import {
   TimerCommandSchema,
   StageSchema,
   BracketSchema,
+  SeedingRuleSchema,
+  StageBuildPreviewSchema,
+  StageSourceKind,
+  StageSelectorKind,
+  StageLayoutMethod,
   type PoolLayout,
   type Pool,
   type BoutBoard,
@@ -34,6 +39,8 @@ import {
   type TimerCommand,
   type Stage,
   type Bracket,
+  type SeedingRule,
+  type StageBuildPreview,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -82,6 +89,15 @@ import type {
 import type {
   Stage as StageDto,
   StageType as StageTypeDto,
+  StageSourceKind as StageSourceKindDto,
+  StageSelectorKind as StageSelectorKindDto,
+  StageLayoutMethod as StageLayoutMethodDto,
+  GroupsConfig as GroupsConfigDto,
+  SeedingRule as SeedingRuleDto,
+  StageBuildEntry as StageBuildEntryDto,
+  StageBuildTie as StageBuildTieDto,
+  TieResolution as TieResolutionDto,
+  StageBuildPreview as StageBuildPreviewDto,
 } from "@/entities/stage/lib/types";
 import type {
   Bracket as BracketDto,
@@ -373,21 +389,54 @@ function emptyStageDto(): StageDto {
     type: "STAGE_TYPE_UNSPECIFIED",
     status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
     bracket: null,
+    groups: null,
+    rule: null,
+  };
+}
+
+/**
+ * groupsConfigRawToDto нормализует уже toJson-сериализованный `GroupsConfig`
+ * (спека 0019, FR-8) — общая часть между `stageToJson` (вложен в `Stage`).
+ */
+function groupsConfigRawToDto(raw: Partial<GroupsConfigDto> | undefined): GroupsConfigDto {
+  return { groupCount: raw?.groupCount ?? 0 };
+}
+
+/**
+ * seedingRuleRawToDto нормализует уже toJson-сериализованное `SeedingRule`
+ * (спека 0019, FR-1..FR-4) — общая часть между `stageToJson` (вложен в
+ * `Stage`) и `seedingRuleToJson` (правило отдельным сообщением, ответ
+ * `SetStageRule`). Enum-поля `toJson` отдаёт полным именем
+ * (`STAGE_SOURCE_KIND_ROSTER`) — тот же литерал, что в DTO, доп. маппинг не
+ * нужен.
+ */
+function seedingRuleRawToDto(raw: Partial<SeedingRuleDto> | undefined): SeedingRuleDto {
+  return {
+    sourceKind: (raw?.sourceKind as StageSourceKindDto) ?? "STAGE_SOURCE_KIND_UNSPECIFIED",
+    sourceStageId: raw?.sourceStageId ?? "",
+    selector: (raw?.selector as StageSelectorKindDto) ?? "STAGE_SELECTOR_KIND_UNSPECIFIED",
+    placeFrom: raw?.placeFrom ?? 0,
+    placeTo: raw?.placeTo ?? 0,
+    method: (raw?.method as StageLayoutMethodDto) ?? "STAGE_LAYOUT_METHOD_UNSPECIFIED",
   };
 }
 
 /**
  * stageToJson превращает protobuf-сообщение Stage в обычный JSON-объект
- * (спека 0017, расширено спекой 0018): копия полей 1:1
+ * (спека 0017, расширено спеками 0018/0019): копия полей 1:1
  * (id/nominationId/position/title/type/status), `type`/`status` — строки, в
  * которые сериализуют generated-enum'ы (`STAGE_TYPE_GROUPS`,
  * `POOL_LAYOUT_STATUS_DRAFT`), без доменного маппинга. `bracket` заполнен
- * только у `type = STAGE_TYPE_BRACKET` (FR-1), иначе `null`.
+ * только у `type = STAGE_TYPE_BRACKET` (FR-1), иначе `null`. `groups`/`rule`
+ * (0019) — `null`, если proto-поле не заполнено (presence решает «правила/
+ * конфига групп нет», не значения полей), иначе нормализованный объект.
  */
 export function stageToJson(stage: Stage | undefined): StageDto | null {
   if (!stage) return null;
   const raw = toJson(StageSchema, stage) as Partial<StageDto> & {
     bracket?: { size?: number; thirdPlace?: boolean };
+    groups?: Partial<GroupsConfigDto>;
+    rule?: Partial<SeedingRuleDto>;
   };
   return {
     id: raw.id ?? "",
@@ -399,6 +448,112 @@ export function stageToJson(stage: Stage | undefined): StageDto | null {
     bracket: raw.bracket
       ? { size: raw.bracket.size ?? 0, thirdPlace: raw.bracket.thirdPlace ?? false }
       : null,
+    groups: raw.groups ? groupsConfigRawToDto(raw.groups) : null,
+    rule: raw.rule ? seedingRuleRawToDto(raw.rule) : null,
+  };
+}
+
+/**
+ * seedingRuleToJson превращает protobuf-сообщение SeedingRule в обычный
+ * JSON-объект (спека 0019) — используется для ответа `SetStageRule` (через
+ * `stage.rule`, уже покрыто `stageToJson`) и там, где правило приходит вне
+ * `Stage`. `null`, если сообщение не заполнено.
+ */
+export function seedingRuleToJson(rule: SeedingRule | undefined): SeedingRuleDto | null {
+  if (!rule) return null;
+  const raw = toJson(SeedingRuleSchema, rule) as Partial<SeedingRuleDto>;
+  return seedingRuleRawToDto(raw);
+}
+
+function stageBuildEntryRawToDto(raw: Partial<StageBuildEntryDto> | undefined): StageBuildEntryDto {
+  return {
+    fighter: poolFighterRefToJson(raw?.fighter),
+    originLabel: raw?.originLabel ?? "",
+    sourcePlace: raw?.sourcePlace ?? 0,
+    overallPlace: raw?.overallPlace ?? 0,
+    targetPoolNumber: raw?.targetPoolNumber ?? 0,
+    targetSlot: raw?.targetSlot ?? 0,
+  };
+}
+
+function stageBuildTieRawToDto(raw: Partial<StageBuildTieDto> | undefined): StageBuildTieDto {
+  return {
+    sourcePoolId: raw?.sourcePoolId ?? "",
+    groupLabel: raw?.groupLabel ?? "",
+    place: raw?.place ?? 0,
+    contenders: Array.isArray(raw?.contenders) ? raw.contenders.map(poolFighterRefToJson) : [],
+    slotsLeft: raw?.slotsLeft ?? 0,
+  };
+}
+
+/**
+ * stageBuildPreviewToJson превращает protobuf-сообщение StageBuildPreview в
+ * обычный JSON-объект (спека 0019, FR-15) — ответ `PreviewStageBuild`.
+ * Вложенные `StageBuildEntry`/`StageBuildTie`/`FighterRef`-массивы
+ * нормализуются по тому же паттерну, что `bracketToJson`/`boutBoardToJson`.
+ */
+export function stageBuildPreviewToJson(
+  preview: StageBuildPreview | undefined,
+): StageBuildPreviewDto | null {
+  if (!preview) return null;
+  const raw = toJson(StageBuildPreviewSchema, preview) as Partial<StageBuildPreviewDto>;
+  return {
+    entries: Array.isArray(raw.entries) ? raw.entries.map(stageBuildEntryRawToDto) : [],
+    unselected: Array.isArray(raw.unselected) ? raw.unselected.map(poolFighterRefToJson) : [],
+    capacity: raw.capacity ?? 0,
+    ties: Array.isArray(raw.ties) ? raw.ties.map(stageBuildTieRawToDto) : [],
+    overlaps: Array.isArray(raw.overlaps) ? raw.overlaps.map(poolFighterRefToJson) : [],
+    sourceUnfinishedBouts: raw.sourceUnfinishedBouts ?? 0,
+  };
+}
+
+const sourceKindDtoToProto: Record<StageSourceKindDto, StageSourceKind> = {
+  STAGE_SOURCE_KIND_UNSPECIFIED: StageSourceKind.UNSPECIFIED,
+  STAGE_SOURCE_KIND_ROSTER: StageSourceKind.ROSTER,
+  STAGE_SOURCE_KIND_STAGE: StageSourceKind.STAGE,
+};
+
+const selectorKindDtoToProto: Record<StageSelectorKindDto, StageSelectorKind> = {
+  STAGE_SELECTOR_KIND_UNSPECIFIED: StageSelectorKind.UNSPECIFIED,
+  STAGE_SELECTOR_KIND_ALL: StageSelectorKind.ALL,
+  STAGE_SELECTOR_KIND_GROUP_PLACES: StageSelectorKind.GROUP_PLACES,
+  STAGE_SELECTOR_KIND_OVERALL_PLACES: StageSelectorKind.OVERALL_PLACES,
+};
+
+const layoutMethodDtoToProto: Record<StageLayoutMethodDto, StageLayoutMethod> = {
+  STAGE_LAYOUT_METHOD_UNSPECIFIED: StageLayoutMethod.UNSPECIFIED,
+  STAGE_LAYOUT_METHOD_SNAKE: StageLayoutMethod.SNAKE,
+  STAGE_LAYOUT_METHOD_SEEDED: StageLayoutMethod.SEEDED,
+};
+
+/**
+ * ruleDtoToProto превращает DTO `SeedingRule` в plain-объект для тела запроса
+ * `SetStageRule`/`CreateStage` (спека 0019, FR-1/FR-6). `null`/`undefined` →
+ * `undefined` — сообщение целиком не заполняется, presence на проводе решает
+ * «правила нет» (снять правило у `SetStageRule`, не задавать при создании).
+ */
+export function ruleDtoToProto(dto: SeedingRuleDto | null | undefined) {
+  if (!dto) return undefined;
+  return {
+    sourceKind: sourceKindDtoToProto[dto.sourceKind] ?? StageSourceKind.UNSPECIFIED,
+    sourceStageId: dto.sourceStageId,
+    selector: selectorKindDtoToProto[dto.selector] ?? StageSelectorKind.UNSPECIFIED,
+    placeFrom: dto.placeFrom,
+    placeTo: dto.placeTo,
+    method: layoutMethodDtoToProto[dto.method] ?? StageLayoutMethod.UNSPECIFIED,
+  };
+}
+
+/**
+ * tieResolutionDtoToProto превращает DTO `TieResolution` (ответ организатора
+ * на дележ, FR-22) в plain-объект для тела запроса `PreviewStageBuild`/
+ * `BuildStage`.
+ */
+export function tieResolutionDtoToProto(dto: TieResolutionDto) {
+  return {
+    sourcePoolId: dto.sourcePoolId,
+    place: dto.place,
+    fighterIds: dto.fighterIds,
   };
 }
 

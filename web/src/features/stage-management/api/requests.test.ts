@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createStageRequest, deleteStageRequest, listStagesRequest } from "./requests";
+import {
+  createStageRequest,
+  deleteStageRequest,
+  listStagesRequest,
+  setStageRuleRequest,
+} from "./requests";
 
 describe("features/stage-management/api/requests", () => {
   const fetchMock = vi.fn();
@@ -55,7 +60,7 @@ describe("features/stage-management/api/requests", () => {
   });
 
   describe("createStageRequest", () => {
-    it("POSTs /api/nominations/[id]/stages with bracket payload", async () => {
+    it("POSTs /api/nominations/[id]/stages with bracket payload and reads the `created` field", async () => {
       const stage = {
         id: "s2",
         nominationId: "n1",
@@ -67,10 +72,11 @@ describe("features/stage-management/api/requests", () => {
       };
       fetchMock.mockResolvedValue({
         ok: true,
-        json: async () => ({ stage, stages: [stage] }),
+        json: async () => ({ created: stage, stages: [stage] }),
       });
 
       const result = await createStageRequest("n1", {
+        type: "bracket",
         title: "Плейофф",
         bracketSize: 8,
         thirdPlace: true,
@@ -89,12 +95,85 @@ describe("features/stage-management/api/requests", () => {
       });
     });
 
+    it("POSTs a groups payload with groupCount, no bracket fields (FR-8)", async () => {
+      const stage = {
+        id: "s3",
+        nominationId: "n1",
+        position: 1,
+        title: "Сильная группа",
+        type: "STAGE_TYPE_GROUPS",
+        status: "POOL_LAYOUT_STATUS_DRAFT",
+        bracket: null,
+        groups: { groupCount: 2 },
+        rule: null,
+      };
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ created: stage, stages: [stage] }),
+      });
+
+      const result = await createStageRequest("n1", {
+        type: "groups",
+        title: "Сильная группа",
+        groupCount: 2,
+      });
+
+      expect(result).toEqual({ ok: true, stage, stages: [stage] });
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/stages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "groups",
+          title: "Сильная группа",
+          groupCount: 2,
+        }),
+      });
+    });
+
+    it("includes rule in the body when provided, without a method field (FR-4/FR-6)", async () => {
+      const stage = { id: "s4", nominationId: "n1", position: 1, title: "Плейофф 1-е место" };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ created: stage, stages: [] }) });
+
+      await createStageRequest("n1", {
+        type: "bracket",
+        title: "Плейофф 1-е место",
+        bracketSize: 8,
+        thirdPlace: false,
+        rule: {
+          sourceKind: "STAGE_SOURCE_KIND_STAGE",
+          sourceStageId: "s1",
+          selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+          placeFrom: 1,
+          placeTo: 2,
+        },
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/stages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "bracket",
+          title: "Плейофф 1-е место",
+          bracketSize: 8,
+          thirdPlace: false,
+          rule: {
+            sourceKind: "STAGE_SOURCE_KIND_STAGE",
+            sourceStageId: "s1",
+            selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+            placeFrom: 1,
+            placeTo: 2,
+          },
+        }),
+      });
+    });
+
     it("returns ok:false with server error on 4xx", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         json: async () => ({ error: "invalid bracket size" }),
       });
       const result = await createStageRequest("n1", {
+        type: "bracket",
         title: "Плейофф",
         bracketSize: 3,
         thirdPlace: false,
@@ -105,6 +184,7 @@ describe("features/stage-management/api/requests", () => {
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await createStageRequest("n1", {
+        type: "bracket",
         title: "Плейофф",
         bracketSize: 8,
         thirdPlace: false,
@@ -128,6 +208,82 @@ describe("features/stage-management/api/requests", () => {
       });
       const result = await deleteStageRequest("s1");
       expect(result).toEqual({ ok: false, error: "stage is not deletable" });
+    });
+  });
+
+  describe("setStageRuleRequest", () => {
+    it("PUTs /api/stages/[stageId]/rule with the rule and returns the updated stage", async () => {
+      const stage = {
+        id: "s1",
+        nominationId: "n1",
+        position: 0,
+        title: "Плейофф",
+        type: "STAGE_TYPE_BRACKET",
+        status: "POOL_LAYOUT_STATUS_DRAFT",
+        bracket: { size: 8, thirdPlace: false },
+        groups: null,
+        rule: {
+          sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+          sourceStageId: "",
+          selector: "STAGE_SELECTOR_KIND_ALL",
+          placeFrom: 0,
+          placeTo: 0,
+          method: "STAGE_LAYOUT_METHOD_SEEDED",
+        },
+      };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stage }) });
+
+      const result = await setStageRuleRequest("s1", {
+        sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+        sourceStageId: "",
+        selector: "STAGE_SELECTOR_KIND_ALL",
+        placeFrom: 0,
+        placeTo: 0,
+      });
+
+      expect(result).toEqual({ ok: true, stage });
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/rule", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rule: {
+            sourceKind: "STAGE_SOURCE_KIND_ROSTER",
+            sourceStageId: "",
+            selector: "STAGE_SELECTOR_KIND_ALL",
+            placeFrom: 0,
+            placeTo: 0,
+          },
+        }),
+      });
+    });
+
+    it("PUTs rule: null to clear the rule (AC-16)", async () => {
+      const stage = { id: "s1", rule: null };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stage }) });
+
+      const result = await setStageRuleRequest("s1", null);
+
+      expect(result).toEqual({ ok: true, stage });
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/rule", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule: null }),
+      });
+    });
+
+    it("returns ok:false when the stage already has a non-empty composition (AC-16)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "stage composition is not empty" }),
+      });
+      const result = await setStageRuleRequest("s1", null);
+      expect(result).toEqual({ ok: false, error: "stage composition is not empty" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+      const result = await setStageRuleRequest("s1", null);
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 });

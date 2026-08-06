@@ -212,6 +212,8 @@ const bracket: Bracket = {
     type: "STAGE_TYPE_BRACKET",
     status: "POOL_LAYOUT_STATUS_READY",
     bracket: { size: 8, thirdPlace: true },
+    groups: null,
+    rule: null,
   },
   rounds: [
     { number: 1, title: "1/4 финала", thirdPlace: false, halves: quarterfinal },

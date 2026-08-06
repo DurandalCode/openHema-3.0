@@ -72,6 +72,8 @@ const snapshot: NominationLiveSnapshotDto = {
       type: "STAGE_TYPE_GROUPS",
       status: "POOL_LAYOUT_STATUS_READY",
       bracket: null,
+      groups: null,
+      rule: null,
     },
   ],
   brackets: [],
@@ -89,6 +91,8 @@ const bracket: Bracket = {
     type: "STAGE_TYPE_BRACKET",
     status: "POOL_LAYOUT_STATUS_READY",
     bracket: { size: 4, thirdPlace: false },
+    groups: null,
+    rule: null,
   },
   rounds: [
     {
@@ -237,5 +241,46 @@ describe("NominationPoolsPublic", () => {
     expect(container).toHaveTextContent("Fighter Five");
     expect(container).toHaveTextContent("Fighter Six");
     expect(container).toHaveTextContent("2:1");
+  });
+
+  // Спека 0019, FR-26/AC-17: гость видит схему номинации целиком — уровни и
+  // параллельные ветки (двойной плейофф) с подсказкой источника ветки.
+  it("shows the nomination schema with parallel branches and their source (0019, AC-17)", () => {
+    const strongBracket = {
+      id: "stage-3",
+      nominationId: "n1",
+      position: 1,
+      title: "Сетка А",
+      type: "STAGE_TYPE_BRACKET" as const,
+      status: "POOL_LAYOUT_STATUS_DRAFT" as const,
+      bracket: { size: 4, thirdPlace: false },
+      groups: null,
+      rule: {
+        sourceKind: "STAGE_SOURCE_KIND_STAGE" as const,
+        sourceStageId: "stage-1",
+        selector: "STAGE_SELECTOR_KIND_GROUP_PLACES" as const,
+        placeFrom: 1,
+        placeTo: 2,
+        method: "STAGE_LAYOUT_METHOD_SEEDED" as const,
+      },
+    };
+    const weakBracket = {
+      ...strongBracket,
+      id: "stage-4",
+      title: "Сетка Б",
+      rule: { ...strongBracket.rule, placeFrom: 3, placeTo: 0 },
+    };
+    const { container } = render(
+      <NominationPoolsPublic
+        nominationId="n1"
+        initialSnapshot={{ ...snapshot, stages: [snapshot.stages[0], strongBracket, weakBracket] }}
+      />,
+    );
+
+    expect(container).toHaveTextContent("Схема номинации");
+    expect(container).toHaveTextContent("Сетка А");
+    expect(container).toHaveTextContent("Сетка Б");
+    expect(container.querySelectorAll('[data-testid="schema-level"]')).toHaveLength(2);
+    expect(container).toHaveTextContent("из: Групповой этап");
   });
 });
