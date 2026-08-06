@@ -37,14 +37,28 @@ describe("features/stage-management/api/requests", () => {
 
       const result = await listStagesRequest("n1");
 
-      expect(result).toEqual({ ok: true, stages });
+      expect(result).toEqual({ ok: true, stages, issues: [] });
       expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/stages", { method: "GET" });
     });
 
-    it("returns empty stages when response omits the field (proto3-omitted)", async () => {
+    it("returns empty stages/issues when response omits the fields (proto3-omitted)", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
       const result = await listStagesRequest("n1");
-      expect(result).toEqual({ ok: true, stages: [] });
+      expect(result).toEqual({ ok: true, stages: [], issues: [] });
+    });
+
+    it("returns diagnostics when the response carries issues (спека 0020, FR-8)", async () => {
+      const issues = [
+        {
+          severity: "SCHEMA_ISSUE_SEVERITY_WARNING",
+          code: "SCHEMA_ISSUE_CODE_COVERAGE_GAP",
+          stageIds: ["s1", "s2"],
+          message: "Разрыв покрытия по месту 3",
+        },
+      ];
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stages: [], issues }) });
+      const result = await listStagesRequest("n1");
+      expect(result).toEqual({ ok: true, stages: [], issues });
     });
 
     it("returns ok:false with server error on 4xx", async () => {

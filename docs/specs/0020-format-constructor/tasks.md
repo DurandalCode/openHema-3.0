@@ -171,13 +171,24 @@
 
 ## Волна 4 (join, после мержа треков C и D)
 
-- [ ] T21. **Страница схемы** — `app/(admin)/admin/nominations/[id]/stages/
+- [x] T21. **Страница схемы** — `app/(admin)/admin/nominations/[id]/stages/
       page.tsx`: диагностика над схемой, действия «Изменить этап»,
-      «Применить формат», «Сохранить как пресет»; `get-stages.ts` тянет
-      `issues`.
-- [ ] T22. **Библиотека форматов** — `app/(admin)/admin/formats/page.tsx` +
+      «Применить формат», «Сохранить как пресет». Реализовано на уровне
+      `StageManagement` (клиентский виджет, который страница и так рендерит):
+      `useStages`/`listStagesRequest` теперь несут `issues` вместе со
+      списком этапов (`ListStagesResult`, новый тип — `StagesResult` без
+      диагностики оставлен `deleteStageRequest`, у `DeleteStageResponse`
+      поля `issues` нет), `<NominationSchema issues={issues}>` рисует
+      диагностику, три новых действия — `EditStageDialog` на каждой карточке
+      этапа (`composeEmpty` определяется по `stage.status === DRAFT` —
+      точного числа членств список этапов не несёт, сервер `ErrStageLocked`
+      подстрахует) и `SavePresetDialog`/`ApplyFormatDialog` в шапке схемы.
+      `get-stages.ts` не тронут: это отдельный SSR-хелпер для
+      `.../stages/[stageId]` (выбор виджета группы/сетки по типу этапа),
+      диагностику не показывает и не нуждается в `issues`.
+- [x] T22. **Библиотека форматов** — `app/(admin)/admin/formats/page.tsx` +
       пункт «Форматы» в `app/(admin)/admin/admin-nav.tsx` (после «Номинации»);
-      тест навигации на активный раздел.
+      тест навигации на активный раздел (`admin-nav.test.tsx`, новый).
 - [ ] T23. **Интеграционные (`integration/`, testcontainers)** — миграция
       `00004` вверх/вниз; уникальность имени пресета без учёта регистра;
       `ReplaceSchema`: атомарность (сбой на середине не оставляет полусхемы),

@@ -1,4 +1,9 @@
-import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage/lib/types";
+import type {
+  SchemaIssue,
+  Stage,
+  StageSelectorKind,
+  StageSourceKind,
+} from "@/entities/stage/lib/types";
 
 /**
  * requests — фетчеры фичи `stage-management` (спека 0018, FR-1/FR-2/FR-3;
@@ -9,6 +14,16 @@ import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage
  */
 
 export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; error: string };
+
+/**
+ * ListStagesResult — как `StagesResult`, но с диагностикой схемы (спека
+ * 0020, FR-8): `ListStages` — единственный ответ, где она есть
+ * (`DeleteStageResponse` её не несёт), отдельный тип точнее общего
+ * `StagesResult`.
+ */
+export type ListStagesResult =
+  | { ok: true; stages: Stage[]; issues: SchemaIssue[] }
+  | { ok: false; error: string };
 
 export type CreateStageResult =
   | { ok: true; stage: Stage; stages: Stage[] }
@@ -60,7 +75,7 @@ export type CreateStageInput =
     };
 
 /** listStagesRequest — GET /api/nominations/[id]/stages (список этапов номинации). */
-export async function listStagesRequest(nominationId: string): Promise<StagesResult> {
+export async function listStagesRequest(nominationId: string): Promise<ListStagesResult> {
   try {
     const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
       method: "GET",
@@ -69,8 +84,11 @@ export async function listStagesRequest(nominationId: string): Promise<StagesRes
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? "Ошибка запроса" };
     }
-    const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
-    return { ok: true, stages: data.stages ?? [] };
+    const data = (await res.json().catch(() => ({}))) as {
+      stages?: Stage[];
+      issues?: SchemaIssue[];
+    };
+    return { ok: true, stages: data.stages ?? [], issues: data.issues ?? [] };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
