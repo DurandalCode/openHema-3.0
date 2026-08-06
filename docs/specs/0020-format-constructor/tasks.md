@@ -83,10 +83,10 @@
 
 ## Web — трек B (типы и диагностика в виджете, на фикстурах)
 
-- [ ] T7. **entities/stage (red→green)** — `web/src/entities/stage/`: типы
+- [x] T7. **entities/stage (red→green)** — `web/src/entities/stage/`: типы
       `SchemaIssue`/`FormatStageSpec`/`FormatPreset`, хелпер краткой подписи
       схемы пресета («Группы (2) → 2 сетки по 8») с тестом на фикстурах.
-- [ ] T8. **widgets/nomination-schema (red→green)** — тест рендера `issues`:
+- [x] T8. **widgets/nomination-schema (red→green)** — тест рендера `issues`:
       плашка ошибки/предупреждения/информации у нужного этапа (по `stage_ids`,
       три визуально различимых класса — FR-8), общий
       блок над схемой, отсутствие блока при пустом списке; виджет остаётся

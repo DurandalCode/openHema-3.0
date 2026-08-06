@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { NominationSchema } from "./nomination-schema";
-import type { Stage } from "@/entities/stage/lib/types";
+import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
 
 function stage(overrides: Partial<Stage>): Stage {
   return {
@@ -15,6 +15,16 @@ function stage(overrides: Partial<Stage>): Stage {
     bracket: null,
     groups: { groupCount: 4 },
     rule: null,
+    ...overrides,
+  };
+}
+
+function issue(overrides: Partial<SchemaIssue>): SchemaIssue {
+  return {
+    severity: "SCHEMA_ISSUE_SEVERITY_ERROR",
+    code: "SCHEMA_ISSUE_CODE_SELECTOR_OVERLAP",
+    stageIds: [],
+    message: "Ветки пересекаются по месту 2",
     ...overrides,
   };
 }
@@ -150,5 +160,70 @@ describe("NominationSchema — mode", () => {
       />,
     );
     expect(screen.queryByTestId("admin-action")).not.toBeInTheDocument();
+  });
+});
+
+describe("NominationSchema — schema diagnostics (0020, FR-8)", () => {
+  it("renders an issue badge on the stage card it's attached to, and not on other cards", () => {
+    const stages = [stage({ id: "stage-a", title: "Этап А" }), stage({ id: "stage-b", title: "Этап Б" })];
+    const issues = [issue({ stageIds: ["stage-a"], message: "Отбор превышает вместимость сетки" })];
+    render(<NominationSchema stages={stages} mode="admin" issues={issues} />);
+
+    const cards = screen.getAllByTestId("stage-card");
+    const cardA = cards.find((c) => within(c).queryByText("Этап А"))!;
+    const cardB = cards.find((c) => within(c).queryByText("Этап Б"))!;
+    expect(within(cardA).getByText("Отбор превышает вместимость сетки")).toBeInTheDocument();
+    expect(within(cardB).queryByText("Отбор превышает вместимость сетки")).not.toBeInTheDocument();
+    expect(within(cardB).queryByTestId("stage-issues")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes error/warning/info with three different testids", () => {
+    const stages = [stage({ id: "stage-a" })];
+    const issues = [
+      issue({ severity: "SCHEMA_ISSUE_SEVERITY_ERROR", code: "SCHEMA_ISSUE_CODE_CAPACITY_EXCEEDED", stageIds: ["stage-a"], message: "Отобранных больше, чем слотов" }),
+      issue({ severity: "SCHEMA_ISSUE_SEVERITY_WARNING", code: "SCHEMA_ISSUE_CODE_CAPACITY_UNDERFILL", stageIds: ["stage-a"], message: "Отбор заведомо меньше размера сетки" }),
+      issue({ severity: "SCHEMA_ISSUE_SEVERITY_INFO", code: "SCHEMA_ISSUE_CODE_TAIL_UNCOVERED", stageIds: ["stage-a"], message: "Хвост состава никуда не проходит" }),
+    ];
+    render(<NominationSchema stages={stages} mode="admin" issues={issues} />);
+
+    expect(screen.getByTestId("schema-issue-error")).toHaveTextContent("Отобранных больше, чем слотов");
+    expect(screen.getByTestId("schema-issue-warning")).toHaveTextContent("Отбор заведомо меньше размера сетки");
+    expect(screen.getByTestId("schema-issue-info")).toHaveTextContent("Хвост состава никуда не проходит");
+    // три разных data-variant у Badge — визуально различимые маркеры
+    const variants = new Set(
+      ["schema-issue-error", "schema-issue-warning", "schema-issue-info"].map(
+        (testId) => screen.getByTestId(testId).getAttribute("data-variant"),
+      ),
+    );
+    expect(variants.size).toBe(3);
+  });
+
+  it("renders a summary block above the schema when issues is non-empty", () => {
+    const stages = [stage({ id: "stage-a" })];
+    const issues = [issue({ stageIds: ["stage-a"] })];
+    render(<NominationSchema stages={stages} mode="admin" issues={issues} />);
+    expect(screen.getByTestId("schema-issues-summary")).toBeInTheDocument();
+  });
+
+  it("does not render a summary block when issues is not passed", () => {
+    const stages = [stage({ id: "stage-a" })];
+    render(<NominationSchema stages={stages} mode="admin" />);
+    expect(screen.queryByTestId("schema-issues-summary")).not.toBeInTheDocument();
+  });
+
+  it("does not render a summary block when issues is an empty array", () => {
+    const stages = [stage({ id: "stage-a" })];
+    render(<NominationSchema stages={stages} mode="admin" issues={[]} />);
+    expect(screen.queryByTestId("schema-issues-summary")).not.toBeInTheDocument();
+  });
+
+  it("renders no issues at all in public mode, even when issues is passed", () => {
+    const stages = [stage({ id: "stage-a" })];
+    const issues = [issue({ stageIds: ["stage-a"], message: "Отбор превышает вместимость сетки" })];
+    render(<NominationSchema stages={stages} mode="public" issues={issues} />);
+
+    expect(screen.queryByTestId("schema-issues-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("stage-issues")).not.toBeInTheDocument();
+    expect(screen.queryByText("Отбор превышает вместимость сетки")).not.toBeInTheDocument();
   });
 });
