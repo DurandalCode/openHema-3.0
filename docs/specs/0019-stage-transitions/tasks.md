@@ -76,11 +76,11 @@
 
 ## Web — трек B (типы и виджет схемы, на фикстурах)
 
-- [ ] T6. **entities/stage (red→green)** — `web/src/entities/stage/`: типы
+- [x] T6. **entities/stage (red→green)** — `web/src/entities/stage/`: типы
       `SeedingRule`/`GroupsConfig`/`StageBuildPreview`, хелперы подписи
       правила («Места 1–2 каждой группы · Групповой этап») и уровней схемы
       (группировка этапов по `position`); тесты на хелперы (Vitest).
-- [ ] T7. **widgets/nomination-schema (red→green)** —
+- [x] T7. **widgets/nomination-schema (red→green)** —
       `web/src/widgets/nomination-schema/`: схема уровнями и ветками
       (FR-25/FR-26), режимы admin/read-only, тест на фикстурах — две
       параллельные ветки, несимметричные ветки, этап без правила.

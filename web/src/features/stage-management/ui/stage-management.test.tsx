@@ -12,6 +12,8 @@ const groupsStage: Stage = {
   type: "STAGE_TYPE_GROUPS",
   status: "POOL_LAYOUT_STATUS_READY",
   bracket: null,
+  groups: null,
+  rule: null,
 };
 
 const bracketStage: Stage = {
@@ -22,6 +24,8 @@ const bracketStage: Stage = {
   type: "STAGE_TYPE_BRACKET",
   status: "POOL_LAYOUT_STATUS_DRAFT",
   bracket: { size: 8, thirdPlace: true },
+  groups: null,
+  rule: null,
 };
 
 const deleteMutate = vi.fn();

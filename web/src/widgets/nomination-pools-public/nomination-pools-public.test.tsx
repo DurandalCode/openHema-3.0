@@ -72,6 +72,8 @@ const snapshot: NominationLiveSnapshotDto = {
       type: "STAGE_TYPE_GROUPS",
       status: "POOL_LAYOUT_STATUS_READY",
       bracket: null,
+      groups: null,
+      rule: null,
     },
   ],
   brackets: [],
@@ -89,6 +91,8 @@ const bracket: Bracket = {
     type: "STAGE_TYPE_BRACKET",
     status: "POOL_LAYOUT_STATUS_READY",
     bracket: { size: 4, thirdPlace: false },
+    groups: null,
+    rule: null,
   },
   rounds: [
     {
