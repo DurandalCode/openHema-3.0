@@ -5,7 +5,7 @@
  * заводим.
  */
 
-import type { SeedingRule, Stage, StageType } from "./types";
+import type { FormatPreset, FormatStageSpec, SeedingRule, Stage, StageType } from "./types";
 
 export function stageTypeLabel(type: StageType): string {
   switch (type) {
@@ -89,4 +89,36 @@ export function groupStagesByLevel<T extends Pick<Stage, "position" | "title">>(
   return [...byPosition.entries()]
     .sort(([a], [b]) => a - b)
     .map(([, level]) => [...level].sort((a, b) => a.title.localeCompare(b.title)));
+}
+
+/**
+ * formatStageSpecSummary — краткая подпись одного этапа пресета: тип +
+ * ключевой параметр конфига («Группы (2)», «Сетка (8)»). Групповой этап без
+ * заданного числа групп (0019, FR-9) подписывается просто «Группы» — число
+ * ещё не выбрано.
+ */
+function formatStageSpecSummary(stage: FormatStageSpec): string {
+  switch (stage.type) {
+    case "STAGE_TYPE_GROUPS":
+      return stage.groups.groupCount > 0 ? `Группы (${stage.groups.groupCount})` : "Группы";
+    case "STAGE_TYPE_BRACKET":
+      return `Сетка (${stage.bracket.size})`;
+    default:
+      return "—";
+  }
+}
+
+/**
+ * formatPresetSummary — краткая подпись схемы пресета целиком для карточки
+ * библиотеки форматов (спека 0020, FR-11/FR-12), например «Группы (2) →
+ * Сетка (8) → Сетка (8)». Это не полноценная схема с уровнями
+ * (`groupStagesByLevel`) — просто перечисление этапов пресета в порядке
+ * `stages`, через « → »: библиотечной карточке нужен беглый обзор формата, а
+ * не точное дерево веток (экран схемы номинации показывает уровни отдельно).
+ * Пустая схема (пресет без этапов — на практике недостижимо, миграция 00004
+ * требует непустой массив) даёт пустую строку.
+ */
+export function formatPresetSummary(preset: FormatPreset): string {
+  if (preset.stages.length === 0) return "";
+  return preset.stages.map(formatStageSpecSummary).join(" → ");
 }

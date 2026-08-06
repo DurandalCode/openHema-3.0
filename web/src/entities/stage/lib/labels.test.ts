@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { groupStagesByLevel, stageRuleLabel, stageTypeLabel } from "./labels";
-import type { SeedingRule, Stage } from "./types";
+import { formatPresetSummary, groupStagesByLevel, stageRuleLabel, stageTypeLabel } from "./labels";
+import type { FormatPreset, FormatStageSpec, SeedingRule, Stage } from "./types";
 
 describe("entities/stage/lib/labels stageTypeLabel", () => {
   it("labels a group stage", () => {
@@ -121,5 +121,73 @@ describe("entities/stage/lib/labels groupStagesByLevel", () => {
     expect(levels).toHaveLength(3);
     expect(levels[1].map((s) => s.id)).toEqual(["strong-groups", "weak-groups"]);
     expect(levels[2].map((s) => s.id)).toEqual(["strong-bracket"]);
+  });
+});
+
+function formatStageSpec(overrides: Partial<FormatStageSpec>): FormatStageSpec {
+  return {
+    title: "Групповой этап",
+    type: "STAGE_TYPE_GROUPS",
+    bracket: { size: 0, thirdPlace: false },
+    groups: { groupCount: 0 },
+    sourceKind: "STAGE_SOURCE_KIND_UNSPECIFIED",
+    sourceIndex: -1,
+    selector: "STAGE_SELECTOR_KIND_UNSPECIFIED",
+    placeFrom: 0,
+    placeTo: 0,
+    method: "STAGE_LAYOUT_METHOD_UNSPECIFIED",
+    ...overrides,
+  };
+}
+
+function formatPreset(stages: FormatStageSpec[]): FormatPreset {
+  return {
+    id: "preset-1",
+    name: "Группы + плейофф",
+    stages,
+    createdAt: "2026-08-06T00:00:00.000Z",
+    updatedAt: "2026-08-06T00:00:00.000Z",
+  };
+}
+
+describe("entities/stage/lib/labels formatPresetSummary", () => {
+  it("returns an empty string for an empty schema", () => {
+    expect(formatPresetSummary(formatPreset([]))).toBe("");
+  });
+
+  it("summarizes a single group stage without a set group count", () => {
+    const preset = formatPreset([formatStageSpec({ type: "STAGE_TYPE_GROUPS", groups: { groupCount: 0 } })]);
+    expect(formatPresetSummary(preset)).toBe("Группы");
+  });
+
+  it("summarizes a schema with groups and two brackets, in stage order (AC-12-style)", () => {
+    const preset = formatPreset([
+      formatStageSpec({ title: "Групповой этап", type: "STAGE_TYPE_GROUPS", groups: { groupCount: 2 } }),
+      formatStageSpec({
+        title: "Сетка за 1-е место",
+        type: "STAGE_TYPE_BRACKET",
+        bracket: { size: 8, thirdPlace: true },
+        groups: { groupCount: 0 },
+        sourceKind: "STAGE_SOURCE_KIND_STAGE",
+        sourceIndex: 0,
+        selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+        placeFrom: 1,
+        placeTo: 2,
+        method: "STAGE_LAYOUT_METHOD_SEEDED",
+      }),
+      formatStageSpec({
+        title: "Утешительная сетка",
+        type: "STAGE_TYPE_BRACKET",
+        bracket: { size: 8, thirdPlace: false },
+        groups: { groupCount: 0 },
+        sourceKind: "STAGE_SOURCE_KIND_STAGE",
+        sourceIndex: 0,
+        selector: "STAGE_SELECTOR_KIND_GROUP_PLACES",
+        placeFrom: 3,
+        placeTo: 0,
+        method: "STAGE_LAYOUT_METHOD_SEEDED",
+      }),
+    ]);
+    expect(formatPresetSummary(preset)).toBe("Группы (2) → Сетка (8) → Сетка (8)");
   });
 });

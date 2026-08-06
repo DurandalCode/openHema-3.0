@@ -148,3 +148,90 @@ export type StageBuildPreview = {
   overlaps: FighterRef[];
   sourceUnfinishedBouts: number;
 };
+
+/**
+ * SchemaIssueSeverity — класс проблемы схемы (спека 0020, FR-8): «ошибка» —
+ * формирование заведомо не пройдёт (то же, что отклонят гейты 0019);
+ * «предупреждение» — пройдёт, но результат может удивить (байи, разрыв
+ * покрытия); «информация» — так и задумано (например, непокрытый хвост
+ * состава источника — FR-8), но организатор должен это видеть до
+ * формирования.
+ */
+export type SchemaIssueSeverity =
+  | "SCHEMA_ISSUE_SEVERITY_UNSPECIFIED"
+  | "SCHEMA_ISSUE_SEVERITY_ERROR"
+  | "SCHEMA_ISSUE_SEVERITY_WARNING"
+  | "SCHEMA_ISSUE_SEVERITY_INFO";
+
+/**
+ * SchemaIssueCode — конкретная проблема схемы (спека 0020, FR-8): девять
+ * кодов, три на класс `error`, три на `warning`, один `TAIL_UNCOVERED` на
+ * `info`, плюс `UNSPECIFIED`. Групповой этап с **одной** группой («финал
+ * трёх», FR-8a) кодом намеренно не покрыт — это законный формат, а не
+ * проблема.
+ */
+export type SchemaIssueCode =
+  | "SCHEMA_ISSUE_CODE_UNSPECIFIED"
+  | "SCHEMA_ISSUE_CODE_NO_GROUP_COUNT"
+  | "SCHEMA_ISSUE_CODE_BAD_SOURCE"
+  | "SCHEMA_ISSUE_CODE_SOURCE_CYCLE"
+  | "SCHEMA_ISSUE_CODE_SELECTOR_OVERLAP"
+  | "SCHEMA_ISSUE_CODE_CAPACITY_EXCEEDED"
+  | "SCHEMA_ISSUE_CODE_CAPACITY_UNDERFILL"
+  | "SCHEMA_ISSUE_CODE_COVERAGE_GAP"
+  | "SCHEMA_ISSUE_CODE_OVERLAP_UNKNOWN"
+  | "SCHEMA_ISSUE_CODE_TAIL_UNCOVERED";
+
+/**
+ * SchemaIssue — одна проблема схемы, привязанная к одному или двум этапам
+ * (спека 0020, FR-8). `message` — готовая строка сервера (то же правило, что
+ * у `StageBuildEntry.originLabel`, 0019): клиент её не собирает из `code` и
+ * `severity`, только показывает. Приезжает вместе со списком этапов
+ * (`ListStagesResponse.issues`) — диагностика читается из того же запроса,
+ * что и схема, отдельного RPC нет (FR-8, FR-9 — сама ничего не блокирует).
+ */
+export type SchemaIssue = {
+  severity: SchemaIssueSeverity;
+  code: SchemaIssueCode;
+  stageIds: string[];
+  message: string;
+};
+
+/**
+ * FormatStageSpec — один этап схемы вне привязки к номинации (спека 0020,
+ * FR-11): пресет и копия схемы между номинациями оперируют такими же
+ * значениями, что и `Stage`, но без `id`/`nominationId`/`position`/`status`.
+ * Ссылка на источник — `sourceIndex`, **индекс** в том же списке
+ * `FormatPreset.stages` (или `FormatSpec` при передаче схемы номинации), а не
+ * UUID: спецификация обязана быть переносимой между номинациями и переживать
+ * турнир (FR-16). `sourceIndex = -1` — у этапа нет источника-этапа (правила
+ * нет либо источник — ростер номинации, см. `sourceKind`).
+ */
+export type FormatStageSpec = {
+  title: string;
+  type: StageType;
+  bracket: BracketConfig;
+  groups: GroupsConfig;
+  sourceKind: StageSourceKind;
+  sourceIndex: number;
+  selector: StageSelectorKind;
+  placeFrom: number;
+  placeTo: number;
+  method: StageLayoutMethod;
+};
+
+/**
+ * FormatPreset — именованная схема в библиотеке форматов (спека 0020,
+ * FR-11/FR-12): не привязана ни к турниру, ни к номинации и переживает и то,
+ * и другое (NFR — «библиотека рассчитана на десятки записей»). Копия по
+ * значению в обе стороны (FR-16): дальнейшие правки схемы номинации не
+ * меняют пресет, а переименование/удаление пресета не меняет номинации, к
+ * которым он уже применялся.
+ */
+export type FormatPreset = {
+  id: string;
+  name: string;
+  stages: FormatStageSpec[];
+  createdAt: string; // ISO — сериализация из proto в другом треке (lib/grpc/serialize.ts)
+  updatedAt: string;
+};
