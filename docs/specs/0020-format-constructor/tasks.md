@@ -154,16 +154,16 @@
 
 ## Web — трек D (features)
 
-- [ ] T18. **features/stage-management (red→green)** — `api/use-update-stage.ts`
+- [x] T18. **features/stage-management (red→green)** — `api/use-update-stage.ts`
       + `api/requests.ts`/`keys.ts`; `ui/edit-stage-dialog.tsx`: название +
       конфиг, поля конфига заблокированы с подсказкой при непустом составе,
       тип не показывается вовсе (FR-2). Тесты — fetchers и диалог (Vitest).
-- [ ] T19. **features/format-presets — библиотека (red→green)** — новая фича:
+- [x] T19. **features/format-presets — библиотека (red→green)** — новая фича:
       `api/{keys,requests,use-presets,use-save-preset,use-rename-preset,
       use-delete-preset}.ts`, `ui/preset-library.tsx`, `ui/save-preset-dialog.tsx`.
       Тесты: fetchers, список, переименование, удаление, ошибка занятого имени
       (AC-17).
-- [ ] T20. **features/format-presets — применение (red→green)** —
+- [x] T20. **features/format-presets — применение (red→green)** —
       `api/use-apply-format.ts`, `ui/apply-format-dialog.tsx`: выбор «пресет из
       библиотеки» либо «номинация-донор», явное предупреждение о замене схемы
       целиком, объяснение отказа при непустой схеме (FR-14). Тесты — оба

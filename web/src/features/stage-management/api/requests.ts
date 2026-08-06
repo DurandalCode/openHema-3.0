@@ -17,6 +17,21 @@ export type CreateStageResult =
 export type SetStageRuleResult = { ok: true; stage: Stage } | { ok: false; error: string };
 
 /**
+ * UpdateStageInput — правка уже созданного этапа (спека 0020, FR-2): название
+ * — всегда; конфиг (`bracket` у сетки, `groups` у группового этапа) —
+ * ровно то поле, что соответствует типу этапа (сервер отклоняет несоответствие
+ * `ErrInvalidInput`, `service/schema.go`). Тип этапа не передаётся — он не
+ * редактируется вовсе (AC-3).
+ */
+export type UpdateStageInput = {
+  title: string;
+  bracket?: { size: number; thirdPlace: boolean };
+  groups?: { groupCount: number };
+};
+
+export type UpdateStageResult = { ok: true; stage: Stage } | { ok: false; error: string };
+
+/**
  * SeedingRuleInput — правило отбора, как его собирает клиент (0019, FR-1..
  * FR-3): без `method` — метод раскладки выводит сервер из типа целевого
  * этапа (FR-4), организатору не предлагается.
@@ -112,6 +127,33 @@ export async function deleteStageRequest(stageId: string): Promise<StagesResult>
     }
     const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
     return { ok: true, stages: data.stages ?? [] };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+/**
+ * updateStageRequest — PATCH /api/stages/[stageId]: правит название и/или
+ * конфиг этапа (спека 0020, FR-2). Конфиг реально меняется только пока
+ * состав пуст и этап в черновике (`ErrStageLocked`) — сервер отклоняет
+ * попытку иначе (AC-2), клиент показывает его ошибку.
+ */
+export async function updateStageRequest(
+  stageId: string,
+  input: UpdateStageInput,
+): Promise<UpdateStageResult> {
+  try {
+    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { stage?: Stage };
+    return { ok: true, stage: data.stage as Stage };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
