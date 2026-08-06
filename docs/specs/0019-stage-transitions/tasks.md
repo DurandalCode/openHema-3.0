@@ -91,7 +91,7 @@
       новых методов порта (`SetSeedingRule`, `ApplyStageBuild`,
       `StagesBySource`), правило/конфиг в фейковых этапах
       (`var _ domain.Repository = (*FakeRepo)(nil)`).
-- [ ] T9. **service — правило (red→green)** —
+- [x] T9. **service — правило (red→green)** —
       `service/seeding_test.go` → `service/seeding.go`: `SetStageRule` —
       валидация, проверка источника (та же номинация, `type = groups`, раньше
       по порядку), гейт «состав пуст» (`ErrRuleLocked`, FR-6), гейт

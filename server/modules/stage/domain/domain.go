@@ -93,11 +93,14 @@ var (
 	// руками (FR-1, FR-13).
 	ErrNoSeedingRule = errors.New("pool: stage has no seeding rule")
 	// ErrInvalidRule — SeedingRule.Validate: недопустимые значения полей
-	// правила (source_kind/selector/method, границы мест, FR-2..FR-4).
+	// правила (source_kind/selector/method, границы мест, FR-2..FR-4). Тем
+	// же сентинелом отклоняется правило для ЦЕЛЕВОГО группового этапа без
+	// заданного числа групп — авто-этап и любой явный groups-этап, которому
+	// не задан group_count (FR-9a, AC-20): формировать было бы некуда.
 	ErrInvalidRule = errors.New("pool: invalid seeding rule")
-	// ErrSourceNotAllowed — источник правила не подходит: не та номинация,
-	// не групповой этап, стоит не раньше по порядку, либо у него не задано
-	// число групп (FR-2, FR-9a, AC-20, AC-21).
+	// ErrSourceNotAllowed — ИСТОЧНИК правила не подходит: не найден, не та
+	// номинация, не групповой этап, либо стоит не раньше целевого этапа по
+	// позиции (FR-2, AC-21).
 	ErrSourceNotAllowed = errors.New("pool: seeding rule source is not allowed")
 	// ErrSelectorOverlap — селекторы параллельных веток одного источника
 	// пересекаются: формирование отклонено, кто-то попал бы в обе ветки
@@ -445,11 +448,12 @@ type Repository interface {
 	// StageTypeGroups (явно созданный групповой этап, FR-7) — не только
 	// StageTypeBracket, как было в 0018.
 	CreateStage(ctx context.Context, nominationID string, position int, title string, stageType StageType, bracket BracketConfig, groups GroupsConfig, rule SeedingRule) (Stage, error)
-	// SetSeedingRule пишет правило отбора этапа, очищает undo (спека 0019,
-	// FR-6): вызывающий (service.SetStageRule) гейтит пустоту состава
-	// (ErrRuleLocked) и валидность источника (ErrSourceNotAllowed) до
-	// вызова.
-	SetSeedingRule(ctx context.Context, stageID string, rule SeedingRule) error
+	// SetSeedingRule пишет правило отбора этапа и его пересчитанную позицию
+	// (спека 0019, FR-6/FR-10), очищает undo: вызывающий (service.
+	// SetStageRule) гейтит пустоту состава (ErrRuleLocked), валидность
+	// источника (ErrSourceNotAllowed) и вычисляет position до вызова —
+	// репозиторий только пишет переданные значения.
+	SetSeedingRule(ctx context.Context, stageID string, rule SeedingRule, position int) error
 	// ApplyStageBuild атомарно применяет план формирования этапа (спека
 	// 0019, FR-16): создаёт группы (для группового целевого этапа) и/или
 	// членства (со слотами — для сетки), записывает undo_kind=UndoBuild.

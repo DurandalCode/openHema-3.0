@@ -37,7 +37,7 @@ func (s *Service) CreateStage(ctx context.Context, nominationID, title string, c
 	if err != nil {
 		return domain.Stage{}, nil, err
 	}
-	stage, err := s.repo.CreateStage(ctx, nominationID, maxPos+1, title, domain.StageTypeBracket, cfg)
+	stage, err := s.repo.CreateStage(ctx, nominationID, maxPos+1, title, domain.StageTypeBracket, cfg, domain.GroupsConfig{}, domain.SeedingRule{})
 	if err != nil {
 		return domain.Stage{}, nil, err
 	}

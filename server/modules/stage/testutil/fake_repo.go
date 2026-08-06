@@ -529,10 +529,10 @@ func (r *FakeRepo) CreateStage(_ context.Context, nominationID string, position 
 	return toDomainStage(st), nil
 }
 
-// SetSeedingRule пишет правило отбора этапа, очищает undo (спека 0019,
-// FR-6). Гейты (состав пуст, источник валиден) — забота вызывающего
-// (service.SetStageRule).
-func (r *FakeRepo) SetSeedingRule(_ context.Context, stageID string, rule domain.SeedingRule) error {
+// SetSeedingRule пишет правило отбора этапа и пересчитанную позицию,
+// очищает undo (спека 0019, FR-6/FR-10). Гейты (состав пуст, источник
+// валиден) и вычисление position — забота вызывающего (service.SetStageRule).
+func (r *FakeRepo) SetSeedingRule(_ context.Context, stageID string, rule domain.SeedingRule, position int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -541,6 +541,7 @@ func (r *FakeRepo) SetSeedingRule(_ context.Context, stageID string, rule domain
 		return domain.ErrNotFound
 	}
 	st.rule = rule
+	st.position = position
 	st.undo = domain.UndoState{}
 	return nil
 }
