@@ -87,7 +87,7 @@
 
 ## Server — волна 2 (join)
 
-- [ ] T8. **testutil** — `modules/stage/testutil/fake_repo.go`: реализация
+- [x] T8. **testutil** — `modules/stage/testutil/fake_repo.go`: реализация
       новых методов порта (`SetSeedingRule`, `ApplyStageBuild`,
       `StagesBySource`), правило/конфиг в фейковых этапах
       (`var _ domain.Repository = (*FakeRepo)(nil)`).
