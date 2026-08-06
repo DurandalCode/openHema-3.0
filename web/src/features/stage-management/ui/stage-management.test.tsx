@@ -94,11 +94,11 @@ describe("StageManagement", () => {
     fireEvent.click(screen.getByRole("button", { name: /Добавить этап/i }));
     const titleInput = screen.getByLabelText("Название");
     fireEvent.change(titleInput, { target: { value: "Плейофф 16" } });
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Бой за 3-е место" }));
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
 
     expect(createMutate).toHaveBeenCalledWith(
-      { title: "Плейофф 16", bracketSize: 8, thirdPlace: true },
+      { type: "bracket", title: "Плейофф 16", bracketSize: 8, thirdPlace: true },
       expect.anything(),
     );
   });

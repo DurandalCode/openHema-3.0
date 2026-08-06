@@ -1,10 +1,11 @@
-import type { Stage } from "@/entities/stage/lib/types";
+import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage/lib/types";
 
 /**
- * requests — фетчеры фичи `stage-management` (спека 0018, FR-1/FR-2/FR-3):
- * список/создание/удаление этапов номинации. По образцу
- * `features/nomination-pools/api/requests.ts` — result-объекты
- * `{ok:true,...}|{ok:false,error}`, сеть/4xx маппятся единообразно.
+ * requests — фетчеры фичи `stage-management` (спека 0018, FR-1/FR-2/FR-3;
+ * 0019, FR-1..FR-9a): список/создание/удаление этапов номинации, правило
+ * отбора этапа. По образцу `features/nomination-pools/api/requests.ts` —
+ * result-объекты `{ok:true,...}|{ok:false,error}`, сеть/4xx маппятся
+ * единообразно.
  */
 
 export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; error: string };
@@ -13,11 +14,35 @@ export type CreateStageResult =
   | { ok: true; stage: Stage; stages: Stage[] }
   | { ok: false; error: string };
 
-export type CreateStageInput = {
-  title: string;
-  bracketSize: number;
-  thirdPlace: boolean;
+export type SetStageRuleResult = { ok: true; stage: Stage } | { ok: false; error: string };
+
+/**
+ * SeedingRuleInput — правило отбора, как его собирает клиент (0019, FR-1..
+ * FR-3): без `method` — метод раскладки выводит сервер из типа целевого
+ * этапа (FR-4), организатору не предлагается.
+ */
+export type SeedingRuleInput = {
+  sourceKind: StageSourceKind;
+  sourceStageId: string;
+  selector: StageSelectorKind;
+  placeFrom: number;
+  placeTo: number; // 0 — открытая граница
 };
+
+export type CreateStageInput =
+  | {
+      type: "bracket";
+      title: string;
+      bracketSize: number;
+      thirdPlace: boolean;
+      rule?: SeedingRuleInput;
+    }
+  | {
+      type: "groups";
+      title: string;
+      groupCount: number;
+      rule?: SeedingRuleInput;
+    };
 
 /** listStagesRequest — GET /api/nominations/[id]/stages (список этапов номинации). */
 export async function listStagesRequest(nominationId: string): Promise<StagesResult> {
@@ -37,31 +62,41 @@ export async function listStagesRequest(nominationId: string): Promise<StagesRes
 }
 
 /**
- * createStageRequest — POST /api/nominations/[id]/stages: добавляет
- * этап-сетку (единственный создаваемый вручную тип, FR-1). BFF-ответ
- * оборачивает proto-поле `created` как `stage`.
+ * createStageRequest — POST /api/nominations/[id]/stages: добавляет этап —
+ * сетку (FR-1/FR-2, спека 0018) либо группы (0019, FR-7), с опциональным
+ * правилом отбора (0019, FR-1/FR-6). BFF-ответ несёт proto-поле `created`.
  */
 export async function createStageRequest(
   nominationId: string,
   input: CreateStageInput,
 ): Promise<CreateStageResult> {
   try {
+    const body =
+      input.type === "bracket"
+        ? {
+            type: "bracket" as const,
+            title: input.title,
+            bracketSize: input.bracketSize,
+            thirdPlace: input.thirdPlace,
+            ...(input.rule ? { rule: input.rule } : {}),
+          }
+        : {
+            type: "groups" as const,
+            title: input.title,
+            groupCount: input.groupCount,
+            ...(input.rule ? { rule: input.rule } : {}),
+          };
     const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "bracket",
-        title: input.title,
-        bracketSize: input.bracketSize,
-        thirdPlace: input.thirdPlace,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? "Ошибка запроса" };
     }
-    const data = (await res.json().catch(() => ({}))) as { stage?: Stage; stages?: Stage[] };
-    return { ok: true, stage: data.stage as Stage, stages: data.stages ?? [] };
+    const data = (await res.json().catch(() => ({}))) as { created?: Stage; stages?: Stage[] };
+    return { ok: true, stage: data.created as Stage, stages: data.stages ?? [] };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
@@ -77,6 +112,32 @@ export async function deleteStageRequest(stageId: string): Promise<StagesResult>
     }
     const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
     return { ok: true, stages: data.stages ?? [] };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+/**
+ * setStageRuleRequest — PUT /api/stages/[stageId]/rule: задаёт или снимает
+ * (`rule = null`) правило отбора этапа (0019, FR-6). Разрешено, пока состав
+ * этапа пуст — сервер отклоняет иначе (AC-16), клиент показывает его ошибку.
+ */
+export async function setStageRuleRequest(
+  stageId: string,
+  rule: SeedingRuleInput | null,
+): Promise<SetStageRuleResult> {
+  try {
+    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}/rule`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rule }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { stage?: Stage };
+    return { ok: true, stage: data.stage as Stage };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }

@@ -136,15 +136,15 @@
 
 ## Web — трек D (features)
 
-- [ ] T16. **features/stage-management** — диалог создания этапа: выбор типа
+- [x] T16. **features/stage-management** — диалог создания этапа: выбор типа
       (группы/сетка), число групп (FR-8), правило (источник из этапов
       номинации либо ростер, селектор, границы мест); хук
       `use-set-stage-rule.ts` (FR-6); тесты (Vitest).
-- [ ] T17. **features/stage-build — api** —
+- [x] T17. **features/stage-build — api** —
       `features/stage-build/api/{keys,requests,use-build-preview,
       use-build-stage}.ts`: fetchers + RQ-хуки, инвалидация ключей этапов/
       раскладки/сетки после формирования; тесты fetchers.
-- [ ] T18. **features/stage-build — ui (red→green)** —
+- [x] T18. **features/stage-build — ui (red→green)** —
       `ui/build-stage-dialog.tsx` + `lib/tie-resolution.ts`: превью-таблица
       «боец → откуда → куда», предупреждения (FR-11/FR-14), блок разрешения
       дележа с показателями претендентов (FR-22), блокировка кнопки при
