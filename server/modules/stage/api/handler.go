@@ -1,14 +1,14 @@
 // Package api реализует Connect-хендлеры модуля pool: маппинг proto ↔
 // domain и ошибок. StageAdminService — управление раскладкой (спека 0009),
-// постановкой/снятием пула с арены (спека 0011) и ведением текущего боя
-// (спека 0013, RequireAdmin); StagePublicService — публичное чтение готовых
-// пулов номинации (спека 0011, FR-11, без RequireAdmin).
+// постановкой/снятием пула с арены (спека 0011), ведением текущего боя
+// (спека 0013, RequireAdmin) и этапом-сеткой (спека 0018); StagePublicService
+// — публичное чтение готовых пулов номинации (спека 0011, FR-11, без
+// RequireAdmin).
 package api
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -21,8 +21,8 @@ import (
 )
 
 // AdminHandler реализует StageAdminServiceHandler (управление раскладкой
-// бойцов по пулам, постановка/снятие пула с арены). Доступ ограничен
-// интерсептором RequireAdmin.
+// бойцов по пулам, постановка/снятие пула с арены, этап-сетка). Доступ
+// ограничен интерсептором RequireAdmin.
 type AdminHandler struct {
 	svc *service.Service
 }
@@ -34,24 +34,113 @@ func NewAdminHandler(svc *service.Service) *AdminHandler {
 
 var _ hemav1connect.StageAdminServiceHandler = (*AdminHandler)(nil)
 
-// GetLayout возвращает раскладку номинации.
+// ---------------------------------------------------------------------
+// Спека 0018: этапы, посев сетки.
+// ---------------------------------------------------------------------
+
+// ListStages возвращает этапы номинации (FR-18). Материализует групповой
+// этап, если строки ещё нет (0017, FR-4).
+func (h *AdminHandler) ListStages(
+	ctx context.Context,
+	req *connect.Request[hemav1.ListStagesRequest],
+) (*connect.Response[hemav1.ListStagesResponse], error) {
+	stages, err := h.svc.ListStages(ctx, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ListStagesResponse{Stages: toProtoStages(stages)}), nil
+}
+
+// CreateStage добавляет номинации этап-сетку (FR-2). В этом инкременте
+// принимается только type = BRACKET (FR-2) — GROUPS/UNSPECIFIED отклоняются
+// с InvalidArgument до вызова сервиса (групповой этап создаёт только
+// EnsureStage, 0017 FR-4); служба service.CreateStage сама типа не
+// принимает — она всегда создаёт bracket (план «service/bracket.go»).
+func (h *AdminHandler) CreateStage(
+	ctx context.Context,
+	req *connect.Request[hemav1.CreateStageRequest],
+) (*connect.Response[hemav1.CreateStageResponse], error) {
+	if req.Msg.Type != hemav1.StageType_STAGE_TYPE_BRACKET {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("stage: only BRACKET can be created explicitly"))
+	}
+	cfg := domain.BracketConfig{}
+	if req.Msg.Bracket != nil {
+		cfg = domain.BracketConfig{Size: int(req.Msg.Bracket.Size), ThirdPlace: req.Msg.Bracket.ThirdPlace}
+	}
+	created, stages, err := h.svc.CreateStage(ctx, req.Msg.NominationId, req.Msg.Title, cfg)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.CreateStageResponse{Created: toProtoStage(created), Stages: toProtoStages(stages)}), nil
+}
+
+// DeleteStage удаляет этап-сетку, пока в ней не начат ни один бой (FR-3).
+func (h *AdminHandler) DeleteStage(
+	ctx context.Context,
+	req *connect.Request[hemav1.DeleteStageRequest],
+) (*connect.Response[hemav1.DeleteStageResponse], error) {
+	stages, err := h.svc.DeleteStage(ctx, req.Msg.StageId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.DeleteStageResponse{Stages: toProtoStages(stages)}), nil
+}
+
+// GetBracket возвращает админский вид сетки (FR-7/FR-19).
+func (h *AdminHandler) GetBracket(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetBracketRequest],
+) (*connect.Response[hemav1.GetBracketResponse], error) {
+	bracket, err := h.svc.GetBracket(ctx, req.Msg.StageId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetBracketResponse{Bracket: toProtoBracket(bracket)}), nil
+}
+
+// SeedBracketSlot сажает бойца в слот первого круга (FR-7/FR-8).
+func (h *AdminHandler) SeedBracketSlot(
+	ctx context.Context,
+	req *connect.Request[hemav1.SeedBracketSlotRequest],
+) (*connect.Response[hemav1.SeedBracketSlotResponse], error) {
+	bracket, err := h.svc.SeedBracketSlot(ctx, req.Msg.StageId, int(req.Msg.Slot), req.Msg.FighterId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SeedBracketSlotResponse{Bracket: toProtoBracket(bracket)}), nil
+}
+
+// ClearBracketSlot освобождает слот (FR-8). Идемпотентно.
+func (h *AdminHandler) ClearBracketSlot(
+	ctx context.Context,
+	req *connect.Request[hemav1.ClearBracketSlotRequest],
+) (*connect.Response[hemav1.ClearBracketSlotResponse], error) {
+	bracket, err := h.svc.ClearBracketSlot(ctx, req.Msg.StageId, int(req.Msg.Slot))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ClearBracketSlotResponse{Bracket: toProtoBracket(bracket)}), nil
+}
+
+// GetLayout возвращает раскладку этапа (спека 0018, FR-18 — адресация
+// переехала с номинации на этап).
 func (h *AdminHandler) GetLayout(
 	ctx context.Context,
 	req *connect.Request[hemav1.GetLayoutRequest],
 ) (*connect.Response[hemav1.GetLayoutResponse], error) {
-	layout, err := h.svc.GetLayout(ctx, req.Msg.NominationId)
+	layout, err := h.svc.GetLayout(ctx, req.Msg.StageId)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.GetLayoutResponse{Layout: toProtoLayout(layout)}), nil
 }
 
-// CreatePool создаёт пул в номинации.
+// CreatePool создаёт пул в этапе.
 func (h *AdminHandler) CreatePool(
 	ctx context.Context,
 	req *connect.Request[hemav1.CreatePoolRequest],
 ) (*connect.Response[hemav1.CreatePoolResponse], error) {
-	layout, err := h.svc.CreatePool(ctx, req.Msg.NominationId)
+	layout, err := h.svc.CreatePool(ctx, req.Msg.StageId)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -70,13 +159,13 @@ func (h *AdminHandler) DeletePool(
 	return connect.NewResponse(&hemav1.DeletePoolResponse{Layout: toProtoLayout(layout)}), nil
 }
 
-// ResetLayout удаляет все пулы номинации, возвращает всех бойцов в
+// ResetLayout удаляет все пулы этапа, возвращает всех бойцов в
 // нераспределённые.
 func (h *AdminHandler) ResetLayout(
 	ctx context.Context,
 	req *connect.Request[hemav1.ResetLayoutRequest],
 ) (*connect.Response[hemav1.ResetLayoutResponse], error) {
-	layout, err := h.svc.ResetLayout(ctx, req.Msg.NominationId)
+	layout, err := h.svc.ResetLayout(ctx, req.Msg.StageId)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -88,7 +177,7 @@ func (h *AdminHandler) AssignFighter(
 	ctx context.Context,
 	req *connect.Request[hemav1.AssignFighterRequest],
 ) (*connect.Response[hemav1.AssignFighterResponse], error) {
-	layout, err := h.svc.AssignFighter(ctx, req.Msg.NominationId, req.Msg.FighterId, req.Msg.PoolId)
+	layout, err := h.svc.AssignFighter(ctx, req.Msg.StageId, req.Msg.FighterId, req.Msg.PoolId)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -100,7 +189,7 @@ func (h *AdminHandler) UnassignFighter(
 	ctx context.Context,
 	req *connect.Request[hemav1.UnassignFighterRequest],
 ) (*connect.Response[hemav1.UnassignFighterResponse], error) {
-	layout, err := h.svc.UnassignFighter(ctx, req.Msg.NominationId, req.Msg.FighterId)
+	layout, err := h.svc.UnassignFighter(ctx, req.Msg.StageId, req.Msg.FighterId)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -113,19 +202,19 @@ func (h *AdminHandler) AutoDistribute(
 	ctx context.Context,
 	req *connect.Request[hemav1.AutoDistributeRequest],
 ) (*connect.Response[hemav1.AutoDistributeResponse], error) {
-	layout, err := h.svc.AutoDistribute(ctx, req.Msg.NominationId)
+	layout, err := h.svc.AutoDistribute(ctx, req.Msg.StageId)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.AutoDistributeResponse{Layout: toProtoLayout(layout)}), nil
 }
 
-// Undo откатывает последнее mutating-действие (авто или удаление пула).
+// Undo откатывает последнее mutating-действие (авто, удаление пула или сброс).
 func (h *AdminHandler) Undo(
 	ctx context.Context,
 	req *connect.Request[hemav1.UndoRequest],
 ) (*connect.Response[hemav1.UndoResponse], error) {
-	layout, err := h.svc.Undo(ctx, req.Msg.NominationId)
+	layout, err := h.svc.Undo(ctx, req.Msg.StageId)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -137,7 +226,7 @@ func (h *AdminHandler) SetLayoutStatus(
 	ctx context.Context,
 	req *connect.Request[hemav1.SetLayoutStatusRequest],
 ) (*connect.Response[hemav1.SetLayoutStatusResponse], error) {
-	layout, err := h.svc.SetStatus(ctx, req.Msg.NominationId, fromProtoStatus(req.Msg.Status))
+	layout, err := h.svc.SetStatus(ctx, req.Msg.StageId, fromProtoStatus(req.Msg.Status))
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -244,7 +333,8 @@ func (h *AdminHandler) ScoreCurrentBout(
 }
 
 // FinishCurrentBout переводит текущий бой идёт → завершён и автоматически
-// продвигает текущий указатель пула (спека 0013, FR-5/FR-9).
+// продвигает текущий указатель пула (спека 0013, FR-5/FR-9; спека 0018,
+// FR-15 — ничья в сетке отклоняется).
 func (h *AdminHandler) FinishCurrentBout(
 	ctx context.Context,
 	req *connect.Request[hemav1.FinishCurrentBoutRequest],
@@ -257,7 +347,8 @@ func (h *AdminHandler) FinishCurrentBout(
 }
 
 // ReopenCurrentBout переводит текущий бой завершён → идёт для правки счёта
-// (спека 0013, FR-6).
+// (спека 0013, FR-6; спека 0018, FR-16 — отклоняется, если следующий бой
+// уже начат).
 func (h *AdminHandler) ReopenCurrentBout(
 	ctx context.Context,
 	req *connect.Request[hemav1.ReopenCurrentBoutRequest],
@@ -421,10 +512,10 @@ func NewPublicHandler(svc *service.Service) *PublicHandler {
 
 var _ hemav1connect.StagePublicServiceHandler = (*PublicHandler)(nil)
 
-// ListPublicPools возвращает пулы готовой раскладки номинации с составом,
-// статусом и (если поставлен) площадкой; пустой список, пока раскладка
-// draft (AC-14). Stages — этапы номинации (спека 0017, FR-11): ровно один
-// элемент в этом инкременте.
+// ListPublicPools возвращает пулы только групповых этапов номинации с
+// составом, статусом и (если поставлен) площадкой (спека 0011, FR-11/FR-12;
+// спека 0018 — сетка публикуется отдельно через GetNominationLive.brackets).
+// Stages — этапы номинации (спека 0017, FR-11).
 func (h *PublicHandler) ListPublicPools(
 	ctx context.Context,
 	req *connect.Request[hemav1.ListPublicPoolsRequest],
@@ -442,11 +533,12 @@ func (h *PublicHandler) ListPublicPools(
 
 // ---------------------------------------------------------------------
 // Спека 0014: публичный живой снапшот номинации (bout state/score/outcome +
-// исполнительный статус пула, экран номинации).
+// исполнительный статус пула, экран номинации). Спека 0018: brackets.
 // ---------------------------------------------------------------------
 
 // GetNominationLive возвращает живой снапшот номинации (спека 0014, FR-1..
-// FR-3): пустой список пулов, пока раскладка draft (FR-12).
+// FR-3): пустой список пулов, пока раскладка draft (FR-12); brackets —
+// зафиксированные сетки номинации (спека 0018, FR-19).
 func (h *PublicHandler) GetNominationLive(
 	ctx context.Context,
 	req *connect.Request[hemav1.GetNominationLiveRequest],
@@ -502,9 +594,10 @@ func (h *PublicHandler) WatchNominationLive(
 	}
 }
 
-// mapError переводит доменные ошибки в connect.Code (спека 0013 добавляет
-// ErrPoolNotSeated/ErrNoCurrentBout/ErrHasResults/ErrInvalidTransition →
-// FailedPrecondition, ErrConcurrency → Aborted).
+// mapError переводит доменные ошибки в connect.Code. Спека 0018 добавляет
+// ErrStageTypeMismatch/ErrDrawNotAllowed/ErrDownstreamStarted/
+// ErrSlotOccupied/ErrStageNotDeletable/ErrNotEnoughSeeds →
+// FailedPrecondition (план «api/handler.go»).
 func mapError(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
@@ -524,7 +617,13 @@ func mapError(err error) error {
 		errors.Is(err, domain.ErrPoolNotSeated),
 		errors.Is(err, domain.ErrNoCurrentBout),
 		errors.Is(err, domain.ErrHasResults),
-		errors.Is(err, domain.ErrInvalidTransition):
+		errors.Is(err, domain.ErrInvalidTransition),
+		errors.Is(err, domain.ErrStageTypeMismatch),
+		errors.Is(err, domain.ErrDrawNotAllowed),
+		errors.Is(err, domain.ErrDownstreamStarted),
+		errors.Is(err, domain.ErrSlotOccupied),
+		errors.Is(err, domain.ErrStageNotDeletable),
+		errors.Is(err, domain.ErrNotEnoughSeeds):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
@@ -542,17 +641,23 @@ func toProtoLayout(l domain.Layout) *hemav1.PoolLayout {
 	}
 }
 
-// toProtoStage маппит этап номинации (спека 0017, FR-1/FR-11). Виртуальный
-// этап (Stage.ID пуст — строки в БД ещё нет, см. service.stageForRead)
-// маппится как обычно: пустой id, остальные поля — дефолты этапа.
+// toProtoStage маппит этап номинации (спека 0017, FR-1/FR-11; спека 0018 —
+// status/bracket). Виртуальный этап (Stage.ID пуст — строки в БД ещё нет,
+// см. service.virtualStage) маппится как обычно: пустой id, остальные поля
+// — дефолты этапа.
 func toProtoStage(s domain.Stage) *hemav1.Stage {
-	return &hemav1.Stage{
+	out := &hemav1.Stage{
 		Id:           s.ID,
 		NominationId: s.NominationID,
 		Position:     int32(s.Position),
 		Title:        s.Title,
 		Type:         toProtoStageType(s.Type),
+		Status:       toProtoStatus(s.Status),
 	}
+	if s.Type == domain.StageTypeBracket {
+		out.Bracket = &hemav1.BracketConfig{Size: int32(s.Bracket.Size), ThirdPlace: s.Bracket.ThirdPlace}
+	}
+	return out
 }
 
 func toProtoStages(stages []domain.Stage) []*hemav1.Stage {
@@ -567,6 +672,8 @@ func toProtoStageType(t domain.StageType) hemav1.StageType {
 	switch t {
 	case domain.StageTypeGroups:
 		return hemav1.StageType_STAGE_TYPE_GROUPS
+	case domain.StageTypeBracket:
+		return hemav1.StageType_STAGE_TYPE_BRACKET
 	default:
 		return hemav1.StageType_STAGE_TYPE_UNSPECIFIED
 	}
@@ -585,13 +692,14 @@ func toProtoPool(p domain.Pool) *hemav1.Pool {
 		Id:             p.ID,
 		NominationId:   p.NominationID,
 		Number:         int32(p.Number),
-		Name:           poolName(p.Number),
+		Name:           p.Name,
 		Members:        toProtoFighterRefs(p.Members),
 		Status:         toProtoPoolStatus(p.Status),
 		ArenaId:        p.ArenaID,
 		ArenaName:      p.ArenaName,
 		NominationName: p.NominationName,
 		Standings:      toProtoStandings(p.Standings),
+		StageId:        p.StageID,
 	}
 }
 
@@ -601,6 +709,10 @@ func toProtoFighterRefs(refs []domain.FighterRef) []*hemav1.FighterRef {
 		out = append(out, &hemav1.FighterRef{FighterId: f.ID, Name: f.Name, Club: f.Club})
 	}
 	return out
+}
+
+func toProtoFighterRef(f domain.FighterRef) *hemav1.FighterRef {
+	return &hemav1.FighterRef{FighterId: f.ID, Name: f.Name, Club: f.Club}
 }
 
 // toProtoStandings маппит итоговую таблицу пула (спека 0016). Пустой срез
@@ -620,12 +732,6 @@ func toProtoStandings(standings []domain.Standing) []*hemav1.PoolStanding {
 		})
 	}
 	return out
-}
-
-// poolName генерирует презентационное имя пула из номера (спека 0009,
-// FR-3): «Пул N». Не хранится отдельно — вычисляется из number на чтении.
-func poolName(number int) string {
-	return fmt.Sprintf("Пул %d", number)
 }
 
 func toProtoStatus(s domain.LayoutStatus) hemav1.PoolLayoutStatus {
@@ -684,31 +790,39 @@ func toProtoBoard(b domain.BoutBoard) *hemav1.BoutBoard {
 func toProtoBoardBouts(bouts []domain.BoutRef) []*hemav1.BoardBout {
 	out := make([]*hemav1.BoardBout, 0, len(bouts))
 	for _, b := range bouts {
-		out = append(out, &hemav1.BoardBout{
-			Id:             b.ID,
-			RoundNumber:    int32(b.RoundNumber),
-			SequenceNumber: int32(b.SequenceNumber),
-			FighterA:       &hemav1.FighterRef{FighterId: b.FighterA.ID, Name: b.FighterA.Name, Club: b.FighterA.Club},
-			FighterB:       &hemav1.FighterRef{FighterId: b.FighterB.ID, Name: b.FighterB.Name, Club: b.FighterB.Club},
-			State:          toProtoBoutState(b.State),
-			ScoreA:         int32(b.ScoreA),
-			ScoreB:         int32(b.ScoreB),
-		})
+		out = append(out, toProtoBoardBout(b))
 	}
 	return out
 }
 
+func toProtoBoardBout(b domain.BoutRef) *hemav1.BoardBout {
+	return &hemav1.BoardBout{
+		Id:             b.ID,
+		RoundNumber:    int32(b.RoundNumber),
+		SequenceNumber: int32(b.SequenceNumber),
+		FighterA:       &hemav1.FighterRef{FighterId: b.FighterA.ID, Name: b.FighterA.Name, Club: b.FighterA.Club},
+		FighterB:       &hemav1.FighterRef{FighterId: b.FighterB.ID, Name: b.FighterB.Name, Club: b.FighterB.Club},
+		State:          toProtoBoutState(b.State),
+		ScoreA:         int32(b.ScoreA),
+		ScoreB:         int32(b.ScoreB),
+	}
+}
+
 // toProtoNominationSnapshot маппит живой снапшот номинации (спека 0014,
-// FR-1..FR-3). Stages — этапы номинации (спека 0017, FR-11): ровно один
-// элемент в этом инкременте.
+// FR-1..FR-3). Stages — этапы номинации (спека 0017, FR-11). Brackets —
+// сетки номинации (спека 0018, FR-19).
 func toProtoNominationSnapshot(s domain.NominationSnapshot) *hemav1.NominationLiveSnapshot {
 	out := &hemav1.NominationLiveSnapshot{
 		NominationId: s.NominationID,
 		Pools:        make([]*hemav1.LivePool, 0, len(s.Pools)),
 		Stages:       toProtoStages(s.Stages),
+		Brackets:     make([]*hemav1.Bracket, 0, len(s.Brackets)),
 	}
 	for _, p := range s.Pools {
 		out.Pools = append(out.Pools, toProtoLivePool(p))
+	}
+	for _, b := range s.Brackets {
+		out.Brackets = append(out.Brackets, toProtoBracket(b))
 	}
 	return out
 }
@@ -735,6 +849,87 @@ func toProtoBoutState(s domain.BoutState) hemav1.BoutState {
 		return hemav1.BoutState_BOUT_STATE_FINISHED
 	default:
 		return hemav1.BoutState_BOUT_STATE_UNSPECIFIED
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0018: маппинг сетки (FR-19).
+// ---------------------------------------------------------------------
+
+func toProtoBracket(b domain.Bracket) *hemav1.Bracket {
+	out := &hemav1.Bracket{
+		Stage:            toProtoStage(b.Stage),
+		Rounds:           make([]*hemav1.BracketRound, 0, len(b.Rounds)),
+		Unassigned:       toProtoFighterRefs(b.Unassigned),
+		CanUndo:          b.CanUndo,
+		Champion:         toProtoFighterRef(b.Champion),
+		ThirdPlaceWinner: toProtoFighterRef(b.ThirdPlaceWinner),
+	}
+	for _, r := range b.Rounds {
+		out.Rounds = append(out.Rounds, toProtoBracketRound(r))
+	}
+	return out
+}
+
+func toProtoBracketRound(r domain.BracketRoundView) *hemav1.BracketRound {
+	out := &hemav1.BracketRound{
+		Number:     int32(r.Number),
+		Title:      r.Title,
+		ThirdPlace: r.ThirdPlace,
+		Halves:     make([]*hemav1.BracketHalf, 0, len(r.Halves)),
+	}
+	for _, h := range r.Halves {
+		out.Halves = append(out.Halves, toProtoBracketHalf(h))
+	}
+	return out
+}
+
+func toProtoBracketHalf(h domain.BracketHalfView) *hemav1.BracketHalf {
+	out := &hemav1.BracketHalf{
+		Half:          int32(h.Number),
+		Title:         h.Title,
+		Container:     toProtoPool(h.Container),
+		Pairs:         make([]*hemav1.BracketPair, 0, len(h.Pairs)),
+		CurrentBoutId: h.CurrentBoutID,
+	}
+	for _, p := range h.Pairs {
+		out.Pairs = append(out.Pairs, toProtoBracketPair(p))
+	}
+	return out
+}
+
+func toProtoBracketPair(p domain.BracketPairView) *hemav1.BracketPair {
+	out := &hemav1.BracketPair{
+		Index:    int32(p.Index),
+		SlotA:    toProtoBracketSlot(p.A),
+		SlotB:    toProtoBracketSlot(p.B),
+		Resolved: p.Resolved,
+	}
+	if p.Bout != nil {
+		out.Bout = toProtoBoardBout(*p.Bout)
+	}
+	return out
+}
+
+func toProtoBracketSlot(s domain.Slot) *hemav1.BracketSlot {
+	return &hemav1.BracketSlot{
+		Slot:        int32(s.Number),
+		State:       toProtoBracketSlotState(s.State),
+		Fighter:     toProtoFighterRef(s.Fighter),
+		SourceLabel: s.SourceLabel,
+	}
+}
+
+func toProtoBracketSlotState(s domain.SlotState) hemav1.BracketSlotState {
+	switch s {
+	case domain.SlotFilled:
+		return hemav1.BracketSlotState_BRACKET_SLOT_STATE_FILLED
+	case domain.SlotEmpty:
+		return hemav1.BracketSlotState_BRACKET_SLOT_STATE_EMPTY
+	case domain.SlotPending:
+		return hemav1.BracketSlotState_BRACKET_SLOT_STATE_PENDING
+	default:
+		return hemav1.BracketSlotState_BRACKET_SLOT_STATE_UNSPECIFIED
 	}
 }
 

@@ -1,10 +1,13 @@
 // Package service содержит бизнес-логику модуля pool (юзкейсы, спека 0009,
 // расширено спекой 0011 — постановка пула на арену, спекой 0013 — ведение
-// текущего боя).
+// текущего боя, спекой 0018 — этап-сетка, см. bracket.go). Адресация
+// раскладки — этапом (stage_id), не номинацией (спека 0018, FR-18: закрывает
+// долг 0017, где адресация оставалась номинационной, пока этап был один).
 package service
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -34,27 +37,31 @@ func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts d
 	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, rooms: newArenaRooms()}
 }
 
-// GetLayout возвращает раскладку номинации (lazy-init + реконсиляция с
-// активным ростером fighter, FR-12/FR-14/FR-15).
-func (s *Service) GetLayout(ctx context.Context, nominationID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
+// GetLayout возвращает раскладку этапа (спека 0018, FR-18 — адресация
+// переехала с номинации на этап; реконсиляция с активным ростером fighter,
+// FR-12/FR-14/FR-15).
+func (s *Service) GetLayout(ctx context.Context, stageID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
+	if stageID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayout(ctx, stageID)
 }
 
-// CreatePool создаёт пул с наименьшим свободным номером в этапе номинации
-// (FR-3). Только в draft. Первый мутирующий вызов на номинации без этапа
-// авто-создаёт его (position=0/groups/«Групповой этап», спека 0017, FR-4).
-func (s *Service) CreatePool(ctx context.Context, nominationID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
+// CreatePool создаёт пул с наименьшим свободным номером в этапе (FR-3).
+// Только в draft группового этапа — на сетке отклоняется (спека 0018,
+// ErrStageTypeMismatch): контейнеры сетки заводит CreateStage/lockBracket.
+func (s *Service) CreatePool(ctx context.Context, stageID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
+	if stageID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
+	}
+	if stage.Type != domain.StageTypeGroups {
+		return domain.Layout{}, domain.ErrStageTypeMismatch
 	}
 	if stage.Status != domain.LayoutDraft {
 		return domain.Layout{}, domain.ErrNotDraft
@@ -70,7 +77,7 @@ func (s *Service) CreatePool(ctx context.Context, nominationID string) (domain.L
 	if _, err := s.repo.CreatePool(ctx, stage.ID, domain.NextPoolNumber(numbers)); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayout(ctx, stage.ID)
 }
 
 // DeletePool удаляет пул; его бойцы возвращаются в нераспределённые (FR-4).
@@ -84,31 +91,33 @@ func (s *Service) DeletePool(ctx context.Context, poolID string) (domain.Layout,
 	if err != nil {
 		return domain.Layout{}, err
 	}
-	if err := s.requireDraft(ctx, pool.NominationID); err != nil {
+	if err := s.requireDraft(ctx, pool.StageID); err != nil {
 		return domain.Layout{}, err
 	}
 	if err := s.repo.DeletePool(ctx, poolID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayoutAndSync(ctx, pool.NominationID)
+	return s.loadLayoutAndSync(ctx, pool.StageID)
 }
 
-// ResetLayout удаляет все пулы этапа номинации и возвращает всех бойцов в
-// нераспределённые (FR-4a). Записывает undo-снапшот всех пулов с их членствами
-// (undoable — FR-7a). Только в draft. Если пулов нет — no-op (без undo).
-func (s *Service) ResetLayout(ctx context.Context, nominationID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
+// ResetLayout удаляет все пулы этапа и возвращает всех бойцов в
+// нераспределённые (FR-4a). Записывает undo-снапшот всех пулов с их
+// членствами, включая слоты посева (undoable — FR-7a; спека 0018, FR-8).
+// Работает и для группового этапа, и для сетки (план «service/bracket.go»,
+// T13). Только в draft. Если пулов нет — no-op (без undo).
+func (s *Service) ResetLayout(ctx context.Context, stageID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
+	if stageID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
 	if stage.Status != domain.LayoutDraft {
 		return domain.Layout{}, domain.ErrNotDraft
 	}
-	layout, err := s.loadLayout(ctx, nominationID)
+	layout, err := s.loadLayout(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
@@ -118,42 +127,43 @@ func (s *Service) ResetLayout(ctx context.Context, nominationID string) (domain.
 	if err := s.repo.ResetLayout(ctx, stage.ID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayoutAndSync(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, stageID)
 }
 
-// AssignFighter кладёт бойца в пул этапа номинации: из нераспределённых либо
-// из другого пула ЭТОГО ЖЕ этапа (move одним действием, FR-5; спека 0017,
+// AssignFighter кладёт бойца в пул этапа: из нераспределённых либо из
+// другого пула ЭТОГО ЖЕ этапа (move одним действием, FR-5; спека 0017,
 // FR-7: членство в пуле другого этапа той же номинации не трогается).
-// Только в draft.
-func (s *Service) AssignFighter(ctx context.Context, nominationID, fighterID, poolID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
+// Только в draft. Слот сетки этим RPC не адресуется (посев — отдельный
+// SeedBracketSlot, спека 0018) — слот всегда 0.
+func (s *Service) AssignFighter(ctx context.Context, stageID, fighterID, poolID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
 	fighterID = strings.TrimSpace(fighterID)
 	poolID = strings.TrimSpace(poolID)
-	if nominationID == "" || fighterID == "" || poolID == "" {
+	if stageID == "" || fighterID == "" || poolID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
 	if stage.Status != domain.LayoutDraft {
 		return domain.Layout{}, domain.ErrNotDraft
 	}
-	if err := s.repo.AssignFighter(ctx, stage.ID, fighterID, poolID); err != nil {
+	if err := s.repo.AssignFighter(ctx, stage.ID, fighterID, poolID, 0); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayoutAndSync(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, stageID)
 }
 
 // UnassignFighter возвращает бойца из пула этапа в нераспределённые (FR-5).
 // Только в draft.
-func (s *Service) UnassignFighter(ctx context.Context, nominationID, fighterID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
+func (s *Service) UnassignFighter(ctx context.Context, stageID, fighterID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
 	fighterID = strings.TrimSpace(fighterID)
-	if nominationID == "" || fighterID == "" {
+	if stageID == "" || fighterID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
@@ -163,25 +173,30 @@ func (s *Service) UnassignFighter(ctx context.Context, nominationID, fighterID s
 	if err := s.repo.UnassignFighter(ctx, stage.ID, fighterID); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayoutAndSync(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, stageID)
 }
 
 // AutoDistribute раскладывает нераспределённых бойцов этапа по существующим
 // его пулам, минимизируя одноклубников (FR-6/FR-7). Уже расставленные бойцы
-// не трогаются. Undoable. Только в draft.
-func (s *Service) AutoDistribute(ctx context.Context, nominationID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
+// не трогаются. Undoable. Только в draft группового этапа — на сетке
+// отклоняется (спека 0018, ErrStageTypeMismatch): у сетки нет «пулов» в
+// этом смысле, посев только вручную по слотам (FR-7).
+func (s *Service) AutoDistribute(ctx context.Context, stageID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
+	if stageID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
+	}
+	if stage.Type != domain.StageTypeGroups {
+		return domain.Layout{}, domain.ErrStageTypeMismatch
 	}
 	if stage.Status != domain.LayoutDraft {
 		return domain.Layout{}, domain.ErrNotDraft
 	}
-	layout, err := s.loadLayout(ctx, nominationID)
+	layout, err := s.loadLayout(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
@@ -195,17 +210,19 @@ func (s *Service) AutoDistribute(ctx context.Context, nominationID string) (doma
 	if err := s.repo.ApplyAutoDistribute(ctx, stage.ID, assignments); err != nil {
 		return domain.Layout{}, err
 	}
-	return s.loadLayoutAndSync(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, stageID)
 }
 
 // Undo откатывает последнее mutating-действие среди трёх классов:
-// автораспределение, удаление пула или сброс раскладки (FR-7a). Только в draft.
-func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
+// автораспределение, удаление пула или сброс раскладки (FR-7a). Только в
+// draft. Работает и для группового этапа, и для сетки (undo reset несёт
+// слоты посева, спека 0018).
+func (s *Service) Undo(ctx context.Context, stageID string) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
+	if stageID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
@@ -228,47 +245,53 @@ func (s *Service) Undo(ctx context.Context, nominationID string) (domain.Layout,
 	default:
 		return domain.Layout{}, domain.ErrNothingToUndo
 	}
-	return s.loadLayoutAndSync(ctx, nominationID)
+	return s.loadLayoutAndSync(ctx, stageID)
 }
 
 // SetStatus переключает статус раскладки этапа draft↔ready (FR-9). Другие
 // целевые статусы отклоняются — переходы в active/finished не реализованы.
 //
-// Переход draft → ready формирует бои каждого пула этапа (спека 0010, FR-2);
-// переход ready → draft удаляет ранее сформированные бои этапа (FR-5), но
-// только если ни один пул ЭТОГО этапа не стоит на арене (спека 0011, FR-3,
-// AC-3: ErrPoolSeated) и ни один бой ЭТОГО этапа ещё не начат/проведён
-// (спека 0013, FR-13, AC-12: ErrHasResults — пересборка состава не должна
-// стирать результаты). Занятость арены и результаты боёв другого этапа той
-// же номинации не блокируют (спека 0017, FR-8, AC-5). Проверка результатов
-// идёт первой (план «Модуль pool»): даже если пул уже снят с арены (снятие
-// результаты сохраняет, FR-11), но у него есть проведённые бои, расфиксация
-// всё равно отклоняется. Порядок для собственно перехода — сначала эффект в
-// bout (generate/clear), только потом статус в stage (план «Обзор
-// решения»): если bout-шаг упал, статус раскладки не меняется. Повторный
-// вызов с уже текущим статусом (draft→draft, ready→ready) — не переход,
-// BoutConductor не вызывается.
-func (s *Service) SetStatus(ctx context.Context, nominationID string, status domain.LayoutStatus) (domain.Layout, error) {
-	nominationID = strings.TrimSpace(nominationID)
-	if nominationID == "" {
+// Групповой этап: переход draft → ready формирует бои каждого пула (спека
+// 0010, FR-2); переход ready → draft удаляет ранее сформированные бои
+// (FR-5). Этап-сетка (спека 0018): draft → ready — lockBracket (гейт «посеяно
+// >= 2», FR-11; создание контейнеров кругов >= 2; материализация боёв только
+// полных пар, баи продвигаются без боя, FR-9/FR-14); ready → draft —
+// unlockBracket (удаление боёв + контейнеров кругов >= 2, посев остаётся,
+// FR-10). Общие гейты расфиксации для обоих типов: ни один пул ЭТОГО этапа
+// не стоит на арене (спека 0011, FR-3, AC-3: ErrPoolSeated) и ни один бой
+// ЭТОГО этапа ещё не начат/проведён (спека 0013, FR-13, AC-12:
+// ErrHasResults). Занятость арены и результаты боёв другого этапа той же
+// номинации не блокируют (спека 0017, FR-8, AC-5). Порядок для перехода —
+// сначала эффект в bout/контейнерах, только потом статус в stage: если шаг
+// упал, статус раскладки не меняется. Повторный вызов с уже текущим статусом
+// — не переход, BoutConductor/lockBracket/unlockBracket не вызываются.
+func (s *Service) SetStatus(ctx context.Context, stageID string, status domain.LayoutStatus) (domain.Layout, error) {
+	stageID = strings.TrimSpace(stageID)
+	if stageID == "" {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
 	if status != domain.LayoutDraft && status != domain.LayoutReady {
 		return domain.Layout{}, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForWrite(ctx, nominationID)
+	stage, err := s.stageForWrite(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
-	current, err := s.loadLayout(ctx, nominationID)
+	current, err := s.loadLayout(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
 	transitioned := false
 	switch {
 	case current.Status == domain.LayoutDraft && status == domain.LayoutReady:
-		if err := s.bouts.GenerateForStage(ctx, nominationID, toBoutPools(current.Pools)); err != nil {
-			return domain.Layout{}, err
+		if stage.Type == domain.StageTypeBracket {
+			if err := s.lockBracket(ctx, stage); err != nil {
+				return domain.Layout{}, err
+			}
+		} else {
+			if err := s.bouts.GenerateForStage(ctx, stage.NominationID, toBoutPools(current.Pools)); err != nil {
+				return domain.Layout{}, err
+			}
 		}
 		transitioned = true
 	case current.Status == domain.LayoutReady && status == domain.LayoutDraft:
@@ -287,8 +310,14 @@ func (s *Service) SetStatus(ctx context.Context, nominationID string, status dom
 		if seated {
 			return domain.Layout{}, domain.ErrPoolSeated
 		}
-		if err := s.bouts.ClearForPools(ctx, poolIDs); err != nil {
-			return domain.Layout{}, err
+		if stage.Type == domain.StageTypeBracket {
+			if err := s.unlockBracket(ctx, stage, current.Pools); err != nil {
+				return domain.Layout{}, err
+			}
+		} else {
+			if err := s.bouts.ClearForPools(ctx, poolIDs); err != nil {
+				return domain.Layout{}, err
+			}
 		}
 		transitioned = true
 	}
@@ -299,9 +328,9 @@ func (s *Service) SetStatus(ctx context.Context, nominationID string, status dom
 	// на no-op (draft→draft/ready→ready), см. mapError и комментарий выше
 	// метода (спека 0014, задача T5).
 	if transitioned {
-		s.liveBus.PublishNominationChanged(nominationID)
+		s.liveBus.PublishNominationChanged(stage.NominationID)
 	}
-	return s.loadLayout(ctx, nominationID)
+	return s.loadLayout(ctx, stageID)
 }
 
 // poolIDsOf извлекает id пулов (для адресации ClearForPools/AnyStartedInPools
@@ -339,8 +368,8 @@ func (s *Service) SeatPoolOnArena(ctx context.Context, poolID, arenaID string) (
 		return domain.Layout{}, domain.ErrAlreadySeated
 	}
 	// Этап резолвится от пула (pool.StageID), не от номинации (план «Модуль
-	// stage»): в будущем (спека 0018) пулы одной номинации смогут
-	// принадлежать разным этапам с разным статусом.
+	// stage»): пулы одной номинации могут принадлежать разным этапам с
+	// разным статусом (спека 0018).
 	stage, found, err := s.repo.StageByID(ctx, pool.StageID)
 	if err != nil {
 		return domain.Layout{}, err
@@ -365,7 +394,7 @@ func (s *Service) SeatPoolOnArena(ctx context.Context, poolID, arenaID string) (
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(arenaID)
-	return s.loadLayout(ctx, pool.NominationID)
+	return s.loadLayout(ctx, pool.StageID)
 }
 
 // UnseatPool снимает пул с площадки (готовится к запуску → готов, спека
@@ -391,11 +420,14 @@ func (s *Service) UnseatPool(ctx context.Context, poolID string) (domain.Layout,
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(arenaID)
-	return s.loadLayout(ctx, pool.NominationID)
+	return s.loadLayout(ctx, pool.StageID)
 }
 
 // ---------------------------------------------------------------------
-// Спека 0013: ведение текущего боя пула на арене (доска ведения).
+// Спека 0013: ведение текущего боя пула на арене (доска ведения). Спека
+// 0018 расширяет: ничья недопустима в сетке (FR-15), пересмотр гейтится
+// продвижением следующего круга (FR-16), завершение/пересмотр
+// материализуют/снимают следующую пару через syncBracket.
 // ---------------------------------------------------------------------
 
 // GetBoutBoard возвращает доску ведения боёв арены (FR-14): пул, стоящий
@@ -498,7 +530,9 @@ func (s *Service) ScoreCurrentBout(ctx context.Context, poolID, actorID string, 
 // непроведённый бой по порядку после только что завершённого (FR-9,
 // AC-5); если такого нет (последний бой пула, AC-10) — указатель
 // очищается, эффективный текущий бой резолвится в пустоту при следующем
-// чтении доски.
+// чтении доски. В сетке (спека 0018): ничья отклоняется (FR-15,
+// ErrDrawNotAllowed), завершение материализует следующую пару через
+// syncBracket, как только известны обе её стороны (FR-14).
 func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
 	poolID = strings.TrimSpace(poolID)
 	if poolID == "" {
@@ -508,8 +542,23 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
+	stage, err := s.ownerStage(ctx, pool)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if stage.Type == domain.StageTypeBracket {
+		current, ok := boutByID(bouts, currentID)
+		if ok && current.ScoreA == current.ScoreB {
+			return domain.BoutBoard{}, domain.ErrDrawNotAllowed
+		}
+	}
 	if err := s.bouts.FinishBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
+	}
+	if stage.Type == domain.StageTypeBracket {
+		if err := s.syncBracket(ctx, stage); err != nil {
+			return domain.BoutBoard{}, err
+		}
 	}
 	next := nextUnfinishedAfter(bouts, currentID)
 	if err := s.repo.SetCurrentBout(ctx, poolID, next); err != nil {
@@ -521,7 +570,10 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 }
 
 // ReopenCurrentBout переводит текущий бой завершён → идёт для правки счёта
-// (FR-6).
+// (FR-6). В сетке (спека 0018, FR-16): отклоняется, если следующий бой
+// победителя уже начат (ErrDownstreamStarted, гейт СТРОГО до действия) —
+// иначе снимает продвижение через syncBracket (несформированный бой
+// следующего круга исчезает).
 func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
 	poolID = strings.TrimSpace(poolID)
 	if poolID == "" {
@@ -531,8 +583,22 @@ func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string)
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
+	stage, err := s.ownerStage(ctx, pool)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if stage.Type == domain.StageTypeBracket {
+		if err := s.gateDownstream(ctx, stage, pool, currentID); err != nil {
+			return domain.BoutBoard{}, err
+		}
+	}
 	if err := s.bouts.ReopenBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
+	}
+	if stage.Type == domain.StageTypeBracket {
+		if err := s.syncBracket(ctx, stage); err != nil {
+			return domain.BoutBoard{}, err
+		}
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
@@ -540,7 +606,9 @@ func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string)
 }
 
 // ResetCurrentBout переводит текущий бой идёт → не начат, счёт обнуляется
-// (FR-6).
+// (FR-6). В сетке (спека 0018, FR-16) — тот же гейт/пересинхронизация, что
+// у Reopen (план «service/service.go»): в норме нет-op (бой ещё не решён,
+// downstream не мог начаться), но проверяется единообразно.
 func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) (domain.BoutBoard, error) {
 	poolID = strings.TrimSpace(poolID)
 	if poolID == "" {
@@ -550,12 +618,51 @@ func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) 
 	if err != nil {
 		return domain.BoutBoard{}, err
 	}
+	stage, err := s.ownerStage(ctx, pool)
+	if err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if stage.Type == domain.StageTypeBracket {
+		if err := s.gateDownstream(ctx, stage, pool, currentID); err != nil {
+			return domain.BoutBoard{}, err
+		}
+	}
 	if err := s.bouts.ResetBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
+	}
+	if stage.Type == domain.StageTypeBracket {
+		if err := s.syncBracket(ctx, stage); err != nil {
+			return domain.BoutBoard{}, err
+		}
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
+}
+
+// ownerStage резолвит этап-владелец пула (pool.StageID) — общая часть
+// FinishCurrentBout/ReopenCurrentBout/ResetCurrentBout (спека 0018): нужно
+// знать тип этапа, чтобы решить, применять ли гейты сетки.
+func (s *Service) ownerStage(ctx context.Context, pool domain.Pool) (domain.Stage, error) {
+	stage, found, err := s.repo.StageByID(ctx, pool.StageID)
+	if err != nil {
+		return domain.Stage{}, err
+	}
+	if !found {
+		return domain.Stage{}, domain.ErrNotFound
+	}
+	return stage, nil
+}
+
+// boutByID ищет бой по id в срезе (общий хелпер для гейта ничьей — спека
+// 0018, FR-15).
+func boutByID(bouts []domain.BoutRef, id string) (domain.BoutRef, bool) {
+	for _, b := range bouts {
+		if b.ID == id {
+			return b, true
+		}
+	}
+	return domain.BoutRef{}, false
 }
 
 // currentBoutFor гейтит «вести можно только на арене» (ErrPoolNotSeated,
@@ -658,7 +765,8 @@ func sortedBySequence(bouts []domain.BoutRef) []domain.BoutRef {
 
 // GetPoolsForArena возвращает данные для страницы конкретной арены (спека
 // 0011, FR-9): пул, стоящий на ней сейчас (если есть), и список готовых
-// пулов (любых номинаций), доступных для постановки.
+// пулов (любых номинаций, любых типов этапа — группа или половина круга
+// сетки, спека 0018 FR-19a), доступных для постановки.
 func (s *Service) GetPoolsForArena(ctx context.Context, arenaID string) (domain.ArenaPools, error) {
 	arenaID = strings.TrimSpace(arenaID)
 	if arenaID == "" {
@@ -697,48 +805,51 @@ func (s *Service) GetPoolsForArena(ctx context.Context, arenaID string) (domain.
 	return result, nil
 }
 
-// ListPublicPools возвращает пулы НОМИНАЦИИ ЦЕЛИКОМ — по всем её этапам
-// (спека 0017, FR-9), с составом, боями (см. модуль bout — публичное чтение
-// отдельным сервисом) и, если пул на арене — площадкой (спека 0011, FR-11).
-// Только для готовой (ready) раскладки — пока раскладка draft
-// (составляется), пулы публично не показываются (FR-11, AC-14): пустой
-// список. Намеренно не переиспользует loadLayout (тот — один этап, экран
-// админа); источник пулов — PoolsByNomination/MembersByNomination.
+// ListPublicPools возвращает контейнеры только ГРУППОВЫХ этапов номинации
+// (спека 0018): сетка публикуется отдельно через NominationLive.Brackets, а
+// не как список безымянных пулов. Только для готовой (ready) раскладки
+// каждого группового этапа — пока раскладка draft (составляется), контейнеры
+// публично не показываются (FR-11, AC-14).
 func (s *Service) ListPublicPools(ctx context.Context, nominationID string) ([]domain.Pool, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
 		return nil, domain.ErrInvalidInput
 	}
-	stage, err := s.stageForRead(ctx, nominationID)
+	stages, err := s.stagesForRead(ctx, nominationID)
 	if err != nil {
 		return nil, err
 	}
-	rawPools, err := s.combinedPoolsByNomination(ctx, nominationID)
-	if err != nil {
-		return nil, err
+	out := make([]domain.Pool, 0)
+	for _, stage := range stages {
+		if stage.ID == "" || stage.Type != domain.StageTypeGroups || stage.Status != domain.LayoutReady {
+			continue
+		}
+		rawPools, err := s.combinedPoolsByStage(ctx, stage.ID)
+		if err != nil {
+			return nil, err
+		}
+		layout, err := s.assembleLayout(ctx, nominationID, stage, rawPools)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, layout.Pools...)
 	}
-	layout, err := s.assembleLayout(ctx, nominationID, stage, rawPools)
-	if err != nil {
-		return nil, err
-	}
-	if layout.Status != domain.LayoutReady {
-		return []domain.Pool{}, nil
-	}
-	return layout.Pools, nil
+	return out, nil
 }
 
 // ---------------------------------------------------------------------
 // Спека 0014: публичный живой снапшот номинации (bout state/score/outcome +
-// исполнительный статус пула, экран номинации).
+// исполнительный статус пула, экран номинации). Спека 0018: pools — только
+// групповые контейнеры, brackets — резолв каждой зафиксированной сетки.
 // ---------------------------------------------------------------------
 
 // NominationLive собирает живой снапшот НОМИНАЦИИ ЦЕЛИКОМ (FR-1..FR-3, спека
-// 0017 FR-9 — по всем её этапам, не одному): для каждого пула — обогащённая
-// композиция (enrichPools, как у GetPoolsForArena/GetBoutBoard), его бои по
-// порядку проведения и эффективный текущий бой; Stages — этапы номинации
-// (спека 0017, FR-11 — публичный экран подписывает состав именем этапа).
-// Пока раскладка draft — пустой список пулов (FR-12), как и ListPublicPools
-// (публично нечего показывать, пока раскладка составляется).
+// 0017 FR-9 — по всем её этапам, не одному): для каждого готового группового
+// этапа — обогащённые пулы (enrichPools, как у GetPoolsForArena/
+// GetBoutBoard) с боями и текущим боем; для каждого зафиксированного
+// bracket-этапа — резолв сетки (без unassigned, FR-19). Stages — этапы
+// номинации (спека 0017, FR-11). Пока раскладка draft — этап не участвует в
+// снапшоте (FR-12), как и ListPublicPools.
 func (s *Service) NominationLive(ctx context.Context, nominationID string) (domain.NominationSnapshot, error) {
 	nominationID = strings.TrimSpace(nominationID)
 	if nominationID == "" {
@@ -748,32 +859,56 @@ func (s *Service) NominationLive(ctx context.Context, nominationID string) (doma
 	if err != nil {
 		return domain.NominationSnapshot{}, err
 	}
-	stage := stages[0]
-	if stage.Status != domain.LayoutReady {
-		return domain.NominationSnapshot{NominationID: nominationID, Stages: stages, Pools: []domain.LivePool{}}, nil
+
+	livePools := make([]domain.LivePool, 0)
+	brackets := make([]domain.Bracket, 0)
+	for _, stage := range stages {
+		if stage.ID == "" || stage.Status != domain.LayoutReady {
+			continue
+		}
+		switch stage.Type {
+		case domain.StageTypeGroups:
+			pools, err := s.groupLivePools(ctx, stage)
+			if err != nil {
+				return domain.NominationSnapshot{}, err
+			}
+			livePools = append(livePools, pools...)
+		case domain.StageTypeBracket:
+			bracket, err := s.buildBracket(ctx, stage, false)
+			if err != nil {
+				return domain.NominationSnapshot{}, err
+			}
+			brackets = append(brackets, bracket)
+		}
 	}
-	rawPools, err := s.combinedPoolsByNomination(ctx, nominationID)
+	return domain.NominationSnapshot{NominationID: nominationID, Stages: stages, Pools: livePools, Brackets: brackets}, nil
+}
+
+// groupLivePools собирает LivePool для всех контейнеров одного готового
+// группового этапа (общая часть NominationLive) — обогащение как
+// GetPoolsForArena/GetBoutBoard плюс итоговая таблица (спека 0016, FR-6:
+// переиспользуем уже прочитанные бои, без дополнительного вызова порта).
+func (s *Service) groupLivePools(ctx context.Context, stage domain.Stage) ([]domain.LivePool, error) {
+	rawPools, err := s.combinedPoolsByStage(ctx, stage.ID)
 	if err != nil {
-		return domain.NominationSnapshot{}, err
+		return nil, err
 	}
 	enriched, err := s.enrichPools(ctx, rawPools)
 	if err != nil {
-		return domain.NominationSnapshot{}, err
+		return nil, err
 	}
-	livePools := make([]domain.LivePool, 0, len(enriched))
+	out := make([]domain.LivePool, 0, len(enriched))
 	for _, pool := range enriched {
 		bouts, err := s.bouts.BoutsByPool(ctx, pool.ID)
 		if err != nil {
-			return domain.NominationSnapshot{}, err
+			return nil, err
 		}
-		// Standings (спека 0016, FR-6): переиспользуем уже прочитанные бои —
-		// без дополнительного вызова порта.
 		pool.Standings = domain.ComputeStandings(pool.Members, bouts)
 		sorted := sortedBySequence(bouts)
 		current := effectiveCurrentBoutID(pool, sorted)
-		livePools = append(livePools, domain.LivePool{Pool: pool, Bouts: sorted, CurrentBoutID: current})
+		out = append(out, domain.LivePool{Pool: pool, Bouts: sorted, CurrentBoutID: current})
 	}
-	return domain.NominationSnapshot{NominationID: nominationID, Stages: stages, Pools: livePools}, nil
+	return out, nil
 }
 
 // SubscribeNomination — тонкий passthrough к LiveSubscriber (спека 0014,
@@ -795,14 +930,17 @@ func toBoutPools(pools []domain.Pool) []domain.BoutPoolInput {
 	return out
 }
 
-// requireDraft проверяет, что раскладка этапа номинации в статусе draft
-// (FR-10/FR-11), не создавая строку этапа и не загружая пулы целиком
-// (read-only, спека 0017: единственный вызывающий — DeletePool, чей пул уже
-// существует, а значит его этап уже существует — EnsureStage не нужен).
-func (s *Service) requireDraft(ctx context.Context, nominationID string) error {
-	stage, err := s.stageForRead(ctx, nominationID)
+// requireDraft проверяет, что раскладка этапа в статусе draft (FR-10/FR-11)
+// — единственный вызывающий (DeletePool) уже знает stageID через
+// pool.StageID (пул существует ⇒ его этап существует), поэтому резолвится
+// напрямую по id, без виртуального фолбэка.
+func (s *Service) requireDraft(ctx context.Context, stageID string) error {
+	stage, found, err := s.repo.StageByID(ctx, stageID)
 	if err != nil {
 		return err
+	}
+	if !found {
+		return domain.ErrNotFound
 	}
 	if stage.Status != domain.LayoutDraft {
 		return domain.ErrNotDraft
@@ -810,26 +948,18 @@ func (s *Service) requireDraft(ctx context.Context, nominationID string) error {
 	return nil
 }
 
-// stageForWrite резолвит этап номинации для мутирующих путей (спека 0017,
-// FR-4): get-or-create через repo.EnsureStage. Используется в начале
-// CreatePool/ResetLayout/AssignFighter/UnassignFighter/AutoDistribute/Undo/
-// SetStatus.
-func (s *Service) stageForWrite(ctx context.Context, nominationID string) (domain.Stage, error) {
-	return s.repo.EnsureStage(ctx, nominationID)
-}
-
-// stageForRead резолвит этап номинации для read-путей — НЕ создаёт строку
-// (спека 0017): при отсутствии строки в БД возвращает виртуальный этап
-// (virtualStage). Используется в loadLayout/requireDraft/публичных чтениях.
-// Это разделение важно: GetLayout обязан остаться read-only, иначе открытие
-// экрана раскладки стало бы записью в БД.
-func (s *Service) stageForRead(ctx context.Context, nominationID string) (domain.Stage, error) {
-	stage, found, err := s.repo.StageByNomination(ctx, nominationID)
+// stageForWrite резолвит этап для мутирующих путей раскладки (спека 0018,
+// FR-18): просто StageByID + проверка существования — в отличие от 0017,
+// больше не создаёт этап неявно (EnsureStage остался только в ListStages,
+// план «service/service.go»). Используется в начале CreatePool/ResetLayout/
+// AssignFighter/UnassignFighter/AutoDistribute/Undo/SetStatus.
+func (s *Service) stageForWrite(ctx context.Context, stageID string) (domain.Stage, error) {
+	stage, found, err := s.repo.StageByID(ctx, stageID)
 	if err != nil {
 		return domain.Stage{}, err
 	}
 	if !found {
-		return virtualStage(nominationID), nil
+		return domain.Stage{}, domain.ErrNotFound
 	}
 	return stage, nil
 }
@@ -859,7 +989,10 @@ func (s *Service) StagesForNomination(ctx context.Context, nominationID string) 
 // (спека 0017, план «Риски»): те же дефолты, что материализует EnsureStage
 // (position=0/groups/DefaultStageTitle/draft), но с пустым ID — ровно как
 // сегодня отсутствие строки раскладки трактуется как пустой draft (спека
-// 0009, решение №9). Не пишет в БД — только для read-путей.
+// 0009, решение №9). Не пишет в БД — только для публичных read-путей
+// (stagesForRead); мутирующие пути (stageForWrite) виртуальный этап не
+// видят — они всегда получают stageID, материализованный ListStages (спека
+// 0018, FR-18).
 func virtualStage(nominationID string) domain.Stage {
 	return domain.Stage{
 		NominationID: nominationID,
@@ -872,24 +1005,22 @@ func virtualStage(nominationID string) domain.Stage {
 
 // loadLayoutAndSync — loadLayout плюс синхронизация «есть ли у номинации
 // распределённые бойцы» с модулем nomination (спека 0012, FR-5/FR-6/FR-10).
-// Вызывается вместо loadLayout из шести pool-мутирующих методов, реально
-// меняющих членство (DeletePool/ResetLayout/AssignFighter/UnassignFighter/
+// Вызывается вместо loadLayout из мутирующих методов, реально меняющих
+// членство (DeletePool/ResetLayout/AssignFighter/UnassignFighter/
 // AutoDistribute/Undo) — после того, как мутация уже применена в repo, чтобы
 // вычислить hasDistributed по результирующему состоянию, а не по имени RPC.
 // Синхронизация считает распределённых бойцов ПО ВСЕМ ЭТАПАМ номинации
-// (спека 0017, FR-9) — не по одному, даже если сам loadLayout стал
-// этапным: приём заявок открывается обратно, только когда ни в одном этапе
-// номинации не осталось распределённых бойцов.
-func (s *Service) loadLayoutAndSync(ctx context.Context, nominationID string) (domain.Layout, error) {
-	layout, err := s.loadLayout(ctx, nominationID)
+// (спека 0017, FR-9), резолвленной из свежезагруженного layout.
+func (s *Service) loadLayoutAndSync(ctx context.Context, stageID string) (domain.Layout, error) {
+	layout, err := s.loadLayout(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
-	distributed, err := s.hasDistributedAcrossStages(ctx, nominationID)
+	distributed, err := s.hasDistributedAcrossStages(ctx, layout.NominationID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
-	if err := s.nominations.SyncRegistrationState(ctx, nominationID, distributed); err != nil {
+	if err := s.nominations.SyncRegistrationState(ctx, layout.NominationID, distributed); err != nil {
 		return domain.Layout{}, err
 	}
 	return layout, nil
@@ -926,24 +1057,26 @@ func (s *Service) hasDistributedAcrossStages(ctx context.Context, nominationID s
 	return false, nil
 }
 
-// loadLayout собирает Layout ОДНОГО этапа номинации (админ-экран раскладки,
-// мутирующие юзкейсы) — не путать с ListPublicPools/NominationLive
-// (номинация целиком, по всем этапам, спека 0017 FR-9). Read-only:
-// использует stageForRead, ничего не пишет при отсутствии строки этапа
-// (виртуальный этап, GetLayout обязан оставаться чтением).
-func (s *Service) loadLayout(ctx context.Context, nominationID string) (domain.Layout, error) {
-	stage, err := s.stageForRead(ctx, nominationID)
+// loadLayout собирает Layout одного этапа (админ-экран раскладки,
+// мутирующие юзкейсы) по его id — не путать с ListPublicPools/NominationLive
+// (номинация целиком, по всем этапам, спека 0017 FR-9). Read-only. Этап,
+// адресованный несуществующим id, — ErrNotFound (спека 0018, FR-18:
+// админский путь всегда начинается со ListStages, поэтому валидный stageID
+// у мутирующих/раскладочных RPC гарантированно указывает на реальную
+// строку).
+func (s *Service) loadLayout(ctx context.Context, stageID string) (domain.Layout, error) {
+	stage, found, err := s.repo.StageByID(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
-	var rawPools []domain.Pool
-	if stage.ID != "" {
-		rawPools, err = s.combinedPoolsByStage(ctx, stage.ID)
-		if err != nil {
-			return domain.Layout{}, err
-		}
+	if !found {
+		return domain.Layout{}, domain.ErrNotFound
 	}
-	return s.assembleLayout(ctx, nominationID, stage, rawPools)
+	rawPools, err := s.combinedPoolsByStage(ctx, stage.ID)
+	if err != nil {
+		return domain.Layout{}, err
+	}
+	return s.assembleLayout(ctx, stage.NominationID, stage, rawPools)
 }
 
 // combinedPoolsByStage объединяет bare-пулы этапа (PoolsByStage) с их
@@ -955,21 +1088,6 @@ func (s *Service) combinedPoolsByStage(ctx context.Context, stageID string) ([]d
 		return nil, err
 	}
 	members, err := s.repo.MembersByStage(ctx, stageID)
-	if err != nil {
-		return nil, err
-	}
-	return combinePoolsAndMembers(pools, members), nil
-}
-
-// combinedPoolsByNomination — как combinedPoolsByStage, но по номинации
-// целиком (все этапы, спека 0017 FR-9): используется ListPublicPools/
-// NominationLive.
-func (s *Service) combinedPoolsByNomination(ctx context.Context, nominationID string) ([]domain.Pool, error) {
-	pools, err := s.repo.PoolsByNomination(ctx, nominationID)
-	if err != nil {
-		return nil, err
-	}
-	members, err := s.repo.MembersByNomination(ctx, nominationID)
 	if err != nil {
 		return nil, err
 	}
@@ -995,11 +1113,11 @@ func combinePoolsAndMembers(pools []domain.Pool, members []domain.PoolMember) []
 // пулов данными из ActiveFightersProvider (имя/клуб), скрывает выведенных/
 // снятых бойцов (FR-12), в draft — лениво удаляет их осиротевшие членства
 // (FR-15; в ready раскладка фиксирована — только read-only фильтрация, без
-// записи). Дополнительно (спека 0011): заполняет по каждому пулу
-// ArenaID/ArenaName (резолв через ArenaProvider) и вычисляемый Status.
-// Общая часть loadLayout (rawPools одного этапа) и ListPublicPools (rawPools
-// номинации целиком, спека 0017 FR-9) — stage передаётся вызывающим,
-// разница только в источнике rawPools.
+// записи; сетка в ready дополнительно заморожена независимо от orphaned,
+// спека 0018 FR-22 — см. repo.PruneMembers). Дополнительно (спека 0011):
+// заполняет по каждому пулу ArenaID/ArenaName/Name (спека 0018, FR-19a) и
+// вычисляемый Status. nominationID передаётся отдельно (не всегда равен
+// stage.NominationID вызывающего контекста при виртуальном этапе).
 func (s *Service) assembleLayout(ctx context.Context, nominationID string, stage domain.Stage, rawPools []domain.Pool) (domain.Layout, error) {
 	active, err := s.fighters.ActiveFightersByNomination(ctx, nominationID)
 	if err != nil {
@@ -1034,7 +1152,7 @@ func (s *Service) assembleLayout(ctx context.Context, nominationID string, stage
 		}
 	}
 
-	pools, err = s.applyArenaAndStatus(ctx, pools, stage.Status)
+	pools, err = s.applyArenaAndStatus(ctx, pools, stage)
 	if err != nil {
 		return domain.Layout{}, err
 	}
@@ -1056,23 +1174,16 @@ func (s *Service) assembleLayout(ctx context.Context, nominationID string, stage
 	}, nil
 }
 
-// applyArenaAndStatus заполняет ArenaName (батч-резолв через ArenaProvider)
-// и Status (ComputePoolStatus, с прогрессом боёв — спека 0013, FR-10) для
-// пулов, чей LayoutStatus уже известен (спека 0017: все пулы одного этапа
-// либо, для ListPublicPools, номинации в этом инкременте — они совпадают,
-// т.к. этап один). Дополнительно резолвит имя номинации (NominationName) —
-// резолв идёт одним батчем. PoolProgress вызывается по одному разу на пул
-// (пулы уже уникальны по ID в списке одной раскладки) — не N+1 относительно
-// бойцов.
-//
-// Standings (спека 0016, FR-5/FR-7) заполняется только когда у пула есть
-// хотя бы один завершённый бой (finished > 0 из уже полученного
-// PoolProgress) — тогда дополнительно читаем сами бои (BoutsByPool) и
-// считаем итоговую таблицу; для пулов без результатов лишний вызов порта не
-// делаем (Standings остаётся nil, FR-7). Путь используется assembleLayout
-// (GetLayout admin и ListPublicPools public) — GetPoolsForArena к этой
-// функции не обращается, её пулы Standings осознанно не несут.
-func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, layoutStatus domain.LayoutStatus) ([]domain.Pool, error) {
+// applyArenaAndStatus заполняет Name (FR-19a — «Пул N» у группы,
+// ContainerTitle у сетки), ArenaName (батч-резолв через ArenaProvider) и
+// Status для пулов ОДНОГО известного этапа (assembleLayout — все пулы
+// принадлежат stage). Групповой этап: знаменатель статуса и Standings — как
+// раньше (ComputePoolStatus + ComputeStandings из прогресса боёв, спека
+// 0013 FR-10/0016). Этап-сетка (спека 0018, FR-17): знаменатель —
+// разрешённые пары половины круга (bracketStatusesForStage), не число
+// материализованных боёв — «завершён» должен учитывать пары, разрешённые
+// баем.
+func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, stage domain.Stage) ([]domain.Pool, error) {
 	arenaNames, err := s.resolveArenaNames(ctx, pools)
 	if err != nil {
 		return nil, err
@@ -1081,40 +1192,64 @@ func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, 
 	if err != nil {
 		return nil, err
 	}
-	for i := range pools {
-		total, started, finished, err := s.bouts.PoolProgress(ctx, pools[i].ID)
+
+	var bracketStatuses map[int]domain.PoolStatus
+	if stage.Type == domain.StageTypeBracket {
+		bracketStatuses, err = s.bracketStatusesForStage(ctx, stage)
 		if err != nil {
 			return nil, err
 		}
-		pools[i].Status = domain.ComputePoolStatus(layoutStatus, pools[i].ArenaID, started, finished, total)
+	}
+
+	for i := range pools {
+		if stage.Type == domain.StageTypeBracket {
+			pools[i].Status = bracketStatuses[pools[i].Number]
+			pools[i].Name = domain.ContainerTitle(stage.Bracket, pools[i].Number)
+		} else {
+			total, started, finished, err := s.bouts.PoolProgress(ctx, pools[i].ID)
+			if err != nil {
+				return nil, err
+			}
+			pools[i].Status = domain.ComputePoolStatus(stage.Status, pools[i].ArenaID, started, finished, total)
+			pools[i].Name = groupContainerName(pools[i].Number)
+			if finished > 0 {
+				poolBouts, err := s.bouts.BoutsByPool(ctx, pools[i].ID)
+				if err != nil {
+					return nil, err
+				}
+				pools[i].Standings = domain.ComputeStandings(pools[i].Members, poolBouts)
+			}
+		}
 		if pools[i].ArenaID != "" {
 			pools[i].ArenaName = arenaNames[pools[i].ArenaID].Name
 		}
 		pools[i].NominationName = nomNames[pools[i].NominationID].Title
-		if finished > 0 {
-			poolBouts, err := s.bouts.BoutsByPool(ctx, pools[i].ID)
-			if err != nil {
-				return nil, err
-			}
-			pools[i].Standings = domain.ComputeStandings(pools[i].Members, poolBouts)
-		}
 	}
 	return pools, nil
 }
 
+// groupContainerName — подпись контейнера группового этапа (спека 0009,
+// FR-3; спека 0018, FR-19a — вынесено из api.poolName в сервис, чтобы
+// формировать имя контейнера в одном месте вместе с ContainerTitle сетки).
+func groupContainerName(number int) string {
+	return fmt.Sprintf("Пул %d", number)
+}
+
 // enrichPools обогащает произвольный список пулов (возможно, разных
-// номинаций и разных статусов раскладки — GetPoolsForArena, спека 0011):
-// членов через ActiveFightersProvider (по номинациям, батчем), Status и
-// ArenaName. Используется, когда пулы уже пришли из repo с «сырыми»
-// членствами (в отличие от loadLayout, который читает статус целиком по
-// одной номинации).
+// номинаций/этапов/типов — GetPoolsForArena, спека 0011/0018): членов через
+// ActiveFightersProvider (по номинациям, батчем), Name/Status через
+// владеющий этап (резолвится по p.StageID — не по номинации: пулы одной
+// номинации могут принадлежать разным этапам с разным статусом, спека
+// 0018) и ArenaName. Используется, когда пулы уже пришли из repo с «сырыми»
+// членствами.
 func (s *Service) enrichPools(ctx context.Context, rawPools []domain.Pool) ([]domain.Pool, error) {
 	if len(rawPools) == 0 {
 		return []domain.Pool{}, nil
 	}
 
 	fightersByNom := make(map[string]map[string]domain.FighterRef)
-	statusByNom := make(map[string]domain.LayoutStatus)
+	stageByID := make(map[string]domain.Stage)
+	bracketStatusByStage := make(map[string]map[int]domain.PoolStatus)
 
 	out := make([]domain.Pool, len(rawPools))
 	for i, p := range rawPools {
@@ -1130,14 +1265,17 @@ func (s *Service) enrichPools(ctx context.Context, rawPools []domain.Pool) ([]do
 			}
 			fightersByNom[p.NominationID] = activeByID
 		}
-		layoutStatus, ok := statusByNom[p.NominationID]
+
+		stage, ok := stageByID[p.StageID]
 		if !ok {
-			stage, err := s.stageForRead(ctx, p.NominationID)
+			st, found, err := s.repo.StageByID(ctx, p.StageID)
 			if err != nil {
 				return nil, err
 			}
-			layoutStatus = stage.Status
-			statusByNom[p.NominationID] = layoutStatus
+			if found {
+				stage = st
+			}
+			stageByID[p.StageID] = stage
 		}
 
 		enriched := domain.Pool{
@@ -1149,11 +1287,27 @@ func (s *Service) enrichPools(ctx context.Context, rawPools []domain.Pool) ([]do
 				enriched.Members = append(enriched.Members, ref)
 			}
 		}
-		total, started, finished, err := s.bouts.PoolProgress(ctx, p.ID)
-		if err != nil {
-			return nil, err
+
+		if stage.Type == domain.StageTypeBracket {
+			statuses, ok := bracketStatusByStage[stage.ID]
+			if !ok {
+				var err error
+				statuses, err = s.bracketStatusesForStage(ctx, stage)
+				if err != nil {
+					return nil, err
+				}
+				bracketStatusByStage[stage.ID] = statuses
+			}
+			enriched.Status = statuses[p.Number]
+			enriched.Name = domain.ContainerTitle(stage.Bracket, p.Number)
+		} else {
+			total, started, finished, err := s.bouts.PoolProgress(ctx, p.ID)
+			if err != nil {
+				return nil, err
+			}
+			enriched.Status = domain.ComputePoolStatus(stage.Status, p.ArenaID, started, finished, total)
+			enriched.Name = groupContainerName(p.Number)
 		}
-		enriched.Status = domain.ComputePoolStatus(layoutStatus, p.ArenaID, started, finished, total)
 		out[i] = enriched
 	}
 

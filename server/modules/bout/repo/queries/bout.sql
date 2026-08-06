@@ -1,29 +1,33 @@
--- name: DeleteBoutsByNomination :exec
--- ON DELETE CASCADE на bout.bout_events.bout_id удаляет вместе с проекцией
--- и потоки событий регенерируемых боёв (спека 0013, plan.md «Server» →
--- bout, миграция 00002). Используется ReplaceForNomination (GenerateForStage,
--- спека 0017): в этом инкременте у номинации ровно один этап, поэтому
--- delete-перед-insert всё ещё безопасно адресовать по номинации целиком.
-DELETE FROM bout.bouts WHERE nomination_id = $1;
-
 -- name: DeleteBoutsByPools :exec
--- Расфиксация этапа (спека 0017, ClearForPools): удаляет бои только
+-- Расфиксация этапа (спека 0017, ClearForPools) и delete-сторона
+-- ReplaceForPools (GenerateForStage, спека 0018): удаляет бои только
 -- перечисленных пулов, не трогая бои пулов других этапов той же номинации
--- (FR-8). ON DELETE CASCADE на bout.bout_events.bout_id удаляет вместе с
--- проекцией и потоки событий.
+-- (FR-8; 0018 закрывает латентный баг 0017, где delete-сторона адресовалась
+-- номинацией целиком). ON DELETE CASCADE на bout.bout_events.bout_id
+-- удаляет вместе с проекцией и потоки событий.
 DELETE FROM bout.bouts WHERE pool_id = ANY(sqlc.arg(pool_ids)::uuid[]);
 
+-- name: DeleteBoutsByIDs :exec
+-- Точечное удаление боёв по id (спека 0018, FR-16) — снятие продвижения
+-- победителя при пересмотре результата предыдущего круга сетки: адресация
+-- по конкретным боям, не по пулу — соседние бои того же контейнера не
+-- трогаются. ON DELETE CASCADE удаляет вместе с проекцией и потоки событий.
+DELETE FROM bout.bouts WHERE id = ANY(sqlc.arg(bout_ids)::uuid[]);
+
 -- name: InsertBout :one
+-- id передаётся явно вызывающим (service), а не генерируется DEFAULT'ом
+-- колонки: ScheduleBout (спека 0018, FR-14) должен вернуть id созданного
+-- боя синхронно, без отдельного round-trip за ним.
 INSERT INTO bout.bouts (
-    pool_id, nomination_id, round_number, sequence_number,
+    id, pool_id, nomination_id, round_number, sequence_number,
     fighter_a_id, fighter_a_name, fighter_a_club,
     fighter_b_id, fighter_b_name, fighter_b_club,
     state, score_a, score_b, version
 ) VALUES (
-    $1, $2, $3, $4,
-    $5, $6, $7,
-    $8, $9, $10,
-    $11, $12, $13, $14
+    $1, $2, $3, $4, $5,
+    $6, $7, $8,
+    $9, $10, $11,
+    $12, $13, $14, $15
 )
 RETURNING id, pool_id, nomination_id, round_number, sequence_number,
     fighter_a_id, fighter_a_name, fighter_a_club,
@@ -85,7 +89,7 @@ VALUES ($1, $2, $3, $4, $5, $6);
 -- name: UpdateProjection :exec
 -- Обновляет инлайн-проекцию боя атомарно с AppendEvent (одна транзакция,
 -- ADR 0011 п.4). Строка проекции уже существует (создана при генерации,
--- ReplaceForNomination) — здесь только UPDATE, не upsert.
+-- ReplaceForPools/ScheduleBouts) — здесь только UPDATE, не upsert.
 UPDATE bout.bouts
 SET state = $2, score_a = $3, score_b = $4, version = $5
 WHERE id = $1;

@@ -26,43 +26,43 @@ describe("features/nomination-pools/api/requests", () => {
   });
 
   describe("getLayoutRequest", () => {
-    it("GETs pool-layout and returns ok:true with layout", async () => {
+    it("GETs /api/stages/[stageId]/layout and returns ok:true with layout", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ layout: { nominationId: "n1", pools: [] } }),
       });
 
-      const result = await getLayoutRequest("n1");
+      const result = await getLayoutRequest("s1");
 
       expect(result).toEqual({ ok: true, layout: { nominationId: "n1", pools: [] } });
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-layout", {
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/layout", {
         method: "GET",
       });
     });
 
     it("returns ok:false with server error on 4xx", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "bad" }) });
-      const result = await getLayoutRequest("n1");
+      const result = await getLayoutRequest("s1");
       expect(result).toEqual({ ok: false, error: "bad" });
     });
 
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
-      const result = await getLayoutRequest("n1");
+      const result = await getLayoutRequest("s1");
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 
   describe("createPoolRequest", () => {
-    it("POSTs pools", async () => {
+    it("POSTs /api/stages/[stageId]/pools", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ layout: { pools: [] } }) });
-      await createPoolRequest("n1");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pools", { method: "POST" });
+      await createPoolRequest("s1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/pools", { method: "POST" });
     });
   });
 
   describe("deletePoolRequest", () => {
-    it("DELETEs /api/pools/[poolId]", async () => {
+    it("DELETEs /api/pools/[poolId] (адресуется своим id, не этапом)", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ layout: { pools: [] } }) });
       await deletePoolRequest("p1");
       expect(fetchMock).toHaveBeenCalledWith("/api/pools/p1", { method: "DELETE" });
@@ -70,20 +70,20 @@ describe("features/nomination-pools/api/requests", () => {
   });
 
   describe("resetLayoutRequest", () => {
-    it("POSTs pool-layout/reset", async () => {
+    it("POSTs /api/stages/[stageId]/reset", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ layout: { pools: [] } }) });
-      await resetLayoutRequest("n1");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-layout/reset", {
+      await resetLayoutRequest("s1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/reset", {
         method: "POST",
       });
     });
   });
 
   describe("assignFighterRequest", () => {
-    it("POSTs pool-assign with fighterId + poolId", async () => {
+    it("POSTs /api/stages/[stageId]/assign with fighterId + poolId", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ layout: { pools: [] } }) });
-      await assignFighterRequest("n1", "f1", "p1");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-assign", {
+      await assignFighterRequest("s1", "f1", "p1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fighterId: "f1", poolId: "p1" }),
@@ -92,10 +92,10 @@ describe("features/nomination-pools/api/requests", () => {
   });
 
   describe("unassignFighterRequest", () => {
-    it("POSTs pool-unassign with fighterId", async () => {
+    it("POSTs /api/stages/[stageId]/unassign with fighterId", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ layout: { pools: [] } }) });
-      await unassignFighterRequest("n1", "f1");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-unassign", {
+      await unassignFighterRequest("s1", "f1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/unassign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fighterId: "f1" }),
@@ -104,13 +104,13 @@ describe("features/nomination-pools/api/requests", () => {
   });
 
   describe("autoDistributeRequest", () => {
-    it("POSTs pool-distribute", async () => {
+    it("POSTs /api/stages/[stageId]/distribute", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ layout: { pools: [], canUndo: true } }),
       });
-      await autoDistributeRequest("n1");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-distribute", {
+      await autoDistributeRequest("s1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/distribute", {
         method: "POST",
       });
     });
@@ -120,30 +120,30 @@ describe("features/nomination-pools/api/requests", () => {
         ok: false,
         json: async () => ({ error: "no pools to distribute into" }),
       });
-      const result = await autoDistributeRequest("n1");
+      const result = await autoDistributeRequest("s1");
       expect(result).toEqual({ ok: false, error: "no pools to distribute into" });
     });
   });
 
   describe("undoRequest", () => {
-    it("POSTs pool-undo", async () => {
+    it("POSTs /api/stages/[stageId]/undo", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ layout: { pools: [], canUndo: false } }),
       });
-      await undoRequest("n1");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-undo", { method: "POST" });
+      await undoRequest("s1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/undo", { method: "POST" });
     });
   });
 
   describe("setLayoutStatusRequest", () => {
-    it("POSTs pool-status with status", async () => {
+    it("POSTs /api/stages/[stageId]/status with status", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ layout: { status: "POOL_LAYOUT_STATUS_READY" } }),
       });
-      await setLayoutStatusRequest("n1", "ready");
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-status", {
+      await setLayoutStatusRequest("s1", "ready");
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ready" }),
@@ -152,7 +152,7 @@ describe("features/nomination-pools/api/requests", () => {
   });
 
   describe("fetchBouts", () => {
-    it("GETs bouts and returns ok:true with bouts", async () => {
+    it("GETs /api/nominations/[id]/bouts and returns ok:true with bouts (не переехало на этап)", async () => {
       const bouts = [
         {
           id: "b1",

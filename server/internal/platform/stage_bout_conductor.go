@@ -55,6 +55,22 @@ func (g *StageBoutConductor) ClearForPools(ctx context.Context, poolIDs []string
 	return g.svc.ClearForPools(ctx, poolIDs)
 }
 
+// ScheduleBout материализует один бой пары сетки (спека 0018, FR-14):
+// точечная вставка, ничего не удаляет. Возвращает id созданного боя.
+func (g *StageBoutConductor) ScheduleBout(ctx context.Context, nominationID, poolID string, round, sequence int, a, b stagedomain.FighterRef) (string, error) {
+	id, err := g.svc.ScheduleBout(ctx, nominationID, poolID, round, sequence,
+		boutdomain.FighterRef{ID: a.ID, Name: a.Name, Club: a.Club},
+		boutdomain.FighterRef{ID: b.ID, Name: b.Name, Club: b.Club},
+	)
+	return id, mapBoutErr(err)
+}
+
+// DeleteBouts точечно удаляет перечисленные бои (снятие продвижения при
+// пересмотре результата, спека 0018, FR-16).
+func (g *StageBoutConductor) DeleteBouts(ctx context.Context, boutIDs []string) error {
+	return mapBoutErr(g.svc.DeleteBouts(ctx, boutIDs))
+}
+
 // StartBout переводит бой не начат → идёт (спека 0013, FR-4).
 func (g *StageBoutConductor) StartBout(ctx context.Context, boutID, actorID string) error {
 	_, err := g.svc.StartBout(ctx, boutID, actorID, time.Now())

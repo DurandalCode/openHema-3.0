@@ -77,10 +77,10 @@ func TestGenerateForStage_CollectsAllPoolsInOneReplaceCall(t *testing.T) {
 
 	calls := repo.ReplaceCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected exactly 1 ReplaceForNomination call, got %d", len(calls))
+		t.Fatalf("expected exactly 1 ReplaceForPools call, got %d", len(calls))
 	}
-	if calls[0].NominationID != n1 {
-		t.Errorf("NominationID = %q, want %q", calls[0].NominationID, n1)
+	if len(calls[0].PoolIDs) != 2 {
+		t.Fatalf("expected PoolIDs to list both pools, got %+v", calls[0].PoolIDs)
 	}
 	// p1 (3 fighters) -> 3 bouts, p2 (2 fighters) -> 1 bout = 4 total.
 	if len(calls[0].Bouts) != 4 {
@@ -119,7 +119,7 @@ func TestGenerateForStage_SkipsPoolsWithFewerThanTwoFighters(t *testing.T) {
 
 	calls := repo.ReplaceCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected exactly 1 ReplaceForNomination call, got %d", len(calls))
+		t.Fatalf("expected exactly 1 ReplaceForPools call, got %d", len(calls))
 	}
 	if len(calls[0].Bouts) != 0 {
 		t.Fatalf("expected 0 bouts, got %d", len(calls[0].Bouts))
@@ -267,6 +267,190 @@ func TestGenerateForStage_WritesScheduledStateAndVersion(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != domain.EventScheduled {
 		t.Fatalf("expected single scheduled event, got %+v", events)
+	}
+}
+
+// T7 (spec 0018, regression on the 0017 latent bug): GenerateForStage
+// through ReplaceForPools must not touch bouts of pools belonging to
+// another stage of the same nomination. Two "stages" are modeled as two
+// disjoint pool-ID sets sharing one nominationID — the way stage.bracket
+// (second stage) and stage.groups (first stage) would coexist. Before 0018,
+// ReplaceForNomination deleted every bout of the nomination regardless of
+// pool, which would have wiped the first stage's bouts when the second
+// stage's bracket was fixed.
+func TestGenerateForStage_DoesNotTouchPoolsOfAnotherStageInSameNomination(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	// Stage 1 (e.g. groups): pool "s1-pool".
+	if err := svc.GenerateForStage(context.Background(), n1, []domain.PoolInput{
+		{PoolID: "s1-pool", Fighters: []domain.FighterRef{{ID: "a"}, {ID: "b"}}},
+	}); err != nil {
+		t.Fatalf("GenerateForStage (stage 1): %v", err)
+	}
+	stage1Before, err := svc.BoutsByPool(context.Background(), "s1-pool")
+	if err != nil {
+		t.Fatalf("BoutsByPool (stage 1, before): %v", err)
+	}
+	if len(stage1Before) != 1 {
+		t.Fatalf("expected 1 bout in stage 1 pool, got %d", len(stage1Before))
+	}
+	stage1BoutID := stage1Before[0].ID
+
+	// Stage 2 (e.g. bracket): disjoint pool "s2-pool", same nomination.
+	if err := svc.GenerateForStage(context.Background(), n1, []domain.PoolInput{
+		{PoolID: "s2-pool", Fighters: []domain.FighterRef{{ID: "c"}, {ID: "d"}}},
+	}); err != nil {
+		t.Fatalf("GenerateForStage (stage 2): %v", err)
+	}
+
+	// Stage 1's bout must be untouched: same ID, still present.
+	stage1After, err := svc.BoutsByPool(context.Background(), "s1-pool")
+	if err != nil {
+		t.Fatalf("BoutsByPool (stage 1, after): %v", err)
+	}
+	if len(stage1After) != 1 {
+		t.Fatalf("expected stage 1 pool bout to survive stage 2 generation, got %d bouts", len(stage1After))
+	}
+	if stage1After[0].ID != stage1BoutID {
+		t.Fatalf("expected stage 1 bout ID to be unchanged (%q), got %q", stage1BoutID, stage1After[0].ID)
+	}
+
+	stage2, err := svc.BoutsByPool(context.Background(), "s2-pool")
+	if err != nil {
+		t.Fatalf("BoutsByPool (stage 2): %v", err)
+	}
+	if len(stage2) != 1 {
+		t.Fatalf("expected 1 bout in stage 2 pool, got %d", len(stage2))
+	}
+
+	// The ReplaceForPools call for stage 2 must have addressed only its own
+	// pool, not the whole nomination.
+	calls := repo.ReplaceCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 ReplaceForPools calls (one per stage), got %d", len(calls))
+	}
+	secondCall := calls[1]
+	if len(secondCall.PoolIDs) != 1 || secondCall.PoolIDs[0] != "s2-pool" {
+		t.Fatalf("expected second ReplaceForPools call to address only s2-pool, got %+v", secondCall.PoolIDs)
+	}
+}
+
+// --- T7: ScheduleBout / DeleteBouts (spec 0018) ---
+
+// T7: ScheduleBout creates a single-bout stream with a scheduled event
+// carrying the given round/sequence, without touching anything else.
+func TestScheduleBout_CreatesStreamWithScheduledEventAndGivenRoundSequence(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	a := domain.FighterRef{ID: fighterAIDLC, Name: "Alice"}
+	b := domain.FighterRef{ID: fighterBIDLC, Name: "Bob"}
+
+	boutID, err := svc.ScheduleBout(context.Background(), n1, poolIDConst, 3, 2, a, b)
+	if err != nil {
+		t.Fatalf("ScheduleBout: %v", err)
+	}
+	if boutID == "" {
+		t.Fatal("expected a non-empty bout ID")
+	}
+
+	got, err := svc.GetBout(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("GetBout: %v", err)
+	}
+	if got.PoolID != poolIDConst || got.NominationID != n1 {
+		t.Fatalf("unexpected identity: %+v", got)
+	}
+	if got.RoundNumber != 3 || got.SequenceNumber != 2 {
+		t.Fatalf("unexpected round/sequence: round=%d seq=%d, want 3/2", got.RoundNumber, got.SequenceNumber)
+	}
+	if got.FighterA != a || got.FighterB != b {
+		t.Fatalf("unexpected fighters: %+v", got)
+	}
+	if got.State != domain.StateNotStarted {
+		t.Fatalf("State = %v, want StateNotStarted", got.State)
+	}
+
+	events, err := repo.Load(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != domain.EventScheduled {
+		t.Fatalf("expected single scheduled event, got %+v", events)
+	}
+
+	calls := repo.ScheduleCalls()
+	if len(calls) != 1 || len(calls[0]) != 1 {
+		t.Fatalf("expected exactly 1 ScheduleBouts call with 1 bout, got %+v", calls)
+	}
+}
+
+func TestScheduleBout_EmptyNominationOrPoolID_ErrInvalidInput(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	a := domain.FighterRef{ID: fighterAIDLC}
+	b := domain.FighterRef{ID: fighterBIDLC}
+
+	if _, err := svc.ScheduleBout(context.Background(), "", poolIDConst, 1, 1, a, b); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("ScheduleBout(empty nomination) error = %v, want ErrInvalidInput", err)
+	}
+	if _, err := svc.ScheduleBout(context.Background(), n1, "", 1, 1, a, b); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("ScheduleBout(empty pool) error = %v, want ErrInvalidInput", err)
+	}
+	if len(repo.ScheduleCalls()) != 0 {
+		t.Fatal("repo must not be called on invalid input")
+	}
+}
+
+// T7: DeleteBouts removes only the listed bout streams, leaving others
+// (even in the same pool) untouched.
+func TestDeleteBouts_RemovesOnlyListedBouts(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	keepID := seedScheduledBout(t, repo)
+	repo.SeedBouts(n1, domain.Bout{ID: "to-delete", PoolID: poolIDConst, NominationID: n1, RoundNumber: 1, SequenceNumber: 9,
+		FighterA: domain.FighterRef{ID: "x"}, FighterB: domain.FighterRef{ID: "y"}})
+
+	if err := svc.DeleteBouts(context.Background(), []string{"to-delete"}); err != nil {
+		t.Fatalf("DeleteBouts: %v", err)
+	}
+
+	if _, err := svc.GetBout(context.Background(), "to-delete"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected deleted bout to be gone, got err=%v", err)
+	}
+	if _, err := repo.Load(context.Background(), "to-delete"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected deleted bout's event stream to be gone, got err=%v", err)
+	}
+
+	kept, err := svc.GetBout(context.Background(), keepID)
+	if err != nil {
+		t.Fatalf("expected untouched bout to remain, got err=%v", err)
+	}
+	if kept.ID != keepID {
+		t.Fatalf("unexpected kept bout: %+v", kept)
+	}
+
+	calls := repo.DeleteBoutsCalls()
+	if len(calls) != 1 || len(calls[0]) != 1 || calls[0][0] != "to-delete" {
+		t.Fatalf("expected exactly 1 DeleteBouts([to-delete]) call, got %+v", calls)
+	}
+}
+
+func TestDeleteBouts_EmptyIDs_NoOp(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedScheduledBout(t, repo)
+
+	if err := svc.DeleteBouts(context.Background(), nil); err != nil {
+		t.Fatalf("DeleteBouts(empty): %v", err)
+	}
+	if len(repo.DeleteBoutsCalls()) != 0 {
+		t.Fatal("repo must not be called with an empty id list")
+	}
+	if _, err := svc.GetBout(context.Background(), boutID); err != nil {
+		t.Fatalf("expected bout to remain after no-op DeleteBouts, got err=%v", err)
 	}
 }
 

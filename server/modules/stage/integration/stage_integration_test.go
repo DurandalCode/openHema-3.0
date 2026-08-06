@@ -105,6 +105,27 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 	}, pool
 }
 
+// stageIDFor резолвит id канонического (группового) этапа номинации через
+// реальный ListStages (спека 0018, FR-18: материализует групповой этап,
+// как и на реальном админском пути) — используется вместо адресации RPC
+// раскладки по nominationID напрямую, которая была до 0018.
+func stageIDFor(t *testing.T, c clients, nominationID string) string {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.ListStagesRequest{NominationId: nominationID})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.pool.ListStages(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListStages(%q): %v", nominationID, err)
+	}
+	for _, s := range res.Msg.Stages {
+		if s.Type == hemav1.StageType_STAGE_TYPE_GROUPS {
+			return s.Id
+		}
+	}
+	t.Fatalf("no groups stage found for nomination %q", nominationID)
+	return ""
+}
+
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
@@ -157,7 +178,7 @@ func TestIntegration_CreateAssignDistributeGet(t *testing.T) {
 	f1 := createFighter(t, c, nomID, "Иван", "Клуб А")
 	f2 := createFighter(t, c, nomID, "Пётр", "Клуб Б")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -169,14 +190,14 @@ func TestIntegration_CreateAssignDistributeGet(t *testing.T) {
 	poolID := created.Msg.Layout.Pools[0].Id
 
 	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{
-		NominationId: nomID, FighterId: f1, PoolId: poolID,
+		StageId: stageIDFor(t, c, nomID), FighterId: f1, PoolId: poolID,
 	})
 	assignReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 		t.Fatalf("AssignFighter: %v", err)
 	}
 
-	distReq := connect.NewRequest(&hemav1.AutoDistributeRequest{NominationId: nomID})
+	distReq := connect.NewRequest(&hemav1.AutoDistributeRequest{StageId: stageIDFor(t, c, nomID)})
 	distReq.Header().Set("Authorization", adminBearer(t))
 	dist, err := c.pool.AutoDistribute(context.Background(), distReq)
 	if err != nil {
@@ -186,7 +207,7 @@ func TestIntegration_CreateAssignDistributeGet(t *testing.T) {
 		t.Fatalf("expected all fighters distributed, got %d unassigned", len(dist.Msg.Layout.Unassigned))
 	}
 
-	getReq := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: nomID})
+	getReq := connect.NewRequest(&hemav1.GetLayoutRequest{StageId: stageIDFor(t, c, nomID)})
 	getReq.Header().Set("Authorization", adminBearer(t))
 	got, err := c.pool.GetLayout(context.Background(), getReq)
 	if err != nil {
@@ -213,7 +234,7 @@ func TestIntegration_UniqueFighterPerNomination_MoveNotDuplicate(t *testing.T) {
 	f1 := createFighter(t, c, nomID, "Иван", "")
 
 	newPool := func() string {
-		req := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+		req := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 		req.Header().Set("Authorization", adminBearer(t))
 		res, err := c.pool.CreatePool(context.Background(), req)
 		if err != nil {
@@ -225,7 +246,7 @@ func TestIntegration_UniqueFighterPerNomination_MoveNotDuplicate(t *testing.T) {
 	p2 := newPool()
 
 	assign := func(poolID string) *hemav1.PoolLayout {
-		req := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f1, PoolId: poolID})
+		req := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: f1, PoolId: poolID})
 		req.Header().Set("Authorization", adminBearer(t))
 		res, err := c.pool.AssignFighter(context.Background(), req)
 		if err != nil {
@@ -254,7 +275,7 @@ func TestIntegration_DeletePool_CascadesMembers(t *testing.T) {
 	nomID := createNomination(t, c)
 	f1 := createFighter(t, c, nomID, "Иван", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -262,7 +283,7 @@ func TestIntegration_DeletePool_CascadesMembers(t *testing.T) {
 	}
 	poolID := created.Msg.Layout.Pools[0].Id
 
-	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f1, PoolId: poolID})
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: f1, PoolId: poolID})
 	assignReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 		t.Fatalf("AssignFighter: %v", err)
@@ -282,7 +303,7 @@ func TestIntegration_DeletePool_CascadesMembers(t *testing.T) {
 	}
 
 	// Undo восстанавливает пул с прежним членом (снапшот, не FK-каскад).
-	undoReq := connect.NewRequest(&hemav1.UndoRequest{NominationId: nomID})
+	undoReq := connect.NewRequest(&hemav1.UndoRequest{StageId: stageIDFor(t, c, nomID)})
 	undoReq.Header().Set("Authorization", adminBearer(t))
 	undo, err := c.pool.Undo(context.Background(), undoReq)
 	if err != nil {
@@ -302,7 +323,7 @@ func TestIntegration_UndoReset_RestoresAllPools(t *testing.T) {
 	f1 := createFighter(t, c, nomID, "Иван", "Клуб А")
 	f2 := createFighter(t, c, nomID, "Пётр", "Клуб Б")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -310,28 +331,28 @@ func TestIntegration_UndoReset_RestoresAllPools(t *testing.T) {
 	}
 	pool1ID := created.Msg.Layout.Pools[0].Id
 
-	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f1, PoolId: pool1ID})
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: f1, PoolId: pool1ID})
 	assignReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 		t.Fatalf("AssignFighter: %v", err)
 	}
 
 	// Создаём второй пул и кладём туда второго бойца.
-	createReq2 := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq2 := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq2.Header().Set("Authorization", adminBearer(t))
 	created2, err := c.pool.CreatePool(context.Background(), createReq2)
 	if err != nil {
 		t.Fatalf("CreatePool 2: %v", err)
 	}
 	pool2ID := created2.Msg.Layout.Pools[0].Id
-	assignReq2 := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f2, PoolId: pool2ID})
+	assignReq2 := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: f2, PoolId: pool2ID})
 	assignReq2.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.AssignFighter(context.Background(), assignReq2); err != nil {
 		t.Fatalf("AssignFighter 2: %v", err)
 	}
 
 	// Сбрасываем раскладку — все пулы удаляются, undo доступен.
-	resetReq := connect.NewRequest(&hemav1.ResetLayoutRequest{NominationId: nomID})
+	resetReq := connect.NewRequest(&hemav1.ResetLayoutRequest{StageId: stageIDFor(t, c, nomID)})
 	resetReq.Header().Set("Authorization", adminBearer(t))
 	reset, err := c.pool.ResetLayout(context.Background(), resetReq)
 	if err != nil {
@@ -345,7 +366,7 @@ func TestIntegration_UndoReset_RestoresAllPools(t *testing.T) {
 	}
 
 	// Undo — восстанавливает все пулы с теми же номерами и бойцами.
-	undoReq := connect.NewRequest(&hemav1.UndoRequest{NominationId: nomID})
+	undoReq := connect.NewRequest(&hemav1.UndoRequest{StageId: stageIDFor(t, c, nomID)})
 	undoReq.Header().Set("Authorization", adminBearer(t))
 	undo, err := c.pool.Undo(context.Background(), undoReq)
 	if err != nil {
@@ -371,7 +392,7 @@ func TestIntegration_NoToken(t *testing.T) {
 	c, _ := setup(t)
 
 	_, err := c.pool.GetLayout(context.Background(),
-		connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: seedTournamentID}))
+		connect.NewRequest(&hemav1.GetLayoutRequest{StageId: seedTournamentID}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated without token, got %v", connect.CodeOf(err))
 	}
@@ -383,7 +404,7 @@ func TestIntegration_NoToken(t *testing.T) {
 
 func setLayoutStatus(t *testing.T, c clients, nominationID string, status hemav1.PoolLayoutStatus) *hemav1.PoolLayout {
 	t.Helper()
-	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{NominationId: nominationID, Status: status})
+	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{StageId: stageIDFor(t, c, nominationID), Status: status})
 	req.Header().Set("Authorization", adminBearer(t))
 	res, err := c.pool.SetLayoutStatus(context.Background(), req)
 	if err != nil {
@@ -413,7 +434,7 @@ func TestIntegration_SetLayoutStatusReady_GeneratesBouts(t *testing.T) {
 	f2 := createFighter(t, c, nomID, "Пётр", "")
 	f3 := createFighter(t, c, nomID, "Сидор", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -422,7 +443,7 @@ func TestIntegration_SetLayoutStatusReady_GeneratesBouts(t *testing.T) {
 	poolID := created.Msg.Layout.Pools[0].Id
 
 	for _, fid := range []string{f1, f2, f3} {
-		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: fid, PoolId: poolID})
 		assignReq.Header().Set("Authorization", adminBearer(t))
 		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 			t.Fatalf("AssignFighter(%s): %v", fid, err)
@@ -458,7 +479,7 @@ func TestIntegration_SetLayoutStatusDraft_ClearsBouts(t *testing.T) {
 	f1 := createFighter(t, c, nomID, "Иван", "")
 	f2 := createFighter(t, c, nomID, "Пётр", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -466,7 +487,7 @@ func TestIntegration_SetLayoutStatusDraft_ClearsBouts(t *testing.T) {
 	}
 	poolID := created.Msg.Layout.Pools[0].Id
 	for _, fid := range []string{f1, f2} {
-		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: fid, PoolId: poolID})
 		assignReq.Header().Set("Authorization", adminBearer(t))
 		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 			t.Fatalf("AssignFighter(%s): %v", fid, err)
@@ -497,7 +518,7 @@ func TestIntegration_ReadyAgain_RegeneratesForChangedComposition(t *testing.T) {
 	f2 := createFighter(t, c, nomID, "Пётр", "")
 	f3 := createFighter(t, c, nomID, "Сидор", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -506,7 +527,7 @@ func TestIntegration_ReadyAgain_RegeneratesForChangedComposition(t *testing.T) {
 	poolID := created.Msg.Layout.Pools[0].Id
 
 	assign := func(fid string) {
-		req := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		req := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: fid, PoolId: poolID})
 		req.Header().Set("Authorization", adminBearer(t))
 		if _, err := c.pool.AssignFighter(context.Background(), req); err != nil {
 			t.Fatalf("AssignFighter(%s): %v", fid, err)
@@ -562,7 +583,7 @@ func readyPoolWithOneFighter(t *testing.T, c clients, nominationTitle string) (n
 	nomID := nomRes.Msg.Nomination.Id
 	fID := createFighter(t, c, nomID, "Иван", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -570,7 +591,7 @@ func readyPoolWithOneFighter(t *testing.T, c clients, nominationTitle string) (n
 	}
 	poolID = created.Msg.Layout.Pools[0].Id
 
-	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fID, PoolId: poolID})
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: fID, PoolId: poolID})
 	assignReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 		t.Fatalf("AssignFighter: %v", err)
@@ -635,7 +656,7 @@ func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
 	f1 := createFighter(t, c, nomID, "Иван", "")
 	f2 := createFighter(t, c, nomID, "Пётр", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -643,7 +664,7 @@ func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
 	}
 	poolID := created.Msg.Layout.Pools[0].Id
 	for _, fid := range []string{f1, f2} {
-		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: fid, PoolId: poolID})
 		assignReq.Header().Set("Authorization", adminBearer(t))
 		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 			t.Fatalf("AssignFighter(%s): %v", fid, err)
@@ -719,7 +740,7 @@ func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
 	if _, err := c.pool.UnseatPool(context.Background(), unseatReq); err != nil {
 		t.Fatalf("UnseatPool: %v", err)
 	}
-	getLayoutReq := connect.NewRequest(&hemav1.GetLayoutRequest{NominationId: nomID})
+	getLayoutReq := connect.NewRequest(&hemav1.GetLayoutRequest{StageId: stageIDFor(t, c, nomID)})
 	getLayoutReq.Header().Set("Authorization", adminBearer(t))
 	layoutRes, err := c.pool.GetLayout(context.Background(), getLayoutReq)
 	if err != nil {
@@ -734,7 +755,7 @@ func TestIntegration_ConductBout_FullLifecycle(t *testing.T) {
 
 	// AC-12: раскладку с проведённым боем нельзя вернуть в draft, даже
 	// после снятия пула с арены (результаты защищены).
-	draftReq := connect.NewRequest(&hemav1.SetLayoutStatusRequest{NominationId: nomID, Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT})
+	draftReq := connect.NewRequest(&hemav1.SetLayoutStatusRequest{StageId: stageIDFor(t, c, nomID), Status: hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT})
 	draftReq.Header().Set("Authorization", adminBearer(t))
 	_, err = c.pool.SetLayoutStatus(context.Background(), draftReq)
 	if err == nil {
@@ -760,7 +781,7 @@ func TestIntegration_GetNominationLive_ReflectsConductedBout(t *testing.T) {
 	f1 := createFighter(t, c, nomID, "Иван", "")
 	f2 := createFighter(t, c, nomID, "Пётр", "")
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
@@ -768,7 +789,7 @@ func TestIntegration_GetNominationLive_ReflectsConductedBout(t *testing.T) {
 	}
 	poolID := created.Msg.Layout.Pools[0].Id
 	for _, fid := range []string{f1, f2} {
-		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: fid, PoolId: poolID})
+		assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: fid, PoolId: poolID})
 		assignReq.Header().Set("Authorization", adminBearer(t))
 		if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 			t.Fatalf("AssignFighter(%s): %v", fid, err)
@@ -911,14 +932,14 @@ func TestIntegration_SecondStage_SameFighterAllowed_SecondPoolInStageBlocked(t *
 	f1 := createFighter(t, c, nomID, "Иван", "")
 
 	// Этап 1 (канонический) — через RPC, боец уже в нём.
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	created, err := c.pool.CreatePool(context.Background(), createReq)
 	if err != nil {
 		t.Fatalf("CreatePool: %v", err)
 	}
 	stage1PoolID := created.Msg.Layout.Pools[0].Id
-	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{NominationId: nomID, FighterId: f1, PoolId: stage1PoolID})
+	assignReq := connect.NewRequest(&hemav1.AssignFighterRequest{StageId: stageIDFor(t, c, nomID), FighterId: f1, PoolId: stage1PoolID})
 	assignReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.AssignFighter(context.Background(), assignReq); err != nil {
 		t.Fatalf("AssignFighter (stage 1): %v", err)
@@ -948,7 +969,7 @@ func TestIntegration_SecondStage_SamePoolNumberAllowed(t *testing.T) {
 	c, pool := setup(t)
 	nomID := createNomination(t, c)
 
-	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{NominationId: nomID})
+	createReq := connect.NewRequest(&hemav1.CreatePoolRequest{StageId: stageIDFor(t, c, nomID)})
 	createReq.Header().Set("Authorization", adminBearer(t))
 	if _, err := c.pool.CreatePool(context.Background(), createReq); err != nil {
 		t.Fatalf("CreatePool (stage 1): %v", err)
@@ -998,5 +1019,217 @@ func TestIntegration_DeleteStage_CascadesPoolsAndMembers(t *testing.T) {
 	}
 	if poolCount != 0 || memberCount != 0 {
 		t.Fatalf("expected cascade delete of pools and members, got pools=%d members=%d", poolCount, memberCount)
+	}
+}
+
+// ── Спека 0018: миграция 00002_bracket.sql — этап-сетка на живом PG. ──
+
+// TestIntegration_ChkStagesBracket_RejectsGroupsWithSize проверяет
+// chk_stages_bracket (миграция 00002): групповой этап с ненулевым
+// bracket_size — нарушение констрейнта на уровне данных, не только
+// сервисной валидации.
+func TestIntegration_ChkStagesBracket_RejectsGroupsWithSize(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO stage.stages (nomination_id, position, title, type, status, bracket_size)
+		 VALUES ($1, 1, 'Невалидный групповой', 'groups', 'draft', 4)`,
+		nomID,
+	)
+	if err == nil {
+		t.Fatal("expected chk_stages_bracket to reject a groups stage with bracket_size != 0")
+	}
+
+	// А корректная сетка (тип bracket, допустимый размер) — проходит.
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO stage.stages (nomination_id, position, title, type, status, bracket_size)
+		 VALUES ($1, 1, 'Плейофф', 'bracket', 'draft', 8)`,
+		nomID,
+	); err != nil {
+		t.Fatalf("expected a valid bracket stage to be accepted, got error: %v", err)
+	}
+}
+
+// TestIntegration_UqMembersPoolSlot_BlocksDuplicateSlot проверяет
+// uq_members_pool_slot (миграция 00002): два бойца не могут занимать один
+// и тот же слот одного контейнера на уровне данных.
+func TestIntegration_UqMembersPoolSlot_BlocksDuplicateSlot(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+
+	var stageID string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO stage.stages (nomination_id, position, title, type, status, bracket_size)
+		 VALUES ($1, 1, 'Плейофф', 'bracket', 'draft', 4) RETURNING id`,
+		nomID,
+	).Scan(&stageID); err != nil {
+		t.Fatalf("insert bracket stage: %v", err)
+	}
+	var containerID string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO stage.pools (stage_id, nomination_id, number) VALUES ($1, $2, 1) RETURNING id`,
+		stageID, nomID,
+	).Scan(&containerID); err != nil {
+		t.Fatalf("insert container: %v", err)
+	}
+
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO stage.pool_members (pool_id, stage_id, nomination_id, fighter_id, slot) VALUES ($1, $2, $3, $4, 1)`,
+		containerID, stageID, nomID, f1,
+	); err != nil {
+		t.Fatalf("insert first member at slot 1: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO stage.pool_members (pool_id, stage_id, nomination_id, fighter_id, slot) VALUES ($1, $2, $3, $4, 1)`,
+		containerID, stageID, nomID, f2,
+	); err == nil {
+		t.Fatal("expected uq_members_pool_slot to reject a second fighter at the same slot")
+	}
+}
+
+// bracketAdminHelpers группирует вызовы новых RPC сетки через реальный
+// Connect × реальный PG (спека 0018, T19).
+func createBracketStage(t *testing.T, c clients, nomID, title string, size int32, thirdPlace bool) *hemav1.Stage {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.CreateStageRequest{
+		NominationId: nomID, Type: hemav1.StageType_STAGE_TYPE_BRACKET, Title: title,
+		Bracket: &hemav1.BracketConfig{Size: size, ThirdPlace: thirdPlace},
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.pool.CreateStage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("CreateStage: %v", err)
+	}
+	return res.Msg.Created
+}
+
+func seedBracketSlot(t *testing.T, c clients, stageID string, slot int32, fighterID string) *hemav1.Bracket {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.SeedBracketSlotRequest{StageId: stageID, Slot: slot, FighterId: fighterID})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.pool.SeedBracketSlot(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SeedBracketSlot(slot=%d): %v", slot, err)
+	}
+	return res.Msg.Bracket
+}
+
+func setBracketStatus(t *testing.T, c clients, stageID string, status hemav1.PoolLayoutStatus) *hemav1.PoolLayout {
+	t.Helper()
+	req := connect.NewRequest(&hemav1.SetLayoutStatusRequest{StageId: stageID, Status: status})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := c.pool.SetLayoutStatus(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SetLayoutStatus(%v): %v", status, err)
+	}
+	return res.Msg.Layout
+}
+
+// TestIntegration_DeleteStage_CascadesBracketContainersAndMembers прогоняет
+// удаление этапа-сетки через реальный CreateStage/DeleteStage (FR-3):
+// контейнеры первого круга и посев уходят каскадом FK (та же миграция
+// 00001, что и для групп — 00002 её не меняет).
+func TestIntegration_DeleteStage_CascadesBracketContainersAndMembers(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+
+	stage := createBracketStage(t, c, nomID, "Плейофф", 4, false)
+	seedBracketSlot(t, c, stage.Id, 1, f1)
+
+	delReq := connect.NewRequest(&hemav1.DeleteStageRequest{StageId: stage.Id})
+	delReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.DeleteStage(context.Background(), delReq); err != nil {
+		t.Fatalf("DeleteStage: %v", err)
+	}
+
+	var poolCount, memberCount, stageCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM stage.pools WHERE stage_id = $1`, stage.Id,
+	).Scan(&poolCount); err != nil {
+		t.Fatalf("count pools: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM stage.pool_members WHERE stage_id = $1`, stage.Id,
+	).Scan(&memberCount); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM stage.stages WHERE id = $1`, stage.Id,
+	).Scan(&stageCount); err != nil {
+		t.Fatalf("count stages: %v", err)
+	}
+	if poolCount != 0 || memberCount != 0 || stageCount != 0 {
+		t.Fatalf("expected cascade delete of stage/containers/members, got stages=%d pools=%d members=%d", stageCount, poolCount, memberCount)
+	}
+}
+
+// TestIntegration_BracketSeeding_SurvivesLockAndUnlock проверяет посев на
+// реальном PG через полный цикл фиксации: draft → ready материализует бой
+// круга 1 и создаёт контейнер финала; ready → draft удаляет контейнер
+// финала и его бой, но посев первого круга остаётся нетронутым (спека
+// 0018, FR-10, план «service/bracket.go»).
+func TestIntegration_BracketSeeding_SurvivesLockAndUnlock(t *testing.T) {
+	c, pool := setup(t)
+	nomID := createNomination(t, c)
+	f1 := createFighter(t, c, nomID, "Иван", "")
+	f2 := createFighter(t, c, nomID, "Пётр", "")
+
+	stage := createBracketStage(t, c, nomID, "Плейофф", 4, false)
+	seedBracketSlot(t, c, stage.Id, 1, f1)
+	seedBracketSlot(t, c, stage.Id, 2, f2)
+
+	countContainers := func() int {
+		var n int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM stage.pools WHERE stage_id = $1`, stage.Id,
+		).Scan(&n); err != nil {
+			t.Fatalf("count containers: %v", err)
+		}
+		return n
+	}
+	if got := countContainers(); got != 2 {
+		t.Fatalf("expected 2 first-round containers before lock, got %d", got)
+	}
+
+	setBracketStatus(t, c, stage.Id, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_READY)
+	if got := countContainers(); got != 3 { // round1 x2 + final
+		t.Fatalf("expected 3 containers after lock, got %d", got)
+	}
+
+	getReq := connect.NewRequest(&hemav1.GetBracketRequest{StageId: stage.Id})
+	getReq.Header().Set("Authorization", adminBearer(t))
+	got, err := c.pool.GetBracket(context.Background(), getReq)
+	if err != nil {
+		t.Fatalf("GetBracket: %v", err)
+	}
+	pair := got.Msg.Bracket.Rounds[0].Halves[0].Pairs[0]
+	if pair.SlotA.Fighter.FighterId != f1 || pair.SlotB.Fighter.FighterId != f2 {
+		t.Fatalf("expected the seeded pair f1 vs f2, got %+v", pair)
+	}
+	if pair.Bout == nil {
+		t.Fatalf("expected the first-round pair to be materialized as a bout, got %+v", pair)
+	}
+
+	setBracketStatus(t, c, stage.Id, hemav1.PoolLayoutStatus_POOL_LAYOUT_STATUS_DRAFT)
+	if got := countContainers(); got != 2 {
+		t.Fatalf("expected round >= 2 containers removed after unlock, got %d", got)
+	}
+
+	getReq2 := connect.NewRequest(&hemav1.GetBracketRequest{StageId: stage.Id})
+	getReq2.Header().Set("Authorization", adminBearer(t))
+	got2, err := c.pool.GetBracket(context.Background(), getReq2)
+	if err != nil {
+		t.Fatalf("GetBracket after unlock: %v", err)
+	}
+	pair2 := got2.Msg.Bracket.Rounds[0].Halves[0].Pairs[0]
+	if pair2.SlotA.Fighter.FighterId != f1 || pair2.SlotB.Fighter.FighterId != f2 {
+		t.Fatalf("expected the seed to survive unlock, got %+v", pair2)
+	}
+	if pair2.Bout != nil {
+		t.Fatalf("expected the round1 bout to be cleared on unlock, got %+v", pair2)
 	}
 }

@@ -14,29 +14,29 @@ import { moveFighterInLayout } from "./move-fighter";
  * чтобы визуально карточка «оставалась» в целевой колонке на дропе, а не
  * улетала обратно к исходнику перед приходом ответа (fix dnd-kit drop-back).
  */
-export function useAssignFighter(nominationId: string) {
+export function useAssignFighter(stageId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { fighterId: string; poolId: string }) => {
-      const res = await assignFighterRequest(nominationId, vars.fighterId, vars.poolId);
+      const res = await assignFighterRequest(stageId, vars.fighterId, vars.poolId);
       if (!res.ok) throw new Error(res.error);
       return res.layout;
     },
     onMutate: async (vars) => {
-      await qc.cancelQueries({ queryKey: nominationPoolsKeys.layout(nominationId) });
-      const prev = qc.getQueryData<PoolLayout>(nominationPoolsKeys.layout(nominationId));
+      await qc.cancelQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
+      const prev = qc.getQueryData<PoolLayout>(nominationPoolsKeys.layout(stageId));
       if (prev) {
-        qc.setQueryData<PoolLayout>(nominationPoolsKeys.layout(nominationId), (cur) =>
+        qc.setQueryData<PoolLayout>(nominationPoolsKeys.layout(stageId), (cur) =>
           cur ? moveFighterInLayout(cur, vars.fighterId, vars.poolId) : cur,
         );
       }
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) qc.setQueryData(nominationPoolsKeys.layout(nominationId), ctx.prev);
+      if (ctx?.prev) qc.setQueryData(nominationPoolsKeys.layout(stageId), ctx.prev);
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(nominationId) });
+      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
     },
   });
 }

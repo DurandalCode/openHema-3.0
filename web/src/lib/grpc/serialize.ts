@@ -25,6 +25,7 @@ import {
   ArenaLiveSnapshotSchema,
   TimerCommandSchema,
   StageSchema,
+  BracketSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
@@ -32,6 +33,7 @@ import {
   type ArenaLiveSnapshot,
   type TimerCommand,
   type Stage,
+  type Bracket,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -81,6 +83,14 @@ import type {
   Stage as StageDto,
   StageType as StageTypeDto,
 } from "@/entities/stage/lib/types";
+import type {
+  Bracket as BracketDto,
+  BracketRound as BracketRoundDto,
+  BracketHalf as BracketHalfDto,
+  BracketPair as BracketPairDto,
+  BracketSlot as BracketSlotDto,
+  BracketSlotState as BracketSlotStateDto,
+} from "@/entities/bracket/lib/types";
 import type {
   ArenaLiveSnapshotDto,
   TimerFrameDto,
@@ -349,24 +359,46 @@ function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
     arenaId: raw?.arenaId ?? "",
     arenaName: raw?.arenaName ?? "",
     standings: Array.isArray(raw?.standings) ? raw.standings.map(poolStandingToJson) : [],
+    stageId: raw?.stageId ?? "",
+  };
+}
+
+/** emptyStageDto — безопасный фолбэк для `stage`, когда proto-поле не заполнено. */
+function emptyStageDto(): StageDto {
+  return {
+    id: "",
+    nominationId: "",
+    position: 0,
+    title: "",
+    type: "STAGE_TYPE_UNSPECIFIED",
+    status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
+    bracket: null,
   };
 }
 
 /**
  * stageToJson превращает protobuf-сообщение Stage в обычный JSON-объект
- * (спека 0017): копия полей 1:1 (id/nominationId/position/title/type),
- * `type` — строка, в которую сериализует generated-enum (`STAGE_TYPE_GROUPS`),
- * без доменного маппинга.
+ * (спека 0017, расширено спекой 0018): копия полей 1:1
+ * (id/nominationId/position/title/type/status), `type`/`status` — строки, в
+ * которые сериализуют generated-enum'ы (`STAGE_TYPE_GROUPS`,
+ * `POOL_LAYOUT_STATUS_DRAFT`), без доменного маппинга. `bracket` заполнен
+ * только у `type = STAGE_TYPE_BRACKET` (FR-1), иначе `null`.
  */
 export function stageToJson(stage: Stage | undefined): StageDto | null {
   if (!stage) return null;
-  const raw = toJson(StageSchema, stage) as Partial<StageDto>;
+  const raw = toJson(StageSchema, stage) as Partial<StageDto> & {
+    bracket?: { size?: number; thirdPlace?: boolean };
+  };
   return {
     id: raw.id ?? "",
     nominationId: raw.nominationId ?? "",
     position: raw.position ?? 0,
     title: raw.title ?? "",
     type: (raw.type as StageTypeDto) ?? "STAGE_TYPE_UNSPECIFIED",
+    status: (raw.status as PoolLayoutStatusDto) ?? "POOL_LAYOUT_STATUS_UNSPECIFIED",
+    bracket: raw.bracket
+      ? { size: raw.bracket.size ?? 0, thirdPlace: raw.bracket.thirdPlace ?? false }
+      : null,
   };
 }
 
@@ -392,13 +424,7 @@ export function poolLayoutToJson(layout: PoolLayout | undefined): PoolLayoutDto 
     unassigned: Array.isArray(raw.unassigned) ? raw.unassigned.map(poolFighterRefToJson) : [],
     pools: Array.isArray(raw.pools) ? raw.pools.map(poolRawToDto) : [],
     canUndo: raw.canUndo ?? false,
-    stage: stageToJson(layout.stage) ?? {
-      id: "",
-      nominationId: "",
-      position: 0,
-      title: "",
-      type: "STAGE_TYPE_UNSPECIFIED",
-    },
+    stage: stageToJson(layout.stage) ?? emptyStageDto(),
   };
 }
 
@@ -478,13 +504,80 @@ export function boutBoardToJson(board: BoutBoard | undefined): BoutBoardDto | nu
   };
 }
 
+function bracketSlotRawToDto(raw: Partial<BracketSlotDto> | undefined): BracketSlotDto {
+  return {
+    slot: raw?.slot ?? 0,
+    state: (raw?.state as BracketSlotStateDto) ?? "BRACKET_SLOT_STATE_UNSPECIFIED",
+    fighter: poolFighterRefToJson(raw?.fighter),
+    sourceLabel: raw?.sourceLabel ?? "",
+  };
+}
+
+function bracketPairRawToDto(raw: Partial<BracketPairDto> | undefined): BracketPairDto {
+  return {
+    index: raw?.index ?? 0,
+    slotA: bracketSlotRawToDto(raw?.slotA),
+    slotB: bracketSlotRawToDto(raw?.slotB),
+    bout: raw?.bout ? boardBoutRawToDto(raw.bout) : null,
+    resolved: raw?.resolved ?? false,
+  };
+}
+
+function bracketHalfRawToDto(raw: Partial<BracketHalfDto> | undefined): BracketHalfDto {
+  return {
+    half: raw?.half ?? 0,
+    title: raw?.title ?? "",
+    container: poolRawToDto(raw?.container),
+    pairs: Array.isArray(raw?.pairs) ? raw.pairs.map(bracketPairRawToDto) : [],
+    currentBoutId: raw?.currentBoutId ?? "",
+  };
+}
+
+function bracketRoundRawToDto(raw: Partial<BracketRoundDto> | undefined): BracketRoundDto {
+  return {
+    number: raw?.number ?? 0,
+    title: raw?.title ?? "",
+    thirdPlace: raw?.thirdPlace ?? false,
+    halves: Array.isArray(raw?.halves) ? raw.halves.map(bracketHalfRawToDto) : [],
+  };
+}
+
+/**
+ * bracketToJson превращает protobuf-сообщение Bracket в обычный JSON-объект
+ * (спека 0018, FR-19/FR-20): дерево кругов/половин/пар/слотов сетки, готовое
+ * к отрисовке `widgets/bracket-view`. По образцу `poolLayoutToJson`/
+ * `boutBoardToJson` — вложенные `Pool`/`BoardBout` пробрасывает через
+ * существующие `poolRawToDto`/`boardBoutRawToDto`, не заводит вторую копию
+ * нормализации. `champion`/`thirdPlaceWinner` — `null`, пока финал/бой за
+ * 3-е место не завершены (FR-20).
+ */
+export function bracketToJson(bracket: Bracket | undefined): BracketDto | null {
+  if (!bracket) return null;
+  const raw = toJson(BracketSchema, bracket) as Partial<BracketDto> & {
+    rounds?: Array<Partial<BracketRoundDto>>;
+    unassigned?: Array<Partial<PoolFighterRefDto>>;
+    champion?: Partial<PoolFighterRefDto>;
+    thirdPlaceWinner?: Partial<PoolFighterRefDto>;
+  };
+  return {
+    stage: stageToJson(bracket.stage) ?? emptyStageDto(),
+    rounds: Array.isArray(raw.rounds) ? raw.rounds.map(bracketRoundRawToDto) : [],
+    unassigned: Array.isArray(raw.unassigned) ? raw.unassigned.map(poolFighterRefToJson) : [],
+    canUndo: raw.canUndo ?? false,
+    champion: raw.champion ? poolFighterRefToJson(raw.champion) : null,
+    thirdPlaceWinner: raw.thirdPlaceWinner ? poolFighterRefToJson(raw.thirdPlaceWinner) : null,
+  };
+}
+
 /**
  * nominationLiveToJson превращает protobuf-сообщение NominationLiveSnapshot
  * в обычный JSON-объект (спека 0014): живой снапшот номинации — пулы готовой
  * раскладки (пусто при `draft`, FR-12) с их боями (состояние/счёт/текущий
  * бой). По образцу `boutBoardToJson`, нормализует вложенные `Pool`/`BoardBout`
  * теми же приватными хелперами. `stages` — этапы номинации (спека 0017,
- * FR-11).
+ * FR-11). `brackets` — плейофф-сетки номинации (спека 0018, FR-19),
+ * нормализуются `bracketToJson` на исходных proto-подсообщениях `snapshot`
+ * (как `stages` — не на уже-toJson'нутом `raw`).
  */
 export function nominationLiveToJson(
   snapshot: NominationLiveSnapshot | undefined,
@@ -505,6 +598,9 @@ export function nominationLiveToJson(
         )
       : [],
     stages: stagesToJson(snapshot.stages),
+    brackets: (snapshot.brackets ?? [])
+      .map((b) => bracketToJson(b))
+      .filter((b): b is BracketDto => b !== null),
   };
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"github.com/google/uuid"
+
 	"github.com/hema/server/modules/stage/domain"
 )
 
@@ -39,6 +41,16 @@ type ScoreCall struct {
 	ScoreB  int
 }
 
+// ScheduleCall — зафиксированный вызов ScheduleBout (спека 0018, FR-14):
+// материализация одной пары сетки.
+type ScheduleCall struct {
+	NominationID string
+	PoolID       string
+	Round        int
+	Sequence     int
+	A, B         domain.FighterRef
+}
+
 // FakeBoutConductor — spy-реализация domain.BoutConductor для тестов
 // service/api (спека 0013): фиксирует все вызовы (генерация/очистка боёв,
 // лайфсайкл текущего боя) с их аргументами, позволяет настроить ошибку на
@@ -53,6 +65,10 @@ type FakeBoutConductor struct {
 	// ClearErr — если задана, ClearForNomination возвращает эту ошибку (вызов
 	// при этом всё равно фиксируется).
 	ClearErr error
+	// ScheduleErr/DeleteBoutsErr — если заданы, ScheduleBout/DeleteBouts
+	// возвращают эту ошибку (вызов всё равно фиксируется, спека 0018).
+	ScheduleErr    error
+	DeleteBoutsErr error
 	// StartErr/ScoreErr/FinishErr/ReopenErr/ResetErr — если заданы,
 	// соответствующий метод возвращает эту ошибку (вызов всё равно
 	// фиксируется, но состояние предзаселённого боя не меняется).
@@ -67,16 +83,19 @@ type FakeBoutConductor struct {
 	PoolProgressErr error
 	AnyStartedErr   error
 
-	GenerateCalls []GenerateCall
-	ClearCalls    []ClearCall
-	StartCalls    []LifecycleCall
-	ScoreCalls    []ScoreCall
-	FinishCalls   []LifecycleCall
-	ReopenCalls   []LifecycleCall
-	ResetCalls    []LifecycleCall
+	GenerateCalls    []GenerateCall
+	ClearCalls       []ClearCall
+	StartCalls       []LifecycleCall
+	ScoreCalls       []ScoreCall
+	FinishCalls      []LifecycleCall
+	ReopenCalls      []LifecycleCall
+	ResetCalls       []LifecycleCall
+	ScheduleCalls    []ScheduleCall
+	DeleteBoutsCalls [][]string
 
 	bouts       map[string]*domain.BoutRef // bout id -> bout (мутируется лайфсайкл-командами)
 	boutsByPool map[string][]string        // pool id -> bout ids (порядок посева, доска сортирует сама по SequenceNumber)
+	poolOfBout  map[string]string          // bout id -> pool id (для чистки boutsByPool при DeleteBouts, спека 0018)
 
 	anyStarted map[string]bool // pool id -> есть ли начатый/проведённый бой (FR-13/спека 0017 FR-8)
 }
@@ -86,6 +105,7 @@ func NewFakeBoutConductor() *FakeBoutConductor {
 	return &FakeBoutConductor{
 		bouts:       make(map[string]*domain.BoutRef),
 		boutsByPool: make(map[string][]string),
+		poolOfBout:  make(map[string]string),
 		anyStarted:  make(map[string]bool),
 	}
 }
@@ -103,6 +123,7 @@ func (f *FakeBoutConductor) SeedBout(poolID string, b domain.BoutRef) {
 	cp := b
 	if _, exists := f.bouts[b.ID]; !exists {
 		f.boutsByPool[poolID] = append(f.boutsByPool[poolID], b.ID)
+		f.poolOfBout[b.ID] = poolID
 	}
 	f.bouts[b.ID] = &cp
 }
@@ -148,6 +169,62 @@ func (f *FakeBoutConductor) ClearForPools(_ context.Context, poolIDs []string) e
 
 	f.ClearCalls = append(f.ClearCalls, ClearCall{PoolIDs: append([]string{}, poolIDs...)})
 	return f.ClearErr
+}
+
+// ScheduleBout фиксирует вызов и материализует единичный бой пары сетки
+// (спека 0018, FR-14): создаёт запись not_started/0:0 с заданными
+// round/sequence/участниками, возвращает сгенерированный id. Возвращает
+// ScheduleErr, если задан (вызов всё равно фиксируется).
+func (f *FakeBoutConductor) ScheduleBout(_ context.Context, nominationID, poolID string, round, sequence int, a, b domain.FighterRef) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.ScheduleCalls = append(f.ScheduleCalls, ScheduleCall{
+		NominationID: nominationID, PoolID: poolID, Round: round, Sequence: sequence, A: a, B: b,
+	})
+	if f.ScheduleErr != nil {
+		return "", f.ScheduleErr
+	}
+	id := uuid.NewString()
+	f.bouts[id] = &domain.BoutRef{
+		ID: id, RoundNumber: round, SequenceNumber: sequence,
+		FighterA: a, FighterB: b, State: domain.BoutStateNotStarted,
+	}
+	f.boutsByPool[poolID] = append(f.boutsByPool[poolID], id)
+	f.poolOfBout[id] = poolID
+	return id, nil
+}
+
+// DeleteBouts фиксирует вызов и точечно удаляет перечисленные бои (снятие
+// продвижения при пересмотре результата, спека 0018, FR-16). Возвращает
+// DeleteBoutsErr, если задан.
+func (f *FakeBoutConductor) DeleteBouts(_ context.Context, ids []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.DeleteBoutsCalls = append(f.DeleteBoutsCalls, append([]string{}, ids...))
+	if f.DeleteBoutsErr != nil {
+		return f.DeleteBoutsErr
+	}
+	for _, id := range ids {
+		poolID, ok := f.poolOfBout[id]
+		if ok {
+			f.boutsByPool[poolID] = removeBoutID(f.boutsByPool[poolID], id)
+		}
+		delete(f.bouts, id)
+		delete(f.poolOfBout, id)
+	}
+	return nil
+}
+
+func removeBoutID(ids []string, target string) []string {
+	out := ids[:0]
+	for _, id := range ids {
+		if id != target {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // StartBout фиксирует вызов, переводит посеянный бой в in_progress (если

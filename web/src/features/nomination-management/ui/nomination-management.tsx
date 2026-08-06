@@ -336,8 +336,8 @@ function NominationRow({
                 <ClipboardList />
               </Link>
             </Button>
-            <Button type="button" variant="ghost" size="icon-sm" asChild aria-label="Пулы">
-              <Link href={`/admin/nominations/${nomination.id}/pools`}>
+            <Button type="button" variant="ghost" size="icon-sm" asChild aria-label="Этапы">
+              <Link href={`/admin/nominations/${nomination.id}/stages`}>
                 <Users />
               </Link>
             </Button>

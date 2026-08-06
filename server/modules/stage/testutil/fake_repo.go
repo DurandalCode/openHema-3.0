@@ -20,6 +20,16 @@ type stageRow struct {
 	stageType    domain.StageType
 	status       domain.LayoutStatus
 	undo         domain.UndoState
+	// bracket — конфиг этапа-сетки (спека 0018, FR-1): нулевое значение у
+	// группового этапа.
+	bracket domain.BracketConfig
+}
+
+// memberRow — один боец в пуле: fighterID + номер слота посева (спека 0018,
+// FR-7). slot == 0 — членство без слота (группа).
+type memberRow struct {
+	fighterID string
+	slot      int
 }
 
 type poolRow struct {
@@ -27,7 +37,7 @@ type poolRow struct {
 	stageID       string
 	nominationID  string
 	number        int
-	memberIDs     []string
+	members       []memberRow
 	arenaID       string
 	currentBoutID string
 }
@@ -35,14 +45,17 @@ type poolRow struct {
 // FakeRepo — in-memory реализация domain.Repository для тестов.
 // Потокобезопасна (мьютекс). Повторяет ключевые инварианты БД: один боец —
 // не более одного пула в пределах ЭТАПА (спека 0017, FR-7 — было: в
-// номинации), lazy-init единственного этапа номинации (FR-4/FR-14).
+// номинации), lazy-init единственного этапа номинации (FR-4/FR-14), не более
+// одного слота на бойца в пределах этапа (спека 0018, FR-7 — слот = членство
+// со slot > 0).
 //
 // canonicalStage хранит «тот самый» авто-управляемый этап номинации
 // (EnsureStage/StageByNomination) отдельно от stages (все существующие
-// этапы, включая вручную посеянные SeedStage) — так тесты AC-4/AC-5 (спека
-// 0017: состояние «два этапа», достижимое в модели, но не через интерфейс,
-// FR-12) могут завести второй этап той же номинации, не рискуя, что
-// EnsureStage/StageByNomination его случайно подхватят вместо канонического.
+// этапы, включая вручную посеянные SeedStage/CreateStage) — так тесты
+// (спека 0017: состояние «два этапа», достижимое в модели, но не через
+// интерфейс, FR-12) могут завести второй этап той же номинации, не рискуя,
+// что EnsureStage/StageByNomination его случайно подхватят вместо
+// канонического.
 type FakeRepo struct {
 	mu             sync.Mutex
 	stages         map[string]*stageRow // stage id -> stage (все этапы, включая вручную посеянные)
@@ -81,7 +94,7 @@ func (r *FakeRepo) SeedPool(nominationID string, number int, memberIDs ...string
 	id := uuid.NewString()
 	r.pools[id] = &poolRow{
 		id: id, stageID: stage.id, nominationID: nominationID, number: number,
-		memberIDs: append([]string{}, memberIDs...),
+		members: membersOf(memberIDs...),
 	}
 	return id
 }
@@ -114,6 +127,22 @@ func (r *FakeRepo) SeedStage(nominationID string, position int, title string, st
 	return id
 }
 
+// SeedBracketStage — тестовый хелпер: как SeedStage, но с типом bracket и
+// заданным конфигом (спека 0018) — для белопящичных тестов, которым нужен
+// готовый этап-сетка без прохождения полного CreateStage.
+func (r *FakeRepo) SeedBracketStage(nominationID string, position int, title string, cfg domain.BracketConfig) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	id := uuid.NewString()
+	r.stages[id] = &stageRow{
+		id: id, nominationID: nominationID, position: position,
+		title: title, stageType: domain.StageTypeBracket, status: domain.LayoutDraft,
+		bracket: cfg,
+	}
+	return id
+}
+
 // SeedPoolInStage — тестовый хелпер: добавляет пул напрямую в указанный этап
 // (для сценариев с несколькими этапами, см. SeedStage). Возвращает id пула,
 // либо "" — если этап не найден.
@@ -128,7 +157,7 @@ func (r *FakeRepo) SeedPoolInStage(stageID string, number int, memberIDs ...stri
 	id := uuid.NewString()
 	r.pools[id] = &poolRow{
 		id: id, stageID: stageID, nominationID: st.nominationID, number: number,
-		memberIDs: append([]string{}, memberIDs...),
+		members: membersOf(memberIDs...),
 	}
 	return id
 }
@@ -153,9 +182,26 @@ func (r *FakeRepo) StageCount() int {
 	return len(r.stages)
 }
 
+// PoolCount — тестовый хелпер: число строк пулов в хранилище (спека 0018:
+// удобно проверять каскадное удаление контейнеров DeleteStage/DeleteContainers
+// без резолва по этапу).
+func (r *FakeRepo) PoolCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.pools)
+}
+
+func membersOf(fighterIDs ...string) []memberRow {
+	out := make([]memberRow, 0, len(fighterIDs))
+	for _, fid := range fighterIDs {
+		out = append(out, memberRow{fighterID: fid})
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------
 // domain.Repository — раскладка (спека 0009/0011/0013, переадресовано на
-// этап спекой 0017).
+// этап спекой 0017, слот добавлен спекой 0018).
 // ---------------------------------------------------------------------
 
 // GetPool возвращает один пул по id.
@@ -194,7 +240,7 @@ func (r *FakeRepo) DeletePool(_ context.Context, poolID string) error {
 	if !ok {
 		return domain.ErrNotFound
 	}
-	fighterIDs := append([]string{}, p.memberIDs...)
+	fighterIDs := fighterIDsOf(p.members)
 	delete(r.pools, poolID)
 	r.setUndoLocked(p.stageID, domain.UndoState{
 		Kind: domain.UndoDeletePool, FighterIDs: fighterIDs, PoolNumber: p.number,
@@ -203,7 +249,7 @@ func (r *FakeRepo) DeletePool(_ context.Context, poolID string) error {
 }
 
 // ResetLayout удаляет все пулы этапа, записывает undo-снапшот всех пулов с
-// их членствами (kind=reset).
+// их членствами (kind=reset), включая слоты посева (спека 0018, FR-8).
 func (r *FakeRepo) ResetLayout(_ context.Context, stageID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -212,8 +258,8 @@ func (r *FakeRepo) ResetLayout(_ context.Context, stageID string) error {
 	for _, p := range r.pools {
 		if p.stageID == stageID {
 			snapshot = append(snapshot, domain.ResetPool{
-				Number:     p.number,
-				FighterIDs: append([]string{}, p.memberIDs...),
+				Number:  p.number,
+				Members: resetMembersOf(p.members),
 			})
 		}
 	}
@@ -228,8 +274,9 @@ func (r *FakeRepo) ResetLayout(_ context.Context, stageID string) error {
 
 // AssignFighter кладёт бойца в пул этапа (move, если он уже был в другом
 // пуле ЭТОГО этапа — членство в пуле другого этапа не трогается, спека
-// 0017 FR-7).
-func (r *FakeRepo) AssignFighter(_ context.Context, stageID, fighterID, poolID string) error {
+// 0017 FR-7). slot — номер слота сетки (спека 0018, FR-7); 0 у группового
+// этапа.
+func (r *FakeRepo) AssignFighter(_ context.Context, stageID, fighterID, poolID string, slot int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -239,10 +286,10 @@ func (r *FakeRepo) AssignFighter(_ context.Context, stageID, fighterID, poolID s
 	}
 	for _, p := range r.pools {
 		if p.stageID == stageID {
-			p.memberIDs = removeString(p.memberIDs, fighterID)
+			p.members = deleteMemberByFighter(p.members, fighterID)
 		}
 	}
-	target.memberIDs = append(target.memberIDs, fighterID)
+	target.members = append(target.members, memberRow{fighterID: fighterID, slot: slot})
 	r.clearUndoLocked(stageID)
 	return nil
 }
@@ -254,14 +301,16 @@ func (r *FakeRepo) UnassignFighter(_ context.Context, stageID, fighterID string)
 
 	for _, p := range r.pools {
 		if p.stageID == stageID {
-			p.memberIDs = removeString(p.memberIDs, fighterID)
+			p.members = deleteMemberByFighter(p.members, fighterID)
 		}
 	}
 	r.clearUndoLocked(stageID)
 	return nil
 }
 
-// ApplyAutoDistribute применяет назначения и записывает undo этапа (kind=auto).
+// ApplyAutoDistribute атомарно применяет assignments (insert членств) и
+// записывает undo этапа (kind=auto, fighter_ids = кого расставило). Только
+// для групп — слот всегда 0.
 func (r *FakeRepo) ApplyAutoDistribute(_ context.Context, stageID string, assignments []domain.Assignment) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -272,8 +321,8 @@ func (r *FakeRepo) ApplyAutoDistribute(_ context.Context, stageID string, assign
 		if !ok {
 			return domain.ErrNotFound
 		}
-		if !containsString(p.memberIDs, a.FighterID) {
-			p.memberIDs = append(p.memberIDs, a.FighterID)
+		if !containsMember(p.members, a.FighterID) {
+			p.members = append(p.members, memberRow{fighterID: a.FighterID})
 		}
 		fighterIDs = append(fighterIDs, a.FighterID)
 	}
@@ -292,7 +341,7 @@ func (r *FakeRepo) UndoAuto(_ context.Context, stageID string, fighterIDs []stri
 			continue
 		}
 		for _, fid := range fighterIDs {
-			p.memberIDs = removeString(p.memberIDs, fid)
+			p.members = deleteMemberByFighter(p.members, fid)
 		}
 	}
 	r.clearUndoLocked(stageID)
@@ -311,14 +360,14 @@ func (r *FakeRepo) UndoDeletePool(_ context.Context, stageID string, number int,
 	id := uuid.NewString()
 	r.pools[id] = &poolRow{
 		id: id, stageID: stageID, nominationID: nominationID, number: number,
-		memberIDs: append([]string{}, fighterIDs...),
+		members: membersOf(fighterIDs...),
 	}
 	r.clearUndoLocked(stageID)
 	return nil
 }
 
 // UndoReset пересоздаёт все пулы этапа из снапшота с теми же номерами и
-// членами, очищает undo (AC-13a4).
+// членами (со слотами, спека 0018), очищает undo (AC-13a4).
 func (r *FakeRepo) UndoReset(_ context.Context, stageID string, pools []domain.ResetPool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -329,9 +378,13 @@ func (r *FakeRepo) UndoReset(_ context.Context, stageID string, pools []domain.R
 	}
 	for _, p := range pools {
 		id := uuid.NewString()
+		members := make([]memberRow, 0, len(p.Members))
+		for _, m := range p.Members {
+			members = append(members, memberRow{fighterID: m.FighterID, slot: m.Slot})
+		}
 		r.pools[id] = &poolRow{
 			id: id, stageID: stageID, nominationID: nominationID, number: p.Number,
-			memberIDs: append([]string{}, p.FighterIDs...),
+			members: members,
 		}
 	}
 	r.clearUndoLocked(stageID)
@@ -340,7 +393,9 @@ func (r *FakeRepo) UndoReset(_ context.Context, stageID string, pools []domain.R
 
 // PruneMembers удаляет членства бойцов номинации (по всем её этапам), которых
 // нет среди activeFighterIDs. Не трогает undo. Остаётся номинационным
-// (спека 0017, FR-9).
+// (спека 0017, FR-9). Исключение (спека 0018, FR-22): зафиксированные сетки
+// (type=bracket, status=ready) не трогаются — снятие бойца после фиксации не
+// переигрывает сетку.
 func (r *FakeRepo) PruneMembers(_ context.Context, nominationID string, activeFighterIDs []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -353,13 +408,16 @@ func (r *FakeRepo) PruneMembers(_ context.Context, nominationID string, activeFi
 		if p.nominationID != nominationID {
 			continue
 		}
-		kept := p.memberIDs[:0]
-		for _, fid := range p.memberIDs {
-			if active[fid] {
-				kept = append(kept, fid)
+		if st, ok := r.stages[p.stageID]; ok && st.stageType == domain.StageTypeBracket && st.status == domain.LayoutReady {
+			continue
+		}
+		kept := p.members[:0]
+		for _, m := range p.members {
+			if active[m.fighterID] {
+				kept = append(kept, m)
 			}
 		}
-		p.memberIDs = kept
+		p.members = kept
 	}
 	return nil
 }
@@ -392,7 +450,7 @@ func (r *FakeRepo) setUndoLocked(stageID string, undo domain.UndoState) {
 }
 
 // ---------------------------------------------------------------------
-// domain.Repository — этапы (спека 0017).
+// domain.Repository — этапы (спека 0017, расширено спекой 0018).
 // ---------------------------------------------------------------------
 
 // EnsureStage — get-or-create канонического этапа номинации.
@@ -427,7 +485,8 @@ func (r *FakeRepo) StageByID(_ context.Context, stageID string) (domain.Stage, b
 }
 
 // StagesByNomination возвращает все этапы номинации (канонический + вручную
-// посеянные), отсортированные по Position, затем ID (детерминированность).
+// посеянные/созданные), отсортированные по Position, затем ID
+// (детерминированность).
 func (r *FakeRepo) StagesByNomination(_ context.Context, nominationID string) ([]domain.Stage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -447,6 +506,60 @@ func (r *FakeRepo) StagesByNomination(_ context.Context, nominationID string) ([
 	return out, nil
 }
 
+// CreateStage вставляет новый этап номинации (спека 0018, FR-2). Не
+// регистрируется как канонический — EnsureStage/StageByNomination его не
+// подхватят (в этом инкременте type всегда bracket).
+func (r *FakeRepo) CreateStage(_ context.Context, nominationID string, position int, title string, stageType domain.StageType, bracket domain.BracketConfig) (domain.Stage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	id := uuid.NewString()
+	st := &stageRow{
+		id: id, nominationID: nominationID, position: position, title: title,
+		stageType: stageType, status: domain.LayoutDraft, bracket: bracket,
+	}
+	r.stages[id] = st
+	return toDomainStage(st), nil
+}
+
+// DeleteStage удаляет этап вместе с его контейнерами и членствами (каскад).
+// Гейты — забота вызывающего (service.DeleteStage).
+func (r *FakeRepo) DeleteStage(_ context.Context, stageID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.stages[stageID]; !ok {
+		return domain.ErrNotFound
+	}
+	for id, p := range r.pools {
+		if p.stageID == stageID {
+			delete(r.pools, id)
+		}
+	}
+	delete(r.stages, stageID)
+	for nomID, sID := range r.canonicalStage {
+		if sID == stageID {
+			delete(r.canonicalStage, nomID)
+		}
+	}
+	return nil
+}
+
+// MaxStagePosition возвращает наибольшую position среди этапов номинации (0,
+// если этапов ещё нет).
+func (r *FakeRepo) MaxStagePosition(_ context.Context, nominationID string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	max := 0
+	for _, st := range r.stages {
+		if st.nominationID == nominationID && st.position > max {
+			max = st.position
+		}
+	}
+	return max, nil
+}
+
 // ensureStageLocked — get-or-create канонического этапа номинации
 // (position=0, type=groups, title=DefaultStageTitle, status=draft).
 // Вызывающий обязан держать r.mu.
@@ -463,6 +576,92 @@ func (r *FakeRepo) ensureStageLocked(nominationID string) *stageRow {
 	r.stages[id] = st
 	r.canonicalStage[nominationID] = id
 	return st
+}
+
+// ---------------------------------------------------------------------
+// domain.Repository — посев сетки (спека 0018, FR-7/FR-8).
+// ---------------------------------------------------------------------
+
+// SeedSlot сажает бойца в слот первого круга сетки: upsert членства
+// (containerPoolID, fighterID, slot). Если fighterID уже сидел в другом
+// слоте этого этапа — снимается оттуда; если целевой слот уже занят другим
+// бойцом — тот вытесняется на освободившееся (или отсутствующее) старое
+// место fighterID, реализуя обмен местами (FR-8). Легитимность вызова
+// (обмен vs отказ) — забота вызывающего (service.SeedBracketSlot), см.
+// domain.Repository.SeedSlot.
+func (r *FakeRepo) SeedSlot(_ context.Context, stageID, containerPoolID, fighterID string, slot int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	target, ok := r.pools[containerPoolID]
+	if !ok || target.stageID != stageID {
+		return domain.ErrNotFound
+	}
+
+	var fighterOldPool *poolRow
+	fighterOldSlot := 0
+	for _, p := range r.pools {
+		if p.stageID != stageID {
+			continue
+		}
+		for _, m := range p.members {
+			if m.fighterID == fighterID {
+				fighterOldPool, fighterOldSlot = p, m.slot
+			}
+		}
+	}
+	if fighterOldPool != nil {
+		fighterOldPool.members = deleteMemberByFighter(fighterOldPool.members, fighterID)
+	}
+
+	occupant := ""
+	for _, m := range target.members {
+		if m.slot == slot {
+			occupant = m.fighterID
+		}
+	}
+	if occupant != "" && occupant != fighterID {
+		target.members = deleteMemberByFighter(target.members, occupant)
+		if fighterOldPool != nil {
+			fighterOldPool.members = append(fighterOldPool.members, memberRow{fighterID: occupant, slot: fighterOldSlot})
+		}
+	}
+
+	target.members = append(target.members, memberRow{fighterID: fighterID, slot: slot})
+	r.clearUndoLocked(stageID)
+	return nil
+}
+
+// SeedsByStage возвращает текущий посев первого круга этапа (слот → боец) —
+// сырые членства с непустым slot, по обоим контейнерам первого круга.
+func (r *FakeRepo) SeedsByStage(_ context.Context, stageID string) ([]domain.Seed, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.Seed, 0)
+	for _, p := range r.pools {
+		if p.stageID != stageID {
+			continue
+		}
+		for _, m := range p.members {
+			if m.slot > 0 {
+				out = append(out, domain.Seed{Slot: m.slot, Fighter: domain.FighterRef{ID: m.fighterID}})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Slot < out[j].Slot })
+	return out, nil
+}
+
+// DeleteContainers удаляет контейнеры (пулы) по id, каскадом членства.
+func (r *FakeRepo) DeleteContainers(_ context.Context, poolIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, id := range poolIDs {
+		delete(r.pools, id)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------
@@ -495,8 +694,8 @@ func (r *FakeRepo) MembersByStage(_ context.Context, stageID string) ([]domain.P
 		if p.stageID != stageID {
 			continue
 		}
-		for _, fid := range p.memberIDs {
-			out = append(out, domain.PoolMember{PoolID: p.id, FighterID: fid})
+		for _, m := range p.members {
+			out = append(out, domain.PoolMember{PoolID: p.id, FighterID: m.fighterID})
 		}
 	}
 	return out, nil
@@ -528,8 +727,8 @@ func (r *FakeRepo) MembersByNomination(_ context.Context, nominationID string) (
 		if p.nominationID != nominationID {
 			continue
 		}
-		for _, fid := range p.memberIDs {
-			out = append(out, domain.PoolMember{PoolID: p.id, FighterID: fid})
+		for _, m := range p.members {
+			out = append(out, domain.PoolMember{PoolID: p.id, FighterID: m.fighterID})
 		}
 	}
 	return out, nil
@@ -537,7 +736,7 @@ func (r *FakeRepo) MembersByNomination(_ context.Context, nominationID string) (
 
 // ---------------------------------------------------------------------
 // domain.Repository — арена/ведение боя (спека 0011/0013, poolID-адресация
-// не задета спекой 0017).
+// не задета спекой 0017/0018).
 // ---------------------------------------------------------------------
 
 // SeatPool закрепляет пул за площадкой. Повторяет инвариант partial unique
@@ -649,15 +848,16 @@ func toDomainStage(s *stageRow) domain.Stage {
 	return domain.Stage{
 		ID: s.id, NominationID: s.nominationID, Position: s.position,
 		Title: s.title, Type: s.stageType, Status: s.status, Undo: s.undo,
+		Bracket: s.bracket,
 	}
 }
 
 // toDomainPool — полная проекция пула, включая Members (для GetPool/
 // PoolsForArena/ReadyUnseatedPools — единичные/арена-скоуп чтения).
 func toDomainPool(p *poolRow) domain.Pool {
-	members := make([]domain.FighterRef, 0, len(p.memberIDs))
-	for _, fid := range p.memberIDs {
-		members = append(members, domain.FighterRef{ID: fid})
+	members := make([]domain.FighterRef, 0, len(p.members))
+	for _, m := range p.members {
+		members = append(members, domain.FighterRef{ID: m.fighterID})
 	}
 	return domain.Pool{
 		ID: p.id, StageID: p.stageID, NominationID: p.nominationID, Number: p.number, Members: members,
@@ -676,21 +876,37 @@ func toDomainPoolBare(p *poolRow) domain.Pool {
 	}
 }
 
-func removeString(list []string, s string) []string {
-	out := list[:0]
-	for _, v := range list {
-		if v != s {
-			out = append(out, v)
+func deleteMemberByFighter(members []memberRow, fighterID string) []memberRow {
+	out := members[:0]
+	for _, m := range members {
+		if m.fighterID != fighterID {
+			out = append(out, m)
 		}
 	}
 	return out
 }
 
-func containsString(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
+func containsMember(members []memberRow, fighterID string) bool {
+	for _, m := range members {
+		if m.fighterID == fighterID {
 			return true
 		}
 	}
 	return false
+}
+
+func fighterIDsOf(members []memberRow) []string {
+	out := make([]string, len(members))
+	for i, m := range members {
+		out[i] = m.fighterID
+	}
+	return out
+}
+
+func resetMembersOf(members []memberRow) []domain.ResetMember {
+	out := make([]domain.ResetMember, len(members))
+	for i, m := range members {
+		out[i] = domain.ResetMember{FighterID: m.fighterID, Slot: m.slot}
+	}
+	return out
 }

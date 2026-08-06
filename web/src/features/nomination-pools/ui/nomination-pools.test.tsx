@@ -16,6 +16,8 @@ const layout: PoolLayout = {
     position: 0,
     title: "Групповой этап",
     type: "STAGE_TYPE_GROUPS",
+    status: "POOL_LAYOUT_STATUS_DRAFT",
+    bracket: null,
   },
 };
 
@@ -45,7 +47,7 @@ describe("NominationPools", () => {
   // Спека 0017, FR-11/AC-3: на экране раскладки номинации состав по группам
   // подписан названием этапа, которому он принадлежит.
   it("renders the stage title above the pool grid", () => {
-    const { container } = render(<NominationPools nominationId="n1" />);
+    const { container } = render(<NominationPools stageId="stage-1" />);
 
     expect(container).toHaveTextContent("Групповой этап");
   });

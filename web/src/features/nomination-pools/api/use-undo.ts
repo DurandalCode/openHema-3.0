@@ -8,16 +8,16 @@ import { nominationPoolsKeys } from "./keys";
  * useUndo — мутация «Отменить»: откат последнего mutating-действия
  * (автораспределение или удаление пула, FR-7a). Только draft.
  */
-export function useUndo(nominationId: string) {
+export function useUndo(stageId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await undoRequest(nominationId);
+      const res = await undoRequest(stageId);
       if (!res.ok) throw new Error(res.error);
       return res.layout;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(nominationId) });
+      qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
     },
   });
 }
