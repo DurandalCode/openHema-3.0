@@ -48,20 +48,20 @@
 
 ## Server — трек A (чистое ядро схемы)
 
-- [ ] T3. **domain — спецификация формата (red→green)** —
+- [x] T3. **domain — спецификация формата (red→green)** —
       `modules/stage/domain/schema_test.go` → `schema.go`: типы
       `FormatStageSpec`/`FormatSpec`/`FormatPreset`, `SpecFromStages` (FR-11,
       FR-15) и `ValidateFormatSpec`. Таблица: UUID источников → индексы,
       порядок этапов, две ветки от одного источника, этап без правила,
       осиротевшая ссылка (правило теряется), индекс вне границ, ссылка вперёд,
       групповой этап с правилом без числа групп, пустая спецификация.
-- [ ] T4. **domain — позиции и циклы (red→green)** — там же:
+- [x] T4. **domain — позиции и циклы (red→green)** — там же:
       `ResolveStagePositions` (FR-3) и `DetectSourceCycle` (FR-4). Таблица:
       цепочка A→B→C, две ветки от одного источника (равные позиции), **этап
       без правила сохраняет свою позицию** (регресс AC-18 спеки 0019), смена
       источника в середине цепочки, источник-ростер → 0, прямой
       self-reference, цикл длиной 3 → `ErrSourceCycle`.
-- [ ] T5. **domain — диагностика схемы (red→green)** —
+- [x] T5. **domain — диагностика схемы (red→green)** —
       `modules/stage/domain/diagnose_test.go` → `diagnose.go`:
       `SchemaIssue`/`SchemaIssueSeverity`/`SchemaIssueCode`, `DiagnoseSchema`
       (FR-8). Таблица: по одному кейсу на каждый из девяти кодов, валидная
@@ -73,7 +73,7 @@
       ветки от одного источника — ни ошибок, ни предупреждений** (FR-8a,
       AC-20), **одна группа проблемой не считается** (AC-21) и **финал от того
       же источника, что и сетка, даёт пересечение** (AC-21a).
-- [ ] T6. **domain — порт и ошибки** — `modules/stage/domain/domain.go`:
+- [x] T6. **domain — порт и ошибки** — `modules/stage/domain/domain.go`:
       новые ошибки (`ErrStageLocked`, `ErrSourceCycle`,
       `ErrSchemaNotEmpty`, `ErrPresetNameTaken`, `ErrInvalidSpec`),
       расширение порта `Repository` (`UpdateStage`, `SetStagePositions`,

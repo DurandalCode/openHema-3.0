@@ -78,9 +78,12 @@ var (
 	// сначала освобождают, либо (для уже посеянного бойца) действие
 	// становится обменом местами (FR-8).
 	ErrSlotOccupied = errors.New("pool: slot is already occupied")
-	// ErrStageNotDeletable — удаление этапа отклонено: групповой этап
-	// удалить нельзя, этап-сетку — только пока в ней нет начатых боёв
-	// (FR-3, AC-14).
+	// ErrStageNotDeletable — удаление этапа отклонено: в нём (в его пулах)
+	// уже начат хотя бы один бой (FR-3, AC-14). До спеки 0020 этой же
+	// ошибкой отклонялось удаление авто-этапа номинации вовсе — начиная с
+	// 0020 (FR-5) авто-этап не особенный и удаляется по тому же гейту, что
+	// любой другой этап; отдельного «этот этап неудаляем по типу» больше
+	// нет.
 	ErrStageNotDeletable = errors.New("pool: stage is not deletable")
 	// ErrNotEnoughSeeds — фиксация посева отклонена: посеяно меньше двух
 	// бойцов, сетка из одного участника не разыгрывает ничего (FR-11, AC-4).
@@ -122,6 +125,34 @@ var (
 	// ErrStageIsSource — удаление этапа отклонено: он служит источником для
 	// другой ветки — сначала удаляют ветку (FR-7a, AC-19).
 	ErrStageIsSource = errors.New("pool: stage is a source for another stage")
+
+	// Спека 0020: конструктор схемы номинации + пресеты форматов (ADR 0014
+	// §8/§9).
+
+	// ErrStageLocked — конфиг этапа (число групп/размер сетки/бой за 3-е
+	// место) и правило отбора редактируются, только пока состав этапа пуст и
+	// этап не зафиксирован (draft) — так же, как правило и сегодня (0019,
+	// FR-6), только теперь обобщено на весь конфиг (FR-2, AC-2).
+	ErrStageLocked = errors.New("pool: stage config is locked once it has members")
+	// ErrSourceCycle — назначение источника отклонено: этап не может прямо
+	// или косвенно питаться от самого себя (FR-4, AC-5). Возвращается и
+	// DetectSourceCycle-гейтом SetStageRule, и ResolveStagePositions при
+	// обнаружении цикла на пересчёте (защита от рассинхрона).
+	ErrSourceCycle = errors.New("pool: source assignment would create a cycle")
+	// ErrSchemaNotEmpty — применение пресета/копирование схемы отклонено:
+	// схема номинации тронута — хотя бы в одном этапе есть состав, хотя бы
+	// один пул стоит на арене либо в нём начат бой. Сначала расформировать
+	// этапы (FR-13, FR-14, AC-14).
+	ErrSchemaNotEmpty = errors.New("pool: nomination schema already has data and cannot be replaced")
+	// ErrPresetNameTaken — сохранение/переименование пресета отклонено: имя
+	// библиотеки уникально без учёта регистра и краевых пробелов (FR-12,
+	// AC-17).
+	ErrPresetNameTaken = errors.New("pool: format preset name is already taken")
+	// ErrInvalidSpec — FormatSpec структурно неисполнима: пустая, индекс
+	// источника вне границ или указывает вперёд/на себя, правило невалидно,
+	// либо групповой этап с правилом отбора не имеет заданного числа групп
+	// (ValidateFormatSpec, план «domain/schema.go»).
+	ErrInvalidSpec = errors.New("pool: format spec is structurally invalid")
 )
 
 // LayoutStatus — статус раскладки номинации целиком (FR-9). Урезан спекой
@@ -468,6 +499,57 @@ type Repository interface {
 	// номинации (0, если этапов ещё нет) — CreateStage встаёт под max+1
 	// (FR-2).
 	MaxStagePosition(ctx context.Context, nominationID string) (int, error)
+
+	// Спека 0020: конструктор схемы номинации + пресеты форматов.
+
+	// UpdateStage пишет название и (если он изменился) конфиг этапа —
+	// bracket у сетки, groups у группового этапа (FR-2). Гейт «конфиг
+	// правится только пока состав пуст» (ErrStageLocked) и сравнение
+	// «конфиг реально изменился» проверяет вызывающий (service.UpdateStage)
+	// до вызова — репозиторий только пишет переданные значения.
+	UpdateStage(ctx context.Context, stageID, title string, bracket BracketConfig, groups GroupsConfig) error
+	// SetStagePositions пишет позиции сразу нескольких этапов одной
+	// транзакцией (FR-3) — каскадный результат ResolveStagePositions,
+	// применяемый после смены источника одной ветки: без транзакции
+	// промежуточное состояние схемы было бы видно параллельному чтению.
+	SetStagePositions(ctx context.Context, positions map[string]int) error
+	// MembersCountByNomination — сколько всего членств по всем этапам
+	// номинации (гейт «схема не тронута», FR-13): 0 — необходимое (но не
+	// единственное, см. AnySeatedInStage/AnyStartedInPools) условие
+	// применения пресета/копирования.
+	MembersCountByNomination(ctx context.Context, nominationID string) (int, error)
+	// ReplaceSchema атомарно заменяет схему номинации целиком (FR-13/FR-14,
+	// NFR-1 — либо схема заменена целиком, либо не тронута вовсе): удаляет
+	// все существующие этапы номинации (каскадом пулы и членства — гейт
+	// «схема не тронута» уже проверен вызывающим), вставляет новые из specs
+	// в порядке спецификации под заданными positions (результат симуляции
+	// последовательного создания + ResolveStagePositions, FR-8a/AC-22),
+	// резолвит FormatStageSpec.SourceIndex → source_stage_id вторым
+	// проходом внутри той же транзакции (id новых этапов известны только
+	// после вставки) и создаёт по два контейнера первого круга каждой
+	// сетке — как CreateStage (0018, FR-6a). Возвращает созданные этапы.
+	ReplaceSchema(ctx context.Context, nominationID string, specs []FormatStageSpec, positions []int) ([]Stage, error)
+
+	// ListFormatPresets возвращает библиотеку пресетов целиком (FR-12,
+	// NFR-3 — без пагинации: рассчитана на десятки записей).
+	ListFormatPresets(ctx context.Context) ([]FormatPreset, error)
+	// GetFormatPreset возвращает один пресет по id (found=false, если не
+	// существует) — вход ApplyFormat (FR-13).
+	GetFormatPreset(ctx context.Context, presetID string) (FormatPreset, bool, error)
+	// InsertFormatPreset сохраняет схему номинации как именованный пресет
+	// (FR-11/FR-12): уникальность имени без учёта регистра/краевых пробелов
+	// обеспечивает БД (уникальный индекс миграции 00004) — конфликт
+	// вызывающий (service.SaveFormatPreset) мапит в ErrPresetNameTaken
+	// (AC-17).
+	InsertFormatPreset(ctx context.Context, name string, spec FormatSpec) (FormatPreset, error)
+	// RenameFormatPreset переименовывает пресет, не трогая его схему и уже
+	// применённые к номинациям копии (FR-12, FR-16) — ErrPresetNameTaken
+	// при конфликте, ErrNotFound, если пресета нет.
+	RenameFormatPreset(ctx context.Context, presetID, name string) (FormatPreset, error)
+	// DeleteFormatPreset удаляет пресет из библиотеки; номинации, к которым
+	// он уже был применён, не затрагивает (FR-16) — идемпотентно по
+	// отсутствию (ErrNotFound от вызывающего, если нужно).
+	DeleteFormatPreset(ctx context.Context, presetID string) error
 
 	// SeedSlot сажает бойца в слот первого круга сетки (спека 0018,
 	// FR-7/FR-8): upsert членства (containerPoolID, fighterID, slot).
