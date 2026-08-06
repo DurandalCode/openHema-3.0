@@ -35,6 +35,8 @@ const updated: NominationLiveSnapshotDto = {
       type: "STAGE_TYPE_GROUPS",
       status: "POOL_LAYOUT_STATUS_READY",
       bracket: null,
+      groups: null,
+      rule: null,
     },
   ],
 };

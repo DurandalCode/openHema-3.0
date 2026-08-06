@@ -49,6 +49,8 @@ function bracketFixture(): Bracket {
       type: "STAGE_TYPE_BRACKET",
       status: "POOL_LAYOUT_STATUS_DRAFT",
       bracket: { size: 4, thirdPlace: false },
+      groups: null,
+      rule: null,
     },
     rounds: [
       {

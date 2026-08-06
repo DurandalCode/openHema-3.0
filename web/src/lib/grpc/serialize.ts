@@ -373,6 +373,11 @@ function emptyStageDto(): StageDto {
     type: "STAGE_TYPE_UNSPECIFIED",
     status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
     bracket: null,
+    // groups/rule (спека 0019) сериализуются треком C (T14/T15) вместе с
+    // остальными новыми proto-полями `Stage`; здесь — безопасный дефолт
+    // «правила и конфига групп нет», чтобы форма DTO оставалась совместимой.
+    groups: null,
+    rule: null,
   };
 }
 
@@ -399,6 +404,11 @@ export function stageToJson(stage: Stage | undefined): StageDto | null {
     bracket: raw.bracket
       ? { size: raw.bracket.size ?? 0, thirdPlace: raw.bracket.thirdPlace ?? false }
       : null,
+    // groups/rule (спека 0019, `Stage.groups`/`Stage.rule`) — маппинг из
+    // proto добавляется треком C (T14/T15) вместе с генерацией контрактов;
+    // до этого поле остаётся пустым дефолтом, не ломая форму DTO.
+    groups: null,
+    rule: null,
   };
 }
 
