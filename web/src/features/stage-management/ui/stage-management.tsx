@@ -38,7 +38,7 @@ export function StageManagement({ nominationId }: { nominationId: string }) {
     <Col gap={4}>
       <Row align="center" justify="between" gap={3} className="flex-wrap">
         <h2 className="text-sm font-medium text-muted-foreground">Этапы номинации</h2>
-        <CreateStageDialog nominationId={nominationId} />
+        <CreateStageDialog nominationId={nominationId} stages={stages} />
       </Row>
 
       {deleteStage.error && (
