@@ -48,20 +48,20 @@
 
 ## Server — трек A (чистое ядро отбора)
 
-- [ ] T3. **domain — сводный порядок (red→green)** —
+- [x] T3. **domain — сводный порядок (red→green)** —
       `modules/stage/domain/seeding_test.go` → `seeding.go`: типы правила
       (`SourceKind`/`SelectorKind`/`LayoutMethod`/`SeedingRule`/
       `GroupsConfig`), `SourceGroup`/`SelectedFighter`,
       `ComputeOverallOrder` (FR-5). Таблица: порядок сквозь группы, дележ
       (общий `OverallPlace`), группы разного размера (NFR-2), пустая группа,
       боец без завершённых боёв.
-- [ ] T4. **domain — селекторы и дележ (red→green)** — там же: `TieAsk`,
+- [x] T4. **domain — селекторы и дележ (red→green)** — там же: `TieAsk`,
       `TieResolution`, `SelectByRule` (FR-3, FR-22), `Overlap` (FR-11),
       `SeedingRule.Validate` (FR-2..FR-4). Таблица: `ALL`, `GROUP_PLACES`
       с открытой/закрытой границей, `OVERALL_PLACES`, дележ строго на границе
       окна (даёт `TieAsk`), дележ внутри/вне окна (вопросов нет), применение
       `TieResolution`, невалидные правила.
-- [ ] T5. **domain — раскладка и типы модуля (red→green)** —
+- [x] T5. **domain — раскладка и типы модуля (red→green)** —
       `seeding_test.go` → `seeding.go`: `BracketSeedOrder` (свойства «1 и 2
       только в финале», «1 и 4 не раньше полуфинала», полная перестановка для
       4/8/16/32), `PlanBracketSeeds` (полный набор / недобор /

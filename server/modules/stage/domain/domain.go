@@ -85,6 +85,40 @@ var (
 	// ErrNotEnoughSeeds — фиксация посева отклонена: посеяно меньше двух
 	// бойцов, сетка из одного участника не разыгрывает ничего (FR-11, AC-4).
 	ErrNotEnoughSeeds = errors.New("pool: not enough seeded fighters to lock the bracket")
+
+	// Спека 0019: переходы между этапами (ADR 0014 §5-7).
+
+	// ErrNoSeedingRule — PreviewStageBuild/BuildStage вызваны на этапе без
+	// установленного правила отбора: формировать нечего, состав набирается
+	// руками (FR-1, FR-13).
+	ErrNoSeedingRule = errors.New("pool: stage has no seeding rule")
+	// ErrInvalidRule — SeedingRule.Validate: недопустимые значения полей
+	// правила (source_kind/selector/method, границы мест, FR-2..FR-4).
+	ErrInvalidRule = errors.New("pool: invalid seeding rule")
+	// ErrSourceNotAllowed — источник правила не подходит: не та номинация,
+	// не групповой этап, стоит не раньше по порядку, либо у него не задано
+	// число групп (FR-2, FR-9a, AC-20, AC-21).
+	ErrSourceNotAllowed = errors.New("pool: seeding rule source is not allowed")
+	// ErrSelectorOverlap — селекторы параллельных веток одного источника
+	// пересекаются: формирование отклонено, кто-то попал бы в обе ветки
+	// (FR-11, AC-3).
+	ErrSelectorOverlap = errors.New("pool: selector overlaps with a parallel branch")
+	// ErrCapacityExceeded — отобранных больше, чем вмещает целевой этап
+	// (слотов сетки), формирование отклонено (FR-19, AC-11).
+	ErrCapacityExceeded = errors.New("pool: selected fighters exceed target stage capacity")
+	// ErrTieUnresolved — формирование отклонено: остался неразрешённый
+	// дележ мест на границе отбора (FR-22).
+	ErrTieUnresolved = errors.New("pool: a tie at the selection boundary is unresolved")
+	// ErrStageNotEmpty — повторное формирование поверх непустого состава
+	// (в том числе поправленного руками) отклонено: сначала расформировать
+	// (FR-18, AC-10).
+	ErrStageNotEmpty = errors.New("pool: stage build target already has members")
+	// ErrRuleLocked — правило отбора редактируется, только пока состав
+	// этапа пуст; после набора/формирования — отклонено (FR-6, AC-16).
+	ErrRuleLocked = errors.New("pool: seeding rule is locked once the stage has members")
+	// ErrStageIsSource — удаление этапа отклонено: он служит источником для
+	// другой ветки — сначала удаляют ветку (FR-7a, AC-19).
+	ErrStageIsSource = errors.New("pool: stage is a source for another stage")
 )
 
 // LayoutStatus — статус раскладки номинации целиком (FR-9). Урезан спекой
@@ -155,6 +189,11 @@ const (
 	UndoAuto       UndoKind = "auto"
 	UndoDeletePool UndoKind = "delete_pool"
 	UndoReset      UndoKind = "reset"
+	// UndoBuild — откат формирования этапа (спека 0019, FR-21): снапшот
+	// пуст — состояние до формирования гарантированно пустое (FR-18,
+	// повторное формирование поверх непустого состава отклонено), поэтому
+	// откат сводится к очистке состава этапа.
+	UndoBuild UndoKind = "build"
 )
 
 // ResetMember — один боец в снапшоте пула на момент сброса раскладки
@@ -209,6 +248,10 @@ const DefaultStageTitle = "Групповой этап"
 //
 // Bracket — параметры этапа-сетки (спека 0018, FR-1); заполнен только у
 // Type == StageTypeBracket, у группового этапа — нулевое значение.
+//
+// Rule/Groups — спека 0019: правило отбора (FR-1, нулевое значение — «правила
+// нет», состав набирается руками) и число групп (FR-8, только у явно
+// созданного группового этапа — у авто-этапа и у этапа-сетки нулевое).
 type Stage struct {
 	ID           string
 	NominationID string
@@ -218,6 +261,8 @@ type Stage struct {
 	Status       LayoutStatus
 	Undo         UndoState
 	Bracket      BracketConfig
+	Rule         SeedingRule
+	Groups       GroupsConfig
 }
 
 // PoolMember — сырое членство: боец в пуле (репозиторное чтение, без
@@ -387,13 +432,30 @@ type Repository interface {
 	// ответов, repeated stages) — начиная со спеки 0018 может быть больше
 	// одного (групповой + одна или несколько сеток).
 	StagesByNomination(ctx context.Context, nominationID string) ([]Stage, error)
+	// StagesBySource возвращает соседние ветки, питающиеся от того же
+	// источника (спека 0019): проверка пересечения селекторов (FR-11,
+	// ErrSelectorOverlap) и гейт удаления источника, пока ветка существует
+	// (FR-7a, ErrStageIsSource).
+	StagesBySource(ctx context.Context, sourceStageID string) ([]Stage, error)
 
-	// CreateStage вставляет новый этап номинации (спека 0018, FR-2):
-	// позицию (`max+1`, MaxStagePosition) вычисляет вызывающий — репозиторий
-	// только пишет переданные значения. В этом инкременте type всегда
-	// StageTypeBracket (создание группового этапа остаётся
-	// EnsureStage/автоматическим).
-	CreateStage(ctx context.Context, nominationID string, position int, title string, stageType StageType, bracket BracketConfig) (Stage, error)
+	// CreateStage вставляет новый этап номинации (спека 0018, FR-2; спека
+	// 0019 — groups/rule): позицию (`max+1`, MaxStagePosition либо
+	// position(источника)+1, FR-10) вычисляет вызывающий — репозиторий
+	// только пишет переданные значения. type теперь может быть и
+	// StageTypeGroups (явно созданный групповой этап, FR-7) — не только
+	// StageTypeBracket, как было в 0018.
+	CreateStage(ctx context.Context, nominationID string, position int, title string, stageType StageType, bracket BracketConfig, groups GroupsConfig, rule SeedingRule) (Stage, error)
+	// SetSeedingRule пишет правило отбора этапа, очищает undo (спека 0019,
+	// FR-6): вызывающий (service.SetStageRule) гейтит пустоту состава
+	// (ErrRuleLocked) и валидность источника (ErrSourceNotAllowed) до
+	// вызова.
+	SetSeedingRule(ctx context.Context, stageID string, rule SeedingRule) error
+	// ApplyStageBuild атомарно применяет план формирования этапа (спека
+	// 0019, FR-16): создаёт группы (для группового целевого этапа) и/или
+	// членства (со слотами — для сетки), записывает undo_kind=UndoBuild.
+	// Гейты (состав пуст, нет дележей/пересечений, вместимость) проверяет
+	// вызывающий (service.BuildStage) до вызова.
+	ApplyStageBuild(ctx context.Context, stageID string, groups []BuildGroup, seeds []SeedPlan) error
 	// DeleteStage удаляет этап вместе с его контейнерами и членствами
 	// (каскад БД) — гейты (тип bracket, нет начатых боёв) проверяет
 	// вызывающий (service.DeleteStage) до вызова (FR-3, AC-14).
