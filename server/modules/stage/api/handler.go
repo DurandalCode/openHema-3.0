@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	hemav1 "github.com/hema/server/gen/hema/v1"
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
@@ -38,17 +39,18 @@ var _ hemav1connect.StageAdminServiceHandler = (*AdminHandler)(nil)
 // Спека 0018: этапы, посев сетки.
 // ---------------------------------------------------------------------
 
-// ListStages возвращает этапы номинации (FR-18). Материализует групповой
-// этап, если строки ещё нет (0017, FR-4).
+// ListStages возвращает этапы номинации (FR-18) вместе с диагностикой схемы
+// (спека 0020, FR-8). Материализует групповой этап, если строки ещё нет
+// (0017, FR-4).
 func (h *AdminHandler) ListStages(
 	ctx context.Context,
 	req *connect.Request[hemav1.ListStagesRequest],
 ) (*connect.Response[hemav1.ListStagesResponse], error) {
-	stages, err := h.svc.ListStages(ctx, req.Msg.NominationId)
+	stages, issues, err := h.svc.ListStages(ctx, req.Msg.NominationId)
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.ListStagesResponse{Stages: toProtoStages(stages)}), nil
+	return connect.NewResponse(&hemav1.ListStagesResponse{Stages: toProtoStages(stages), Issues: toProtoSchemaIssues(issues)}), nil
 }
 
 // CreateStage добавляет номинации новый этап — сетку (0018, FR-2) либо
@@ -138,6 +140,89 @@ func (h *AdminHandler) DeleteStage(
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.DeleteStageResponse{Stages: toProtoStages(stages)}), nil
+}
+
+// ---------------------------------------------------------------------
+// Спека 0020: конструктор схемы (редактирование этапа) + пресеты формата.
+// ---------------------------------------------------------------------
+
+// UpdateStage правит название и конфиг уже созданного этапа (FR-2).
+func (h *AdminHandler) UpdateStage(
+	ctx context.Context,
+	req *connect.Request[hemav1.UpdateStageRequest],
+) (*connect.Response[hemav1.UpdateStageResponse], error) {
+	bracket := domain.BracketConfig{}
+	if req.Msg.Bracket != nil {
+		bracket = domain.BracketConfig{Size: int(req.Msg.Bracket.Size), ThirdPlace: req.Msg.Bracket.ThirdPlace}
+	}
+	stage, err := h.svc.UpdateStage(ctx, req.Msg.StageId, req.Msg.Title, bracket, domainGroupsConfig(req.Msg.Groups))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.UpdateStageResponse{Stage: toProtoStage(stage)}), nil
+}
+
+// ListFormatPresets возвращает библиотеку пресетов целиком (FR-12).
+func (h *AdminHandler) ListFormatPresets(
+	ctx context.Context,
+	_ *connect.Request[hemav1.ListFormatPresetsRequest],
+) (*connect.Response[hemav1.ListFormatPresetsResponse], error) {
+	presets, err := h.svc.ListFormatPresets(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ListFormatPresetsResponse{Presets: toProtoFormatPresets(presets)}), nil
+}
+
+// SaveFormatPreset сохраняет схему номинации как именованный пресет
+// (FR-11/FR-12).
+func (h *AdminHandler) SaveFormatPreset(
+	ctx context.Context,
+	req *connect.Request[hemav1.SaveFormatPresetRequest],
+) (*connect.Response[hemav1.SaveFormatPresetResponse], error) {
+	preset, err := h.svc.SaveFormatPreset(ctx, req.Msg.Name, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SaveFormatPresetResponse{Preset: toProtoFormatPreset(preset)}), nil
+}
+
+// RenameFormatPreset переименовывает пресет (FR-12/FR-16).
+func (h *AdminHandler) RenameFormatPreset(
+	ctx context.Context,
+	req *connect.Request[hemav1.RenameFormatPresetRequest],
+) (*connect.Response[hemav1.RenameFormatPresetResponse], error) {
+	preset, err := h.svc.RenameFormatPreset(ctx, req.Msg.PresetId, req.Msg.Name)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.RenameFormatPresetResponse{Preset: toProtoFormatPreset(preset)}), nil
+}
+
+// DeleteFormatPreset удаляет пресет из библиотеки (FR-16).
+func (h *AdminHandler) DeleteFormatPreset(
+	ctx context.Context,
+	req *connect.Request[hemav1.DeleteFormatPresetRequest],
+) (*connect.Response[hemav1.DeleteFormatPresetResponse], error) {
+	if err := h.svc.DeleteFormatPreset(ctx, req.Msg.PresetId); err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.DeleteFormatPresetResponse{}), nil
+}
+
+// ApplyFormat заменяет схему номинации целиком — источник берётся из oneof
+// (пресет библиотеки либо номинация-донор, FR-13/FR-15). Getter-ы oneof
+// (GetPresetId/GetSourceNominationId) отдают "" для несовпадающей ветки —
+// «источник не задан» (оба пустые) сервис отклоняет сам (ErrInvalidInput).
+func (h *AdminHandler) ApplyFormat(
+	ctx context.Context,
+	req *connect.Request[hemav1.ApplyFormatRequest],
+) (*connect.Response[hemav1.ApplyFormatResponse], error) {
+	stages, err := h.svc.ApplyFormat(ctx, req.Msg.NominationId, req.Msg.GetPresetId(), req.Msg.GetSourceNominationId())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ApplyFormatResponse{Stages: toProtoStages(stages)}), nil
 }
 
 // GetBracket возвращает админский вид сетки (FR-7/FR-19).
@@ -684,11 +769,17 @@ func mapError(err error) error {
 		errors.Is(err, domain.ErrSelectorOverlap),
 		errors.Is(err, domain.ErrCapacityExceeded),
 		errors.Is(err, domain.ErrTieUnresolved),
-		errors.Is(err, domain.ErrStageIsSource):
+		errors.Is(err, domain.ErrStageIsSource),
+		errors.Is(err, domain.ErrStageLocked),
+		errors.Is(err, domain.ErrSchemaNotEmpty),
+		errors.Is(err, domain.ErrSourceCycle):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, domain.ErrInvalidRule),
-		errors.Is(err, domain.ErrSourceNotAllowed):
+		errors.Is(err, domain.ErrSourceNotAllowed),
+		errors.Is(err, domain.ErrInvalidSpec):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrPresetNameTaken):
+		return connect.NewError(connect.CodeAlreadyExists, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -927,6 +1018,99 @@ func toProtoStageType(t domain.StageType) hemav1.StageType {
 	default:
 		return hemav1.StageType_STAGE_TYPE_UNSPECIFIED
 	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0020: диагностика схемы и пресеты формата.
+// ---------------------------------------------------------------------
+
+func toProtoSchemaIssueSeverity(s domain.SchemaIssueSeverity) hemav1.SchemaIssueSeverity {
+	switch s {
+	case domain.SchemaIssueSeverityError:
+		return hemav1.SchemaIssueSeverity_SCHEMA_ISSUE_SEVERITY_ERROR
+	case domain.SchemaIssueSeverityWarning:
+		return hemav1.SchemaIssueSeverity_SCHEMA_ISSUE_SEVERITY_WARNING
+	case domain.SchemaIssueSeverityInfo:
+		return hemav1.SchemaIssueSeverity_SCHEMA_ISSUE_SEVERITY_INFO
+	default:
+		return hemav1.SchemaIssueSeverity_SCHEMA_ISSUE_SEVERITY_UNSPECIFIED
+	}
+}
+
+func toProtoSchemaIssueCode(c domain.SchemaIssueCode) hemav1.SchemaIssueCode {
+	switch c {
+	case domain.SchemaIssueCodeNoGroupCount:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_NO_GROUP_COUNT
+	case domain.SchemaIssueCodeBadSource:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_BAD_SOURCE
+	case domain.SchemaIssueCodeSourceCycle:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_SOURCE_CYCLE
+	case domain.SchemaIssueCodeSelectorOverlap:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_SELECTOR_OVERLAP
+	case domain.SchemaIssueCodeCapacityExceeded:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_CAPACITY_EXCEEDED
+	case domain.SchemaIssueCodeCapacityUnderfill:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_CAPACITY_UNDERFILL
+	case domain.SchemaIssueCodeCoverageGap:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_COVERAGE_GAP
+	case domain.SchemaIssueCodeOverlapUnknown:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_OVERLAP_UNKNOWN
+	case domain.SchemaIssueCodeTailUncovered:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_TAIL_UNCOVERED
+	default:
+		return hemav1.SchemaIssueCode_SCHEMA_ISSUE_CODE_UNSPECIFIED
+	}
+}
+
+func toProtoSchemaIssues(issues []domain.SchemaIssue) []*hemav1.SchemaIssue {
+	out := make([]*hemav1.SchemaIssue, 0, len(issues))
+	for _, iss := range issues {
+		out = append(out, &hemav1.SchemaIssue{
+			Severity: toProtoSchemaIssueSeverity(iss.Severity),
+			Code:     toProtoSchemaIssueCode(iss.Code),
+			StageIds: append([]string{}, iss.StageIDs...),
+			Message:  iss.Message,
+		})
+	}
+	return out
+}
+
+// toProtoFormatStageSpec маппит один этап спецификации формата (FR-11).
+// Bracket/Groups заполняются как у Stage (toProtoStage) — только для своего
+// типа, чтобы клиент не путал нулевой конфиг с «не задано» у чужого типа.
+func toProtoFormatStageSpec(s domain.FormatStageSpec) *hemav1.FormatStageSpec {
+	out := &hemav1.FormatStageSpec{
+		Title: s.Title, Type: toProtoStageType(s.Type),
+		SourceKind: toProtoStageSourceKind(s.SourceKind), SourceIndex: int32(s.SourceIndex),
+		Selector: toProtoStageSelectorKind(s.Selector), PlaceFrom: int32(s.PlaceFrom), PlaceTo: int32(s.PlaceTo),
+		Method: toProtoStageLayoutMethod(s.Method),
+	}
+	if s.Type == domain.StageTypeBracket {
+		out.Bracket = &hemav1.BracketConfig{Size: int32(s.Bracket.Size), ThirdPlace: s.Bracket.ThirdPlace}
+	}
+	if s.Type == domain.StageTypeGroups {
+		out.Groups = toProtoGroupsConfig(s.Groups)
+	}
+	return out
+}
+
+func toProtoFormatPreset(p domain.FormatPreset) *hemav1.FormatPreset {
+	stages := make([]*hemav1.FormatStageSpec, len(p.Spec.Stages))
+	for i, s := range p.Spec.Stages {
+		stages[i] = toProtoFormatStageSpec(s)
+	}
+	return &hemav1.FormatPreset{
+		Id: p.ID, Name: p.Name, Stages: stages,
+		CreatedAt: timestamppb.New(p.CreatedAt), UpdatedAt: timestamppb.New(p.UpdatedAt),
+	}
+}
+
+func toProtoFormatPresets(presets []domain.FormatPreset) []*hemav1.FormatPreset {
+	out := make([]*hemav1.FormatPreset, 0, len(presets))
+	for _, p := range presets {
+		out = append(out, toProtoFormatPreset(p))
+	}
+	return out
 }
 
 func toProtoPools(pools []domain.Pool) []*hemav1.Pool {

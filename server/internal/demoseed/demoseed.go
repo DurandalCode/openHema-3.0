@@ -791,7 +791,7 @@ func SeedPoolsAndBouts(
 // адресуется этапом, а не номинацией (спека 0018, FR-18) — демо-сид следует
 // тому же пути, что и админский экран `/admin/nominations/{id}/stages`.
 func groupsStageID(ctx context.Context, svc *stageservice.Service, nominationID string) (string, error) {
-	stages, err := svc.ListStages(ctx, nominationID)
+	stages, _, err := svc.ListStages(ctx, nominationID)
 	if err != nil {
 		return "", err
 	}

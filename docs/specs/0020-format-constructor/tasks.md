@@ -94,22 +94,22 @@
 
 ## Server — волна 2 (join, после мержа трека A)
 
-- [ ] T9. **testutil** — `modules/stage/testutil/fake_repo.go`: реализация
+- [x] T9. **testutil** — `modules/stage/testutil/fake_repo.go`: реализация
       новых методов порта + in-memory библиотека пресетов с уникальностью
       имени без учёта регистра (`var _ domain.Repository = (*FakeRepo)(nil)`).
-- [ ] T10. **service — редактирование этапа (red→green)** —
+- [x] T10. **service — редактирование этапа (red→green)** —
       `service/schema_test.go` → `service/schema.go`: `UpdateStage` (FR-2,
       FR-7). Кейсы: переименование при непустом составе — можно; смена конфига
       при непустом составе — `ErrStageLocked`; смена конфига в `ready` —
       `ErrStageLocked`; `group_count → 0` при наличии правила —
       `ErrInvalidRule`; конфиг, не соответствующий типу — `ErrInvalidInput`;
       `PublishNominationChanged` вызван.
-- [ ] T11. **service — авто-этап и каскад позиций (red→green)** —
+- [x] T11. **service — авто-этап и каскад позиций (red→green)** —
       `service/bracket_test.go`/`service/seeding_test.go`: удаление авто-этапа
       разрешено (FR-5), гейты «этап-источник» и «есть начатые бои» остаются;
       `SetStageRule` детектит цикл (FR-4) и пишет позиции каскадом (FR-3) →
       правки `service/bracket.go` и `service/seeding.go`.
-- [ ] T12. **service — пресеты и применение формата (red→green)** —
+- [x] T12. **service — пресеты и применение формата (red→green)** —
       `service/schema_test.go` → `service/schema.go`: `SaveFormatPreset`
       (`ErrPresetNameTaken`), `ListFormatPresets`/`RenameFormatPreset`/
       `DeleteFormatPreset`, `ApplyFormat` — из пресета и из номинации-донора
@@ -121,17 +121,17 @@
       `PublishNominationChanged`. Отдельный кейс на позиции (FR-8a, AC-22):
       пресет «группы → три сетки → завершающий этап **без правила**» — этап без
       правила встаёт последним уровнем, а не параллельно сеткам (AC-22).
-- [ ] T13. **service — диагностика в чтении (red→green)** — `ListStages`
+- [x] T13. **service — диагностика в чтении (red→green)** — `ListStages`
       возвращает `DiagnoseSchema` (FR-8) + тест «схема с ошибкой ⇒
       формирование отклонено тем же гейтом» (FR-9).
-- [ ] T14. **repo** — `repo/queries/stage.sql` (`UpdateStage`,
+- [x] T14. **repo** — `repo/queries/stage.sql` (`UpdateStage`,
       `SetStagePosition`, `CountMembersByNomination`, `DeleteStagesByNomination`,
       `InsertStageReturning`, `SetStageSource`, пять preset-запросов);
       `make sqlc`; `repo/repo.go` — реализация порта, включая ручные
       транзакции `ReplaceSchema` (удаление + вставка + резолв
       `SourceIndex → source_stage_id` + контейнеры первого круга сеткам) и
       `SetStagePositions`.
-- [ ] T15. **api (red→green)** — `api/handler_test.go` (httptest + Connect,
+- [x] T15. **api (red→green)** — `api/handler_test.go` (httptest + Connect,
       fake-репо): шесть новых RPC — счастливый путь и маппинг каждой доменной
       ошибки в `connect.Code` (`ErrPresetNameTaken` → `AlreadyExists`,
       `ErrSourceCycle`/`ErrStageLocked`/`ErrSchemaNotEmpty` →

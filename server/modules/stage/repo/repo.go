@@ -30,6 +30,11 @@ const uniqueViolation = "23505"
 // «одна арена ↔ один пул» на уровне данных (см. migrations/00001_init.sql).
 const constraintPoolsArena = "uq_pools_arena"
 
+// constraintPresetsName — имя уникального индекса, защищающего уникальность
+// имени пресета формата без учёта регистра/краевых пробелов (спека 0020,
+// FR-12/AC-17, см. migrations/00004_format_presets.sql).
+const constraintPresetsName = "uq_presets_name"
+
 // Repo — адаптер к PostgreSQL для модуля stage.
 type Repo struct {
 	pool *pgxpool.Pool
@@ -46,11 +51,12 @@ var _ domain.Repository = (*Repo)(nil)
 // undoDataJSON — сериализуемая форма undo-снапшота для JSONB-колонки
 // (спека 0009, решение №16; расширено спекой 0018 — слоты в снапшоте
 // reset). Одна форма покрывает все три вида undo:
-// - UndoAuto: FighterIDs (кого расставило авто → вернуть в нераспределённые);
-// - UndoDeletePool: Number + FighterIDs (восстановить пул + членства; DeletePool
-//   — действие только группового этапа, слотов не несёт);
-// - UndoReset: Pools (снапшот всех пулов с их членствами, включая слоты
-//   посева сетки, спека 0018 FR-8 → восстановить все).
+//   - UndoAuto: FighterIDs (кого расставило авто → вернуть в нераспределённые);
+//   - UndoDeletePool: Number + FighterIDs (восстановить пул + членства; DeletePool
+//     — действие только группового этапа, слотов не несёт);
+//   - UndoReset: Pools (снапшот всех пулов с их членствами, включая слоты
+//     посева сетки, спека 0018 FR-8 → восстановить все).
+//
 // Для UndoAuto/UndoDeletePool Pools пуст (omitempty); для UndoReset
 // FighterIDs/Number не используются (omitempty).
 type undoDataJSON struct {
@@ -381,6 +387,245 @@ func (r *Repo) MaxStagePosition(ctx context.Context, nominationID string) (int, 
 		return 0, fmt.Errorf("max stage position: %w", err)
 	}
 	return int(max), nil
+}
+
+// ---------------------------------------------------------------------
+// Спека 0020: конструктор схемы номинации + пресеты формата.
+// ---------------------------------------------------------------------
+
+// UpdateStage пишет название и конфиг этапа (FR-2). Гейты («конфиг правится
+// только пока состав пуст») и решение, реально ли изменился конфиг, —
+// забота вызывающего (service.UpdateStage); позиций не трогает.
+func (r *Repo) UpdateStage(ctx context.Context, stageID, title string, bracket domain.BracketConfig, groups domain.GroupsConfig) error {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return fmt.Errorf("parse stage id: %w", err)
+	}
+	if err := r.q.UpdateStage(ctx, sqlc.UpdateStageParams{
+		ID: sid, Title: title, BracketSize: int32(bracket.Size), ThirdPlace: bracket.ThirdPlace,
+		GroupCount: int32(groups.GroupCount),
+	}); err != nil {
+		return fmt.Errorf("update stage: %w", err)
+	}
+	return nil
+}
+
+// SetStagePositions пишет позиции сразу нескольких этапов одной транзакцией
+// (каскад FR-3, ResolveStagePositions) — без транзакции промежуточное
+// состояние схемы было бы видно параллельному чтению.
+func (r *Repo) SetStagePositions(ctx context.Context, positions map[string]int) error {
+	if len(positions) == 0 {
+		return nil
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	for id, pos := range positions {
+		sid, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("parse stage id: %w", err)
+		}
+		if err := q.SetStagePosition(ctx, sqlc.SetStagePositionParams{ID: sid, Position: int32(pos)}); err != nil {
+			return fmt.Errorf("set stage position: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// MembersCountByNomination — сколько всего членств по всем этапам номинации
+// (гейт «схема не тронута», FR-13).
+func (r *Repo) MembersCountByNomination(ctx context.Context, nominationID string) (int, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return 0, fmt.Errorf("parse nomination id: %w", err)
+	}
+	n, err := r.q.CountMembersByNomination(ctx, nid)
+	if err != nil {
+		return 0, fmt.Errorf("count members by nomination: %w", err)
+	}
+	return int(n), nil
+}
+
+// ReplaceSchema атомарно заменяет схему номинации целиком (FR-13/FR-14,
+// NFR-1): удаляет все существующие этапы номинации одним DML-оператором
+// (каскадом БД уходят их пулы и членства — гейт «схема не тронута» уже
+// проверен вызывающим, пулы в любом случае пусты; самоссылающийся
+// source_stage_id с ON DELETE RESTRICT не мешает бulk-удалению источника
+// вместе с его веткой в одном операторе — PostgreSQL проверяет RESTRICT
+// против итогового состояния оператора, не построчно), затем вставляет
+// новые этапы из specs в порядке спецификации под заданными positions.
+// SourceIndex резолвится в id НОВОГО этапа в том же проходе — порядок specs
+// уже гарантирует (ValidateFormatSpec), что источник вставлен раньше своей
+// ветки. Сетке заводит по два контейнера первого круга — как service.CreateStage
+// (0018, FR-6a).
+func (r *Repo) ReplaceSchema(ctx context.Context, nominationID string, specs []domain.FormatStageSpec, positions []int) ([]domain.Stage, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return nil, fmt.Errorf("parse nomination id: %w", err)
+	}
+	if len(specs) != len(positions) {
+		return nil, domain.ErrInvalidInput
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.DeleteStagesByNomination(ctx, nid); err != nil {
+		return nil, fmt.Errorf("delete stages by nomination: %w", err)
+	}
+
+	newIDs := make([]uuid.UUID, len(specs))
+	out := make([]domain.Stage, len(specs))
+	for i, spec := range specs {
+		rule := domain.SeedingRule{
+			SourceKind: spec.SourceKind, Selector: spec.Selector,
+			PlaceFrom: spec.PlaceFrom, PlaceTo: spec.PlaceTo, Method: spec.Method,
+		}
+		if spec.SourceKind == domain.SourceKindStage {
+			rule.SourceStageID = newIDs[spec.SourceIndex].String()
+		}
+		ruleParams, err := ruleToSQLParams(rule)
+		if err != nil {
+			return nil, err
+		}
+
+		row, err := q.CreateStage(ctx, sqlc.CreateStageParams{
+			NominationID: nid, Position: int32(positions[i]), Title: spec.Title, Type: string(spec.Type),
+			BracketSize: int32(spec.Bracket.Size), ThirdPlace: spec.Bracket.ThirdPlace, GroupCount: int32(spec.Groups.GroupCount),
+			SourceKind: ruleParams.sourceKind, SourceStageID: ruleParams.sourceStageID,
+			SelectorKind: ruleParams.selectorKind, PlaceFrom: ruleParams.placeFrom, PlaceTo: ruleParams.placeTo,
+			LayoutMethod: ruleParams.layoutMethod,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create stage: %w", err)
+		}
+		newIDs[i] = row.ID
+		stage, err := toDomainStage(stageRow(row))
+		if err != nil {
+			return nil, err
+		}
+		out[i] = stage
+
+		if spec.Type == domain.StageTypeBracket {
+			if _, err := q.InsertPool(ctx, sqlc.InsertPoolParams{
+				StageID: row.ID, Number: int32(domain.ContainerNumberOf(spec.Bracket, 1, 1)),
+			}); err != nil {
+				return nil, fmt.Errorf("insert pool: %w", err)
+			}
+			if _, err := q.InsertPool(ctx, sqlc.InsertPoolParams{
+				StageID: row.ID, Number: int32(domain.ContainerNumberOf(spec.Bracket, 1, 2)),
+			}); err != nil {
+				return nil, fmt.Errorf("insert pool: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return out, nil
+}
+
+// ListFormatPresets возвращает библиотеку пресетов целиком, по имени (FR-12).
+func (r *Repo) ListFormatPresets(ctx context.Context) ([]domain.FormatPreset, error) {
+	rows, err := r.q.ListFormatPresets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list format presets: %w", err)
+	}
+	out := make([]domain.FormatPreset, 0, len(rows))
+	for _, row := range rows {
+		preset, err := toDomainPreset(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, preset)
+	}
+	return out, nil
+}
+
+// GetFormatPreset возвращает один пресет по id (found=false, если не
+// существует) — вход ApplyFormat (FR-13).
+func (r *Repo) GetFormatPreset(ctx context.Context, presetID string) (domain.FormatPreset, bool, error) {
+	pid, err := uuid.Parse(presetID)
+	if err != nil {
+		return domain.FormatPreset{}, false, nil
+	}
+	row, err := r.q.GetFormatPresetByID(ctx, pid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.FormatPreset{}, false, nil
+		}
+		return domain.FormatPreset{}, false, fmt.Errorf("get format preset: %w", err)
+	}
+	preset, err := toDomainPreset(row)
+	return preset, true, err
+}
+
+// InsertFormatPreset сохраняет схему как именованный пресет (FR-11/FR-12).
+// Нарушение уникального индекса имени (без учёта регистра/краевых пробелов)
+// мапится в ErrPresetNameTaken (AC-17).
+func (r *Repo) InsertFormatPreset(ctx context.Context, name string, spec domain.FormatSpec) (domain.FormatPreset, error) {
+	data, err := encodeFormatSpec(spec)
+	if err != nil {
+		return domain.FormatPreset{}, err
+	}
+	row, err := r.q.InsertFormatPreset(ctx, sqlc.InsertFormatPresetParams{Name: name, Stages: data})
+	if err != nil {
+		if isUniqueViolation(err, constraintPresetsName) {
+			return domain.FormatPreset{}, domain.ErrPresetNameTaken
+		}
+		return domain.FormatPreset{}, fmt.Errorf("insert format preset: %w", err)
+	}
+	return toDomainPreset(row)
+}
+
+// RenameFormatPreset переименовывает пресет, не трогая его схему и уже
+// применённые к номинациям копии (FR-12/FR-16).
+func (r *Repo) RenameFormatPreset(ctx context.Context, presetID, name string) (domain.FormatPreset, error) {
+	pid, err := uuid.Parse(presetID)
+	if err != nil {
+		return domain.FormatPreset{}, domain.ErrNotFound
+	}
+	row, err := r.q.RenameFormatPreset(ctx, sqlc.RenameFormatPresetParams{ID: pid, Name: name})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.FormatPreset{}, domain.ErrNotFound
+		}
+		if isUniqueViolation(err, constraintPresetsName) {
+			return domain.FormatPreset{}, domain.ErrPresetNameTaken
+		}
+		return domain.FormatPreset{}, fmt.Errorf("rename format preset: %w", err)
+	}
+	return toDomainPreset(row)
+}
+
+// DeleteFormatPreset удаляет пресет из библиотеки; номинации, к которым он
+// уже применялся, не затрагивает (FR-16).
+func (r *Repo) DeleteFormatPreset(ctx context.Context, presetID string) error {
+	pid, err := uuid.Parse(presetID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	rows, err := r.q.DeleteFormatPreset(ctx, pid)
+	if err != nil {
+		return fmt.Errorf("delete format preset: %w", err)
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 // GetPool возвращает один пул по id (включая StageID/ArenaID/CurrentBoutID,
@@ -1248,6 +1493,76 @@ func encodeUndo(d undoDataJSON) ([]byte, error) {
 		return nil, fmt.Errorf("marshal undo data: %w", err)
 	}
 	return b, nil
+}
+
+// formatStageSpecJSON — сериализуемая форма domain.FormatStageSpec для
+// jsonb-колонки stage.format_presets.stages (спека 0020, FR-11). Пресет —
+// значение целиком (FR-16): кодируется/декодируется разом, колонка не
+// читается и не пишется по отдельным полям. SourceIndex без omitempty —
+// "-1" (нет источника-этапа) не эквивалентно отсутствию поля.
+type formatStageSpecJSON struct {
+	Title       string `json:"title"`
+	Type        string `json:"type"`
+	BracketSize int    `json:"bracket_size,omitempty"`
+	ThirdPlace  bool   `json:"third_place,omitempty"`
+	GroupCount  int    `json:"group_count,omitempty"`
+	SourceKind  string `json:"source_kind,omitempty"`
+	SourceIndex int    `json:"source_index"`
+	Selector    string `json:"selector,omitempty"`
+	PlaceFrom   int    `json:"place_from,omitempty"`
+	PlaceTo     int    `json:"place_to,omitempty"`
+	Method      string `json:"method,omitempty"`
+}
+
+func encodeFormatSpec(spec domain.FormatSpec) ([]byte, error) {
+	out := make([]formatStageSpecJSON, len(spec.Stages))
+	for i, s := range spec.Stages {
+		out[i] = formatStageSpecJSON{
+			Title: s.Title, Type: string(s.Type),
+			BracketSize: s.Bracket.Size, ThirdPlace: s.Bracket.ThirdPlace,
+			GroupCount: s.Groups.GroupCount,
+			SourceKind: string(s.SourceKind), SourceIndex: s.SourceIndex,
+			Selector: string(s.Selector), PlaceFrom: s.PlaceFrom, PlaceTo: s.PlaceTo,
+			Method: string(s.Method),
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("marshal format spec: %w", err)
+	}
+	return b, nil
+}
+
+func decodeFormatSpec(data []byte) (domain.FormatSpec, error) {
+	var raw []formatStageSpecJSON
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return domain.FormatSpec{}, fmt.Errorf("unmarshal format spec: %w", err)
+		}
+	}
+	stages := make([]domain.FormatStageSpec, len(raw))
+	for i, s := range raw {
+		stages[i] = domain.FormatStageSpec{
+			Title: s.Title, Type: domain.StageType(s.Type),
+			Bracket:    domain.BracketConfig{Size: s.BracketSize, ThirdPlace: s.ThirdPlace},
+			Groups:     domain.GroupsConfig{GroupCount: s.GroupCount},
+			SourceKind: domain.SourceKind(s.SourceKind), SourceIndex: s.SourceIndex,
+			Selector: domain.SelectorKind(s.Selector), PlaceFrom: s.PlaceFrom, PlaceTo: s.PlaceTo,
+			Method: domain.LayoutMethod(s.Method),
+		}
+	}
+	return domain.FormatSpec{Stages: stages}, nil
+}
+
+func toDomainPreset(row sqlc.StageFormatPreset) (domain.FormatPreset, error) {
+	spec, err := decodeFormatSpec(row.Stages)
+	if err != nil {
+		return domain.FormatPreset{}, err
+	}
+	return domain.FormatPreset{
+		ID: row.ID.String(), Name: row.Name, Spec: spec,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}, nil
 }
 
 func parseUUIDs(ids []string) ([]uuid.UUID, error) {
