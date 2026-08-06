@@ -32,7 +32,7 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/stage.proto` — enum `StageSourceKind`/
+- [x] T1. `proto/hema/v1/stage.proto` — enum `StageSourceKind`/
       `StageSelectorKind`/`StageLayoutMethod`; сообщения `SeedingRule`,
       `GroupsConfig`, `StageBuildEntry`, `StageBuildTie`, `TieResolution`,
       `StageBuildPreview`; `Stage.groups`/`Stage.rule`;
@@ -40,7 +40,7 @@
       RPC — `SetStageRule`, `PreviewStageBuild`, `BuildStage` (ответ —
       `oneof {PoolLayout, Bracket}`). Затем `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
-- [ ] T2. `server/modules/stage/migrations/00003_seeding.sql` (goose) —
+- [x] T2. `server/modules/stage/migrations/00003_seeding.sql` (goose) —
       колонки правила и `group_count`, шесть `CHECK`-ов, самоссылающийся FK
       `source_stage_id` с `ON DELETE RESTRICT`, индекс `idx_stages_source`,
       расширение `chk_stages_undo` значением `build`. Прогнать `make migrate`

@@ -13,14 +13,39 @@ service StageAdminService {
   // групповой этап, если строки ещё нет (0017, FR-4) — единственное место,
   // где виртуальный этап получает постоянный id.
   rpc ListStages(ListStagesRequest) returns (ListStagesResponse);
-  // CreateStage добавляет номинации этап-сетку (спека 0018, FR-2): размер и
-  // флаг боя за 3-е место задаются один раз и не редактируются (FR-4).
-  // Новый этап встаёт следующим по порядку. type = GROUPS отклоняется —
-  // групповой этап система создаёт сама (0017, FR-4).
+  // CreateStage добавляет номинации новый этап — сетку (спека 0018, FR-2)
+  // либо групповой этап (спека 0019, FR-7): параметры (размер сетки/бой за
+  // 3-е место, либо число групп) задаются один раз и не редактируются
+  // (0018, FR-4), кроме правила отбора (см. SetStageRule). Новый этап
+  // встаёт следующим по порядку, либо — если сразу передано правило с
+  // источником-этапом — параллельной веткой на позиции источника (спека
+  // 0019, FR-10). Авто-этап (0017, FR-4) этим RPC не создаётся.
   rpc CreateStage(CreateStageRequest) returns (CreateStageResponse);
-  // DeleteStage удаляет этап-сетку, пока в ней не начат ни один бой (FR-3).
-  // Групповой этап удалить нельзя.
+  // DeleteStage удаляет явно созданный этап, пока в нём не начат ни один бой
+  // (0018, FR-3) и пока на него не ссылается правило другого этапа как на
+  // источник (спека 0019, FR-7a). Авто-этап удалить нельзя.
   rpc DeleteStage(DeleteStageRequest) returns (DeleteStageResponse);
+  // SetStageRule задаёт или снимает правило отбора этапа (спека 0019, FR-1/
+  // FR-6): источник (ростер номинации либо другой групповой этап той же
+  // номинации, стоящий раньше по порядку), селектор (все/места X-Y каждой
+  // группы/места X-Y сводного порядка) и производный от типа целевого
+  // этапа метод раскладки. Разрешено только пока состав этапа пуст.
+  rpc SetStageRule(SetStageRuleRequest) returns (SetStageRuleResponse);
+  // PreviewStageBuild считает, кто будет отобран текущим правилом этапа, и
+  // куда каждый попадёт, без применения (спека 0019, FR-15): показывает
+  // происхождение каждого бойца, вместимость, пересечение с параллельными
+  // ветками (FR-11), незакрытые дележи мест (FR-22) и предупреждение о
+  // недоигранном источнике (FR-14). ties — ответы организатора на дележи,
+  // уже разрешённые в предыдущем вызове превью того же формирования;
+  // не персистируется (FR-24).
+  rpc PreviewStageBuild(PreviewStageBuildRequest) returns (PreviewStageBuildResponse);
+  // BuildStage применяет план последнего PreviewStageBuild (спека 0019,
+  // FR-16): заполняет состав этапа (группы — автораспределением, сетку —
+  // посевом), оставляя этап в черновике. Отклоняется, если состав уже не
+  // пуст (FR-18, сначала ResetLayout), есть пересечение с параллельными
+  // ветками (FR-11), превышена вместимость (FR-19) или остались
+  // неразрешённые дележи (FR-22, ties должны закрыть их все).
+  rpc BuildStage(BuildStageRequest) returns (BuildStageResponse);
   // GetBracket возвращает админский вид сетки: дерево слотов, разрешённое
   // из посева и материализованных боёв (FR-7/FR-19), плюс кого ещё можно
   // посеять. Чтение — без материализации боёв.
@@ -203,6 +228,39 @@ enum StageType {
   STAGE_TYPE_BRACKET = 2;
 }
 
+// StageSourceKind — источник правила отбора этапа (спека 0019, FR-2).
+// ROSTER — активный ростер номинации (питает первый этап); STAGE —
+// конкретный другой групповой этап той же номинации, стоящий раньше по
+// порядку. UNSPECIFIED в Stage.rule.source_kind означает «правила нет»
+// (FR-1) — SeedingRule целиком отсутствует по смыслу, не просто пуст.
+enum StageSourceKind {
+  STAGE_SOURCE_KIND_UNSPECIFIED = 0;
+  STAGE_SOURCE_KIND_ROSTER = 1;
+  STAGE_SOURCE_KIND_STAGE = 2;
+}
+
+// StageSelectorKind — кого из источника берём (спека 0019, FR-3). ALL —
+// все участники источника (единственный вариант для ROSTER — у ростера мест
+// нет); GROUP_PLACES — окно мест X-Y внутри каждой группы источника;
+// OVERALL_PLACES — окно мест X-Y сводного порядка источника (FR-5).
+enum StageSelectorKind {
+  STAGE_SELECTOR_KIND_UNSPECIFIED = 0;
+  STAGE_SELECTOR_KIND_ALL = 1;
+  STAGE_SELECTOR_KIND_GROUP_PLACES = 2;
+  STAGE_SELECTOR_KIND_OVERALL_PLACES = 3;
+}
+
+// StageLayoutMethod — как отобранные ложатся в целевой этап (спека 0019,
+// FR-4). Выводится сервером из типа целевого этапа при SetStageRule —
+// клиент его не выбирает: SNAKE — существующее автораспределение змейкой
+// (0009, FR-6) в групповой этап; SEEDED — классический посев 1×N в слоты
+// сетки.
+enum StageLayoutMethod {
+  STAGE_LAYOUT_METHOD_UNSPECIFIED = 0;
+  STAGE_LAYOUT_METHOD_SNAKE = 1;
+  STAGE_LAYOUT_METHOD_SEEDED = 2;
+}
+
 // BracketConfig — параметры этапа-сетки (спека 0018, FR-1; ADR 0014 §1a).
 // size — число слотов первого круга (степень двойки, 4..32); third_place —
 // нужен ли бой за 3-е место. Задаётся при создании этапа (CreateStage) и
@@ -210,6 +268,33 @@ enum StageType {
 message BracketConfig {
   int32 size = 1;
   bool third_place = 2;
+}
+
+// GroupsConfig — параметры этапа-групп (спека 0019, FR-8; ADR 0014 §1a).
+// group_count — число групп; часть схемы этапа, живёт с ним (в отличие от
+// значения на момент разового формирования) и не редактируется — этап
+// пересоздают, как и bracket_size у сетки (0018, FR-4). 0 — у авто-этапа
+// (0017, FR-4), который набирается только руками (FR-9) и правила иметь
+// не может (FR-9a).
+message GroupsConfig {
+  int32 group_count = 1;
+}
+
+// SeedingRule — правило отбора этапа: источник, селектор, метод раскладки
+// (спека 0019, FR-1). Presence в Stage.rule (не значения полей) отличает
+// «правила нет» от заданного правила — у этапа без правила поле Stage.rule
+// не заполняется вовсе. place_to = 0 — открытая верхняя граница («3 и
+// ниже», FR-3); для selector = ALL place_from/place_to игнорируются.
+// method сервер выводит сам из типа целевого этапа (FR-4) — клиент его не
+// присылает при создании/SetStageRule, но он приходит в ответах как
+// вычисленное значение.
+message SeedingRule {
+  StageSourceKind source_kind = 1;
+  string source_stage_id = 2;
+  StageSelectorKind selector = 3;
+  int32 place_from = 4;
+  int32 place_to = 5;
+  StageLayoutMethod method = 6;
 }
 
 // FighterRef — проекция бойца для экрана управления пулами (DnD): id для
@@ -235,6 +320,13 @@ message Stage {
   StageType type = 5;
   PoolLayoutStatus status = 6;
   BracketConfig bracket = 7;
+  // groups заполнен только у type = GROUPS, созданного явным CreateStage
+  // (спека 0019, FR-7/FR-8); у авто-этапа (0017, FR-4) — не заполнен
+  // (group_count = 0, FR-9).
+  GroupsConfig groups = 8;
+  // rule — правило отбора (спека 0019, FR-1); не заполнено, если у этапа
+  // правила нет (набирается руками, как раньше).
+  SeedingRule rule = 9;
 }
 
 // PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
@@ -565,13 +657,18 @@ message ListStagesResponse {
   repeated Stage stages = 1;
 }
 
-// CreateStageRequest — в этом инкременте принимается только type = BRACKET
-// (FR-2); GROUPS материализуется системой (0017, FR-4), явно не создаётся.
+// CreateStageRequest — type = BRACKET (0018, FR-2) либо GROUPS (спека 0019,
+// FR-7: явное создание, в отличие от авто-этапа 0017 FR-4). bracket
+// заполняется только у BRACKET, groups — только у GROUPS. rule — опциональное
+// правило отбора, задаётся тем же вызовом (спека 0019, FR-6); можно не
+// передавать и задать позже SetStageRule, пока состав пуст.
 message CreateStageRequest {
   string nomination_id = 1;
   StageType type = 2;
   string title = 3;
   BracketConfig bracket = 4;
+  GroupsConfig groups = 5;
+  SeedingRule rule = 6;
 }
 
 message CreateStageResponse {
@@ -612,6 +709,94 @@ message ClearBracketSlotRequest {
 
 message ClearBracketSlotResponse {
   Bracket bracket = 1;
+}
+
+// --- спека 0019: переходы между этапами (правило отбора, превью, формирование) ---
+
+message SetStageRuleRequest {
+  string stage_id = 1;
+  // rule — новое правило; не заполнено (все поля нулевые) — снять правило,
+  // вернуть этап к ручному набору.
+  SeedingRule rule = 2;
+}
+
+message SetStageRuleResponse {
+  Stage stage = 1;
+}
+
+// StageBuildEntry — одна строка превью формирования (спека 0019, FR-15/
+// FR-27): отобранный боец, откуда он пришёл и куда попадает. origin_label
+// формирует сервер («Группа 2, место 1») — клиент строку из чисел не
+// собирает (то же правило, что у BracketSlot.source_label, 0018 FR-13).
+// target_pool_number заполнен для целевого группового этапа, target_slot —
+// для целевой сетки; используется ровно одно из двух полей.
+message StageBuildEntry {
+  FighterRef fighter = 1;
+  string origin_label = 2;
+  int32 source_place = 3;
+  int32 overall_place = 4;
+  int32 target_pool_number = 5;
+  int32 target_slot = 6;
+}
+
+// StageBuildTie — неразрешённый дележ на границе отбора (спека 0019, FR-22).
+// source_pool_id пуст, если дележ обнаружен в сводном порядке (селектор
+// OVERALL_PLACES) — там границы места не привязаны к одной группе.
+message StageBuildTie {
+  string source_pool_id = 1;
+  string group_label = 2;
+  int32 place = 3;
+  repeated FighterRef contenders = 4;
+  int32 slots_left = 5;
+}
+
+// TieResolution — ответ организатора на один дележ (спека 0019, FR-22):
+// fighter_ids в порядке прохода, первые slots_left проходят. Передаётся в
+// запросе, не персистируется (FR-24) — новое формирование спрашивает
+// заново.
+message TieResolution {
+  string source_pool_id = 1;
+  int32 place = 2;
+  repeated string fighter_ids = 3;
+}
+
+// StageBuildPreview — план формирования целиком (спека 0019, FR-15).
+// overlaps непуст ⇒ BuildStage будет отклонён (FR-11); ties непуст ⇒
+// требуется TieResolution на каждый (FR-22); source_unfinished_bouts > 0 ⇒
+// предупреждение о недоигранном источнике, формирование при этом разрешено
+// (FR-14).
+message StageBuildPreview {
+  repeated StageBuildEntry entries = 1;
+  repeated FighterRef unselected = 2;
+  int32 capacity = 3;
+  repeated StageBuildTie ties = 4;
+  repeated FighterRef overlaps = 5;
+  int32 source_unfinished_bouts = 6;
+}
+
+message PreviewStageBuildRequest {
+  string stage_id = 1;
+  repeated TieResolution ties = 2;
+}
+
+message PreviewStageBuildResponse {
+  StageBuildPreview preview = 1;
+}
+
+message BuildStageRequest {
+  string stage_id = 1;
+  repeated TieResolution ties = 2;
+}
+
+// BuildStageResponse — результат формирования (спека 0019, FR-16): целевой
+// групповой этап отдаёт свою раскладку (как GetLayout), целевая сетка — свой
+// вид (как GetBracket) — клиент получает готовый к отображению результат без
+// второго запроса.
+message BuildStageResponse {
+  oneof result {
+    PoolLayout layout = 1;
+    Bracket bracket = 2;
+  }
 }
 
 message SeatPoolOnArenaRequest {
