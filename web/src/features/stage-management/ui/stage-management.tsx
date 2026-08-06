@@ -2,22 +2,30 @@
 
 import { Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
-import { poolLayoutStatusLabel } from "@/entities/pool/lib/types";
-import { stageTypeLabel } from "@/entities/stage/lib/labels";
+import { NominationSchema } from "@/widgets/nomination-schema/nomination-schema";
+import { BuildStageDialog } from "@/features/stage-build/ui/build-stage-dialog";
+import { useResetLayout } from "@/features/nomination-pools/api/use-reset-layout";
+import { useResetBracket } from "@/features/bracket-seeding/api/use-reset-bracket";
 import type { Stage } from "@/entities/stage/lib/types";
 import { useStages } from "../api/use-stages";
 import { useDeleteStage } from "../api/use-delete-stage";
 import { CreateStageDialog } from "./create-stage-dialog";
 
 /**
- * StageManagement — список этапов номинации + добавление этапа-сетки
- * (спека 0018, FR-1/FR-2/FR-3/FR-18). Групповой этап удалить нельзя (AC-14) —
- * кнопка удаления показана только у сеток, сервер всё равно перепроверяет
- * гейт.
+ * StageManagement — схема номинации целиком (спека 0019, FR-25) + добавление
+ * этапа. Уровни и параллельные ветки — `NominationSchema` (виджет, читает
+ * только пропсы); быстрые действия конкретного этапа — здесь, через
+ * render-prop `renderActions` (виджет ничего не мутирует сам).
+ *
+ * Удаление (0018 FR-3, 0019 FR-7a): авто-этап (`type=groups` без `groups`,
+ * FR-9) удалить нельзя — кнопка не показывается; сервер всё равно
+ * перепроверяет гейт (в т.ч. «этап — источник другой ветки», FR-7a).
+ *
+ * «Сформировать»/«Расформировать» (FR-13/FR-17) показаны только у этапов с
+ * заданным правилом отбора — у остальных состав набирается вручную на
+ * странице этапа, как раньше (0009/0018).
  */
 export function StageManagement({ nominationId }: { nominationId: string }) {
   const { data: stages, isLoading, error } = useStages(nominationId);
@@ -37,7 +45,7 @@ export function StageManagement({ nominationId }: { nominationId: string }) {
   return (
     <Col gap={4}>
       <Row align="center" justify="between" gap={3} className="flex-wrap">
-        <h2 className="text-sm font-medium text-muted-foreground">Этапы номинации</h2>
+        <h2 className="text-sm font-medium text-muted-foreground">Схема номинации</h2>
         <CreateStageDialog nominationId={nominationId} stages={stages} />
       </Row>
 
@@ -47,24 +55,26 @@ export function StageManagement({ nominationId }: { nominationId: string }) {
         </Alert>
       )}
 
-      <Col gap={2}>
-        {stages.map((stage) => (
-          <StageCard
-            key={stage.id}
-            stage={stage}
-            onDelete={() => deleteStage.mutate(stage.id)}
-            deletePending={deleteStage.isPending}
-          />
-        ))}
-        {stages.length === 0 && (
-          <p className="text-sm text-muted-foreground">Этапов ещё нет.</p>
-        )}
-      </Col>
+      {stages.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Этапов ещё нет.</p>
+      ) : (
+        <NominationSchema
+          stages={stages}
+          mode="admin"
+          renderActions={(stage) => (
+            <StageQuickActions
+              stage={stage}
+              onDelete={() => deleteStage.mutate(stage.id)}
+              deletePending={deleteStage.isPending}
+            />
+          )}
+        />
+      )}
     </Col>
   );
 }
 
-function StageCard({
+function StageQuickActions({
   stage,
   onDelete,
   deletePending,
@@ -74,34 +84,36 @@ function StageCard({
   deletePending: boolean;
 }) {
   const isBracket = stage.type === "STAGE_TYPE_BRACKET";
+  // Авто-этап (0017, FR-4): групповой этап без явного group_count (FR-9) —
+  // удалить нельзя. Явно созданный групповой этап и любая сетка — можно
+  // (0018 FR-3, 0019 FR-7a); сервер дополнительно гейтит «этап — источник».
+  const deletable = isBracket || stage.groups !== null;
+
+  const resetLayout = useResetLayout(stage.id);
+  const resetBracket = useResetBracket(stage.id);
+  const resetPending = isBracket ? resetBracket.isPending : resetLayout.isPending;
+  const onReset = () => (isBracket ? resetBracket.mutate() : resetLayout.mutate());
+
   return (
-    <Card>
-      <CardContent className="flex items-center justify-between gap-3 py-4">
-        <Row align="center" gap={2} className="flex-wrap">
-          <span className="font-medium">{stage.title}</span>
-          <Badge variant="secondary">{stageTypeLabel(stage.type)}</Badge>
-          <Badge variant={stage.status === "POOL_LAYOUT_STATUS_READY" ? "default" : "outline"}>
-            {poolLayoutStatusLabel(stage.status)}
-          </Badge>
-          {isBracket && stage.bracket && (
-            <span className="text-xs text-muted-foreground">
-              {stage.bracket.size} слотов{stage.bracket.thirdPlace ? ", бой за 3-е место" : ""}
-            </span>
-          )}
-        </Row>
-        {isBracket && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onDelete}
-            loading={deletePending}
-            aria-label={`Удалить ${stage.title}`}
-          >
-            <Trash2 />
-          </Button>
-        )}
-      </CardContent>
-    </Card>
+    <Row gap={2} className="flex-wrap items-center">
+      {stage.rule && <BuildStageDialog stage={stage} />}
+      {stage.rule && (
+        <Button type="button" size="sm" variant="ghost" onClick={onReset} loading={resetPending}>
+          Расформировать
+        </Button>
+      )}
+      {deletable && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onDelete}
+          loading={deletePending}
+          aria-label={`Удалить ${stage.title}`}
+        >
+          <Trash2 />
+        </Button>
+      )}
+    </Row>
   );
 }

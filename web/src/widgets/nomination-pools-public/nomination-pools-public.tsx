@@ -11,6 +11,7 @@ import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
 import { useNominationLive } from "@/features/nomination-live/api/use-nomination-live";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
+import { NominationSchema } from "@/widgets/nomination-schema/nomination-schema";
 
 /** outcomeLabel — исход завершённого боя (спека 0013, FR-3) как текст. */
 function outcomeLabel(bout: BoardBout): string {
@@ -31,6 +32,12 @@ function outcomeLabel(bout: BoardBout): string {
  * зафиксированных этапов-сеток, отрисованные тем же read-only виджетом, что
  * и на админском экране (`widgets/bracket-view`). Группы и сетки номинации
  * показываются одновременно, каждая под подписью своего этапа.
+ *
+ * Схема номинации (спека 0019, FR-26) — `NominationSchema` в режиме
+ * `public`: уровни и параллельные ветки видны зрителю тем же виджетом, что
+ * и организатору (`mode="admin"` на админской странице), без слота
+ * действий. Показывается, как только есть хотя бы один этап, — до этого
+ * момента ниже уже сработал ранний возврат «раскладка формируется».
  *
  * Client-компонент: засеян SSR-снапшотом (`initialSnapshot`) и подписан на
  * живой канал через `useNominationLive` (SSE + polling-fallback, спека 0014).
@@ -61,6 +68,12 @@ export function NominationPoolsPublic({
 
   return (
     <Col gap={8}>
+      {stages.length > 0 && (
+        <Col gap={3}>
+          <h2 className="text-sm font-medium text-muted-foreground">Схема номинации</h2>
+          <NominationSchema stages={stages} mode="public" />
+        </Col>
+      )}
       {pools.length > 0 && (
         <Col gap={3}>
           {groupsStage && (
