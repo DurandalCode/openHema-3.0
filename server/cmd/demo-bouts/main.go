@@ -99,12 +99,18 @@ func main() {
 		"preparing_pool", pools.PreparingPoolID,
 	)
 
-	// Плейофф-сетка (спека 0018): добавляем её той же номинации, чья
-	// групповая раскладка уже целиком проведена (FinishedPoolID) — на
-	// публичном экране этой номинации сразу видно и группы, и сетку
-	// одновременно (AC-12). Верхняя половина «1/4 финала» ведётся на
-	// отдельной («Ристалище 4») арене параллельно трём показательным пулам
-	// групп — арены 1-3 уже заняты.
+	// Двойной плейофф (спека 0019, AC-2): той же номинации, чья групповая
+	// раскладка уже целиком проведена (FinishedPoolID), добавляем СРАЗУ две
+	// сетки от одного источника — «сильные» (места 1-2 каждой группы) и
+	// «утешительные» (места 3 и ниже), обе сформированы автоматическим
+	// переходом (BuildStage), а не ручным посевом (SeedBracketStage,
+	// спека 0018, остаётся в кодовой базе как демонстрация ручного пути,
+	// просто не вызывается из этого сценария — обе демонстрации делили бы
+	// одну и ту же арену верхней половины). На публичном экране этой
+	// номинации сразу видно и группы, и обе сетки, и схему их ветвления
+	// (FR-26) одновременно (AC-12, AC-17). Верхняя половина сильной сетки
+	// ведётся на отдельной («Ристалище 4») арене параллельно трём
+	// показательным пулам групп — арены 1-3 уже заняты.
 	var bracketArenaID string
 	if len(result.ArenaIDs) > 3 {
 		bracketArenaID = result.ArenaIDs[3]
@@ -113,18 +119,20 @@ func main() {
 	if len(pools.NominationIDs) > 0 {
 		bracketNominationID = pools.NominationIDs[0]
 	}
-	bracket, err := demoseed.SeedBracketStage(
-		ctx, svc.Pool, svc.Fighter,
-		result.TournamentID, bracketNominationID, bracketArenaID, organizerID, rng,
+	bracket, err := demoseed.SeedDoubleBracketStages(
+		ctx, svc.Pool,
+		bracketNominationID, bracketArenaID, organizerID, rng,
 	)
 	if err != nil {
-		log.Error("seed bracket stage", "err", err)
+		log.Error("seed double bracket stages", "err", err)
 		os.Exit(1)
 	}
-	log.Info("добавили плейофф-сетку",
+	log.Info("добавили двойной плейофф",
 		"nomination", bracket.NominationID,
-		"stage", bracket.StageID,
-		"seeded_slots", bracket.SeededSlots,
+		"strong_stage", bracket.StrongStageID,
+		"strong_selected", bracket.StrongSelected,
+		"weak_stage", bracket.WeakStageID,
+		"weak_selected", bracket.WeakSelected,
 	)
 
 	fmt.Println()
@@ -142,8 +150,15 @@ func main() {
 	if pools.RunningArenaID != "" {
 		fmt.Printf("Ведение этого боя (admin):                     /admin/arenas/%s\n", pools.RunningArenaID)
 	}
-	if bracket.StageID != "" {
-		fmt.Printf("Плейофф-сетка (admin, посев+ведение):          /admin/nominations/%s/stages/%s\n", bracket.NominationID, bracket.StageID)
+	if bracket.NominationID != "" {
+		fmt.Printf("Схема номинации, обе сетки (admin):             /admin/nominations/%s/stages\n", bracket.NominationID)
+		fmt.Printf("Публичная схема (двойной плейофф, AC-17):       /nominations/%s\n", bracket.NominationID)
+	}
+	if bracket.StrongStageID != "" {
+		fmt.Printf("Сильная сетка (admin, ведение):                 /admin/nominations/%s/stages/%s\n", bracket.NominationID, bracket.StrongStageID)
+	}
+	if bracket.WeakStageID != "" {
+		fmt.Printf("Утешительная сетка (admin, ведение):            /admin/nominations/%s/stages/%s\n", bracket.NominationID, bracket.WeakStageID)
 	}
 	if bracketArenaID != "" {
 		fmt.Printf("Ведение верхней половины 1/4 финала (admin):    /admin/arenas/%s\n", bracketArenaID)
