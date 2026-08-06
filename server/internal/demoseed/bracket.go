@@ -72,10 +72,10 @@ func SeedBracketStage(
 		return result, nil // некого сеять — фиксация отклонит меньше двух (FR-11)
 	}
 
-	stage, _, err := poolSvc.CreateStage(ctx, nominationID, bracketStageTitle, stagedomain.BracketConfig{
+	stage, _, err := poolSvc.CreateStage(ctx, nominationID, stagedomain.StageTypeBracket, bracketStageTitle, stagedomain.BracketConfig{
 		Size:       bracketStageSize,
 		ThirdPlace: true,
-	})
+	}, stagedomain.GroupsConfig{}, stagedomain.SeedingRule{})
 	if err != nil {
 		return result, fmt.Errorf("create bracket stage: %w", err)
 	}

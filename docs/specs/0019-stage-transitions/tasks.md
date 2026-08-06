@@ -115,7 +115,7 @@
       `ApplyStageBuild`; расширение существующих запросов новыми колонками;
       `make sqlc`; `repo/repo.go` — реализация порта, `ApplyStageBuild` одной
       транзакцией.
-- [ ] T13. **api (red→green)** — `api/handler_test.go` → `api/handler.go`:
+- [x] T13. **api (red→green)** — `api/handler_test.go` → `api/handler.go`:
       `SetStageRule`/`PreviewStageBuild`/`BuildStage` + `CreateStage` с
       `type = GROUPS`; маппинг доменных ошибок в `connect.Code`
       (`InvalidArgument` / `FailedPrecondition` / `NotFound`, таблица в
