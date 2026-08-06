@@ -98,12 +98,12 @@
       «групповой этап без числа групп» (FR-9a, AC-20), позиция ветки от
       источника — включая тест-регресс «этап **без правила** встаёт под
       `max+1`, а не под 0» (FR-10, AC-18).
-- [ ] T10. **service — превью (red→green)** — там же: `PreviewStageBuild` —
+- [x] T10. **service — превью (red→green)** — там же: `PreviewStageBuild` —
       сбор итогов источника (`BoutsByPool` + `ComputeStandings`), исключение
       неактивных **после** ранжирования с добором окна следующими (FR-20,
       AC-13), `entries`/`unselected`/`ties`/`overlaps`/
       `source_unfinished_bouts` (FR-14, FR-15).
-- [ ] T11. **service — формирование (red→green)** — там же: `BuildStage` —
+- [x] T11. **service — формирование (red→green)** — там же: `BuildStage` —
       гейты (`ErrStageNotEmpty`, `ErrTieUnresolved`, `ErrSelectorOverlap`,
       `ErrCapacityExceeded`), применение через `ApplyStageBuild`,
       `SyncRegistrationState` + `PublishNominationChanged`, возврат

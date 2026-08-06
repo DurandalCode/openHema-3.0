@@ -25,7 +25,7 @@ func TestCreateStage_T12_PositionAndTwoHalves(t *testing.T) {
 	// групповым этапом) — сетка встаёт следующей по позиции.
 	groupsStageID := stageIDFor(t, repo, "n1")
 
-	created, stages, err := svc.CreateStage(ctx, "n1", "Плейофф", domain.BracketConfig{Size: 8, ThirdPlace: true})
+	created, stages, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 8, ThirdPlace: true}, domain.GroupsConfig{}, domain.SeedingRule{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,13 +69,13 @@ func TestCreateStage_T12_InvalidSize(t *testing.T) {
 	svc, _, fighters, _, _ := newService()
 	fighters.Set("n1")
 
-	if _, _, err := svc.CreateStage(ctx, "n1", "Плейофф", domain.BracketConfig{Size: 6}); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 6}, domain.GroupsConfig{}, domain.SeedingRule{}); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput for size=6, got %v", err)
 	}
-	if _, _, err := svc.CreateStage(ctx, "n1", "", domain.BracketConfig{Size: 8}); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "", domain.BracketConfig{Size: 8}, domain.GroupsConfig{}, domain.SeedingRule{}); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput for empty title, got %v", err)
 	}
-	if _, _, err := svc.CreateStage(ctx, "", "Плейофф", domain.BracketConfig{Size: 8}); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, _, err := svc.CreateStage(ctx, "", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 8}, domain.GroupsConfig{}, domain.SeedingRule{}); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput for empty nomination, got %v", err)
 	}
 }
@@ -92,7 +92,7 @@ func TestDeleteStage_T12_AC14(t *testing.T) {
 		t.Fatalf("expected ErrStageNotDeletable for groups stage, got %v", err)
 	}
 
-	created, _, err := svc.CreateStage(ctx, "n1", "Плейофф", domain.BracketConfig{Size: 4})
+	created, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 4}, domain.GroupsConfig{}, domain.SeedingRule{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestDeleteStage_T12_AC14(t *testing.T) {
 	}
 
 	// Начатый бой блокирует удаление.
-	created2, _, err := svc.CreateStage(ctx, "n1", "Плейофф 2", domain.BracketConfig{Size: 4})
+	created2, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф 2", domain.BracketConfig{Size: 4}, domain.GroupsConfig{}, domain.SeedingRule{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestListStages_T12_MaterializesGroupsThenIncludesBracket(t *testing.T) {
 		t.Fatalf("expected ListStages to materialize the groups stage, got %d rows", got)
 	}
 
-	created, _, err := svc.CreateStage(ctx, "n1", "Плейофф", domain.BracketConfig{Size: 4})
+	created, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 4}, domain.GroupsConfig{}, domain.SeedingRule{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestListStages_T12_MaterializesGroupsThenIncludesBracket(t *testing.T) {
 
 func createBracket(t *testing.T, ctx context.Context, svc *service.Service, nominationID string, cfg domain.BracketConfig) domain.Stage {
 	t.Helper()
-	created, _, err := svc.CreateStage(ctx, nominationID, "Плейофф", cfg)
+	created, _, err := svc.CreateStage(ctx, nominationID, domain.StageTypeBracket, "Плейофф", cfg, domain.GroupsConfig{}, domain.SeedingRule{})
 	if err != nil {
 		t.Fatalf("create stage: %v", err)
 	}

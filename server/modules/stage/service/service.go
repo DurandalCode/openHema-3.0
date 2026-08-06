@@ -213,10 +213,10 @@ func (s *Service) AutoDistribute(ctx context.Context, stageID string) (domain.La
 	return s.loadLayoutAndSync(ctx, stageID)
 }
 
-// Undo откатывает последнее mutating-действие среди трёх классов:
-// автораспределение, удаление пула или сброс раскладки (FR-7a). Только в
-// draft. Работает и для группового этапа, и для сетки (undo reset несёт
-// слоты посева, спека 0018).
+// Undo откатывает последнее mutating-действие среди четырёх классов:
+// автораспределение, удаление пула, сброс раскладки или формирование этапа
+// (FR-7a; спека 0019, FR-21). Только в draft. Работает и для группового
+// этапа, и для сетки (undo reset несёт слоты посева, спека 0018).
 func (s *Service) Undo(ctx context.Context, stageID string) (domain.Layout, error) {
 	stageID = strings.TrimSpace(stageID)
 	if stageID == "" {
@@ -242,10 +242,40 @@ func (s *Service) Undo(ctx context.Context, stageID string) (domain.Layout, erro
 		if err := s.repo.UndoReset(ctx, stage.ID, stage.Undo.Pools); err != nil {
 			return domain.Layout{}, err
 		}
+	case domain.UndoBuild:
+		if err := s.undoBuild(ctx, stage); err != nil {
+			return domain.Layout{}, err
+		}
 	default:
 		return domain.Layout{}, domain.ErrNothingToUndo
 	}
 	return s.loadLayoutAndSync(ctx, stageID)
+}
+
+// undoBuild откатывает формирование этапа (спека 0019, FR-21): состояние до
+// формирования гарантированно пустое (FR-18 — повторное формирование поверх
+// непустого состава отклоняется), поэтому откат сводится к очистке состава.
+// Групповой этап: свежесозданные ApplyStageBuild пулы удаляются целиком
+// (repo.ResetLayout) — они существуют только с этого формирования. Сетка:
+// контейнеры первого круга (number 1/2) созданы CreateStage'ом и не
+// принадлежат конкретному формированию — удалять их нельзя, поэтому
+// снимается только сам посев, слот за слотом (repo.UnassignFighter, как
+// ClearBracketSlot), контейнеры остаются пустыми и готовы к повторному
+// формированию/ручному посеву.
+func (s *Service) undoBuild(ctx context.Context, stage domain.Stage) error {
+	if stage.Type != domain.StageTypeBracket {
+		return s.repo.ResetLayout(ctx, stage.ID)
+	}
+	seeds, err := s.repo.SeedsByStage(ctx, stage.ID)
+	if err != nil {
+		return err
+	}
+	for _, sd := range seeds {
+		if err := s.repo.UnassignFighter(ctx, stage.ID, sd.Fighter.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetStatus переключает статус раскладки этапа draft↔ready (FR-9). Другие

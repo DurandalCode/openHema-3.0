@@ -181,6 +181,28 @@ type BuildGroup struct {
 	FighterIDs []string
 }
 
+// StageBuildPreview — план формирования этапа целиком (FR-15), результат
+// конвейера «источник → отбор → раскладка» (service.computeStageBuildPlan):
+// то, что PreviewStageBuild показывает организатору, и то, что BuildStage
+// применяет без пересчёта. Entries — отобранные (уже в целевом порядке,
+// FR-27: SelectedFighter.OriginLabel/GroupPlace/OverallPlace несут
+// происхождение); Groups/Seeds — раскладка того же отбора в целевой этап
+// (заполнено ровно одно из двух, по типу целевого этапа) — вход
+// Repository.ApplyStageBuild. Overlaps непуст ⇒ BuildStage отклонит
+// формирование (FR-11); Ties непуст ⇒ требуется TieResolution на каждый
+// (FR-22); SourceUnfinishedBouts > 0 ⇒ предупреждение о недоигранном
+// источнике, формирование при этом разрешено (FR-14).
+type StageBuildPreview struct {
+	Entries               []SelectedFighter
+	Groups                []BuildGroup
+	Seeds                 []SeedPlan
+	Unselected            []FighterRef
+	Capacity              int
+	Ties                  []TieAsk
+	Overlaps              []FighterRef
+	SourceUnfinishedBouts int
+}
+
 // ---------------------------------------------------------------------
 // ComputeOverallOrder — сводный порядок этапа (FR-5).
 // ---------------------------------------------------------------------
