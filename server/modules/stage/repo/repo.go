@@ -74,8 +74,37 @@ type undoMemberJSON struct {
 }
 
 // ---------------------------------------------------------------------
-// Этапы (спека 0017, расширено спекой 0018 — bracket_size/third_place).
+// Этапы (спека 0017, расширено спекой 0018 — bracket_size/third_place;
+// спекой 0019 — правило отбора и group_count).
 // ---------------------------------------------------------------------
+
+// stageRow — теневая структура строки stage.stages: поля идентичны по
+// имени/типу/порядку во всех sqlc *Row-типах этого файла
+// (GetStageByNominationRow/InsertStageRow/CreateStageRow/
+// ListStagesByNominationRow/GetStageByIDRow/SetStageRuleRow/
+// ListStagesBySourceRow — все селектят один и тот же список колонок),
+// поэтому любой из них конвертируется в stageRow прямым приведением типа
+// (identical underlying type) — без ручного копирования 17 полей на каждый
+// вызов.
+type stageRow struct {
+	ID            uuid.UUID
+	NominationID  uuid.UUID
+	Position      int32
+	Title         string
+	Type          string
+	Status        string
+	UndoKind      string
+	UndoData      []byte
+	BracketSize   int32
+	ThirdPlace    bool
+	SourceKind    string
+	SourceStageID pgtype.UUID
+	SelectorKind  string
+	PlaceFrom     int32
+	PlaceTo       int32
+	LayoutMethod  string
+	GroupCount    int32
+}
 
 // EnsureStage — get-or-create канонического (группового) этапа номинации
 // (FR-4): SELECT, и если не найдено — INSERT. «Ровно один этап на
@@ -91,7 +120,7 @@ func (r *Repo) EnsureStage(ctx context.Context, nominationID string) (domain.Sta
 	row, err := r.q.GetStageByNomination(ctx, nid)
 	switch {
 	case err == nil:
-		return toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData, row.BracketSize, row.ThirdPlace)
+		return toDomainStage(stageRow(row))
 	case errors.Is(err, pgx.ErrNoRows):
 		inserted, err := r.q.InsertStage(ctx, sqlc.InsertStageParams{
 			NominationID: nid, Position: 0, Title: domain.DefaultStageTitle, Type: string(domain.StageTypeGroups),
@@ -99,7 +128,7 @@ func (r *Repo) EnsureStage(ctx context.Context, nominationID string) (domain.Sta
 		if err != nil {
 			return domain.Stage{}, fmt.Errorf("insert stage: %w", err)
 		}
-		return toDomainStage(inserted.ID, inserted.NominationID, inserted.Position, inserted.Title, inserted.Type, inserted.Status, inserted.UndoKind, inserted.UndoData, inserted.BracketSize, inserted.ThirdPlace)
+		return toDomainStage(stageRow(inserted))
 	default:
 		return domain.Stage{}, fmt.Errorf("get stage by nomination: %w", err)
 	}
@@ -120,7 +149,7 @@ func (r *Repo) StageByNomination(ctx context.Context, nominationID string) (doma
 		}
 		return domain.Stage{}, false, fmt.Errorf("get stage by nomination: %w", err)
 	}
-	stage, err := toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData, row.BracketSize, row.ThirdPlace)
+	stage, err := toDomainStage(stageRow(row))
 	return stage, true, err
 }
 
@@ -139,7 +168,7 @@ func (r *Repo) StageByID(ctx context.Context, stageID string) (domain.Stage, boo
 		}
 		return domain.Stage{}, false, fmt.Errorf("get stage by id: %w", err)
 	}
-	stage, err := toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData, row.BracketSize, row.ThirdPlace)
+	stage, err := toDomainStage(stageRow(row))
 	return stage, true, err
 }
 
@@ -157,7 +186,7 @@ func (r *Repo) StagesByNomination(ctx context.Context, nominationID string) ([]d
 	}
 	out := make([]domain.Stage, 0, len(rows))
 	for _, row := range rows {
-		stage, err := toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData, row.BracketSize, row.ThirdPlace)
+		stage, err := toDomainStage(stageRow(row))
 		if err != nil {
 			return nil, err
 		}
@@ -166,27 +195,169 @@ func (r *Repo) StagesByNomination(ctx context.Context, nominationID string) ([]d
 	return out, nil
 }
 
-// CreateStage вставляет новый этап-сетку номинации (спека 0018, FR-2):
-// позицию (max+1, MaxStagePosition) и всё остальное вычисляет вызывающий
+// StagesBySource возвращает соседние этапы, чьё правило ссылается на
+// sourceStageID (спека 0019): проверка пересечения селекторов (FR-11) и
+// гейт удаления источника, пока ветка существует (FR-7a).
+func (r *Repo) StagesBySource(ctx context.Context, sourceStageID string) ([]domain.Stage, error) {
+	sid, err := uuid.Parse(sourceStageID)
+	if err != nil {
+		return nil, fmt.Errorf("parse source stage id: %w", err)
+	}
+	rows, err := r.q.ListStagesBySource(ctx, pgtype.UUID{Bytes: [16]byte(sid), Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("list stages by source: %w", err)
+	}
+	out := make([]domain.Stage, 0, len(rows))
+	for _, row := range rows {
+		stage, err := toDomainStage(stageRow(row))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, stage)
+	}
+	return out, nil
+}
+
+// CreateStage вставляет новый явный этап номинации — сетку (0018, FR-2)
+// либо групповой этап (спека 0019, FR-7): позицию (MaxStagePosition+1 либо
+// от источника правила, FR-10) и всё остальное вычисляет вызывающий
 // (service.CreateStage) — репозиторий только пишет переданные значения.
-func (r *Repo) CreateStage(ctx context.Context, nominationID string, position int, title string, stageType domain.StageType, bracket domain.BracketConfig) (domain.Stage, error) {
+func (r *Repo) CreateStage(ctx context.Context, nominationID string, position int, title string, stageType domain.StageType, bracket domain.BracketConfig, groups domain.GroupsConfig, rule domain.SeedingRule) (domain.Stage, error) {
 	nid, err := uuid.Parse(nominationID)
 	if err != nil {
 		return domain.Stage{}, fmt.Errorf("parse nomination id: %w", err)
 	}
+	ruleParams, err := ruleToSQLParams(rule)
+	if err != nil {
+		return domain.Stage{}, err
+	}
 	row, err := r.q.CreateStage(ctx, sqlc.CreateStageParams{
 		NominationID: nid, Position: int32(position), Title: title, Type: string(stageType),
-		BracketSize: int32(bracket.Size), ThirdPlace: bracket.ThirdPlace,
+		BracketSize: int32(bracket.Size), ThirdPlace: bracket.ThirdPlace, GroupCount: int32(groups.GroupCount),
+		SourceKind: ruleParams.sourceKind, SourceStageID: ruleParams.sourceStageID,
+		SelectorKind: ruleParams.selectorKind, PlaceFrom: ruleParams.placeFrom, PlaceTo: ruleParams.placeTo,
+		LayoutMethod: ruleParams.layoutMethod,
 	})
 	if err != nil {
 		return domain.Stage{}, fmt.Errorf("create stage: %w", err)
 	}
-	return toDomainStage(row.ID, row.NominationID, row.Position, row.Title, row.Type, row.Status, row.UndoKind, row.UndoData, row.BracketSize, row.ThirdPlace)
+	return toDomainStage(stageRow(row))
+}
+
+// SetSeedingRule пишет правило отбора этапа и пересчитанную позицию,
+// очищает undo (спека 0019, FR-6/FR-10). Гейты (состав пуст, источник
+// валиден) и вычисление position — забота вызывающего (service.
+// SetStageRule).
+func (r *Repo) SetSeedingRule(ctx context.Context, stageID string, rule domain.SeedingRule, position int) error {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return fmt.Errorf("parse stage id: %w", err)
+	}
+	ruleParams, err := ruleToSQLParams(rule)
+	if err != nil {
+		return err
+	}
+	if _, err := r.q.SetStageRule(ctx, sqlc.SetStageRuleParams{
+		ID: sid, Position: int32(position),
+		SourceKind: ruleParams.sourceKind, SourceStageID: ruleParams.sourceStageID,
+		SelectorKind: ruleParams.selectorKind, PlaceFrom: ruleParams.placeFrom, PlaceTo: ruleParams.placeTo,
+		LayoutMethod: ruleParams.layoutMethod,
+	}); err != nil {
+		return fmt.Errorf("set stage rule: %w", err)
+	}
+	return nil
+}
+
+// ApplyStageBuild атомарно применяет план формирования этапа (спека 0019,
+// FR-16): groups — создаёт по пулу на каждую запланированную группу (число
+// пулов = число групп конфига, даже если какая-то из них осталась пустой);
+// seeds — сажает бойцов в уже существующие контейнеры первого круга сетки
+// (созданные CreateStage, 0018, FR-2) по слоту, резолвя половину через
+// domain.HalfOfSlot(конфиг этапа — читается той же транзакцией, порт
+// ApplyStageBuild его не принимает). Записывает undo_kind=build (FR-21) без
+// снапшота: состояние до формирования гарантированно пустое (FR-18), откат
+// сводится к очистке состава (см. service.undoBuild).
+func (r *Repo) ApplyStageBuild(ctx context.Context, stageID string, groups []domain.BuildGroup, seeds []domain.SeedPlan) error {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return fmt.Errorf("parse stage id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	for _, g := range groups {
+		poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{StageID: sid, Number: int32(g.Number)})
+		if err != nil {
+			return fmt.Errorf("insert pool: %w", err)
+		}
+		for _, fighterID := range g.FighterIDs {
+			fid, err := uuid.Parse(fighterID)
+			if err != nil {
+				return fmt.Errorf("parse fighter id: %w", err)
+			}
+			if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: poolRow.ID, FighterID: fid}); err != nil {
+				return fmt.Errorf("insert member: %w", err)
+			}
+		}
+	}
+
+	if len(seeds) > 0 {
+		stageRowData, err := q.GetStageByID(ctx, sid)
+		if err != nil {
+			return fmt.Errorf("get stage by id: %w", err)
+		}
+		cfg := domain.BracketConfig{Size: int(stageRowData.BracketSize), ThirdPlace: stageRowData.ThirdPlace}
+
+		pools, err := q.ListPoolsByStage(ctx, sid)
+		if err != nil {
+			return fmt.Errorf("list pools by stage: %w", err)
+		}
+		containerByHalf := make(map[int]uuid.UUID, 2)
+		for _, p := range pools {
+			containerByHalf[int(p.Number)] = p.ID
+		}
+
+		for _, sp := range seeds {
+			half := domain.HalfOfSlot(cfg, sp.Slot)
+			poolID, ok := containerByHalf[half]
+			if !ok {
+				return domain.ErrNotFound
+			}
+			fid, err := uuid.Parse(sp.FighterID)
+			if err != nil {
+				return fmt.Errorf("parse fighter id: %w", err)
+			}
+			slot := int32(sp.Slot)
+			if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: poolID, FighterID: fid, Slot: &slot}); err != nil {
+				return fmt.Errorf("insert member: %w", err)
+			}
+		}
+	}
+
+	undoData, err := encodeUndo(undoDataJSON{})
+	if err != nil {
+		return err
+	}
+	if err := q.SetStageUndo(ctx, sqlc.SetStageUndoParams{
+		ID: sid, UndoKind: string(domain.UndoBuild), UndoData: undoData,
+	}); err != nil {
+		return fmt.Errorf("set stage undo: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // DeleteStage удаляет этап вместе с его контейнерами и членствами (каскад
 // БД, ON DELETE CASCADE — см. миграция) — гейты (тип bracket, нет начатых
-// боёв) проверяет вызывающий (service.DeleteStage) до вызова (FR-3, AC-14).
+// боёв, не источник другого этапа — спека 0019 FR-7a) проверяет вызывающий
+// (service.DeleteStage) до вызова (FR-3, AC-14).
 func (r *Repo) DeleteStage(ctx context.Context, stageID string) error {
 	sid, err := uuid.Parse(stageID)
 	if err != nil {
@@ -984,16 +1155,63 @@ func (r *Repo) AnySeatedInStage(ctx context.Context, stageID string) (bool, erro
 // форма у GetStageByNomination/GetStageByID/InsertStage/CreateStage/
 // ListStagesByNomination). bracketSize/thirdPlace — 0/false у группового
 // этапа (chk_stages_bracket).
-func toDomainStage(id, nominationID uuid.UUID, position int32, title, stageType, status, undoKind string, undoData []byte, bracketSize int32, thirdPlace bool) (domain.Stage, error) {
-	undo, err := decodeUndo(undoKind, undoData)
+// toDomainStage конвертирует общую теневую строку stage.stages в
+// domain.Stage (спека 0019: Rule/Groups — расширение стадии 0018). Rule
+// остаётся нулевым SeedingRule (IsZero() == true — «правила нет»), если
+// SourceKind в БД пуст.
+func toDomainStage(r stageRow) (domain.Stage, error) {
+	undo, err := decodeUndo(r.UndoKind, r.UndoData)
 	if err != nil {
 		return domain.Stage{}, err
 	}
-	return domain.Stage{
-		ID: id.String(), NominationID: nominationID.String(), Position: int(position),
-		Title: title, Type: domain.StageType(stageType), Status: domain.LayoutStatus(status), Undo: undo,
-		Bracket: domain.BracketConfig{Size: int(bracketSize), ThirdPlace: thirdPlace},
-	}, nil
+	stage := domain.Stage{
+		ID: r.ID.String(), NominationID: r.NominationID.String(), Position: int(r.Position),
+		Title: r.Title, Type: domain.StageType(r.Type), Status: domain.LayoutStatus(r.Status), Undo: undo,
+		Bracket: domain.BracketConfig{Size: int(r.BracketSize), ThirdPlace: r.ThirdPlace},
+		Groups:  domain.GroupsConfig{GroupCount: int(r.GroupCount)},
+	}
+	if r.SourceKind != "" {
+		sourceStageID := ""
+		if r.SourceStageID.Valid {
+			sourceStageID = uuid.UUID(r.SourceStageID.Bytes).String()
+		}
+		stage.Rule = domain.SeedingRule{
+			SourceKind: domain.SourceKind(r.SourceKind), SourceStageID: sourceStageID,
+			Selector: domain.SelectorKind(r.SelectorKind), PlaceFrom: int(r.PlaceFrom), PlaceTo: int(r.PlaceTo),
+			Method: domain.LayoutMethod(r.LayoutMethod),
+		}
+	}
+	return stage, nil
+}
+
+// sqlRuleParams — параметры правила отбора в форме, которую принимают
+// CreateStageParams/SetStageRuleParams (спека 0019): source_stage_id как
+// pgtype.UUID (NULL, если правила нет либо источник — ростер).
+type sqlRuleParams struct {
+	sourceKind    string
+	sourceStageID pgtype.UUID
+	selectorKind  string
+	placeFrom     int32
+	placeTo       int32
+	layoutMethod  string
+}
+
+// ruleToSQLParams конвертирует domain.SeedingRule в параметры записи.
+// Нулевое правило (IsZero()) даёт все пустые/NULL значения — ровно то, что
+// chk_stages_rule требует для «правила нет» (миграция 00003).
+func ruleToSQLParams(rule domain.SeedingRule) (sqlRuleParams, error) {
+	out := sqlRuleParams{
+		sourceKind: string(rule.SourceKind), selectorKind: string(rule.Selector),
+		placeFrom: int32(rule.PlaceFrom), placeTo: int32(rule.PlaceTo), layoutMethod: string(rule.Method),
+	}
+	if rule.SourceStageID != "" {
+		sid, err := uuid.Parse(rule.SourceStageID)
+		if err != nil {
+			return sqlRuleParams{}, fmt.Errorf("parse source stage id: %w", err)
+		}
+		out.sourceStageID = pgtype.UUID{Bytes: [16]byte(sid), Valid: true}
+	}
+	return out, nil
 }
 
 func decodeUndo(kind string, data []byte) (domain.UndoState, error) {

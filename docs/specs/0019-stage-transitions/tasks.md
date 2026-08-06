@@ -110,7 +110,7 @@
       `Layout`/`Bracket`; правки `service/service.go` (`Undo` → ветка
       `UndoBuild`, FR-21) и `service/bracket.go` (`CreateStage` с `groups`/
       правилом, `DeleteStage` с гейтом `ErrStageIsSource`, FR-7/FR-7a).
-- [ ] T12. **repo** — `repo/queries/stage.sql`: `SetStageRule`,
+- [x] T12. **repo** — `repo/queries/stage.sql`: `SetStageRule`,
       `ListStagesBySource`, батч-вставки пулов и членств для
       `ApplyStageBuild`; расширение существующих запросов новыми колонками;
       `make sqlc`; `repo/repo.go` — реализация порта, `ApplyStageBuild` одной

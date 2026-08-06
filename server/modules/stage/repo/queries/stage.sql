@@ -1,11 +1,22 @@
 -- Спека 0017: этапы номинации. Расширено спекой 0018 (этап-сетка):
--- bracket_size/third_place в stages, slot в pool_members.
+-- bracket_size/third_place в stages, slot в pool_members. Расширено спекой
+-- 0019 (переходы между этапами): source_kind/source_stage_id/
+-- selector_kind/place_from/place_to/layout_method (правило отбора) и
+-- group_count (число групп явно созданного группового этапа) в stages.
+
+-- stageColumns — общий список колонок этапа, переиспользуется во всех
+-- запросах ниже (GetStageByNomination/InsertStage/CreateStage/
+-- ListStagesByNomination/GetStageByID/SetStageRule/ListStagesBySource):
+-- id, nomination_id, position, title, type, status, undo_kind, undo_data,
+-- bracket_size, third_place, source_kind, source_stage_id, selector_kind,
+-- place_from, place_to, layout_method, group_count.
 
 -- name: GetStageByNomination :one
 -- Канонический этап номинации (в этой спеке — не более одного). LIMIT 1 +
 -- ORDER BY страхует :one от паники sqlc, если данные когда-нибудь окажутся
 -- в состоянии "несколько этапов" (спека 0018) — на выборку самого раннего.
-SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place
+SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+       source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count
 FROM stage.stages
 WHERE nomination_id = $1
 ORDER BY position, created_at
@@ -14,35 +25,49 @@ LIMIT 1;
 -- name: InsertStage :one
 -- Создаёт КАНОНИЧЕСКИЙ (групповой) этап номинации (пара к
 -- GetStageByNomination под EnsureStage — get-or-create делается в Go:
--- SELECT, если не найдено — INSERT). bracket_size/third_place остаются
--- дефолтами (0/false) — групповой этап их не использует (chk_stages_bracket).
+-- SELECT, если не найдено — INSERT). bracket_size/third_place/group_count
+-- остаются дефолтами (0/false/0) — авто-этап их не использует
+-- (chk_stages_bracket/chk_stages_group_count) и правила не имеет (FR-9a).
 INSERT INTO stage.stages (nomination_id, position, title, type, status)
 VALUES ($1, $2, $3, $4, 'draft')
-RETURNING id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place;
+RETURNING id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+          source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count;
 
 -- name: CreateStage :one
--- Создаёт этап-сетку (спека 0018, FR-2): position/title/bracket передаёт
--- вызывающий (service вычисляет position = MaxStagePosition+1). type в
--- этом инкременте всегда 'bracket' — групповой этап создаёт только
--- InsertStage/EnsureStage.
-INSERT INTO stage.stages (nomination_id, position, title, type, status, bracket_size, third_place)
-VALUES (sqlc.arg(nomination_id)::uuid, sqlc.arg(position)::int, sqlc.arg(title)::text, sqlc.arg(type)::text, 'draft', sqlc.arg(bracket_size)::int, sqlc.arg(third_place)::bool)
-RETURNING id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place;
+-- Создаёт явный этап — сетку (спека 0018, FR-2) либо групповой этап (спека
+-- 0019, FR-7): position/title/конфиг/правило передаёт вызывающий
+-- (service.CreateStage вычисляет позицию — MaxStagePosition+1 либо от
+-- источника правила, FR-10). source_stage_id — NULL у правил с
+-- источником-ростером и у этапов без правила (sqlc.narg).
+INSERT INTO stage.stages (
+    nomination_id, position, title, type, status, bracket_size, third_place, group_count,
+    source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method
+)
+VALUES (
+    sqlc.arg(nomination_id)::uuid, sqlc.arg(position)::int, sqlc.arg(title)::text, sqlc.arg(type)::text, 'draft',
+    sqlc.arg(bracket_size)::int, sqlc.arg(third_place)::bool, sqlc.arg(group_count)::int,
+    sqlc.arg(source_kind)::text, sqlc.narg(source_stage_id)::uuid, sqlc.arg(selector_kind)::text,
+    sqlc.arg(place_from)::int, sqlc.arg(place_to)::int, sqlc.arg(layout_method)::text
+)
+RETURNING id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+          source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count;
 
 -- name: DeleteStage :exec
 -- Удаляет этап (спека 0018, FR-3): контейнеры (stage.pools, ON DELETE
 -- CASCADE) и членства (через pools, ON DELETE CASCADE) уходят каскадом БД.
--- Гейты (тип bracket, нет начатых боёв) проверяет вызывающий (service).
+-- Гейты (тип bracket, нет начатых боёв, не источник другого этапа — спека
+-- 0019 FR-7a) проверяет вызывающий (service).
 DELETE FROM stage.stages WHERE id = $1;
 
 -- name: MaxStagePosition :one
 -- Наибольшая position среди этапов номинации (0, если этапов ещё нет) —
--- CreateStage встаёт под max+1 (спека 0018, FR-2).
+-- CreateStage без правила встаёт под max+1 (0018, FR-2; 0019, FR-10).
 SELECT COALESCE(MAX(position), 0)::int FROM stage.stages WHERE nomination_id = $1;
 
 -- name: ListStagesByNomination :many
 -- Все этапы номинации (для публичных ответов, repeated stages).
-SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place
+SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+       source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count
 FROM stage.stages
 WHERE nomination_id = $1
 ORDER BY position, id;
@@ -51,9 +76,38 @@ ORDER BY position, id;
 -- Резолв этапа по id (используется там, где этап известен через пул —
 -- pool.StageID, а не через nomination_id, напр. SeatPoolOnArena) — или
 -- напрямую по stage_id (спека 0018, FR-18: адресация раскладки этапом).
-SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place
+SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+       source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count
 FROM stage.stages
 WHERE id = $1;
+
+-- name: SetStageRule :one
+-- Пишет правило отбора этапа и пересчитанную позицию, очищает undo (спека
+-- 0019, FR-6/FR-10). Пустое правило (все source_kind/selector_kind/
+-- layout_method = '') снимает правило — вызывающий (service.SetStageRule)
+-- передаёт нулевые значения, а не отдельный код "удалить правило".
+UPDATE stage.stages
+SET position = sqlc.arg(position)::int,
+    source_kind = sqlc.arg(source_kind)::text,
+    source_stage_id = sqlc.narg(source_stage_id)::uuid,
+    selector_kind = sqlc.arg(selector_kind)::text,
+    place_from = sqlc.arg(place_from)::int,
+    place_to = sqlc.arg(place_to)::int,
+    layout_method = sqlc.arg(layout_method)::text,
+    undo_kind = '', undo_data = '{}'::jsonb, updated_at = now()
+WHERE id = sqlc.arg(id)::uuid
+RETURNING id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+          source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count;
+
+-- name: ListStagesBySource :many
+-- Соседние этапы, чьё правило ссылается на sourceStageID (спека 0019):
+-- проверка пересечения селекторов (FR-11) и гейт удаления источника, пока
+-- ветка существует (FR-7a).
+SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, bracket_size, third_place,
+       source_kind, source_stage_id, selector_kind, place_from, place_to, layout_method, group_count
+FROM stage.stages
+WHERE source_kind = 'stage' AND source_stage_id = $1
+ORDER BY id;
 
 -- name: SetStageStatus :exec
 -- Задаёт статус этапа (draft/ready), очищает undo (спека 0017, FR-9/FR-7a).
