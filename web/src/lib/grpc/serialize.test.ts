@@ -552,6 +552,8 @@ describe("stageToJson", () => {
       type: "STAGE_TYPE_BRACKET",
       status: "POOL_LAYOUT_STATUS_READY",
       bracket: { size: 8, thirdPlace: true },
+      groups: null,
+      rule: null,
     });
   });
 
@@ -756,6 +758,8 @@ describe("poolLayoutToJson", () => {
       type: "STAGE_TYPE_GROUPS",
       status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
       bracket: null,
+      groups: null,
+      rule: null,
     });
   });
 
@@ -880,6 +884,8 @@ describe("nominationLiveToJson", () => {
         type: "STAGE_TYPE_GROUPS",
         status: "POOL_LAYOUT_STATUS_UNSPECIFIED",
         bracket: null,
+        groups: null,
+        rule: null,
       },
     ]);
     expect(json?.brackets).toHaveLength(1);
