@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: in progress
 - Дата: 2026-08-06
 - План: `./plan.md`
 
@@ -33,14 +33,14 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/stage.proto` — enum `SchemaIssueSeverity`/
+- [x] T1. `proto/hema/v1/stage.proto` — enum `SchemaIssueSeverity`/
       `SchemaIssueCode`; сообщения `SchemaIssue`, `FormatStageSpec`,
       `FormatPreset`; `ListStagesResponse.issues`; шесть RPC — `UpdateStage`,
       `ListFormatPresets`, `SaveFormatPreset`, `RenameFormatPreset`,
       `DeleteFormatPreset`, `ApplyFormat` (источник — `oneof {preset_id,
       source_nomination_id}`). Затем `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
-- [ ] T2. `server/modules/stage/migrations/00004_format_presets.sql` (goose) —
+- [x] T2. `server/modules/stage/migrations/00004_format_presets.sql` (goose) —
       таблица `stage.format_presets` (`id`/`name`/`stages jsonb`/таймстемпы),
       `CHECK` на непустое имя и непустой массив этапов, уникальный индекс
       `uq_presets_name` по `lower(btrim(name))`. Прогнать `make migrate` и
