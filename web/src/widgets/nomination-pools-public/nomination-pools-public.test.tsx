@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { NominationPoolsPublic } from "./nomination-pools-public";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
 import type { Bracket } from "@/entities/bracket/lib/types";
+import { emptyNominationResults } from "@/entities/nomination-results/lib/types";
+import type { NominationResults } from "@/entities/nomination-results/lib/types";
 
 // useNominationLive открывает EventSource/делает fetch на клиенте — здесь
 // проверяем чистый рендер по снапшоту, поэтому мокаем хук возвращающим ровно
@@ -77,6 +79,7 @@ const snapshot: NominationLiveSnapshotDto = {
     },
   ],
   brackets: [],
+  results: emptyNominationResults("n1"),
 };
 
 // Спека 0018, AC-12: сетка живёт в отдельном этапе номинации, показывается
@@ -208,7 +211,13 @@ describe("NominationPoolsPublic", () => {
     render(
       <NominationPoolsPublic
         nominationId="n1"
-        initialSnapshot={{ nominationId: "n1", pools: [], stages: [], brackets: [] }}
+        initialSnapshot={{
+          nominationId: "n1",
+          pools: [],
+          stages: [],
+          brackets: [],
+          results: emptyNominationResults("n1"),
+        }}
       />,
     );
     expect(screen.getByText(/раскладка по группам ещё формируется/i)).toBeInTheDocument();
@@ -282,5 +291,43 @@ describe("NominationPoolsPublic", () => {
     expect(container).toHaveTextContent("Сетка Б");
     expect(container.querySelectorAll('[data-testid="schema-level"]')).toHaveLength(2);
     expect(container).toHaveTextContent("из: Групповой этап");
+  });
+
+  // Спека 0021, FR-17/FR-18: итоги номинации приходят тем же живым каналом,
+  // что пулы/сетки, и рендерятся внутри клиентского дерева
+  // `NominationPoolsPublic` (не отдельным серверным блоком) — иначе не
+  // обновились бы без перезагрузки. Публика не видит недоигранные секции
+  // (showUnfinished не передаётся).
+  it("renders the results block above the pools when the nomination has finished sections (FR-17)", () => {
+    const results: NominationResults = {
+      nominationId: "n1",
+      nominationFinished: true,
+      sections: [
+        {
+          stageId: "stage-2",
+          stageTitle: "Плейофф",
+          stageType: "STAGE_TYPE_BRACKET",
+          finished: true,
+          placesFromOverallOrder: false,
+          entries: [
+            {
+              placeFrom: 1,
+              placeTo: 1,
+              fighter: { fighterId: "f1", name: "Champion Fighter", club: "Sokol" },
+              originLabel: "Чемпион",
+            },
+          ],
+        },
+      ],
+    };
+    const { container } = render(
+      <NominationPoolsPublic
+        nominationId="n1"
+        initialSnapshot={{ ...snapshot, results }}
+      />,
+    );
+
+    expect(container).toHaveTextContent("Champion Fighter");
+    expect(container).toHaveTextContent("Плейофф");
   });
 });

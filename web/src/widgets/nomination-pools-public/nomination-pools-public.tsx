@@ -12,6 +12,7 @@ import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/t
 import { useNominationLive } from "@/features/nomination-live/api/use-nomination-live";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
 import { NominationSchema } from "@/widgets/nomination-schema/nomination-schema";
+import { NominationResults } from "@/widgets/nomination-results/nomination-results";
 
 /** outcomeLabel — исход завершённого боя (спека 0013, FR-3) как текст. */
 function outcomeLabel(bout: BoardBout): string {
@@ -39,6 +40,14 @@ function outcomeLabel(bout: BoardBout): string {
  * действий. Показывается, как только есть хотя бы один этап, — до этого
  * момента ниже уже сработал ранний возврат «раскладка формируется».
  *
+ * Итоги номинации (спека 0021, FR-17/FR-18) — `NominationResults` без
+ * `showUnfinished`: гость видит только доигранные секции. Рендерится
+ * первым, выше живых пулов и сеток (FR-17: у доигранной номинации результат
+ * интереснее хода), и внутри того же клиентского дерева, что подписано на
+ * `useNominationLive` — призёры появляются без перезагрузки в момент
+ * завершения последнего боя (FR-18), сам виджет ничего не рендерит, пока
+ * нет ни одной доигранной секции (AC-15).
+ *
  * Client-компонент: засеян SSR-снапшотом (`initialSnapshot`) и подписан на
  * живой канал через `useNominationLive` (SSE + polling-fallback, спека 0014).
  */
@@ -50,13 +59,16 @@ export function NominationPoolsPublic({
   initialSnapshot: NominationLiveSnapshotDto;
 }) {
   const snapshot = useNominationLive(nominationId, initialSnapshot);
-  const { pools, stages, brackets } = snapshot;
+  const { pools, stages, brackets, results } = snapshot;
 
   if (pools.length === 0 && brackets.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Раскладка по группам ещё формируется — загляните позже.
-      </p>
+      <Col gap={8}>
+        <NominationResults results={results} />
+        <p className="text-sm text-muted-foreground">
+          Раскладка по группам ещё формируется — загляните позже.
+        </p>
+      </Col>
     );
   }
 
@@ -68,6 +80,7 @@ export function NominationPoolsPublic({
 
   return (
     <Col gap={8}>
+      <NominationResults results={results} />
       {stages.length > 0 && (
         <Col gap={3}>
           <h2 className="text-sm font-medium text-muted-foreground">Схема номинации</h2>
