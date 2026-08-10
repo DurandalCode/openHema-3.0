@@ -80,16 +80,17 @@ func TestCreateStage_T12_InvalidSize(t *testing.T) {
 	}
 }
 
-// AC-14: удаление этапа-сетки без начатых боёв; групповой этап удалить
-// нельзя; этап с начатым боем удалить нельзя.
+// AC-14: удаление этапа-сетки без начатых боёв; авто-этап удаляется на общих
+// основаниях (спека 0020, FR-5 — отменяет прежний запрет); этап с начатым
+// боем удалить нельзя.
 func TestDeleteStage_T12_AC14(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, fighters, bouts, _ := newService()
 	fighters.Set("n1")
 
 	groupsStageID := stageIDFor(t, repo, "n1")
-	if _, err := svc.DeleteStage(ctx, groupsStageID); !errors.Is(err, domain.ErrStageNotDeletable) {
-		t.Fatalf("expected ErrStageNotDeletable for groups stage, got %v", err)
+	if _, err := svc.DeleteStage(ctx, groupsStageID); err != nil {
+		t.Fatalf("expected auto-stage to be deletable when empty and no bouts started (0020, FR-5), got %v", err)
 	}
 
 	created, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 4}, domain.GroupsConfig{}, domain.SeedingRule{})
@@ -136,12 +137,15 @@ func TestListStages_T12_MaterializesGroupsThenIncludesBracket(t *testing.T) {
 	if got := repo.StageCount(); got != 0 {
 		t.Fatalf("expected no stage rows yet, got %d", got)
 	}
-	stages, err := svc.ListStages(ctx, "n1")
+	stages, issues, err := svc.ListStages(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(stages) != 1 || stages[0].Type != domain.StageTypeGroups {
 		t.Fatalf("expected 1 materialized groups stage, got %+v", stages)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("expected no diagnostics for a bare auto-stage, got %+v", issues)
 	}
 	if got := repo.StageCount(); got != 1 {
 		t.Fatalf("expected ListStages to materialize the groups stage, got %d rows", got)
@@ -151,7 +155,7 @@ func TestListStages_T12_MaterializesGroupsThenIncludesBracket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	stages2, err := svc.ListStages(ctx, "n1")
+	stages2, _, err := svc.ListStages(ctx, "n1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -15,6 +15,7 @@ vi.mock("@/lib/grpc/serialize", async (importOriginal) => {
     // ruleDtoToProto остаётся реальным — тесты проверяют его выход напрямую.
     stageToJson: vi.fn((s) => s),
     stagesToJson: vi.fn((s) => s ?? []),
+    schemaIssuesToJson: vi.fn((i) => i ?? []),
   };
 });
 
@@ -61,6 +62,27 @@ describe("app/api/nominations/[id]/stages route", () => {
       );
       const json = await res.json();
       expect(json.stages).toEqual([{ id: "s1" }]);
+    });
+
+    it("returns schema diagnostics alongside stages (спека 0020, FR-8)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("token");
+      const issues = [
+        {
+          severity: "SCHEMA_ISSUE_SEVERITY_WARNING",
+          code: "SCHEMA_ISSUE_CODE_COVERAGE_GAP",
+          stageIds: ["s1"],
+          message: "Разрыв покрытия.",
+        },
+      ];
+      vi.mocked(stageAdminClient.listStages).mockResolvedValue({
+        stages: [{ id: "s1" }],
+        issues,
+      } as never);
+
+      const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.issues).toEqual(issues);
     });
   });
 

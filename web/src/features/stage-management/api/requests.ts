@@ -1,4 +1,9 @@
-import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage/lib/types";
+import type {
+  SchemaIssue,
+  Stage,
+  StageSelectorKind,
+  StageSourceKind,
+} from "@/entities/stage/lib/types";
 
 /**
  * requests — фетчеры фичи `stage-management` (спека 0018, FR-1/FR-2/FR-3;
@@ -10,11 +15,36 @@ import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage
 
 export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; error: string };
 
+/**
+ * ListStagesResult — как `StagesResult`, но с диагностикой схемы (спека
+ * 0020, FR-8): `ListStages` — единственный ответ, где она есть
+ * (`DeleteStageResponse` её не несёт), отдельный тип точнее общего
+ * `StagesResult`.
+ */
+export type ListStagesResult =
+  | { ok: true; stages: Stage[]; issues: SchemaIssue[] }
+  | { ok: false; error: string };
+
 export type CreateStageResult =
   | { ok: true; stage: Stage; stages: Stage[] }
   | { ok: false; error: string };
 
 export type SetStageRuleResult = { ok: true; stage: Stage } | { ok: false; error: string };
+
+/**
+ * UpdateStageInput — правка уже созданного этапа (спека 0020, FR-2): название
+ * — всегда; конфиг (`bracket` у сетки, `groups` у группового этапа) —
+ * ровно то поле, что соответствует типу этапа (сервер отклоняет несоответствие
+ * `ErrInvalidInput`, `service/schema.go`). Тип этапа не передаётся — он не
+ * редактируется вовсе (AC-3).
+ */
+export type UpdateStageInput = {
+  title: string;
+  bracket?: { size: number; thirdPlace: boolean };
+  groups?: { groupCount: number };
+};
+
+export type UpdateStageResult = { ok: true; stage: Stage } | { ok: false; error: string };
 
 /**
  * SeedingRuleInput — правило отбора, как его собирает клиент (0019, FR-1..
@@ -45,7 +75,7 @@ export type CreateStageInput =
     };
 
 /** listStagesRequest — GET /api/nominations/[id]/stages (список этапов номинации). */
-export async function listStagesRequest(nominationId: string): Promise<StagesResult> {
+export async function listStagesRequest(nominationId: string): Promise<ListStagesResult> {
   try {
     const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
       method: "GET",
@@ -54,8 +84,11 @@ export async function listStagesRequest(nominationId: string): Promise<StagesRes
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? "Ошибка запроса" };
     }
-    const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
-    return { ok: true, stages: data.stages ?? [] };
+    const data = (await res.json().catch(() => ({}))) as {
+      stages?: Stage[];
+      issues?: SchemaIssue[];
+    };
+    return { ok: true, stages: data.stages ?? [], issues: data.issues ?? [] };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
@@ -112,6 +145,33 @@ export async function deleteStageRequest(stageId: string): Promise<StagesResult>
     }
     const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
     return { ok: true, stages: data.stages ?? [] };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+/**
+ * updateStageRequest — PATCH /api/stages/[stageId]: правит название и/или
+ * конфиг этапа (спека 0020, FR-2). Конфиг реально меняется только пока
+ * состав пуст и этап в черновике (`ErrStageLocked`) — сервер отклоняет
+ * попытку иначе (AC-2), клиент показывает его ошибку.
+ */
+export async function updateStageRequest(
+  stageId: string,
+  input: UpdateStageInput,
+): Promise<UpdateStageResult> {
+  try {
+    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { stage?: Stage };
+    return { ok: true, stage: data.stage as Stage };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }

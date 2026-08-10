@@ -3,6 +3,10 @@
 -- 0019 (переходы между этапами): source_kind/source_stage_id/
 -- selector_kind/place_from/place_to/layout_method (правило отбора) и
 -- group_count (число групп явно созданного группового этапа) в stages.
+-- Расширено спекой 0020 (конструктор схемы + пресеты формата):
+-- UpdateStage/SetStagePosition/CountMembersByNomination/
+-- DeleteStagesByNomination (редактирование и замена схемы целиком) и
+-- пять запросов stage.format_presets (библиотека пресетов).
 
 -- stageColumns — общий список колонок этапа, переиспользуется во всех
 -- запросах ниже (GetStageByNomination/InsertStage/CreateStage/
@@ -108,6 +112,65 @@ SELECT id, nomination_id, position, title, type, status, undo_kind, undo_data, b
 FROM stage.stages
 WHERE source_kind = 'stage' AND source_stage_id = $1
 ORDER BY id;
+
+-- name: UpdateStage :exec
+-- Пишет название и конфиг этапа (спека 0020, FR-2). Гейты («конфиг правится
+-- только пока состав пуст») и решение, реально ли изменился конфиг —
+-- забота вызывающего (service.UpdateStage); позиций не трогает.
+UPDATE stage.stages
+SET title = sqlc.arg(title)::text,
+    bracket_size = sqlc.arg(bracket_size)::int,
+    third_place = sqlc.arg(third_place)::bool,
+    group_count = sqlc.arg(group_count)::int,
+    updated_at = now()
+WHERE id = sqlc.arg(id)::uuid;
+
+-- name: SetStagePosition :exec
+-- Пишет позицию одного этапа — вызывается в цикле внутри транзакции
+-- SetStagePositions (спека 0020, FR-3, каскад ResolveStagePositions).
+UPDATE stage.stages SET position = sqlc.arg(position)::int, updated_at = now()
+WHERE id = sqlc.arg(id)::uuid;
+
+-- name: CountMembersByNomination :one
+-- Сколько всего членств по всем этапам номинации — гейт «схема не тронута»
+-- (спека 0020, FR-13): 0 необходимо, но не достаточно (см. также
+-- ExistsSeatedInStage/AnyStartedInPools).
+SELECT count(*)::int FROM stage.pool_members WHERE nomination_id = $1;
+
+-- name: DeleteStagesByNomination :exec
+-- Удаляет ВСЕ этапы номинации разом (спека 0020, ReplaceSchema, FR-13/
+-- NFR-1) — контейнеры и членства уходят каскадом БД (ON DELETE CASCADE),
+-- самоссылающийся FK source_stage_id (ON DELETE RESTRICT, миграция 00003)
+-- не мешает: в одном DML-операторе PostgreSQL проверяет RESTRICT против
+-- итогового состояния таблицы, а не построчно, так что удаление источника
+-- вместе с его веткой в одном запросе безопасно (проверено эмпирически).
+DELETE FROM stage.stages WHERE nomination_id = $1;
+
+-- Спека 0020: библиотека пресетов формата (FR-11/FR-12) — отдельная
+-- таблица без FK на turnир/номинацию/этап (миграция 00004).
+
+-- name: ListFormatPresets :many
+SELECT id, name, stages, created_at, updated_at FROM stage.format_presets ORDER BY name;
+
+-- name: GetFormatPresetByID :one
+SELECT id, name, stages, created_at, updated_at FROM stage.format_presets WHERE id = $1;
+
+-- name: InsertFormatPreset :one
+-- Уникальность имени без учёта регистра/краевых пробелов — уникальный
+-- индекс uq_presets_name (миграция 00004); нарушение мапится repo в
+-- domain.ErrPresetNameTaken (AC-17).
+INSERT INTO stage.format_presets (name, stages)
+VALUES (sqlc.arg(name)::text, sqlc.arg(stages)::jsonb)
+RETURNING id, name, stages, created_at, updated_at;
+
+-- name: RenameFormatPreset :one
+UPDATE stage.format_presets
+SET name = sqlc.arg(name)::text, updated_at = now()
+WHERE id = sqlc.arg(id)::uuid
+RETURNING id, name, stages, created_at, updated_at;
+
+-- name: DeleteFormatPreset :execrows
+DELETE FROM stage.format_presets WHERE id = $1;
 
 -- name: SetStageStatus :exec
 -- Задаёт статус этапа (draft/ready), очищает undo (спека 0017, FR-9/FR-7a).

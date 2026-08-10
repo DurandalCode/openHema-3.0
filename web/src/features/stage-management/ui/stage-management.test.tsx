@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StageManagement } from "./stage-management";
-import type { Stage } from "@/entities/stage/lib/types";
+import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
 
 const groupsStage: Stage = {
   id: "s1",
@@ -64,11 +64,16 @@ const createMutate = vi.fn((_vars, opts?: { onSuccess?: () => void }) => opts?.o
 const resetLayoutMutate = vi.fn();
 const resetBracketMutate = vi.fn();
 let stagesData: Stage[] = [groupsStage, bracketStage];
+let issuesData: SchemaIssue[] = [];
 let deleteError: Error | null = null;
 let createError: Error | null = null;
 
 vi.mock("../api/use-stages", () => ({
-  useStages: () => ({ data: stagesData, isLoading: false, error: null }),
+  useStages: () => ({
+    data: { stages: stagesData, issues: issuesData },
+    isLoading: false,
+    error: null,
+  }),
 }));
 vi.mock("../api/use-delete-stage", () => ({
   useDeleteStage: () => ({ mutate: deleteMutate, isPending: false, error: deleteError }),
@@ -92,10 +97,24 @@ vi.mock("@/features/stage-build/ui/build-stage-dialog", () => ({
     <button type="button">Сформировать: {stage.title}</button>
   ),
 }));
+vi.mock("./edit-stage-dialog", () => ({
+  EditStageDialog: ({ stage }: { stage: Stage; composeEmpty: boolean }) => (
+    <button type="button" aria-label={`Изменить этап «${stage.title}»`}>
+      Изменить: {stage.title}
+    </button>
+  ),
+}));
+vi.mock("@/features/format-presets/ui/apply-format-dialog", () => ({
+  ApplyFormatDialog: () => <button type="button">Применить формат</button>,
+}));
+vi.mock("@/features/format-presets/ui/save-preset-dialog", () => ({
+  SavePresetDialog: () => <button type="button">Сохранить как пресет</button>,
+}));
 
 describe("StageManagement", () => {
   beforeEach(() => {
     stagesData = [groupsStage, bracketStage];
+    issuesData = [];
     deleteError = null;
     createError = null;
     vi.clearAllMocks();
@@ -114,9 +133,9 @@ describe("StageManagement", () => {
     expect(screen.getByText("сетка")).toBeInTheDocument();
   });
 
-  it("shows a delete button only for the bracket stage (auto-stage is not deletable)", () => {
+  it("shows a delete button for every stage, including the auto-stage (спека 0020, FR-5)", () => {
     render(<StageManagement nominationId="n1" />);
-    expect(screen.queryByLabelText("Удалить Групповой этап")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Удалить Групповой этап")).toBeInTheDocument();
     expect(screen.getByLabelText("Удалить Плейофф")).toBeInTheDocument();
   });
 
@@ -124,6 +143,31 @@ describe("StageManagement", () => {
     stagesData = [groupsStage, explicitGroupsStage];
     render(<StageManagement nominationId="n1" />);
     expect(screen.getByLabelText("Удалить Слабые")).toBeInTheDocument();
+  });
+
+  it("shows an edit button for every stage (спека 0020, FR-2)", () => {
+    render(<StageManagement nominationId="n1" />);
+    expect(screen.getByText("Изменить: Групповой этап")).toBeInTheDocument();
+    expect(screen.getByText("Изменить: Плейофф")).toBeInTheDocument();
+  });
+
+  it("renders schema-level actions: save as preset and apply format", () => {
+    render(<StageManagement nominationId="n1" />);
+    expect(screen.getByText("Сохранить как пресет")).toBeInTheDocument();
+    expect(screen.getByText("Применить формат")).toBeInTheDocument();
+  });
+
+  it("passes diagnostics through to the schema widget (спека 0020, FR-8)", () => {
+    issuesData = [
+      {
+        severity: "SCHEMA_ISSUE_SEVERITY_ERROR",
+        code: "SCHEMA_ISSUE_CODE_SELECTOR_OVERLAP",
+        stageIds: ["s2"],
+        message: "Ветки пересекаются по месту 2",
+      },
+    ];
+    render(<StageManagement nominationId="n1" />);
+    expect(screen.getByText("Ветки пересекаются по месту 2")).toBeInTheDocument();
   });
 
   it("deleting the bracket stage calls the mutation with its id", () => {

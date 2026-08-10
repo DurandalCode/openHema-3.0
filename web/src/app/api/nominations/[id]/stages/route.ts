@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
-import { ruleDtoToProto, stageToJson, stagesToJson } from "@/lib/grpc/serialize";
+import { ruleDtoToProto, schemaIssuesToJson, stageToJson, stagesToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
 import { StageType } from "@/gen/hema/v1/stage_pb";
 import type { SeedingRule as SeedingRuleDto } from "@/entities/stage/lib/types";
@@ -21,7 +21,11 @@ type CreateStageBody = {
 
 const VALID_BRACKET_SIZES = new Set([4, 8, 16, 32]);
 
-/** GET /api/nominations/[id]/stages — список этапов номинации (только admin). */
+/**
+ * GET /api/nominations/[id]/stages — список этапов номинации (только admin).
+ * `issues` — диагностика схемы (спека 0020, FR-8): чистая функция от того же
+ * набора этапов, приезжает вместе со списком, отдельного RPC нет.
+ */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   const accessToken = await getAccessToken();
   if (!accessToken) {
@@ -34,7 +38,10 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
       { nominationId: id },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    return NextResponse.json({ stages: stagesToJson(res.stages) });
+    return NextResponse.json({
+      stages: stagesToJson(res.stages),
+      issues: schemaIssuesToJson(res.issues),
+    });
   } catch (err) {
     return errorResponse(err);
   }

@@ -28,6 +28,9 @@ import {
   BracketSchema,
   SeedingRuleSchema,
   StageBuildPreviewSchema,
+  SchemaIssueSchema,
+  FormatStageSpecSchema,
+  FormatPresetSchema,
   StageSourceKind,
   StageSelectorKind,
   StageLayoutMethod,
@@ -41,6 +44,9 @@ import {
   type Bracket,
   type SeedingRule,
   type StageBuildPreview,
+  type SchemaIssue,
+  type FormatStageSpec,
+  type FormatPreset,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -92,12 +98,18 @@ import type {
   StageSourceKind as StageSourceKindDto,
   StageSelectorKind as StageSelectorKindDto,
   StageLayoutMethod as StageLayoutMethodDto,
+  BracketConfig as BracketConfigDto,
   GroupsConfig as GroupsConfigDto,
   SeedingRule as SeedingRuleDto,
   StageBuildEntry as StageBuildEntryDto,
   StageBuildTie as StageBuildTieDto,
   TieResolution as TieResolutionDto,
   StageBuildPreview as StageBuildPreviewDto,
+  SchemaIssue as SchemaIssueDto,
+  SchemaIssueSeverity as SchemaIssueSeverityDto,
+  SchemaIssueCode as SchemaIssueCodeDto,
+  FormatStageSpec as FormatStageSpecDto,
+  FormatPreset as FormatPresetDto,
 } from "@/entities/stage/lib/types";
 import type {
   Bracket as BracketDto,
@@ -561,6 +573,119 @@ export function tieResolutionDtoToProto(dto: TieResolutionDto) {
 export function stagesToJson(stages: Stage[] | undefined): StageDto[] {
   if (!stages) return [];
   return stages.map((s) => stageToJson(s)).filter((s): s is StageDto => s !== null);
+}
+
+/**
+ * schemaIssueRawToDto нормализует уже toJson-сериализованный `SchemaIssue`
+ * (спека 0020, FR-8) — общая часть между `schemaIssueToJson` и
+ * `schemaIssuesToJson`.
+ */
+function schemaIssueRawToDto(raw: Partial<SchemaIssueDto> | undefined): SchemaIssueDto {
+  return {
+    severity: (raw?.severity as SchemaIssueSeverityDto) ?? "SCHEMA_ISSUE_SEVERITY_UNSPECIFIED",
+    code: (raw?.code as SchemaIssueCodeDto) ?? "SCHEMA_ISSUE_CODE_UNSPECIFIED",
+    stageIds: Array.isArray(raw?.stageIds) ? raw.stageIds : [],
+    message: raw?.message ?? "",
+  };
+}
+
+/**
+ * schemaIssueToJson превращает protobuf-сообщение SchemaIssue в обычный
+ * JSON-объект (спека 0020, FR-8). `message` — готовая строка сервера, клиент
+ * её не собирает из `code`/`severity`.
+ */
+export function schemaIssueToJson(issue: SchemaIssue | undefined): SchemaIssueDto | null {
+  if (!issue) return null;
+  const raw = toJson(SchemaIssueSchema, issue) as Partial<SchemaIssueDto>;
+  return schemaIssueRawToDto(raw);
+}
+
+/**
+ * schemaIssuesToJson превращает массив protobuf SchemaIssue в массив DTO
+ * (спека 0020, FR-8) — используется для `ListStagesResponse.issues`.
+ */
+export function schemaIssuesToJson(issues: SchemaIssue[] | undefined): SchemaIssueDto[] {
+  if (!issues) return [];
+  return issues.map((i) => schemaIssueToJson(i)).filter((i): i is SchemaIssueDto => i !== null);
+}
+
+/**
+ * formatStageSpecRawToDto нормализует уже toJson-сериализованный
+ * `FormatStageSpec` (спека 0020, FR-11). В отличие от `Stage.bracket`/
+ * `Stage.groups` (nullable — presence решает «правила/конфига нет»),
+ * `FormatStageSpec.bracket`/`FormatStageSpec.groups` в DTO НЕ nullable: этап
+ * спецификации вне привязки к номинации обязан нести оба поля, поэтому для
+ * того, что не относится к типу этапа, подставляется нулевое значение
+ * (`{size: 0, thirdPlace: false}` / `{groupCount: 0}`), а не `null`.
+ */
+function formatStageSpecRawToDto(
+  raw:
+    | (Partial<FormatStageSpecDto> & {
+        bracket?: Partial<BracketConfigDto>;
+        groups?: Partial<GroupsConfigDto>;
+      })
+    | undefined,
+): FormatStageSpecDto {
+  return {
+    title: raw?.title ?? "",
+    type: (raw?.type as StageTypeDto) ?? "STAGE_TYPE_UNSPECIFIED",
+    bracket: raw?.bracket
+      ? { size: raw.bracket.size ?? 0, thirdPlace: raw.bracket.thirdPlace ?? false }
+      : { size: 0, thirdPlace: false },
+    groups: raw?.groups ? groupsConfigRawToDto(raw.groups) : { groupCount: 0 },
+    sourceKind: (raw?.sourceKind as StageSourceKindDto) ?? "STAGE_SOURCE_KIND_UNSPECIFIED",
+    sourceIndex: raw?.sourceIndex ?? 0,
+    selector: (raw?.selector as StageSelectorKindDto) ?? "STAGE_SELECTOR_KIND_UNSPECIFIED",
+    placeFrom: raw?.placeFrom ?? 0,
+    placeTo: raw?.placeTo ?? 0,
+    method: (raw?.method as StageLayoutMethodDto) ?? "STAGE_LAYOUT_METHOD_UNSPECIFIED",
+  };
+}
+
+/**
+ * formatStageSpecToJson превращает protobuf-сообщение FormatStageSpec в
+ * обычный JSON-объект (спека 0020, FR-11).
+ */
+export function formatStageSpecToJson(spec: FormatStageSpec | undefined): FormatStageSpecDto | null {
+  if (!spec) return null;
+  const raw = toJson(FormatStageSpecSchema, spec) as Partial<FormatStageSpecDto> & {
+    bracket?: Partial<BracketConfigDto>;
+    groups?: Partial<GroupsConfigDto>;
+  };
+  return formatStageSpecRawToDto(raw);
+}
+
+/**
+ * formatPresetToJson превращает protobuf-сообщение FormatPreset в обычный
+ * JSON-объект (спека 0020, FR-11/FR-12). `createdAt`/`updatedAt` — ISO-строки,
+ * `toJson` сериализует `Timestamp` сам (как для `Tournament`/`Application`).
+ */
+export function formatPresetToJson(preset: FormatPreset | undefined): FormatPresetDto | null {
+  if (!preset) return null;
+  const raw = toJson(FormatPresetSchema, preset) as Partial<FormatPresetDto> & {
+    stages?: Array<
+      Partial<FormatStageSpecDto> & {
+        bracket?: Partial<BracketConfigDto>;
+        groups?: Partial<GroupsConfigDto>;
+      }
+    >;
+  };
+  return {
+    id: raw.id ?? "",
+    name: raw.name ?? "",
+    stages: Array.isArray(raw.stages) ? raw.stages.map(formatStageSpecRawToDto) : [],
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
+}
+
+/**
+ * formatPresetsToJson превращает массив protobuf FormatPreset в массив DTO
+ * (спека 0020, FR-12) — используется для `ListFormatPresetsResponse.presets`.
+ */
+export function formatPresetsToJson(presets: FormatPreset[] | undefined): FormatPresetDto[] {
+  if (!presets) return [];
+  return presets.map((p) => formatPresetToJson(p)).filter((p): p is FormatPresetDto => p !== null);
 }
 
 /**

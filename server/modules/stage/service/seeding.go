@@ -21,7 +21,9 @@ import (
 // без правила (набирается руками), так и у уже сформированного/набранного
 // целевого этапа. Пустое правило (rule.IsZero()) снимает правило без
 // валидации источника. Непустое правило валидируется
-// (SeedingRule.Validate) и проверяет источник: существует, та же
+// (SeedingRule.Validate) и проверяет источник: не создаёт цикла источников
+// (ErrSourceCycle, спека 0020 FR-4, AC-5 — проверяется раньше позиционного
+// гейта, чтобы дать более точную причину отказа), существует, та же
 // номинация, тип groups, позиция раньше целевого этапа (иначе
 // ErrSourceNotAllowed, AC-21); целевой групповой этап без заданного числа
 // групп правило не принимает (ErrInvalidRule, FR-9a, AC-20).
@@ -30,7 +32,10 @@ import (
 // position(источника)+1 (параллельная ветка, если у источника уже есть
 // другая ветка — та же позиция); источник-ростер → 0 (питает первый этап);
 // правило снято → MaxStagePosition+1, как при создании без правила —
-// регресс-гарантия сценария 0018 (AC-18).
+// регресс-гарантия сценария 0018 (AC-18). Спека 0020 (FR-3) добавляет
+// каскад: после записи собственной позиции пересчитывает позиции ВСЕХ
+// этапов номинации (cascadeStagePositions) — смена источника одной ветки
+// перестраивает уровни всех этапов, что от нее (транзитивно) зависят.
 func (s *Service) SetStageRule(ctx context.Context, stageID string, rule domain.SeedingRule) (domain.Stage, error) {
 	stageID = strings.TrimSpace(stageID)
 	if stageID == "" {
@@ -50,6 +55,15 @@ func (s *Service) SetStageRule(ctx context.Context, stageID string, rule domain.
 		}
 		if stage.Type == domain.StageTypeGroups && stage.Groups.GroupCount <= 0 {
 			return domain.Stage{}, domain.ErrInvalidRule
+		}
+		if rule.SourceKind == domain.SourceKindStage {
+			stages, err := s.repo.StagesByNomination(ctx, stage.NominationID)
+			if err != nil {
+				return domain.Stage{}, err
+			}
+			if domain.DetectSourceCycle(stages, stageID, rule.SourceStageID) {
+				return domain.Stage{}, domain.ErrSourceCycle
+			}
 		}
 		if err := s.validateRuleSource(ctx, stage, rule); err != nil {
 			return domain.Stage{}, err
@@ -71,6 +85,9 @@ func (s *Service) SetStageRule(ctx context.Context, stageID string, rule domain.
 	if err := s.repo.SetSeedingRule(ctx, stageID, rule, position); err != nil {
 		return domain.Stage{}, err
 	}
+	if err := s.cascadeStagePositions(ctx, stage.NominationID); err != nil {
+		return domain.Stage{}, err
+	}
 
 	updated, found, err := s.repo.StageByID(ctx, stageID)
 	if err != nil {
@@ -80,6 +97,32 @@ func (s *Service) SetStageRule(ctx context.Context, stageID string, rule domain.
 		return domain.Stage{}, domain.ErrNotFound
 	}
 	return updated, nil
+}
+
+// cascadeStagePositions пересчитывает позиции всех этапов номинации от их
+// источников (спека 0020, FR-3) и записывает только те, что реально
+// изменились. Вызывается после SetStageRule, когда позиция затронутого
+// этапа уже записана в репозиторий — domain.ResolveStagePositions читает
+// свежее состояние и распространяет изменение на транзитивных зависимых.
+func (s *Service) cascadeStagePositions(ctx context.Context, nominationID string) error {
+	stages, err := s.repo.StagesByNomination(ctx, nominationID)
+	if err != nil {
+		return err
+	}
+	resolved, err := domain.ResolveStagePositions(stages)
+	if err != nil {
+		return err
+	}
+	updates := make(map[string]int)
+	for _, st := range stages {
+		if pos, ok := resolved[st.ID]; ok && pos != st.Position {
+			updates[st.ID] = pos
+		}
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return s.repo.SetStagePositions(ctx, updates)
 }
 
 // validateRuleSource проверяет источник-этап правила (FR-2, AC-21):

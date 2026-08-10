@@ -5,7 +5,9 @@ package testutil
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -48,6 +50,15 @@ type poolRow struct {
 	currentBoutID string
 }
 
+// presetRow — одна запись библиотеки пресетов формата (спека 0020, FR-11).
+type presetRow struct {
+	id        string
+	name      string
+	spec      domain.FormatSpec
+	createdAt time.Time
+	updatedAt time.Time
+}
+
 // FakeRepo — in-memory реализация domain.Repository для тестов.
 // Потокобезопасна (мьютекс). Повторяет ключевые инварианты БД: один боец —
 // не более одного пула в пределах ЭТАПА (спека 0017, FR-7 — было: в
@@ -67,6 +78,7 @@ type FakeRepo struct {
 	stages         map[string]*stageRow // stage id -> stage (все этапы, включая вручную посеянные)
 	canonicalStage map[string]string    // nomination id -> id канонического (auto-managed) этапа
 	pools          map[string]*poolRow
+	presets        map[string]*presetRow // preset id -> пресет формата (спека 0020, FR-11)
 
 	// SetStatusCalls — счётчик вызовов SetStatus (спека 0010, T12): позволяет
 	// тестам service убедиться, что при ошибке BoutConductor статус в repo не
@@ -80,6 +92,7 @@ func NewFakeRepo() *FakeRepo {
 		stages:         make(map[string]*stageRow),
 		canonicalStage: make(map[string]string),
 		pools:          make(map[string]*poolRow),
+		presets:        make(map[string]*presetRow),
 	}
 }
 
@@ -645,6 +658,210 @@ func (r *FakeRepo) MaxStagePosition(_ context.Context, nominationID string) (int
 		}
 	}
 	return max, nil
+}
+
+// ---------------------------------------------------------------------
+// domain.Repository — спека 0020: конструктор схемы + пресеты формата.
+// ---------------------------------------------------------------------
+
+// UpdateStage пишет название и конфиг этапа. Гейты («конфиг правится только
+// пока состав пуст») — забота вызывающего (service.UpdateStage).
+func (r *FakeRepo) UpdateStage(_ context.Context, stageID, title string, bracket domain.BracketConfig, groups domain.GroupsConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	st, ok := r.stages[stageID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	st.title = title
+	st.bracket = bracket
+	st.groups = groups
+	return nil
+}
+
+// SetStagePositions пишет позиции сразу нескольких этапов (каскад FR-3) —
+// этапы, отсутствующие в хранилище, молча пропускаются (симметрично тому,
+// что вызывающий уже прочитал их из этого же репозитория).
+func (r *FakeRepo) SetStagePositions(_ context.Context, positions map[string]int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for id, pos := range positions {
+		if st, ok := r.stages[id]; ok {
+			st.position = pos
+		}
+	}
+	return nil
+}
+
+// MembersCountByNomination — сколько всего членств по всем этапам номинации
+// (гейт «схема не тронута», FR-13).
+func (r *FakeRepo) MembersCountByNomination(_ context.Context, nominationID string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	n := 0
+	for _, p := range r.pools {
+		if p.nominationID == nominationID {
+			n += len(p.members)
+		}
+	}
+	return n, nil
+}
+
+// ReplaceSchema атомарно заменяет схему номинации целиком (FR-13/FR-14):
+// удаляет все существующие этапы/пулы/членства номинации (гейт «схема не
+// тронута» уже проверен вызывающим — пулы в любом случае пусты), вставляет
+// новые этапы из specs под заданными positions (параллельный массив,
+// FR-8a), резолвит FormatStageSpec.SourceIndex → id новых этапов вторым
+// проходом (id известны только после вставки) и создаёт по два контейнера
+// первого круга каждой сетке — как service.CreateStage (0018, FR-6a).
+func (r *FakeRepo) ReplaceSchema(_ context.Context, nominationID string, specs []domain.FormatStageSpec, positions []int) ([]domain.Stage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(specs) != len(positions) {
+		return nil, domain.ErrInvalidInput
+	}
+
+	for id, st := range r.stages {
+		if st.nominationID == nominationID {
+			delete(r.stages, id)
+		}
+	}
+	for id, p := range r.pools {
+		if p.nominationID == nominationID {
+			delete(r.pools, id)
+		}
+	}
+	delete(r.canonicalStage, nominationID)
+
+	newIDs := make([]string, len(specs))
+	for i, spec := range specs {
+		id := uuid.NewString()
+		newIDs[i] = id
+		r.stages[id] = &stageRow{
+			id: id, nominationID: nominationID, position: positions[i], title: spec.Title,
+			stageType: spec.Type, status: domain.LayoutDraft,
+			bracket: spec.Bracket, groups: spec.Groups,
+		}
+	}
+	for i, spec := range specs {
+		if spec.SourceKind == "" {
+			continue
+		}
+		rule := domain.SeedingRule{
+			SourceKind: spec.SourceKind, Selector: spec.Selector,
+			PlaceFrom: spec.PlaceFrom, PlaceTo: spec.PlaceTo, Method: spec.Method,
+		}
+		if spec.SourceKind == domain.SourceKindStage {
+			rule.SourceStageID = newIDs[spec.SourceIndex]
+		}
+		r.stages[newIDs[i]].rule = rule
+	}
+	for i, spec := range specs {
+		if spec.Type != domain.StageTypeBracket {
+			continue
+		}
+		stID := newIDs[i]
+		id1 := uuid.NewString()
+		r.pools[id1] = &poolRow{id: id1, stageID: stID, nominationID: nominationID, number: domain.ContainerNumberOf(spec.Bracket, 1, 1)}
+		id2 := uuid.NewString()
+		r.pools[id2] = &poolRow{id: id2, stageID: stID, nominationID: nominationID, number: domain.ContainerNumberOf(spec.Bracket, 1, 2)}
+	}
+
+	out := make([]domain.Stage, len(newIDs))
+	for i, id := range newIDs {
+		out[i] = toDomainStage(r.stages[id])
+	}
+	return out, nil
+}
+
+// ListFormatPresets возвращает библиотеку пресетов, по имени (FR-12).
+func (r *FakeRepo) ListFormatPresets(_ context.Context) ([]domain.FormatPreset, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.FormatPreset, 0, len(r.presets))
+	for _, p := range r.presets {
+		out = append(out, toDomainPreset(p))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// GetFormatPreset возвращает один пресет по id (found=false, если нет).
+func (r *FakeRepo) GetFormatPreset(_ context.Context, presetID string) (domain.FormatPreset, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, ok := r.presets[presetID]
+	if !ok {
+		return domain.FormatPreset{}, false, nil
+	}
+	return toDomainPreset(p), true, nil
+}
+
+// InsertFormatPreset сохраняет схему как именованный пресет (FR-11/FR-12).
+// Уникальность имени без учёта регистра/краевых пробелов — как у реального
+// уникального индекса миграции 00004 (ErrPresetNameTaken, AC-17).
+func (r *FakeRepo) InsertFormatPreset(_ context.Context, name string, spec domain.FormatSpec) (domain.FormatPreset, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	norm := normalizedPresetName(name)
+	for _, p := range r.presets {
+		if normalizedPresetName(p.name) == norm {
+			return domain.FormatPreset{}, domain.ErrPresetNameTaken
+		}
+	}
+	id := uuid.NewString()
+	now := time.Now()
+	row := &presetRow{id: id, name: name, spec: spec, createdAt: now, updatedAt: now}
+	r.presets[id] = row
+	return toDomainPreset(row), nil
+}
+
+// RenameFormatPreset переименовывает пресет, не трогая его схему (FR-12/FR-16).
+func (r *FakeRepo) RenameFormatPreset(_ context.Context, presetID, name string) (domain.FormatPreset, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, ok := r.presets[presetID]
+	if !ok {
+		return domain.FormatPreset{}, domain.ErrNotFound
+	}
+	norm := normalizedPresetName(name)
+	for id, other := range r.presets {
+		if id != presetID && normalizedPresetName(other.name) == norm {
+			return domain.FormatPreset{}, domain.ErrPresetNameTaken
+		}
+	}
+	p.name = name
+	p.updatedAt = time.Now()
+	return toDomainPreset(p), nil
+}
+
+// DeleteFormatPreset удаляет пресет из библиотеки; номинации, к которым он
+// уже применялся, не затрагивает (FR-16).
+func (r *FakeRepo) DeleteFormatPreset(_ context.Context, presetID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.presets[presetID]; !ok {
+		return domain.ErrNotFound
+	}
+	delete(r.presets, presetID)
+	return nil
+}
+
+func normalizedPresetName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func toDomainPreset(p *presetRow) domain.FormatPreset {
+	return domain.FormatPreset{ID: p.id, Name: p.name, Spec: p.spec, CreatedAt: p.createdAt, UpdatedAt: p.updatedAt}
 }
 
 // ensureStageLocked — get-or-create канонического этапа номинации

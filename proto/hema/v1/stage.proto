@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package hema.v1;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
 
 // StageAdminService — управление раскладкой бойцов номинации по пулам
@@ -161,6 +163,32 @@ service StageAdminService {
   // (0:0, «не начат», если бой ещё не начат) — независимо от состояния
   // прежнего отображаемого боя. No-op, если у арены сейчас нет комнаты.
   rpc RevealCurrentBout(RevealCurrentBoutRequest) returns (RevealCurrentBoutResponse);
+  // UpdateStage правит название и конфиг уже созданного этапа (спека 0020,
+  // FR-2): название — всегда, конфиг (bracket/groups) и правило отбора —
+  // только пока состав этапа пуст и этап в draft. Тип этапа не передаётся —
+  // сменить его нечем (AC-3). Позиций не меняет — соседние этапы не
+  // затрагиваются.
+  rpc UpdateStage(UpdateStageRequest) returns (UpdateStageResponse);
+  // ListFormatPresets возвращает библиотеку пресетов формата целиком (спека
+  // 0020, FR-12) — глобальную, вне турнира и номинации.
+  rpc ListFormatPresets(ListFormatPresetsRequest) returns (ListFormatPresetsResponse);
+  // SaveFormatPreset сохраняет схему указанной номинации как именованный
+  // пресет (спека 0020, FR-11/FR-12): отпечаток схемы на момент вызова
+  // (копия по значению, FR-16), не живая ссылка. Имя обязано быть уникальным
+  // без учёта регистра (AC-17).
+  rpc SaveFormatPreset(SaveFormatPresetRequest) returns (SaveFormatPresetResponse);
+  // RenameFormatPreset переименовывает пресет, не трогая его схему и уже
+  // применённые к номинациям копии (спека 0020, FR-12/FR-16).
+  rpc RenameFormatPreset(RenameFormatPresetRequest) returns (RenameFormatPresetResponse);
+  // DeleteFormatPreset удаляет пресет из библиотеки; на номинации, к которым
+  // он уже применялся, не влияет (спека 0020, FR-16).
+  rpc DeleteFormatPreset(DeleteFormatPresetRequest) returns (DeleteFormatPresetResponse);
+  // ApplyFormat заменяет схему номинации целиком — источником спецификации
+  // служит либо пресет библиотеки, либо схема другой номинации (спека 0020,
+  // FR-13/FR-15, копирование — тот же путь). Разрешено, только если текущая
+  // схема номинации не тронута: нет состава, нет пулов на аренах, нет
+  // начатых боёв (FR-13, FR-14) — иначе ErrSchemaNotEmpty. Атомарно (NFR-1).
+  rpc ApplyFormat(ApplyFormatRequest) returns (ApplyFormatResponse);
 }
 
 // StagePublicService — публичное чтение пулов номинации (спека 0011, FR-11).
@@ -295,6 +323,77 @@ message SeedingRule {
   int32 place_from = 4;
   int32 place_to = 5;
   StageLayoutMethod method = 6;
+}
+
+// SchemaIssueSeverity — класс проблемы диагностики схемы (спека 0020, FR-8).
+// ERROR — формирование заведомо не пройдёт (то же, что отклонят гейты 0019).
+// WARNING — формирование пройдёт, но результат может удивить. INFO — так и
+// задумано, но организатор должен это видеть до формирования (ADR 0014,
+// §5) — непокрытый хвост состава источника не дефект, а нормальный исход
+// отбора, и предупреждением он обесценил бы предупреждения.
+enum SchemaIssueSeverity {
+  SCHEMA_ISSUE_SEVERITY_UNSPECIFIED = 0;
+  SCHEMA_ISSUE_SEVERITY_ERROR = 1;
+  SCHEMA_ISSUE_SEVERITY_WARNING = 2;
+  SCHEMA_ISSUE_SEVERITY_INFO = 3;
+}
+
+// SchemaIssueCode — код проблемы диагностики схемы (спека 0020, FR-8/FR-9).
+// Кода «групповой этап с одной группой» намеренно нет (FR-8a) — это законный
+// формат «финал трёх», а не вырожденная раскладка.
+enum SchemaIssueCode {
+  SCHEMA_ISSUE_CODE_UNSPECIFIED = 0;
+  // ошибки — заведомый отказ гейтов 0019
+  SCHEMA_ISSUE_CODE_NO_GROUP_COUNT = 1;    // правило без числа групп (FR-7/FR-9a)
+  SCHEMA_ISSUE_CODE_BAD_SOURCE = 2;        // источник не groups либо позже по схеме
+  SCHEMA_ISSUE_CODE_SOURCE_CYCLE = 3;      // цикл источников (FR-4)
+  SCHEMA_ISSUE_CODE_SELECTOR_OVERLAP = 4;  // окна веток пересекаются (0019 FR-11)
+  SCHEMA_ISSUE_CODE_CAPACITY_EXCEEDED = 5; // отбор заведомо больше вместимости сетки (0019 FR-19)
+  // предупреждения
+  SCHEMA_ISSUE_CODE_CAPACITY_UNDERFILL = 6; // отбор заведомо меньше размера сетки — байи
+  SCHEMA_ISSUE_CODE_COVERAGE_GAP = 7;       // разрыв между окнами веток
+  SCHEMA_ISSUE_CODE_OVERLAP_UNKNOWN = 8;    // окна разных видов — проверится при формировании
+  // информация
+  SCHEMA_ISSUE_CODE_TAIL_UNCOVERED = 9;     // хвост состава источника никуда не идёт
+}
+
+// SchemaIssue — одна проблема схемы (спека 0020, FR-8). Текст формирует
+// сервер (то же правило, что для BracketSlot.source_label 0018 и
+// StageBuildEntry.origin_label 0019) — клиент строку из кода не собирает.
+// stage_ids — этапы, к которым проблема привязана: один (напр. нет числа
+// групп) либо два (пересечение веток).
+message SchemaIssue {
+  SchemaIssueSeverity severity = 1;
+  SchemaIssueCode code = 2;
+  repeated string stage_ids = 3;
+  string message = 4;
+}
+
+// FormatStageSpec — один этап схемы вне привязки к номинации (спека 0020,
+// FR-11). source_index — индекс этапа-источника В ЭТОМ ЖЕ repeated
+// (>= 0), если source_kind = STAGE; иначе -1. Индекс, а не id, делает
+// спецификацию переносимой между номинациями и переживающей турнир (FR-16).
+message FormatStageSpec {
+  string title = 1;
+  StageType type = 2;
+  BracketConfig bracket = 3;
+  GroupsConfig groups = 4;
+  StageSourceKind source_kind = 5;
+  int32 source_index = 6;
+  StageSelectorKind selector = 7;
+  int32 place_from = 8;
+  int32 place_to = 9;
+  StageLayoutMethod method = 10;
+}
+
+// FormatPreset — именованная схема в глобальной библиотеке (спека 0020,
+// FR-11/FR-12): живёт вне турнира и вне номинации, переживает оба.
+message FormatPreset {
+  string id = 1;
+  string name = 2;
+  repeated FormatStageSpec stages = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
 }
 
 // FighterRef — проекция бойца для экрана управления пулами (DnD): id для
@@ -653,8 +752,12 @@ message ListStagesRequest {
   string nomination_id = 1;
 }
 
+// ListStagesResponse — issues (спека 0020, FR-8): диагностика схемы, чистая
+// функция от того же набора этапов — отдельного RPC не заводим. Не уходит в
+// StagePublicService (FR-19).
 message ListStagesResponse {
   repeated Stage stages = 1;
+  repeated SchemaIssue issues = 2;
 }
 
 // CreateStageRequest — type = BRACKET (0018, FR-2) либо GROUPS (спека 0019,
@@ -1002,4 +1105,72 @@ message RevealCurrentBoutRequest {
 
 message RevealCurrentBoutResponse {
   ArenaLiveSnapshot snapshot = 1;
+}
+
+// --- спека 0020: конструктор схемы (редактирование этапа) + пресеты формата ---
+
+// UpdateStageRequest — конфиг целиком, не маска изменённых полей (полей три,
+// Stage и так возвращается целиком). Сервер сам сравнивает присланный конфиг
+// с текущим: если он не изменился, гейт «состав пуст» не применяется —
+// переименование доступно всегда (спека 0020, FR-2). bracket заполняется
+// только у type = BRACKET, groups — только у type = GROUPS (как в
+// CreateStageRequest); тип этапа не передаётся — сменить его нечем (AC-3).
+message UpdateStageRequest {
+  string stage_id = 1;
+  string title = 2;
+  BracketConfig bracket = 3;
+  GroupsConfig groups = 4;
+}
+
+message UpdateStageResponse {
+  Stage stage = 1;
+}
+
+message ListFormatPresetsRequest {}
+
+message ListFormatPresetsResponse {
+  repeated FormatPreset presets = 1;
+}
+
+// SaveFormatPresetRequest — пресет берёт номинацию, а не тело схемы: пресет
+// — отпечаток уже существующей схемы (спека 0020, FR-11), собирать его на
+// клиенте значило бы дублировать маппинг.
+message SaveFormatPresetRequest {
+  string name = 1;
+  string nomination_id = 2;
+}
+
+message SaveFormatPresetResponse {
+  FormatPreset preset = 1;
+}
+
+message RenameFormatPresetRequest {
+  string preset_id = 1;
+  string name = 2;
+}
+
+message RenameFormatPresetResponse {
+  FormatPreset preset = 1;
+}
+
+message DeleteFormatPresetRequest {
+  string preset_id = 1;
+}
+
+message DeleteFormatPresetResponse {}
+
+// ApplyFormatRequest — источник спецификации: пресет библиотеки либо схема
+// другой номинации того же турнира (спека 0020, FR-13/FR-15) — применение
+// пресета и копирование схемы отличаются только тем, откуда собирается
+// спецификация, поэтому один RPC с oneof, а не два.
+message ApplyFormatRequest {
+  string nomination_id = 1;
+  oneof source {
+    string preset_id = 2;
+    string source_nomination_id = 3;
+  }
+}
+
+message ApplyFormatResponse {
+  repeated Stage stages = 1;
 }

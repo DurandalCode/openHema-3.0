@@ -5,6 +5,7 @@ import {
   deleteStageRequest,
   listStagesRequest,
   setStageRuleRequest,
+  updateStageRequest,
 } from "./requests";
 
 describe("features/stage-management/api/requests", () => {
@@ -36,14 +37,28 @@ describe("features/stage-management/api/requests", () => {
 
       const result = await listStagesRequest("n1");
 
-      expect(result).toEqual({ ok: true, stages });
+      expect(result).toEqual({ ok: true, stages, issues: [] });
       expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/stages", { method: "GET" });
     });
 
-    it("returns empty stages when response omits the field (proto3-omitted)", async () => {
+    it("returns empty stages/issues when response omits the fields (proto3-omitted)", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
       const result = await listStagesRequest("n1");
-      expect(result).toEqual({ ok: true, stages: [] });
+      expect(result).toEqual({ ok: true, stages: [], issues: [] });
+    });
+
+    it("returns diagnostics when the response carries issues (спека 0020, FR-8)", async () => {
+      const issues = [
+        {
+          severity: "SCHEMA_ISSUE_SEVERITY_WARNING",
+          code: "SCHEMA_ISSUE_CODE_COVERAGE_GAP",
+          stageIds: ["s1", "s2"],
+          message: "Разрыв покрытия по месту 3",
+        },
+      ];
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stages: [], issues }) });
+      const result = await listStagesRequest("n1");
+      expect(result).toEqual({ ok: true, stages: [], issues });
     });
 
     it("returns ok:false with server error on 4xx", async () => {
@@ -283,6 +298,77 @@ describe("features/stage-management/api/requests", () => {
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await setStageRuleRequest("s1", null);
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("updateStageRequest", () => {
+    it("PATCHes /api/stages/[stageId] with title + bracket config and returns the updated stage", async () => {
+      const stage = {
+        id: "s1",
+        nominationId: "n1",
+        position: 0,
+        title: "Плейофф 2",
+        type: "STAGE_TYPE_BRACKET",
+        status: "POOL_LAYOUT_STATUS_DRAFT",
+        bracket: { size: 8, thirdPlace: true },
+        groups: null,
+        rule: null,
+      };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stage }) });
+
+      const result = await updateStageRequest("s1", {
+        title: "Плейофф 2",
+        bracket: { size: 8, thirdPlace: true },
+      });
+
+      expect(result).toEqual({ ok: true, stage });
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Плейофф 2", bracket: { size: 8, thirdPlace: true } }),
+      });
+    });
+
+    it("PATCHes with title + groups config", async () => {
+      const stage = { id: "s2", title: "Группы", groups: { groupCount: 3 } };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stage }) });
+
+      const result = await updateStageRequest("s2", { title: "Группы", groups: { groupCount: 3 } });
+
+      expect(result).toEqual({ ok: true, stage });
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s2", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Группы", groups: { groupCount: 3 } }),
+      });
+    });
+
+    it("PATCHes title-only when config is omitted (composeEmpty=false)", async () => {
+      const stage = { id: "s1", title: "Новое название" };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ stage }) });
+
+      await updateStageRequest("s1", { title: "Новое название" });
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Новое название" }),
+      });
+    });
+
+    it("returns ok:false with server error on 4xx (e.g. ErrStageLocked)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "stage is locked" }),
+      });
+      const result = await updateStageRequest("s1", { title: "x" });
+      expect(result).toEqual({ ok: false, error: "stage is locked" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+      const result = await updateStageRequest("s1", { title: "x" });
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });

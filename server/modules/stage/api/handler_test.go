@@ -1716,10 +1716,12 @@ func TestDeleteStage_E2E_HappyPathAndGroupsRejected(t *testing.T) {
 	fighters.Set(n1)
 	groupsStageID := stageIDFor(t, repo, n1)
 
+	// Спека 0020, FR-5: авто-этап удаляется на общих основаниях, когда он
+	// пуст и не служит источником — прежний отдельный запрет снят.
 	delGroupsReq := connect.NewRequest(&hemav1.DeleteStageRequest{StageId: groupsStageID})
 	delGroupsReq.Header().Set("Authorization", adminBearer(t))
-	if _, err := admin.DeleteStage(context.Background(), delGroupsReq); connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("expected CodeFailedPrecondition for groups stage, got %v", connect.CodeOf(err))
+	if _, err := admin.DeleteStage(context.Background(), delGroupsReq); err != nil {
+		t.Fatalf("expected auto-stage to be deletable when empty, got %v", err)
 	}
 
 	createReq := connect.NewRequest(&hemav1.CreateStageRequest{
