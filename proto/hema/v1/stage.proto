@@ -209,6 +209,10 @@ service StagePublicService {
   // одному кадру на каждое изменение номинации (пул/бой). Односторонний,
   // read-only (FR-7); поток завершается по отмене контекста клиентом.
   rpc WatchNominationLive(WatchNominationLiveRequest) returns (stream WatchNominationLiveResponse);
+  // GetNominationResults возвращает итоговый протокол номинации (спека 0021,
+  // FR-9..FR-15). Отдельно от GetNominationLive — для экранов, которым нужны
+  // только итоги (админский экран схемы, FR-19).
+  rpc GetNominationResults(GetNominationResultsRequest) returns (GetNominationResultsResponse);
 }
 
 // PoolLayoutStatus — статус раскладки номинации целиком (спека 0009).
@@ -254,6 +258,19 @@ enum StageType {
   STAGE_TYPE_UNSPECIFIED = 0;
   STAGE_TYPE_GROUPS = 1;
   STAGE_TYPE_BRACKET = 2;
+}
+
+// StageStatus — статус этапа целиком (спека 0021, FR-1; ADR 0014 §2):
+// draft/ready — хранимая фиксация состава (0017, совпадает по значениям с
+// PoolLayoutStatus), active/finished — вычисляются из прогресса боёв этапа,
+// как PoolStatus у контейнера (0011/0013). Read-only: клиент не присылает
+// это значение, оно приходит только в ответах.
+enum StageStatus {
+  STAGE_STATUS_UNSPECIFIED = 0;
+  STAGE_STATUS_DRAFT = 1;
+  STAGE_STATUS_READY = 2;
+  STAGE_STATUS_ACTIVE = 3;
+  STAGE_STATUS_FINISHED = 4;
 }
 
 // StageSourceKind — источник правила отбора этапа (спека 0019, FR-2).
@@ -426,6 +443,8 @@ message Stage {
   // rule — правило отбора (спека 0019, FR-1); не заполнено, если у этапа
   // правила нет (набирается руками, как раньше).
   SeedingRule rule = 9;
+  // execution_status — вычисляемый статус этапа целиком (спека 0021, FR-1).
+  StageStatus execution_status = 10;
 }
 
 // PoolStanding — одна строка итоговой таблицы пула (спека 0016, FR-1..FR-4):
@@ -954,6 +973,42 @@ message LivePool {
   string current_bout_id = 3;
 }
 
+// NominationResultEntry — строка итогового протокола (спека 0021, FR-13).
+// Место — диапазон «от–до» (FR-11): 1, 2, 3-4, 5-8. Одиночное место —
+// place_from == place_to; клиент форматирует «5–8» сам и ничего не
+// пересчитывает. Дальше — боец с именем/клубом (0007) и происхождение места
+// человеческими словами: «выбыл в 1/4 финала», «Группа 2, место 1».
+message NominationResultEntry {
+  int32 place_from = 1;
+  int32 place_to = 2;
+  FighterRef fighter = 3;
+  string origin_label = 4;
+}
+
+// NominationResultsSection — пьедестал одного терминального этапа (спека
+// 0021, FR-9/FR-10). finished = false ⇒ entries пуст: пока этап не доигран,
+// мест нет (FR-15), а сама секция нужна админке, чтобы показать «этап не
+// доигран» (FR-19). places_from_overall_order = true у группового этапа
+// больше чем на одну группу — интерфейс обязан показать оговорку про
+// сведение без нормировки (FR-12, 0019 NFR-2).
+message NominationResultsSection {
+  string stage_id = 1;
+  string stage_title = 2;
+  StageType stage_type = 3;
+  bool finished = 4;
+  repeated NominationResultEntry entries = 5;
+  bool places_from_overall_order = 6;
+}
+
+// NominationResults — итоговый протокол номинации (спека 0021): секция на
+// каждый терминальный этап, у каждой свой пьедестал (FR-10). Сквозной
+// нумерации мест по номинации нет.
+message NominationResults {
+  string nomination_id = 1;
+  bool nomination_finished = 2;
+  repeated NominationResultsSection sections = 3;
+}
+
 // NominationLiveSnapshot — живой снапшот номинации целиком (спека 0014):
 // общий payload unary- и streaming-ответа. pools пуст, пока раскладка draft
 // (FR-12). stages — этапы номинации (спека 0017); заполнен независимо от
@@ -963,12 +1018,14 @@ message LivePool {
 // 0018, FR-19), заполнены только для зафиксированных bracket-этапов, как
 // pools заполнен только для готовой раскладки (0014, FR-12). unassigned
 // внутри Bracket здесь не заполняется — публичный снапшот не показывает
-// админский посев.
+// админский посев. results — итоговый протокол (спека 0021, FR-18): едет
+// тем же живым каналом, чтобы призёры появлялись без перезагрузки.
 message NominationLiveSnapshot {
   string nomination_id = 1;
   repeated LivePool pools = 2;
   repeated Stage stages = 3;
   repeated Bracket brackets = 4;
+  NominationResults results = 5;
 }
 
 message GetNominationLiveRequest {
@@ -985,6 +1042,14 @@ message WatchNominationLiveRequest {
 
 message WatchNominationLiveResponse {
   NominationLiveSnapshot snapshot = 1;
+}
+
+message GetNominationResultsRequest {
+  string nomination_id = 1;
+}
+
+message GetNominationResultsResponse {
+  NominationResults results = 1;
 }
 
 message GetBoutBoardRequest {

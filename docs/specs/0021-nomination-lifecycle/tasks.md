@@ -36,7 +36,7 @@
 
 ## Контракты
 
-- [ ] **T1.** `proto/hema/v1/stage.proto` — `enum StageStatus`;
+- [x] **T1.** `proto/hema/v1/stage.proto` — `enum StageStatus`;
       `Stage.execution_status`; `NominationResultEntry` (`place_from`/
       `place_to`), `NominationResultsSection`, `NominationResults`;
       `NominationLiveSnapshot.results`; RPC `GetNominationResults` +
