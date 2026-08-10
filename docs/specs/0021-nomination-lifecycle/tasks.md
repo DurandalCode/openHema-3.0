@@ -47,64 +47,64 @@
 
 ## Трек A — модуль `nomination`: ось исполнения
 
-- [ ] **T2. domain (red→green)** — `modules/nomination/domain/domain.go`:
+- [x] **T2. domain (red→green)** — `modules/nomination/domain/domain.go`:
       `ExecutionState` (`none`/`active`/`finished`), поле
       `Nomination.Execution`, метод `PublicStatus()`, метод порта
       `Repository.SetExecutionState`. Тест: `domain/domain_test.go` —
       `PublicStatus` вытесняет регистрационный статус при `active`/`finished`
       и отдаёт `Status` при `none` (spec NFR-4).
-- [ ] **T3. testutil** — `modules/nomination/testutil/fake_repo.go`:
+- [x] **T3. testutil** — `modules/nomination/testutil/fake_repo.go`:
       реализация `SetExecutionState`, хранение оси
       (`var _ domain.Repository = (*FakeRepo)(nil)`).
-- [ ] **T4. service (red→green)** — `service/service_test.go`:
+- [x] **T4. service (red→green)** — `service/service_test.go`:
       `SyncExecutionState` пишет ось идемпотентно; `SyncRegistrationState`,
       `CloseRegistration`, `ReopenRegistration` не изменились в поведении
       (регресс 0012, AC-13) → затем `service/service.go`.
-- [ ] **T5. repo + миграция** — `repo/queries/nomination.sql`
+- [x] **T5. repo + миграция** — `repo/queries/nomination.sql`
       (`SetExecutionState :one`, `execution_state` во всех `SELECT`/
       `RETURNING`), `make sqlc`, `repo/repo.go`;
       `migrations/00003_execution_state.sql` — DDL из `plan.md` (колонка +
       CHECK, сужение `chk_nominations_status` до `open`/`closed`).
-- [ ] **T6. api (red→green)** — `api/handler_test.go`: номинация с
+- [x] **T6. api (red→green)** — `api/handler_test.go`: номинация с
       `Execution == active` отдаётся как `NOMINATION_STATUS_ACTIVE` во всех
       RPC модуля → затем маппер в `api/handler.go` (`PublicStatus()`).
 
 ## Трек B — `stage/domain`: чистые функции протокола и статусов
 
-- [ ] **T7. типы + статус этапа (red→green)** —
+- [x] **T7. типы + статус этапа (red→green)** —
       `domain/results_test.go`: `ComputeStageStatus` — draft; ready без боёв;
       active; finished; finished при пустом контейнере (AC-16); контейнер
       сетки, завершённый одними баями. `ComputeNominationExecution` — пусто /
       смесь / всё завершено (AC-1..AC-3) → затем `domain/results.go`
       (`StageStatus`, `NominationExecution`, `StageContainer`, обе функции).
-- [ ] **T8. терминальные этапы (red→green)** — тест: линейная схема, две
+- [x] **T8. терминальные этапы (red→green)** — тест: линейная схема, две
       параллельные ветки (AC-9), несимметричные ветки (ADR 0014 §1) →
       `TerminalStages`.
-- [ ] **T9. места сетки (red→green)** — тест: сетка на 8 с боем за 3-е —
+- [x] **T9. места сетки (red→green)** — тест: сетка на 8 с боем за 3-е —
       `1`, `2`, `3`, `4`, четыре `5–8` (AC-6); без боя за 3-е — две `3–4`
       (AC-7); шесть посеянных в сетке на 8 — выбывшие в первом круге всё
       равно `5–8` (AC-8); сетка на 4; недоигранная сетка не паникует →
       `ComputeBracketPlaces`.
-- [ ] **T10. места группового этапа (red→green)** — тест: одна группа с
+- [x] **T10. места группового этапа (red→green)** — тест: одна группа с
       двумя равными → `1`, `2–3`, `2–3`, `4` (AC-10); несколько групп →
       сводный порядок в диапазонах, `PlacesFromOverallOrder = true` (AC-11)
       → `ComputeGroupPlaces` (обёртка над `ComputeOverallOrder`).
 
 ## Трек C — web
 
-- [ ] **T11. BFF (red→green)** — `app/api/nominations/[id]/results/route.test.ts`
+- [x] **T11. BFF (red→green)** — `app/api/nominations/[id]/results/route.test.ts`
       (mock транспорта connect-es, маппинг `connect.Code` → HTTP) → затем
       `route.ts` (Node runtime, публичный, без токена).
-- [ ] **T12. entities (red→green)** — `entities/nomination/lib/types.ts`:
+- [x] **T12. entities (red→green)** — `entities/nomination/lib/types.ts`:
       подписи «идёт»/«завершена» + тест;
       `entities/nomination-results/lib/types.ts`: `formatPlace` (`5–8` против
       `5`), `podium` (диапазон `3–4` → обе строки), `hasPlaces` + тесты;
       `model/get-nomination-results.ts` (server-only fetch).
-- [ ] **T13. widget** — `widgets/nomination-results/`: секции, пьедестал
+- [x] **T13. widget** — `widgets/nomination-results/`: секции, пьедестал
       (NFR-3 — крупно), таблица «место — боец — клуб — происхождение»,
       оговорка при `placesFromOverallOrder` (FR-12), пропс `showUnfinished`
       (FR-15/FR-19) + тест фильтрации секций.
-- [ ] **T14. страницы** — публичная `app/nominations/[id]/page.tsx`: блок
+- [x] **T14. страницы** — публичная `app/nominations/[id]/page.tsx`: блок
       итогов выше пулов, данные из живого снапшота (FR-17/FR-18 — рендер
       внутри клиентского дерева `useNominationLive`, не отдельным серверным
       блоком); админская `app/(admin)/admin/nominations/[id]/stages/page.tsx`
