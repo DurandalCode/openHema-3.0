@@ -34,6 +34,7 @@ import {
   StageSourceKind,
   StageSelectorKind,
   StageLayoutMethod,
+  NominationResultsSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
@@ -47,6 +48,7 @@ import {
   type SchemaIssue,
   type FormatStageSpec,
   type FormatPreset,
+  type NominationResults,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -127,6 +129,12 @@ import type {
   TimerCommandDto,
   TimerCommandKindDto,
 } from "@/entities/arena-live/lib/types";
+import type {
+  NominationResultEntry as NominationResultEntryDto,
+  NominationResultsSection as NominationResultsSectionDto,
+  NominationResults as NominationResultsDto,
+} from "@/entities/nomination-results/lib/types";
+import { emptyNominationResults } from "@/entities/nomination-results/lib/types";
 
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
@@ -849,6 +857,49 @@ export function bracketToJson(bracket: Bracket | undefined): BracketDto | null {
   };
 }
 
+function nominationResultEntryRawToDto(
+  raw: Partial<NominationResultEntryDto> | undefined,
+): NominationResultEntryDto {
+  return {
+    placeFrom: raw?.placeFrom ?? 0,
+    placeTo: raw?.placeTo ?? 0,
+    fighter: poolFighterRefToJson(raw?.fighter),
+    originLabel: raw?.originLabel ?? "",
+  };
+}
+
+function nominationResultsSectionRawToDto(
+  raw: Partial<NominationResultsSectionDto> | undefined,
+): NominationResultsSectionDto {
+  return {
+    stageId: raw?.stageId ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    stageType: (raw?.stageType as StageTypeDto) ?? "STAGE_TYPE_UNSPECIFIED",
+    finished: raw?.finished ?? false,
+    entries: Array.isArray(raw?.entries) ? raw.entries.map(nominationResultEntryRawToDto) : [],
+    placesFromOverallOrder: raw?.placesFromOverallOrder ?? false,
+  };
+}
+
+/**
+ * nominationResultsToJson превращает protobuf-сообщение NominationResults в
+ * обычный JSON-объект (спека 0021, FR-9..FR-15): итоговый протокол номинации
+ * — секция на каждый терминальный этап (FR-10). Используется и для ответа
+ * `GetNominationResults` (T11), и для поля `results` живого снапшота
+ * номинации (`nominationLiveToJson`, FR-18).
+ */
+export function nominationResultsToJson(
+  results: NominationResults | undefined,
+): NominationResultsDto | null {
+  if (!results) return null;
+  const raw = toJson(NominationResultsSchema, results) as Partial<NominationResultsDto>;
+  return {
+    nominationId: raw.nominationId ?? "",
+    nominationFinished: raw.nominationFinished ?? false,
+    sections: Array.isArray(raw.sections) ? raw.sections.map(nominationResultsSectionRawToDto) : [],
+  };
+}
+
 /**
  * nominationLiveToJson превращает protobuf-сообщение NominationLiveSnapshot
  * в обычный JSON-объект (спека 0014): живой снапшот номинации — пулы готовой
@@ -857,7 +908,10 @@ export function bracketToJson(bracket: Bracket | undefined): BracketDto | null {
  * теми же приватными хелперами. `stages` — этапы номинации (спека 0017,
  * FR-11). `brackets` — плейофф-сетки номинации (спека 0018, FR-19),
  * нормализуются `bracketToJson` на исходных proto-подсообщениях `snapshot`
- * (как `stages` — не на уже-toJson'нутом `raw`).
+ * (как `stages` — не на уже-toJson'нутом `raw`). `results` — итоговый
+ * протокол номинации (спека 0021, FR-18): едет тем же живым каналом, чтобы
+ * призёры появлялись без перезагрузки; фолбэк — пустой протокол, если
+ * сервер поле не заполнил.
  */
 export function nominationLiveToJson(
   snapshot: NominationLiveSnapshot | undefined,
@@ -881,6 +935,7 @@ export function nominationLiveToJson(
     brackets: (snapshot.brackets ?? [])
       .map((b) => bracketToJson(b))
       .filter((b): b is BracketDto => b !== null),
+    results: nominationResultsToJson(snapshot.results) ?? emptyNominationResults(raw.nominationId ?? ""),
   };
 }
 

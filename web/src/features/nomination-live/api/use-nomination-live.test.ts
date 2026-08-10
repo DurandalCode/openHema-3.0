@@ -3,11 +3,19 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNominationLive } from "./use-nomination-live";
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
+import { emptyNominationResults } from "@/entities/nomination-results/lib/types";
 
-const initial: NominationLiveSnapshotDto = { nominationId: "n1", pools: [], stages: [], brackets: [] };
+const initial: NominationLiveSnapshotDto = {
+  nominationId: "n1",
+  pools: [],
+  stages: [],
+  brackets: [],
+  results: emptyNominationResults("n1"),
+};
 const updated: NominationLiveSnapshotDto = {
   nominationId: "n1",
   brackets: [],
+  results: emptyNominationResults("n1"),
   pools: [
     {
       pool: {

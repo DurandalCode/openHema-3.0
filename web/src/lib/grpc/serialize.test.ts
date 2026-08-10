@@ -21,6 +21,7 @@ import {
   SchemaIssueSchema,
   FormatStageSpecSchema,
   FormatPresetSchema,
+  NominationResultsSchema,
 } from "@/gen/hema/v1/stage_pb";
 import {
   applicationHistoryToJson,
@@ -37,6 +38,7 @@ import {
   nominationsToJson,
   nominationToJson,
   nominationLiveToJson,
+  nominationResultsToJson,
   poolLayoutToJson,
   poolToJson,
   ruleDtoToProto,
@@ -1015,6 +1017,97 @@ describe("arenasToJson", () => {
   });
 });
 
+describe("nominationResultsToJson", () => {
+  it("converts a filled protobuf NominationResults to plain JSON, with range places and diapason splits (AC-6/AC-7)", () => {
+    const results = fromJson(NominationResultsSchema, {
+      nominationId: "nom-1",
+      nominationFinished: true,
+      sections: [
+        {
+          stageId: "stage-1",
+          stageTitle: "Плейофф",
+          stageType: "STAGE_TYPE_BRACKET",
+          finished: true,
+          entries: [
+            {
+              placeFrom: 1,
+              placeTo: 1,
+              fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+              originLabel: "Чемпион",
+            },
+            {
+              placeFrom: 3,
+              placeTo: 4,
+              fighter: { fighterId: "f3", name: "Fighter Three", club: "" },
+              originLabel: "выбыл в 1/2 финала",
+            },
+          ],
+          placesFromOverallOrder: false,
+        },
+        {
+          stageId: "stage-0",
+          stageTitle: "Групповой этап",
+          stageType: "STAGE_TYPE_GROUPS",
+          finished: false,
+          entries: [],
+          placesFromOverallOrder: false,
+        },
+      ],
+    });
+
+    const json = nominationResultsToJson(results);
+
+    expect(json).toEqual({
+      nominationId: "nom-1",
+      nominationFinished: true,
+      sections: [
+        {
+          stageId: "stage-1",
+          stageTitle: "Плейофф",
+          stageType: "STAGE_TYPE_BRACKET",
+          finished: true,
+          entries: [
+            {
+              placeFrom: 1,
+              placeTo: 1,
+              fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+              originLabel: "Чемпион",
+            },
+            {
+              placeFrom: 3,
+              placeTo: 4,
+              fighter: { fighterId: "f3", name: "Fighter Three", club: "" },
+              originLabel: "выбыл в 1/2 финала",
+            },
+          ],
+          placesFromOverallOrder: false,
+        },
+        {
+          stageId: "stage-0",
+          stageTitle: "Групповой этап",
+          stageType: "STAGE_TYPE_GROUPS",
+          finished: false,
+          entries: [],
+          placesFromOverallOrder: false,
+        },
+      ],
+    });
+  });
+
+  it("returns null for undefined", () => {
+    expect(nominationResultsToJson(undefined)).toBeNull();
+  });
+
+  it("normalizes an empty results message to an unfinished nomination with no sections", () => {
+    const results = fromJson(NominationResultsSchema, { nominationId: "nom-2" });
+    expect(nominationResultsToJson(results)).toEqual({
+      nominationId: "nom-2",
+      nominationFinished: false,
+      sections: [],
+    });
+  });
+});
+
 describe("nominationLiveToJson", () => {
   it("converts a filled protobuf NominationLiveSnapshot to plain JSON (nested Pool/BoardBout)", () => {
     const snapshot = fromJson(NominationLiveSnapshotSchema, {
@@ -1097,6 +1190,29 @@ describe("nominationLiveToJson", () => {
           canUndo: false,
         },
       ],
+      // Спека 0021 (T12): итоговый протокол — results едет тем же живым
+      // каналом, что pools/stages/brackets (FR-18).
+      results: {
+        nominationId: "nom-1",
+        nominationFinished: true,
+        sections: [
+          {
+            stageId: "stage-2",
+            stageTitle: "Плейофф",
+            stageType: "STAGE_TYPE_BRACKET",
+            finished: true,
+            entries: [
+              {
+                placeFrom: 1,
+                placeTo: 1,
+                fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+                originLabel: "Чемпион",
+              },
+            ],
+            placesFromOverallOrder: false,
+          },
+        ],
+      },
     });
 
     const json = nominationLiveToJson(snapshot);
@@ -1120,6 +1236,27 @@ describe("nominationLiveToJson", () => {
     expect(json?.brackets).toHaveLength(1);
     expect(json?.brackets[0].stage.id).toBe("stage-2");
     expect(json?.brackets[0].stage.bracket).toEqual({ size: 4, thirdPlace: false });
+    expect(json?.results).toEqual({
+      nominationId: "nom-1",
+      nominationFinished: true,
+      sections: [
+        {
+          stageId: "stage-2",
+          stageTitle: "Плейофф",
+          stageType: "STAGE_TYPE_BRACKET",
+          finished: true,
+          entries: [
+            {
+              placeFrom: 1,
+              placeTo: 1,
+              fighter: { fighterId: "f1", name: "Fighter One", club: "Sokol" },
+              originLabel: "Чемпион",
+            },
+          ],
+          placesFromOverallOrder: false,
+        },
+      ],
+    });
 
     const lp = json!.pools[0];
     expect(lp.pool.id).toBe("pool-1");
@@ -1158,7 +1295,13 @@ describe("nominationLiveToJson", () => {
 
     const json = nominationLiveToJson(snapshot);
 
-    expect(json).toEqual({ nominationId: "nom-2", pools: [], stages: [], brackets: [] });
+    expect(json).toEqual({
+      nominationId: "nom-2",
+      pools: [],
+      stages: [],
+      brackets: [],
+      results: { nominationId: "nom-2", nominationFinished: false, sections: [] },
+    });
   });
 });
 
