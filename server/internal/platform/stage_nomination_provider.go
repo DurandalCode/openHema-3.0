@@ -49,9 +49,27 @@ func (p *StageNominationProvider) NominationsByIDs(ctx context.Context, ids []st
 	return out, nil
 }
 
-// SyncRegistrationState синхронизирует статус приёма заявок номинации с
-// фактом наличия распределённых бойцов (спека 0012, FR-10) — прямой Go-вызов
-// nomination-сервиса, без сетевого RPC (монолит).
-func (p *StageNominationProvider) SyncRegistrationState(ctx context.Context, nominationID string, hasDistributedFighters bool) error {
-	return p.svc.SyncRegistrationState(ctx, nominationID, hasDistributedFighters)
+// SyncNominationState синхронизирует обе оси состояния номинации — приём
+// заявок (спека 0012, FR-10) и исполнительную (спека 0021, FR-4/FR-5) —
+// прямыми Go-вызовами nomination-сервиса, без сетевого RPC (монолит).
+func (p *StageNominationProvider) SyncNominationState(ctx context.Context, nominationID string, hasDistributedFighters bool, execution stagedomain.NominationExecution) error {
+	if err := p.svc.SyncRegistrationState(ctx, nominationID, hasDistributedFighters); err != nil {
+		return err
+	}
+	return p.svc.SyncExecutionState(ctx, nominationID, toNominationExecutionState(execution))
+}
+
+// toNominationExecutionState мапит исполнительную ось модуля stage
+// (spec 0021) на одноимённый тип модуля nomination — оба порта определяют
+// своё собственное перечисление (ADR 0002: модули не делят типы через
+// границу), значения совпадают по смыслу, не по Go-идентичности.
+func toNominationExecutionState(e stagedomain.NominationExecution) nomdomain.ExecutionState {
+	switch e {
+	case stagedomain.ExecutionActive:
+		return nomdomain.ExecutionActive
+	case stagedomain.ExecutionFinished:
+		return nomdomain.ExecutionFinished
+	default:
+		return nomdomain.ExecutionNone
+	}
 }

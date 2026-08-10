@@ -354,11 +354,15 @@ func (s *Service) SetStatus(ctx context.Context, stageID string, status domain.L
 	if err := s.repo.SetStatus(ctx, stage.ID, status); err != nil {
 		return domain.Layout{}, err
 	}
-	// Публикуем только на реальном переходе (draft→ready/ready→draft) — не
-	// на no-op (draft→draft/ready→ready), см. mapError и комментарий выше
-	// метода (спека 0014, задача T5).
+	// Публикуем и синхронизируем номинацию только на реальном переходе
+	// (draft→ready/ready→draft) — не на no-op (draft→draft/ready→ready), см.
+	// mapError и комментарий выше метода (спека 0014, задача T5; спека 0021,
+	// FR-1 — фиксация/расфиксация меняет исполнительный статус этапа).
 	if transitioned {
 		s.liveBus.PublishNominationChanged(stage.NominationID)
+		if err := s.syncNomination(ctx, stage.NominationID); err != nil {
+			return domain.Layout{}, err
+		}
 	}
 	return s.loadLayout(ctx, stageID)
 }
@@ -530,6 +534,9 @@ func (s *Service) StartCurrentBout(ctx context.Context, poolID, actorID string) 
 	if err := s.bouts.StartBout(ctx, currentID, actorID); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
+		return domain.BoutBoard{}, err
+	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
@@ -548,6 +555,9 @@ func (s *Service) ScoreCurrentBout(ctx context.Context, poolID, actorID string, 
 		return domain.BoutBoard{}, err
 	}
 	if err := s.bouts.ScoreBout(ctx, currentID, actorID, scoreA, scoreB); err != nil {
+		return domain.BoutBoard{}, err
+	}
+	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
 		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
@@ -594,6 +604,9 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 	if err := s.repo.SetCurrentBout(ctx, poolID, next); err != nil {
 		return domain.BoutBoard{}, err
 	}
+	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
+		return domain.BoutBoard{}, err
+	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
@@ -630,6 +643,9 @@ func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string)
 			return domain.BoutBoard{}, err
 		}
 	}
+	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
+		return domain.BoutBoard{}, err
+	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
@@ -664,6 +680,9 @@ func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) 
 		if err := s.syncBracket(ctx, stage); err != nil {
 			return domain.BoutBoard{}, err
 		}
+	}
+	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
+		return domain.BoutBoard{}, err
 	}
 	s.liveBus.PublishNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
@@ -911,7 +930,11 @@ func (s *Service) NominationLive(ctx context.Context, nominationID string) (doma
 			brackets = append(brackets, bracket)
 		}
 	}
-	return domain.NominationSnapshot{NominationID: nominationID, Stages: stages, Pools: livePools, Brackets: brackets}, nil
+	results, err := s.resultsFromStages(ctx, nominationID, stages)
+	if err != nil {
+		return domain.NominationSnapshot{}, err
+	}
+	return domain.NominationSnapshot{NominationID: nominationID, Stages: stages, Pools: livePools, Brackets: brackets, Results: results}, nil
 }
 
 // groupLivePools собирает LivePool для всех контейнеров одного готового
@@ -995,10 +1018,11 @@ func (s *Service) stageForWrite(ctx context.Context, stageID string) (domain.Sta
 }
 
 // stagesForRead возвращает этапы номинации для публичных ответов (repeated
-// stages, спека 0017, FR-11): реальные строки, либо singleton виртуального
-// этапа, если строк ещё нет — не менее одного элемента.
+// stages, спека 0017, FR-11): реальные строки с проставленным
+// ExecutionStatus (спека 0021, FR-1, stageStatuses), либо singleton
+// виртуального этапа, если строк ещё нет — не менее одного элемента.
 func (s *Service) stagesForRead(ctx context.Context, nominationID string) ([]domain.Stage, error) {
-	stages, err := s.repo.StagesByNomination(ctx, nominationID)
+	stages, err := s.stageStatuses(ctx, nominationID)
 	if err != nil {
 		return nil, err
 	}
@@ -1025,32 +1049,28 @@ func (s *Service) StagesForNomination(ctx context.Context, nominationID string) 
 // 0018, FR-18).
 func virtualStage(nominationID string) domain.Stage {
 	return domain.Stage{
-		NominationID: nominationID,
-		Position:     0,
-		Title:        domain.DefaultStageTitle,
-		Type:         domain.StageTypeGroups,
-		Status:       domain.LayoutDraft,
+		NominationID:    nominationID,
+		Position:        0,
+		Title:           domain.DefaultStageTitle,
+		Type:            domain.StageTypeGroups,
+		Status:          domain.LayoutDraft,
+		ExecutionStatus: domain.StageStatusDraft,
 	}
 }
 
-// loadLayoutAndSync — loadLayout плюс синхронизация «есть ли у номинации
-// распределённые бойцы» с модулем nomination (спека 0012, FR-5/FR-6/FR-10).
-// Вызывается вместо loadLayout из мутирующих методов, реально меняющих
-// членство (DeletePool/ResetLayout/AssignFighter/UnassignFighter/
-// AutoDistribute/Undo) — после того, как мутация уже применена в repo, чтобы
-// вычислить hasDistributed по результирующему состоянию, а не по имени RPC.
-// Синхронизация считает распределённых бойцов ПО ВСЕМ ЭТАПАМ номинации
-// (спека 0017, FR-9), резолвленной из свежезагруженного layout.
+// loadLayoutAndSync — loadLayout плюс синхронизация состояния номинации с
+// модулем nomination (спека 0012, FR-5/FR-6/FR-10; спека 0021, FR-4/FR-5) —
+// синхронное продолжение syncNomination (results.go). Вызывается вместо
+// loadLayout из мутирующих методов, реально меняющих членство
+// (DeletePool/ResetLayout/AssignFighter/UnassignFighter/AutoDistribute/Undo)
+// — после того, как мутация уже применена в repo, чтобы вычислить обе оси по
+// результирующему состоянию, а не по имени RPC.
 func (s *Service) loadLayoutAndSync(ctx context.Context, stageID string) (domain.Layout, error) {
 	layout, err := s.loadLayout(ctx, stageID)
 	if err != nil {
 		return domain.Layout{}, err
 	}
-	distributed, err := s.hasDistributedAcrossStages(ctx, layout.NominationID)
-	if err != nil {
-		return domain.Layout{}, err
-	}
-	if err := s.nominations.SyncRegistrationState(ctx, layout.NominationID, distributed); err != nil {
+	if err := s.syncNomination(ctx, layout.NominationID); err != nil {
 		return domain.Layout{}, err
 	}
 	return layout, nil

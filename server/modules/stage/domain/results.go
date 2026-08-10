@@ -306,6 +306,28 @@ func ComputeBracketPlaces(view BracketView) []ResultEntry {
 // диапазон — группа бойцов, равных на OverallPlace p размера n, получает
 // диапазон [p .. p+n-1]. Для одной группы вырождается ровно в
 // ComputeStandings.
+// ResultsSection — пьедестал одного терминального этапа (спека 0021,
+// FR-9/FR-10). Finished=false у ещё не доигранного терминального этапа —
+// Entries пуст, но секция всё равно возвращается (нужна админке, FR-19,
+// чтобы показать «этап не доигран»).
+type ResultsSection struct {
+	StageID                string
+	StageTitle             string
+	StageType              StageType
+	Finished               bool
+	Entries                []ResultEntry
+	PlacesFromOverallOrder bool
+}
+
+// NominationResults — итоговый протокол номинации (спека 0021): секция на
+// каждый терминальный этап (FR-9/FR-10) — у каждого свой пьедестал, сквозной
+// нумерации мест по номинации нет.
+type NominationResults struct {
+	NominationID       string
+	NominationFinished bool
+	Sections           []ResultsSection
+}
+
 func ComputeGroupPlaces(groups []SourceGroup) []ResultEntry {
 	overall := ComputeOverallOrder(groups)
 

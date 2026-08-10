@@ -910,6 +910,86 @@ func TestGetNominationLive_E2E_EmptyNominationIDReturnsInvalidArgument(t *testin
 	}
 }
 
+// ---------------------------------------------------------------------
+// Спека 0021: ЖЦ номинации целиком — статус этапа, итоговый протокол.
+// ---------------------------------------------------------------------
+
+// Номинация без единого этапа — пустой протокол, не ошибка (FR-15).
+func TestGetNominationResults_E2E_NoStagesReturnsEmpty(t *testing.T) {
+	_, public, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.GetNominationResultsRequest{NominationId: n1})
+	res, err := public.GetNominationResults(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetNominationResults: %v", err)
+	}
+	if res.Msg.Results.NominationId != n1 {
+		t.Fatalf("NominationId = %q, want %q", res.Msg.Results.NominationId, n1)
+	}
+	if res.Msg.Results.NominationFinished {
+		t.Fatalf("expected NominationFinished=false for a nomination with no stages")
+	}
+	if len(res.Msg.Results.Sections) != 0 {
+		t.Fatalf("expected no sections, got %+v", res.Msg.Results.Sections)
+	}
+}
+
+func TestGetNominationResults_E2E_EmptyNominationIDReturnsInvalidArgument(t *testing.T) {
+	_, public, _, _, _, _, _, _ := setupFull(t)
+
+	req := connect.NewRequest(&hemav1.GetNominationResultsRequest{NominationId: ""})
+	_, err := public.GetNominationResults(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+// Терминальный этап с составом, но без единого сыгранного боя — секция без
+// мест (finished=false), а не отсутствие секции вовсе (FR-19: админка должна
+// видеть «этап не доигран»).
+func TestGetNominationResults_E2E_UnfinishedStageShownWithoutEntries(t *testing.T) {
+	_, public, repo, fighters, _, _, bouts, _ := setupFull(t)
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	seedBoardPool(t, repo, bouts, "") // ready, боёв не начинали
+
+	req := connect.NewRequest(&hemav1.GetNominationResultsRequest{NominationId: n1})
+	res, err := public.GetNominationResults(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetNominationResults: %v", err)
+	}
+	if res.Msg.Results.NominationFinished {
+		t.Fatalf("expected NominationFinished=false")
+	}
+	if len(res.Msg.Results.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %+v", res.Msg.Results.Sections)
+	}
+	sec := res.Msg.Results.Sections[0]
+	if sec.Finished || len(sec.Entries) != 0 {
+		t.Fatalf("expected unfinished empty section, got %+v", sec)
+	}
+}
+
+// Статус этапа целиком (execution_status) виден в ListStages независимо от
+// исполнения — draft-этап без единого боя даёт STAGE_STATUS_DRAFT (спека
+// 0021, FR-1).
+func TestListStages_E2E_IncludesExecutionStatus(t *testing.T) {
+	admin, _, fighters := setup(t)
+	fighters.Set(n1)
+
+	req := connect.NewRequest(&hemav1.ListStagesRequest{NominationId: n1})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.ListStages(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListStages: %v", err)
+	}
+	if len(res.Msg.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %+v", res.Msg.Stages)
+	}
+	if got := res.Msg.Stages[0].ExecutionStatus; got != hemav1.StageStatus_STAGE_STATUS_DRAFT {
+		t.Fatalf("ExecutionStatus = %v, want STAGE_STATUS_DRAFT", got)
+	}
+}
+
 // waitForSubscriberCount — ждёт (с коротким поллингом), пока
 // FakeLiveBus.SubscriberCount(nominationID) не станет равным want, до
 // таймаута. Нужен, чтобы синхронизировать тест с моментом, когда

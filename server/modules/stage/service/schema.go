@@ -79,6 +79,9 @@ func (s *Service) UpdateStage(ctx context.Context, stageID, title string, bracke
 		return domain.Stage{}, domain.ErrNotFound
 	}
 	s.liveBus.PublishNominationChanged(updated.NominationID)
+	if err := s.syncNomination(ctx, updated.NominationID); err != nil {
+		return domain.Stage{}, err
+	}
 	return updated, nil
 }
 

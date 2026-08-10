@@ -733,6 +733,21 @@ func (h *PublicHandler) WatchNominationLive(
 	}
 }
 
+// GetNominationResults возвращает итоговый протокол номинации (спека 0021,
+// FR-9..FR-15): секция на каждый терминальный этап, места — только у
+// доигранных (недоигранные приходят с finished=false и пустыми entries,
+// FR-15/FR-19).
+func (h *PublicHandler) GetNominationResults(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetNominationResultsRequest],
+) (*connect.Response[hemav1.GetNominationResultsResponse], error) {
+	results, err := h.svc.NominationResults(ctx, req.Msg.NominationId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetNominationResultsResponse{Results: toProtoNominationResults(results)}), nil
+}
+
 // mapError переводит доменные ошибки в connect.Code. Спека 0018 добавляет
 // ErrStageTypeMismatch/ErrDrawNotAllowed/ErrDownstreamStarted/
 // ErrSlotOccupied/ErrStageNotDeletable/ErrNotEnoughSeeds →
@@ -802,14 +817,15 @@ func toProtoLayout(l domain.Layout) *hemav1.PoolLayout {
 // — дефолты этапа.
 func toProtoStage(s domain.Stage) *hemav1.Stage {
 	out := &hemav1.Stage{
-		Id:           s.ID,
-		NominationId: s.NominationID,
-		Position:     int32(s.Position),
-		Title:        s.Title,
-		Type:         toProtoStageType(s.Type),
-		Status:       toProtoStatus(s.Status),
-		Groups:       toProtoGroupsConfig(s.Groups),
-		Rule:         toProtoSeedingRule(s.Rule),
+		Id:              s.ID,
+		NominationId:    s.NominationID,
+		Position:        int32(s.Position),
+		Title:           s.Title,
+		Type:            toProtoStageType(s.Type),
+		Status:          toProtoStatus(s.Status),
+		Groups:          toProtoGroupsConfig(s.Groups),
+		Rule:            toProtoSeedingRule(s.Rule),
+		ExecutionStatus: toProtoStageStatus(s.ExecutionStatus),
 	}
 	if s.Type == domain.StageTypeBracket {
 		out.Bracket = &hemav1.BracketConfig{Size: int32(s.Bracket.Size), ThirdPlace: s.Bracket.ThirdPlace}
@@ -1007,6 +1023,60 @@ func toProtoStages(stages []domain.Stage) []*hemav1.Stage {
 		out = append(out, toProtoStage(s))
 	}
 	return out
+}
+
+// toProtoStageStatus мапит вычисляемый статус этапа целиком (спека 0021,
+// FR-1). Read-only — обратного маппера (fromProto) не существует, клиент это
+// значение не присылает.
+func toProtoStageStatus(s domain.StageStatus) hemav1.StageStatus {
+	switch s {
+	case domain.StageStatusDraft:
+		return hemav1.StageStatus_STAGE_STATUS_DRAFT
+	case domain.StageStatusReady:
+		return hemav1.StageStatus_STAGE_STATUS_READY
+	case domain.StageStatusActive:
+		return hemav1.StageStatus_STAGE_STATUS_ACTIVE
+	case domain.StageStatusFinished:
+		return hemav1.StageStatus_STAGE_STATUS_FINISHED
+	default:
+		return hemav1.StageStatus_STAGE_STATUS_UNSPECIFIED
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0021: итоговый протокол номинации.
+// ---------------------------------------------------------------------
+
+func toProtoNominationResults(r domain.NominationResults) *hemav1.NominationResults {
+	out := &hemav1.NominationResults{
+		NominationId:       r.NominationID,
+		NominationFinished: r.NominationFinished,
+		Sections:           make([]*hemav1.NominationResultsSection, 0, len(r.Sections)),
+	}
+	for _, sec := range r.Sections {
+		out.Sections = append(out.Sections, toProtoResultsSection(sec))
+	}
+	return out
+}
+
+func toProtoResultsSection(sec domain.ResultsSection) *hemav1.NominationResultsSection {
+	entries := make([]*hemav1.NominationResultEntry, 0, len(sec.Entries))
+	for _, e := range sec.Entries {
+		entries = append(entries, &hemav1.NominationResultEntry{
+			PlaceFrom:   int32(e.PlaceFrom),
+			PlaceTo:     int32(e.PlaceTo),
+			Fighter:     toProtoFighterRef(e.Fighter),
+			OriginLabel: e.OriginLabel,
+		})
+	}
+	return &hemav1.NominationResultsSection{
+		StageId:                sec.StageID,
+		StageTitle:             sec.StageTitle,
+		StageType:              toProtoStageType(sec.StageType),
+		Finished:               sec.Finished,
+		Entries:                entries,
+		PlacesFromOverallOrder: sec.PlacesFromOverallOrder,
+	}
 }
 
 func toProtoStageType(t domain.StageType) hemav1.StageType {
@@ -1251,6 +1321,7 @@ func toProtoNominationSnapshot(s domain.NominationSnapshot) *hemav1.NominationLi
 		Pools:        make([]*hemav1.LivePool, 0, len(s.Pools)),
 		Stages:       toProtoStages(s.Stages),
 		Brackets:     make([]*hemav1.Bracket, 0, len(s.Brackets)),
+		Results:      toProtoNominationResults(s.Results),
 	}
 	for _, p := range s.Pools {
 		out.Pools = append(out.Pools, toProtoLivePool(p))

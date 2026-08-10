@@ -112,31 +112,31 @@
 
 ## Волна 2 — join (после мержа треков A и B)
 
-- [ ] **T15. порт** — `stage/domain/domain.go`: `NominationProvider.SyncRegistrationState`
+- [x] **T15. порт** — `stage/domain/domain.go`: `NominationProvider.SyncRegistrationState`
       → `SyncNominationState(ctx, id, hasDistributedFighters, execution)`;
       `Stage.ExecutionStatus`. Обновить `stage/testutil/fake_nomination_provider.go`
       (запоминать обе оси).
-- [ ] **T16. service: протокол (red→green)** — `service/results_test.go`
+- [x] **T16. service: протокол (red→green)** — `service/results_test.go`
       (fake-репо): `NominationResults` собирает секции по терминальным
       этапам, прячет места недоигранных (AC-12), заполняет
       `PlacesFromOverallOrder` → затем `service/results.go`
       (`stageStatuses`, `NominationResults`, вынос `groupsWithStandings` из
       `sourceGroupsForRule`).
-- [ ] **T17. service: синхронизация (red→green)** — тесты на каждый
+- [x] **T17. service: синхронизация (red→green)** — тесты на каждый
       мутирующий путь: `active` после `StartCurrentBout` (AC-1), `finished`
       после последнего `FinishCurrentBout` (AC-3), назад в `active` после
       `ReopenCurrentBout` (AC-4), `active` при `CreateStage` и `finished`
       после `DeleteStage` (AC-5), не `finished` при недоигранном этапе
       (AC-2) → затем `syncNomination` и его вызовы в `service/service.go`,
       `bracket.go`, `schema.go`, `seeding.go` (список точек — в `plan.md`).
-- [ ] **T18. service: снапшот и статус этапа** — `NominationLive` заполняет
+- [x] **T18. service: снапшот и статус этапа** — `NominationLive` заполняет
       `Results`; `stagesForRead`/`StagesForNomination` проставляют
       `Stage.ExecutionStatus` + тесты.
-- [ ] **T19. api (red→green)** — `api/handler_test.go`: `GetNominationResults`
+- [x] **T19. api (red→green)** — `api/handler_test.go`: `GetNominationResults`
       (счастливый путь + `NotFound`), `execution_status` в `ListStages`,
       `results` в `GetNominationLive` → затем хендлер и мапперы в
       `api/handler.go`. Добавить RPC в `publicProcedures` интерсептора `Auth`.
-- [ ] **T20. wiring** — `internal/platform/stage_nomination_provider.go`:
+- [x] **T20. wiring** — `internal/platform/stage_nomination_provider.go`:
       `SyncNominationState` → `SyncRegistrationState` + `SyncExecutionState`.
 
 ## Волна 3 — проверка
