@@ -614,4 +614,39 @@ func TestReopenRegistration_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
 	}
 }
 
+// --- Спека 0021: исполнительная ось вытесняет публичный статус ---
+
+func TestGetNomination_E2E_ExecutionActive_OverridesStatusOpen(t *testing.T) {
+	n := seedNomination("n1", "T", 0)
+	n.Execution = domain.ExecutionActive
+	pub, _, _ := setup(t, n)
+
+	res, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: "n1"}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if res.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_ACTIVE {
+		t.Errorf("Status = %v, want ACTIVE even though registration Status is open", res.Msg.Nomination.Status)
+	}
+}
+
+func TestListNominations_E2E_ExecutionFinished_OverridesStatusClosed(t *testing.T) {
+	n := seedNominationWithState("n1", "A", 0, domain.StatusClosed, domain.ClosedReasonManual, false)
+	n.Execution = domain.ExecutionFinished
+	pub, _, _ := setup(t, n)
+
+	res, err := pub.ListNominations(context.Background(), connect.NewRequest(&hemav1.ListNominationsRequest{
+		TournamentId: activeTournamentID,
+	}))
+	if err != nil {
+		t.Fatalf("ListNominations: %v", err)
+	}
+	if len(res.Msg.Nominations) != 1 {
+		t.Fatalf("len = %d, want 1", len(res.Msg.Nominations))
+	}
+	if res.Msg.Nominations[0].Status != hemav1.NominationStatus_NOMINATION_STATUS_FINISHED {
+		t.Errorf("Status = %v, want FINISHED even though registration Status is closed", res.Msg.Nominations[0].Status)
+	}
+}
+
 func strPtr(s string) *string { return &s }

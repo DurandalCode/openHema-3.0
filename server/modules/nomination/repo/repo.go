@@ -239,6 +239,26 @@ func (r *Repo) SetRegistrationState(ctx context.Context, id string, status domai
 	return toDomain(row)
 }
 
+// SetExecutionState записывает исполнительную ось номинации (спека 0021).
+func (r *Repo) SetExecutionState(ctx context.Context, id string, state domain.ExecutionState) (domain.Nomination, error) {
+	nid, err := uuid.Parse(id)
+	if err != nil {
+		return domain.Nomination{}, domain.ErrNotFound
+	}
+
+	row, err := r.q.SetExecutionState(ctx, sqlc.SetExecutionStateParams{
+		ID:             nid,
+		ExecutionState: string(state),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Nomination{}, domain.ErrNotFound
+		}
+		return domain.Nomination{}, fmt.Errorf("set execution state: %w", err)
+	}
+	return toDomain(row)
+}
+
 func toDomain(row sqlc.NominationNomination) (domain.Nomination, error) {
 	meta, err := unmarshalMetadata(row.Metadata)
 	if err != nil {
@@ -259,6 +279,7 @@ func toDomain(row sqlc.NominationNomination) (domain.Nomination, error) {
 		out.ClosedReason = domain.ClosedReason(*row.ClosedReason)
 	}
 	out.HasDistributedFighters = row.HasDistributedFighters
+	out.Execution = domain.ExecutionState(row.ExecutionState)
 	if row.FighterCapacity != nil {
 		out.FighterCapacity = *row.FighterCapacity
 		out.HasFighterCapacity = true

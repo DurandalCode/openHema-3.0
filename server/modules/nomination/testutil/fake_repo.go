@@ -185,6 +185,23 @@ func (r *FakeRepo) SetRegistrationState(_ context.Context, id string, status dom
 	return existing, nil
 }
 
+// SetExecutionState записывает исполнительную ось (спека 0021) существующей
+// номинации.
+func (r *FakeRepo) SetExecutionState(_ context.Context, id string, state domain.ExecutionState) (domain.Nomination, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.nominations[id]
+	if !ok {
+		return domain.Nomination{}, domain.ErrNotFound
+	}
+
+	existing.Execution = state
+	existing.UpdatedAt = time.Now().UTC()
+	r.nominations[id] = existing
+	return existing, nil
+}
+
 func sortByPosition(nominations []domain.Nomination) {
 	for i := 1; i < len(nominations); i++ {
 		for j := i; j > 0 && nominations[j].Position < nominations[j-1].Position; j-- {

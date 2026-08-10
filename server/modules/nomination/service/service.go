@@ -204,6 +204,18 @@ func (s *Service) SyncRegistrationState(ctx context.Context, nominationID string
 	return err
 }
 
+// SyncExecutionState синхронизирует исполнительную ось номинации с
+// прогрессом боёв этапов (спека 0021, FR-4/FR-5, push из модуля stage).
+// Идемпотентна: пишет значение без чтения-сравнения — запись дешевле.
+func (s *Service) SyncExecutionState(ctx context.Context, nominationID string, state domain.ExecutionState) error {
+	nominationID = strings.TrimSpace(nominationID)
+	if nominationID == "" {
+		return domain.ErrInvalidInput
+	}
+	_, err := s.repo.SetExecutionState(ctx, nominationID, state)
+	return err
+}
+
 // resolveTournament проверяет, что tournamentID непустой и указывает на
 // активный турнир (в MVP — единственный способ существования турнира).
 // Любая ошибка провайдера (в т.ч. «активного турнира нет») мапится в
