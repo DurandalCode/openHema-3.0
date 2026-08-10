@@ -46,6 +46,10 @@ func (s *Service) CreateStage(ctx context.Context, nominationID string, stageTyp
 	}
 
 	if !rule.IsZero() {
+		// Метод раскладки клиент не присылает (FR-4) — выводим сам из типа
+		// целевого этапа ДО валидации, иначе Validate отклонит правило по
+		// пустому Method независимо от остальных полей.
+		rule.Method = domain.ResolveMethod(stageType == domain.StageTypeBracket)
 		if err := rule.Validate(stageType == domain.StageTypeBracket); err != nil {
 			return domain.Stage{}, nil, err
 		}

@@ -684,6 +684,18 @@ func TestSeedingRule_Validate(t *testing.T) {
 	}
 }
 
+// Клиент не присылает method (FR-4) — сервис обязан вывести его сам из типа
+// целевого этапа до Validate. Регресс на баг: без этого клиентский запрос
+// без method всегда получал ErrInvalidRule независимо от прочих полей.
+func TestResolveMethod(t *testing.T) {
+	if got := domain.ResolveMethod(true); got != domain.LayoutMethodSeeded {
+		t.Fatalf("ResolveMethod(bracket) = %q, want seeded", got)
+	}
+	if got := domain.ResolveMethod(false); got != domain.LayoutMethodSnake {
+		t.Fatalf("ResolveMethod(groups) = %q, want snake", got)
+	}
+}
+
 // ---------------------------------------------------------------------
 // T5 — BracketSeedOrder, PlanBracketSeeds, PlanGroupAssignments.
 // ---------------------------------------------------------------------

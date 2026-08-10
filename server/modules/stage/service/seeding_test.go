@@ -60,6 +60,39 @@ func TestSetStageRule_T9_SetsRuleAndRepositionsFromStageSource(t *testing.T) {
 	}
 }
 
+// Регресс: клиент (веб-форма) не присылает rule.method (FR-4) — сервис
+// обязан вывести его сам из типа целевого этапа ДО валидации. Воспроизводит
+// баг живого админского UX: правило с открытой верхней границей
+// (place_to=0, «все места») и нулевым Method всегда получало ErrInvalidRule.
+func TestSetStageRule_ClientOmittedMethod_ServerDerivesIt(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1")
+	sourceID := stageIDFor(t, repo, "n1") // авто-этап, position=0
+
+	target, err := repo.CreateStage(ctx, "n1", 5, "Плейофф", domain.StageTypeBracket,
+		domain.BracketConfig{Size: 8}, domain.GroupsConfig{}, domain.SeedingRule{})
+	if err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	rule := domain.SeedingRule{
+		SourceKind:    domain.SourceKindStage,
+		SourceStageID: sourceID,
+		Selector:      domain.SelectorKindOverallPlaces,
+		PlaceFrom:     1,
+		PlaceTo:       0, // открытая верхняя граница — «все места»
+		// Method намеренно не задан — как в реальном запросе с фронта.
+	}
+	updated, err := svc.SetStageRule(ctx, target.ID, rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Rule.Method != domain.LayoutMethodSeeded {
+		t.Fatalf("expected server to derive Method=seeded for a bracket target, got %q", updated.Rule.Method)
+	}
+}
+
 func TestSetStageRule_T9_RosterSourcePositionsAtZero(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, fighters, _, _ := newService()
