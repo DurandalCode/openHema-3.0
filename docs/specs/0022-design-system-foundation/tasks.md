@@ -2,7 +2,7 @@
 
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009).
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-08-12
 - План: `./plan.md`
 
@@ -34,7 +34,7 @@ worktree, см. `tdd-cycle`) — на усмотрение исполнител�
 
 ## Web
 
-- [ ] T1. **Токены** — `web/src/app/globals.css`: перекрасить существующие
+- [x] T1. **Токены** — `web/src/app/globals.css`: перекрасить существующие
       shadcn-переменные под новую палитру (полный ребрендинг, `plan.md`
       таблица токенов) — `--background`/`--card`/`--popover` (3 уровня
       поверхности через новую `--surface-raised`), `--foreground`/
@@ -49,53 +49,53 @@ worktree, см. `tdd-cycle`) — на усмотрение исполнител�
       — сверить точные hex по `Дизайн-система.dc.html` (разведка не
       зафиксировала подетально, см. `plan.md` «Риски»). Не TDD-шаг
       (CSS-переменные, проверка — визуально `pnpm dev` в обеих темах).
-- [ ] T2. **Шрифты** — подключить `next/font/google` (Archivo + JetBrains
+- [x] T2. **Шрифты** — подключить `next/font/google` (Archivo + JetBrains
       Mono) в `web/src/app/layout.tsx`, прокинуть как `--font-sans`/
       `--font-mono` в `@theme inline` (`globals.css`), применить через
       существующие классы `font-sans`/`font-mono` (без правок разметки
       компонентов). Не TDD-шаг. Проверка: `pnpm build` проходит,
       визуально шрифт применился.
-- [ ] T3. **Field (red→green)** — `shared/ui/input.test.tsx` (и/или
+- [x] T3. **Field (red→green)** — `shared/ui/input.test.tsx` (и/или
       `select.test.tsx`): контролируемый ввод текста/выбор значения реально
       меняет `value` и вызывает `onChange` (AC-2) → затем стилизация
       `input.tsx`/`label.tsx`/`select.tsx` под новые токены (высоты
       `--control-h-*`, состояние `invalid`/`hint`). **Не транскрипция мока**
       — `UiField` в дизайне нефункционален (см. `plan.md`).
-- [ ] T4. **Modal (red→green)** — `shared/ui/dialog.test.tsx`: закрытие по
+- [x] T4. **Modal (red→green)** — `shared/ui/dialog.test.tsx`: закрытие по
       Escape и клику вне области, фокус не покидает диалог, пока открыт
       (AC-3) → рестайл `dialog.tsx` под новые токены/радиусы/`--surface-raised`
       поверх существующего Radix `Dialog` (focus-trap/ESC/ARIA уже есть, не
       переписывать с нуля).
-- [ ] T5. **Button** — рестайл `button.tsx`: новый вариант `success`,
+- [x] T5. **Button** — рестайл `button.tsx`: новый вариант `success`,
       размеры под `--control-h-sm/md/lg`. Визуальный рестайлинг, не TDD-шаг.
-- [ ] T6. **Badge (red→green)** — `shared/ui/badge.test.tsx`: маппинг
+- [x] T6. **Badge (red→green)** — `shared/ui/badge.test.tsx`: маппинг
       `tone` (`live`/`success`/`info`/`warn`/`danger`/`neutral`) на visual
       variant, `live` даёт pulse-класс → реализация в `badge.tsx`. Есть
       настоящая логика маппинга (не чистая вёрстка) — оправдывает тест.
-- [ ] T7. **Tag** — новый `shared/ui/tag.tsx`: `label`, `tone` (5 цветов),
+- [x] T7. **Tag** — новый `shared/ui/tag.tsx`: `label`, `tone` (5 цветов),
       `muted`. Переиспользует паттерн маппинга из T6, отдельного теста не
       заводим (чисто визуальный, без ветвления сверх tone→класс).
-- [ ] T8. **FilterChip** — новый `shared/ui/filter-chip.tsx`: `label`,
+- [x] T8. **FilterChip** — новый `shared/ui/filter-chip.tsx`: `label`,
       `count`, `tone` (`idle`/`active`/`success`/`muted`), опциональный
       dropdown-слот. Визуальный, не TDD-шаг.
-- [ ] T9. **Tabs** — рестайл `tabs.tsx` под новые токены. Reál
+- [x] T9. **Tabs** — рестайл `tabs.tsx` под новые токены. Reál
       content-switching уже даёт Radix `Tabs` (мок в дизайне декоративен) —
       поведение не меняется, только визуал. Не TDD-шаг.
-- [ ] T10. **Card** — рестайл `card.tsx`: добавить stat-tile вариант
+- [x] T10. **Card** — рестайл `card.tsx`: добавить stat-tile вариант
       (`eyebrow`/`title`/`meta`/`value`/`accent`/`dense`/`raised`). Визуальный,
       не TDD-шаг.
-- [ ] T11. **EmptyState** — новый `shared/ui/empty-state.tsx`: `eyebrow`,
+- [x] T11. **EmptyState** — новый `shared/ui/empty-state.tsx`: `eyebrow`,
       `title`, `hint`, `children`. Визуальный, не TDD-шаг.
-- [ ] T12. **TableHead** — новый `shared/ui/table-head.tsx`: `cols:
+- [x] T12. **TableHead** — новый `shared/ui/table-head.tsx`: `cols:
       {label,width,align}[]`. Визуальный, не TDD-шаг (в репо нет
       Table-примитива вообще — это его первое появление, но логики
       сверх рендера колонок нет).
-- [ ] T13. **TableRow (red→green)** — `shared/ui/table-row.test.tsx`:
+- [x] T13. **TableRow (red→green)** — `shared/ui/table-row.test.tsx`:
       рендер `cells: {text,sub,width,mono,tone,tags,strike}[]` — тег
       `strike` даёт зачёркнутый текст, `tone` красит cell, `state`
       (`hover`/`selected`) переключает подсветку строки → `table-row.tsx`.
       Условная логика по пропам — оправдывает тест.
-- [ ] T14. **AppShell (red→green)** — `widgets/admin-shell/admin-shell.test.tsx`
+- [x] T14. **AppShell (red→green)** — `widgets/admin-shell/admin-shell.test.tsx`
       (перенос и расширение текущего `admin-nav.test.tsx`): рендерит только
       реальные пункты навигации (`Пользователи`/`Турнир`/`Номинации`/
       `Форматы`/`Площадки`/`Заявки`/`Бойцы`/`+ Создать админа`, **без**
@@ -110,17 +110,17 @@ worktree, см. `tdd-cycle`) — на усмотрение исполнител�
 
 ## Проверка
 
-- [ ] T15. **Регрессия существующих потребителей (AC-5)** — прогнать/
+- [x] T15. **Регрессия существующих потребителей (AC-5)** — прогнать/
       проверить тесты `Navbar`/`AuthDialog` (если есть) без правок в них
       самих; ручной смоук страниц, использующих `Button`/`Badge`/`Dialog`/
       `Tabs`/`Card` вне админки (лендинг, диалог входа) — не сломались
       визуально/функционально после рестайлинга примитивов.
-- [ ] T16. `pnpm test` (весь `web`) зелёный.
-- [ ] T17. `pnpm exec tsc --noEmit` — обязательно (сигнатуры `shared/ui`
+- [x] T16. `pnpm test` (весь `web`) зелёный.
+- [x] T17. `pnpm exec tsc --noEmit` — обязательно (сигнатуры `shared/ui`
       компонентов меняются: новые варианты/пропы).
-- [ ] T18. `pnpm build` проходит; ручная визуальная сверка обеих тем
+- [x] T18. `pnpm build` проходит; ручная визуальная сверка обеих тем
       (`pnpm dev`) с галереей «Дизайн-система.dc.html» — компенсирует
       отсутствие скриншот-тестов (ADR 0003).
-- [ ] T19. Обновить статусы `spec.md`/`plan.md`/`tasks.md` на `done`,
+- [x] T19. Обновить статусы `spec.md`/`plan.md`/`tasks.md` на `done`,
       строку `0022` в `docs/specs/README.md` — `draft`/`ready` → `done`.
 </content>
