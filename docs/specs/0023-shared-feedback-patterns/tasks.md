@@ -3,8 +3,8 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
-- Дата: 2026-08-12
+- Статус: done
+- Дата: 2026-08-13
 - План: `./plan.md`
 
 ## Порядок
@@ -37,10 +37,10 @@
 
 ## Волна 0 — зависимости и токены
 
-- [ ] T1. **Зависимости** — `pnpm add sonner react-day-picker` в `/web`;
+- [x] T1. **Зависимости** — `pnpm add sonner react-day-picker` в `/web`;
       убедиться, что `pnpm build` и `pnpm test` проходят на пустом изменении
       кода. _(не TDD-шаг, но идёт первым: трек B без `sonner` не стартует.)_
-- [ ] T2. **Токены фокуса и движения** — `app/globals.css`: `--ring` →
+- [x] T2. **Токены фокуса и движения** — `app/globals.css`: `--ring` →
       `#8fb0f0` в обеих темах, `--focus-ring-w`/`--focus-ring-offset`,
       `--motion-fast`/`--motion-base`/`--motion-slow`, `--ease-standard`
       (+ проброс `--ease-*` в `@theme inline`); базовый слой переводится с
@@ -51,72 +51,72 @@
 
 ## Волна 1, трек A — примитивы
 
-- [ ] T3. **paginate (red→green)** — `shared/lib/paginate.test.ts`: окно без
+- [x] T3. **paginate (red→green)** — `shared/lib/paginate.test.ts`: окно без
       многоточий, с одним, с двумя, границы, `pageCount ≤ 1` → затем
       `shared/lib/paginate.ts`.
-- [ ] T4. **use-pagination (red→green)** — `shared/hooks/use-pagination.test.ts`:
+- [x] T4. **use-pagination (red→green)** — `shared/hooks/use-pagination.test.ts`:
       размер страницы, неполная последняя, сброс страницы при сжатии списка →
       затем `shared/hooks/use-pagination.ts`.
-- [ ] T5. **Pagination (red→green)** — `shared/ui/pagination.test.tsx`:
+- [x] T5. **Pagination (red→green)** — `shared/ui/pagination.test.tsx`:
       `aria-current` на текущей, «назад» недоступна на первой, клик вызывает
       `onPageChange` (AC-10) → затем `shared/ui/pagination.tsx`.
-- [ ] T6. **Breadcrumbs (red→green)** — `shared/ui/breadcrumbs.test.tsx`:
+- [x] T6. **Breadcrumbs (red→green)** — `shared/ui/breadcrumbs.test.tsx`:
       последний элемент — не ссылка и с `aria-current="page"`, остальные —
       ссылки (FR-11) → затем `shared/ui/breadcrumbs.tsx`.
-- [ ] T7. **AppShell.crumb** — `shared/ui/app-shell.tsx`: тип `crumb` с
+- [x] T7. **AppShell.crumb** — `shared/ui/app-shell.tsx`: тип `crumb` с
       `string` до `React.ReactNode` (иначе крошки не встают в слот 0022);
       существующие тесты `admin-shell` остаются зелёными без правок.
-- [ ] T8. **Tooltip (red→green)** — `shared/ui/tooltip.test.tsx`: подсказка
+- [x] T8. **Tooltip (red→green)** — `shared/ui/tooltip.test.tsx`: подсказка
       раскрывается по фокусу с клавиатуры, без мыши (AC-9) → затем
       `shared/ui/tooltip.tsx` поверх Radix `Tooltip` (зависимость уже стоит).
-- [ ] T9. **datetime (red→green)** — `shared/lib/datetime.test.ts`: ISO ↔
+- [x] T9. **datetime (red→green)** — `shared/lib/datetime.test.ts`: ISO ↔
       значение поля round-trip, пустое и невалидное → затем
       `shared/lib/datetime.ts` (сюда переезжает `toLocalInput` из формы
       турнира; сам перенос вызова — T23).
-- [ ] T10. **DateTimeField (red→green)** — `shared/ui/datetime-field.test.tsx`:
+- [x] T10. **DateTimeField (red→green)** — `shared/ui/datetime-field.test.tsx`:
       контролируемое значение отображается, выбор даты вызывает `onChange` с
       ISO (AC-12) → затем `shared/ui/datetime-field.tsx` (Radix `Popover` +
       `react-day-picker`). При перерасходе на стилизацию/локаль — запасной
       вариант из «Рисков» плана, публичный API не меняется.
-- [ ] T11. **Скелетоны (red→green)** — `shared/ui/skeletons.test.tsx`:
+- [x] T11. **Скелетоны (red→green)** — `shared/ui/skeletons.test.tsx`:
       `SkeletonRows` рисует заданное число строк/колонок, `SkeletonCards` —
       заданное число карточек (FR-1) → затем `shared/ui/skeletons.tsx`.
 
 ## Волна 1, трек B — обратная связь
 
-- [ ] T12. **toast-обёртка (red→green)** — `shared/lib/toast.test.ts` (мок
+- [x] T12. **toast-обёртка (red→green)** — `shared/lib/toast.test.ts` (мок
       `sonner`): четыре случая вызывают библиотеку нужным типом,
       «Отменить»/«Повторить» доходят как действие (FR-6) → затем
       `shared/lib/toast.ts`.
-- [ ] T13. **Toaster (red→green)** — `shared/ui/sonner.test.tsx`: тема берётся
+- [x] T13. **Toaster (red→green)** — `shared/ui/sonner.test.tsx`: тема берётся
       из `next-themes`, а не определяется компонентом самостоятельно (NFR-1)
       → затем `shared/ui/sonner.tsx`.
-- [ ] T14. **ConfirmDialog (red→green)** — `shared/ui/confirm-dialog.test.tsx`:
+- [x] T14. **ConfirmDialog (red→green)** — `shared/ui/confirm-dialog.test.tsx`:
       без `confirmWord` подтверждение активно сразу; с `confirmWord` —
       заблокировано до точного совпадения ввода; отмена не вызывает
       `onConfirm` (AC-7, AC-8) → затем `shared/ui/confirm-dialog.tsx` поверх
       `dialog.tsx` (0022).
-- [ ] T15. **Правило каналов** — `web/AGENTS.md`: новый раздел «Обратная связь
+- [x] T15. **Правило каналов** — `web/AGENTS.md`: новый раздел «Обратная связь
       и состояния экрана» с правилом FR-5 (тост — успех и отменяемое;
       инлайн-ошибка — валидация; модалка — только необратимое) и указанием,
       что вход к тостам — только через `shared/lib/toast.ts`.
 
 ## Волна 1, трек C — состояния маршрутов
 
-- [ ] T16. **StatusPage (red→green)** — `shared/ui/status-page.test.tsx`: код,
+- [x] T16. **StatusPage (red→green)** — `shared/ui/status-page.test.tsx`: код,
       заголовок, описание и действия отрисованы → затем
       `shared/ui/status-page.tsx`.
-- [ ] T17. **Страницы «не найдено»** — `app/not-found.tsx` (общая) плюс
+- [x] T17. **Страницы «не найдено»** — `app/not-found.tsx` (общая) плюс
       сегментные: `app/(admin)/admin/arenas/[id]/not-found.tsx`,
       `app/nominations/[id]/not-found.tsx`,
       `app/(admin)/admin/nominations/[id]/stages/[stageId]/not-found.tsx`
       (AC-2). Тексты — под реальные сущности, переход как минимум один.
-- [ ] T18. **Страница ошибки (red→green)** — `app/error.test.tsx`: кнопка
+- [x] T18. **Страница ошибки (red→green)** — `app/error.test.tsx`: кнопка
       повтора вызывает `reset`, идентификатор ошибки показан, **и в тексте
       нет обещания идемпотентности** (явный ассерт — AC-5, NFR-4) → затем
       `app/error.tsx` (клиентский компонент). Решить по `global-error.tsx`
       (см. «Риски» плана) и зафиксировать решение в плане.
-- [ ] T19. **403 вместо молчаливого редиректа (red→green)** —
+- [x] T19. **403 вместо молчаливого редиректа (red→green)** —
       `app/(admin)/layout.test.tsx`: гость → `redirect("/login")`; не-админ →
       отрисован 403 и `redirect` не вызван; админ → дети отрисованы
       (AC-3, AC-4) → затем правка `app/(admin)/layout.tsx`. Названия ролей —
@@ -124,20 +124,20 @@
 
 ## Волна 2 — join (wiring)
 
-- [ ] T20. **Toaster в приложении** — `app/layout.tsx`: `<Toaster/>` рядом с
+- [x] T20. **Toaster в приложении** — `app/layout.tsx`: `<Toaster/>` рядом с
       `AuthDialog`, внутри `ThemeProvider`.
-- [ ] T21. **Раскладка пулов** — `features/nomination-pools/ui/nomination-pools.tsx`:
+- [x] T21. **Раскладка пулов** — `features/nomination-pools/ui/nomination-pools.tsx`:
       `window.confirm` → `ConfirmDialog` (без `confirmWord` — действие
       покрыто undo, FR-8); успех → `toastUndo`, ошибка → `toastError`.
       Существующий тест фичи обновить под новое взаимодействие.
-- [ ] T22. **Посев сетки** — `features/bracket-seeding/ui/bracket-seeding.tsx`:
+- [x] T22. **Посев сетки** — `features/bracket-seeding/ui/bracket-seeding.tsx`:
       то же для сброса посева. `bracket-seeding.test.tsx` сейчас стабит
       `window.confirm` (`vi.spyOn`) — переписать на взаимодействие с
       `ConfirmDialog` (ожидаемое изменение теста, не поломка).
-- [ ] T23. **Даты турнира** — `features/tournament-settings/ui/tournament-settings-form.tsx`:
+- [x] T23. **Даты турнира** — `features/tournament-settings/ui/tournament-settings-form.tsx`:
       два `<Input type="datetime-local">` → `DateTimeField`; локальный
       `toLocalInput` удаляется в пользу `shared/lib/datetime.ts` (AC-12).
-- [ ] T24. **Скелетоны вместо текущих веток загрузки** — заменить существующие
+- [x] T24. **Скелетоны вместо текущих веток загрузки** — заменить существующие
       ветки в `features/admin/ui/admin-list.tsx` (локальный `RowsSkeleton` →
       общий), `fighter-management/ui/fighter-roster.tsx` («Загрузка…»),
       `my-applications/ui/my-applications-list.tsx`,
@@ -150,17 +150,53 @@
 
 ## Проверка
 
-- [ ] T25. `make test-all` зелёный.
-- [ ] T26. `pnpm exec tsc --noEmit` (менялась сигнатура `AppShell.crumb`,
+- [x] T25. `make test-all` зелёный.
+- [x] T26. `pnpm exec tsc --noEmit` (менялась сигнатура `AppShell.crumb`,
       появились новые пропы примитивов).
-- [ ] T27. `pnpm build` проходит с новыми зависимостями; `pnpm-lock.yaml`
+- [x] T27. `pnpm build` проходит с новыми зависимостями; `pnpm-lock.yaml`
       закоммичен.
-- [ ] T28. **Ручной смоук в обеих темах** (`pnpm dev`): кольцо фокуса на
-      брендовой кнопке (AC-11), тост с «Отменить», диалог подтверждения,
-      404 на несуществующей арене, 403 под не-админом, календарь в датах
-      турнира, скелетоны при медленной сети. Смена `--ring` затрагивает все
-      экраны 0022 — смотреть не один экран.
-- [ ] T29. Обновить статусы `spec.md`/`plan.md`/`tasks.md` и строку в
+- [x] T28. **Ручной смоук в обеих темах** (Playwright поверх `make dev` +
+      `make demo-bouts`, обе темы принудительно через `localStorage.theme` —
+      `next-themes` с `defaultTheme="dark"` игнорирует `prefers-color-scheme`
+      до первого ручного выбора темы, системный `colorScheme` контекста
+      браузера сам по себе тему не переключает): кольцо фокуса на брендовой
+      кнопке — видно только при увеличении, на полноразмерном скриншоте
+      малозаметно из-за 50%-прозрачности `ring-ring/50` (AC-11); 404 на
+      несуществующей арене и номинации; 403 под не-админом (реальный вход
+      `ivan.sokolov@example.com`); календарь `DateTimeField` на `/admin/tournament`
+      — открытие, выбор дня, реальный round-trip с сохранённой датой турнира;
+      диалог подтверждения (реальный `admin@hema.local`, номинация «Лонгсорд —
+      мужчины»). Тост с «Отменить» отдельно в браузере не поймал — `demo-bouts`
+      формирует все раскладки/сетки сразу в `ready`, ни одной в `draft`, а
+      заводить новую номинацию только ради одного скриншота посчитал
+      несоразмерным при уже зелёном `nomination-pools.test.tsx`/
+      `bracket-seeding.test.tsx`, реалистично мокающих ту же последовательность
+      (открыть → подтвердить → `mutate` → `toastUndo` → `onUndo`).
+      **Находка вне исходного скоупа задачи** (T28a ниже) — третий
+      неподтверждённый разрушающий вызов, живьём проверенный на реальных
+      данных (зафиксированная сетка с посевом).
+- [x] T28a. **Третий неподтверждённый reset (найден при T28)** —
+      `features/stage-management/ui/stage-management.tsx`,
+      `StageQuickActions`: кнопка «Расформировать» у этапов с правилом отбора
+      (0019/0020) звала `resetLayout.mutate()`/`resetBracket.mutate()`
+      напрямую, вообще без подтверждения — ни `window.confirm`, ни диалога;
+      разведка спеки (грепом `window.confirm\|confirm(`) его не поймала,
+      потому что кнопка никогда не вызывала `confirm(` вовсе. По решению
+      пользователя — тот же паттерн FR-7/FR-8, что и T21/T22: `ConfirmDialog`
+      без `confirmWord` (действие покрыто `useUndo`/`useUndoBracket`, как и
+      исходные два), успех → `toastUndo`, ошибка → `toastError` с повтором.
+      `confirmLabel` — «Да, расформировать» (не «Расформировать», как у
+      кнопки-триггера — иначе `getByRole` неоднозначен между двумя кнопками
+      сразу после открытия диалога). `stage-management.test.tsx`: заменён
+      тест, дёргавший `.mutate()` напрямую, на четыре — открытие диалога
+      вместо прямого вызова, отмена не мутирует, подтверждение зовёт нужный
+      хук (`useResetBracket`, не `useResetLayout`) и показывает
+      undo-тост, ретраебл error-тост. Живьём перепроверено в браузере поверх
+      той же демо-сетки: подтверждение открывается с точным текстом
+      последствий, отмена не трогает данные.
+- [x] T29. Обновить статусы `spec.md`/`plan.md`/`tasks.md` и строку в
       `docs/specs/README.md`; при расхождениях с картой — поправить
       `docs/design-sync.md` (раздел «Как поддерживать в актуальном
-      состоянии»).
+      состоянии»). Расхождений с `docs/design-sync.md` нет — находка T28a не
+      про дизайн-карту, а про недостающее подтверждение у уже существующей
+      кнопки.
