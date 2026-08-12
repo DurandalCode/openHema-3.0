@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Archivo, JetBrains_Mono } from "next/font/google";
 import { siteConfig } from "@/shared/config/site-config";
 import { ThemeProvider } from "@/shared/lib/theme-provider";
 import { QueryProvider } from "@/shared/lib/query-provider";
@@ -7,6 +8,20 @@ import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
 import { Col } from "@/shared/ui/stack";
 import "./globals.css";
+
+const archivo = Archivo({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-archivo",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "700"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -18,7 +33,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ru" suppressHydrationWarning>
+    <html
+      lang="ru"
+      suppressHydrationWarning
+      className={`${archivo.variable} ${jetbrainsMono.variable}`}
+    >
       <body className="min-h-svh bg-background font-sans text-foreground antialiased">
         <ThemeProvider
           attribute="class"

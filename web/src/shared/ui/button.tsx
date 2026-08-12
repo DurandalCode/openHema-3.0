@@ -10,22 +10,26 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default:
+          "font-bold border border-[#e2402c] bg-[#e2402c] text-white hover:bg-[#c9331f] hover:border-[#c9331f] dark:border-[#e2402c] dark:bg-[#e2402c] dark:text-[#0a0a0d] dark:hover:bg-[#ff5a41] dark:hover:border-[#ff5a41]",
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
+          "font-bold border border-[#f3c8c2] bg-[#fdeceb] text-[#a41f15] hover:bg-[#f9dcd9] hover:border-[#eab5ad] hover:text-[#8c170f] dark:border-[#5a1e1e] dark:bg-[#3a1414] dark:text-[#ff9a8a] dark:hover:bg-[#4a1a1a] dark:hover:border-[#6a2222] dark:hover:text-[#ffb5a8]",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "font-semibold border border-[#ddd9d1] bg-white text-[#4a4a55] hover:bg-white hover:border-[#b9b4aa] hover:text-[#14141a] dark:border-[#2a2a33] dark:bg-transparent dark:text-[#a6a6b2] dark:hover:bg-transparent dark:hover:border-[#3a3a46] dark:hover:text-[#ece9e4]",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+          "font-semibold border border-transparent bg-transparent text-[#6b6b76] hover:bg-[#f4f2ee] hover:border-[#e6e2da] hover:text-[#14141a] dark:text-[#8b8b97] dark:hover:bg-[#17171e] dark:hover:border-[#22222b] dark:hover:text-[#ece9e4]",
         link: "text-primary underline-offset-4 hover:underline",
+        success:
+          "font-semibold border border-[#bfe6cf] bg-[#e9f7ef] text-[#1a8f57] hover:bg-[#dcf1e6] hover:border-[#a5dbbc] hover:text-[#137445] dark:border-[#1c4a2c] dark:bg-[#0e1a12] dark:text-[#5ad18f] dark:hover:bg-[#12241a] dark:hover:border-[#26603a] dark:hover:text-[#7ee0a8]",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        default:
+          "h-[var(--control-h-md)] rounded-md text-[13px] px-4 py-2 has-[>svg]:px-3",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        sm: "h-[var(--control-h-sm)] gap-1.5 rounded-[7px] text-xs px-3 has-[>svg]:px-2.5",
+        lg: "h-[var(--control-h-lg)] rounded-[10px] text-sm px-6 has-[>svg]:px-4",
         icon: "size-9",
         "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8",
