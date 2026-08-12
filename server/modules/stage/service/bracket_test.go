@@ -164,6 +164,34 @@ func TestListStages_T12_MaterializesGroupsThenIncludesBracket(t *testing.T) {
 	}
 }
 
+// Регресс: клиент (веб-форма) не присылает rule.method (FR-4, proto-
+// комментарий SeedingRule.method) — сервис обязан вывести его сам из типа
+// целевого этапа ДО валидации. Воспроизводит баг живого админского UX:
+// правило source=STAGE/selector=OVERALL_PLACES/place_from=1/place_to=0 (окно
+// «все места») с нулевым Method всегда получало ErrInvalidRule.
+func TestCreateStage_ClientOmittedMethod_ServerDerivesIt(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("n1")
+	groupsStageID := stageIDFor(t, repo, "n1")
+
+	rule := domain.SeedingRule{
+		SourceKind:    domain.SourceKindStage,
+		SourceStageID: groupsStageID,
+		Selector:      domain.SelectorKindOverallPlaces,
+		PlaceFrom:     1,
+		PlaceTo:       0, // открытая верхняя граница — «все места»
+		// Method намеренно не задан — как в реальном запросе с фронта.
+	}
+	created, _, err := svc.CreateStage(ctx, "n1", domain.StageTypeBracket, "Плейофф", domain.BracketConfig{Size: 4}, domain.GroupsConfig{}, rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created.Rule.Method != domain.LayoutMethodSeeded {
+		t.Fatalf("expected server to derive Method=seeded for a bracket target, got %q", created.Rule.Method)
+	}
+}
+
 // ---------------------------------------------------------------------
 // T13: посев (SeedBracketSlot/ClearBracketSlot/GetBracket).
 // ---------------------------------------------------------------------

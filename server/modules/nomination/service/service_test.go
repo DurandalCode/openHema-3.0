@@ -673,3 +673,56 @@ func TestSyncRegistrationState_NotFound(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
+
+// --- Спека 0021: исполнительная ось номинации (SyncExecutionState) ---
+
+func TestSyncExecutionState_WritesActive(t *testing.T) {
+	svc, repo := seedWithState("n1", domain.StatusOpen, domain.ClosedReasonNone, false)
+
+	if err := svc.SyncExecutionState(context.Background(), "n1", domain.ExecutionActive); err != nil {
+		t.Fatalf("SyncExecutionState: %v", err)
+	}
+	got, err := repo.GetByID(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Execution != domain.ExecutionActive {
+		t.Errorf("Execution = %q, want active", got.Execution)
+	}
+}
+
+func TestSyncExecutionState_Idempotent(t *testing.T) {
+	svc, repo := seedWithState("n1", domain.StatusOpen, domain.ClosedReasonNone, false)
+
+	if err := svc.SyncExecutionState(context.Background(), "n1", domain.ExecutionFinished); err != nil {
+		t.Fatalf("SyncExecutionState first: %v", err)
+	}
+	if err := svc.SyncExecutionState(context.Background(), "n1", domain.ExecutionFinished); err != nil {
+		t.Fatalf("SyncExecutionState second (idempotent): %v", err)
+	}
+	got, err := repo.GetByID(context.Background(), "n1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Execution != domain.ExecutionFinished {
+		t.Errorf("Execution = %q, want finished", got.Execution)
+	}
+}
+
+func TestSyncExecutionState_EmptyID(t *testing.T) {
+	svc, _ := testService()
+
+	err := svc.SyncExecutionState(context.Background(), "  ", domain.ExecutionActive)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestSyncExecutionState_NotFound(t *testing.T) {
+	svc, _ := testService()
+
+	err := svc.SyncExecutionState(context.Background(), "does-not-exist", domain.ExecutionActive)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}

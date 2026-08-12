@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Col } from "@/shared/ui/stack";
+import { stageErrorMessage } from "@/entities/stage/lib/errors";
 import type { Stage } from "@/entities/stage/lib/types";
 import { useUpdateStage } from "../api/use-update-stage";
 import type { UpdateStageInput } from "../api/requests";
@@ -159,7 +160,7 @@ export function EditStageDialog({
 
           {update.error && (
             <Alert variant="destructive">
-              <AlertDescription>{update.error.message}</AlertDescription>
+              <AlertDescription>{stageErrorMessage(update.error.message)}</AlertDescription>
             </Alert>
           )}
         </Col>

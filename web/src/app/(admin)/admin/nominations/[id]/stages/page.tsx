@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Button } from "@/shared/ui/button";
-import { Row } from "@/shared/ui/stack";
+import { Col, Row } from "@/shared/ui/stack";
 import { getNomination } from "@/entities/nomination/model/get-nomination";
+import { getNominationResults } from "@/entities/nomination-results/model/get-nomination-results";
 import { StageManagement } from "@/features/stage-management/ui/stage-management";
+import { NominationResults } from "@/widgets/nomination-results/nomination-results";
 import { AdminHeader } from "../../../admin-header";
 
 export const runtime = "nodejs";
@@ -18,6 +20,13 @@ type PageProps = { params: Promise<{ id: string }> };
  * для заголовка; список этапов и создание/удаление — client-side
  * (`StageManagement`, TanStack Query), как раньше было с `NominationPools` на
  * `.../pools`.
+ *
+ * Итоговый протокол (спека 0021, FR-19) — `NominationResults` с
+ * `showUnfinished`: организатор видит и доигранные секции с местами, и
+ * недоигранные с пометкой «этап не доигран» (сценарий 7 — почему номинация
+ * ещё не завершена). Данные — server-side через `getNominationResults`
+ * (BFF-эквивалент `GetNominationResults`, T11/T12); живой канал (0014) здесь
+ * не нужен — организатор сам обновляет страницу.
  */
 export default async function AdminNominationStagesPage({ params }: PageProps) {
   const { id } = await params;
@@ -25,6 +34,8 @@ export default async function AdminNominationStagesPage({ params }: PageProps) {
   if (!nomination) {
     notFound();
   }
+
+  const results = await getNominationResults(id);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-16">
@@ -38,9 +49,10 @@ export default async function AdminNominationStagesPage({ params }: PageProps) {
         </Button>
       </Row>
 
-      <div className="mt-8">
+      <Col gap={8} className="mt-8">
+        <NominationResults results={results} showUnfinished />
         <StageManagement nominationId={id} />
-      </div>
+      </Col>
     </div>
   );
 }

@@ -37,6 +37,18 @@ const (
 	StatusFinished Status = "finished"
 )
 
+// ExecutionState — исполнительная ось номинации: прогресс боёв этапов
+// (спека 0021, FR-4/FR-5). Синхронизируется push'ом из модуля stage,
+// независимо от регистрационной оси (Status). ExecutionNone — этапы ещё не
+// начались или их нет.
+type ExecutionState string
+
+const (
+	ExecutionNone     ExecutionState = "none"
+	ExecutionActive   ExecutionState = "active"
+	ExecutionFinished ExecutionState = "finished"
+)
+
 // ClosedReason — внутренняя (не публичная) причина статуса Closed. Нужна
 // только для гейта ReopenRegistration (FR-4) и условного авто-отката
 // SyncRegistrationState (FR-6). ClosedReasonNone — когда номинация не
@@ -82,6 +94,26 @@ type Nomination struct {
 	// распределённый боец), обновляемый push'ом из модуля pool
 	// (SyncRegistrationState). Внутреннее поле, не публично.
 	HasDistributedFighters bool
+	// Execution — исполнительная ось (спека 0021), обновляемая push'ом из
+	// модуля stage (SyncExecutionState). Внутреннее поле, не публично —
+	// наружу отдаётся через PublicStatus().
+	Execution ExecutionState
+}
+
+// PublicStatus — публичный статус номинации: исполнительная ось (Execution)
+// вытесняет регистрационную (Status), когда она не ExecutionNone (спека
+// 0021, FR-4, NFR-4). Регистрационная ось (Status/ClosedReason) при этом не
+// меняется — она нужна, чтобы знать, куда вернуться при откате из
+// ACTIVE/FINISHED (0012, FR-4/FR-5).
+func (n Nomination) PublicStatus() Status {
+	switch n.Execution {
+	case ExecutionActive:
+		return StatusActive
+	case ExecutionFinished:
+		return StatusFinished
+	default:
+		return n.Status
+	}
 }
 
 // CreateInput — значения полей при создании номинации.
@@ -125,6 +157,9 @@ type Repository interface {
 	// снапшота «раскладка активна». Используется CloseRegistration,
 	// ReopenRegistration и SyncRegistrationState (спека 0012).
 	SetRegistrationState(ctx context.Context, id string, status Status, reason ClosedReason, hasDistributed bool) (Nomination, error)
+	// SetExecutionState записывает исполнительную ось номинации (спека 0021,
+	// push из модуля stage). Используется SyncExecutionState.
+	SetExecutionState(ctx context.Context, id string, state ExecutionState) (Nomination, error)
 }
 
 // ActiveTournamentProvider — межмодульная зависимость: резолв идентификатора

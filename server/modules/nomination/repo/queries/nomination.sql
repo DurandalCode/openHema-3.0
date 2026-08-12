@@ -1,11 +1,11 @@
 -- name: ListNominationsByTournament :many
-SELECT id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters
+SELECT id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters, execution_state
 FROM nomination.nominations
 WHERE tournament_id = $1
 ORDER BY position ASC;
 
 -- name: GetNomination :one
-SELECT id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters
+SELECT id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters, execution_state
 FROM nomination.nominations
 WHERE id = $1;
 
@@ -17,7 +17,7 @@ WHERE tournament_id = $1;
 -- name: CreateNomination :one
 INSERT INTO nomination.nominations (tournament_id, title, description, fighter_capacity, metadata, position)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters;
+RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters, execution_state;
 
 -- name: UpdateNomination :one
 UPDATE nomination.nominations
@@ -28,7 +28,7 @@ SET
     metadata         = $5,
     updated_at       = now()
 WHERE id = $1
-RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters;
+RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters, execution_state;
 
 -- name: DeleteNomination :execrows
 DELETE FROM nomination.nominations
@@ -47,4 +47,10 @@ SET
     has_distributed_fighters = $4,
     updated_at               = now()
 WHERE id = $1
-RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters;
+RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters, execution_state;
+
+-- name: SetExecutionState :one
+UPDATE nomination.nominations
+SET execution_state = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, tournament_id, title, description, fighter_capacity, metadata, position, created_at, updated_at, status, closed_reason, has_distributed_fighters, execution_state;

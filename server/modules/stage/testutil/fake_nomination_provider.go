@@ -15,10 +15,14 @@ type FakeNominationProvider struct {
 	mu          sync.Mutex
 	nominations map[string]domain.NominationRef
 	// synced — последнее значение hasDistributedFighters, полученное
-	// SyncRegistrationState по каждой номинации (спека 0012, T9). Ключ
-	// отсутствует, если SyncRegistrationState для этой номинации ещё не
+	// SyncNominationState по каждой номинации (спека 0012, T9). Ключ
+	// отсутствует, если SyncNominationState для этой номинации ещё не
 	// вызывался — отличается от значения false (LastSynced).
 	synced map[string]bool
+	// execution — последнее значение исполнительной оси, полученное
+	// SyncNominationState по каждой номинации (спека 0021). Ключ отсутствует,
+	// если для номинации ещё не вызывался.
+	execution map[string]domain.NominationExecution
 }
 
 // NewFakeNominationProvider создаёт пустой fake-провайдер номинаций.
@@ -26,6 +30,7 @@ func NewFakeNominationProvider() *FakeNominationProvider {
 	return &FakeNominationProvider{
 		nominations: make(map[string]domain.NominationRef),
 		synced:      make(map[string]bool),
+		execution:   make(map[string]domain.NominationExecution),
 	}
 }
 
@@ -52,21 +57,34 @@ func (p *FakeNominationProvider) NominationsByIDs(_ context.Context, ids []strin
 	return out, nil
 }
 
-// SyncRegistrationState записывает последнее значение hasDistributedFighters
-// для номинации (спека 0012, FR-10) — спай для юнит-тестов service.
-func (p *FakeNominationProvider) SyncRegistrationState(_ context.Context, nominationID string, hasDistributedFighters bool) error {
+// SyncNominationState записывает последнее значение hasDistributedFighters и
+// исполнительной оси для номинации (спека 0012 FR-10, спека 0021 FR-4/FR-5)
+// — спай для юнит-тестов service.
+func (p *FakeNominationProvider) SyncNominationState(_ context.Context, nominationID string, hasDistributedFighters bool, execution domain.NominationExecution) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.synced[nominationID] = hasDistributedFighters
+	p.execution[nominationID] = execution
 	return nil
 }
 
-// LastSynced возвращает последнее значение, переданное SyncRegistrationState
-// для номинации (value), и вызывался ли он вообще для неё (called) —
-// позволяет тестам различить «не вызывался» от «вызывался с false».
+// LastSynced возвращает последнее значение hasDistributedFighters, переданное
+// SyncNominationState для номинации (value), и вызывался ли он вообще для
+// неё (called) — позволяет тестам различить «не вызывался» от «вызывался с
+// false».
 func (p *FakeNominationProvider) LastSynced(nominationID string) (value bool, called bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	value, called = p.synced[nominationID]
+	return value, called
+}
+
+// LastExecution возвращает последнее значение исполнительной оси, переданное
+// SyncNominationState для номинации (спека 0021), и вызывался ли он вообще
+// для неё.
+func (p *FakeNominationProvider) LastExecution(nominationID string) (value domain.NominationExecution, called bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	value, called = p.execution[nominationID]
 	return value, called
 }

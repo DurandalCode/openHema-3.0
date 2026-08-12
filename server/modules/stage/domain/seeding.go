@@ -55,6 +55,19 @@ func (r SeedingRule) IsZero() bool {
 	return r == SeedingRule{}
 }
 
+// ResolveMethod возвращает метод раскладки, выведенный из типа целевого
+// этапа (FR-4): seeded для сетки, snake для группового этапа. Клиент это
+// поле не присылает (proto-комментарий SeedingRule.method); сервис обязан
+// проставить его сам ПЕРЕД Validate/персистентностью — иначе Validate
+// отклонит правило как невалидное (пустой Method) независимо от остальных
+// полей, что клиент не может починить: у него просто нет этого поля в форме.
+func ResolveMethod(targetIsBracket bool) LayoutMethod {
+	if targetIsBracket {
+		return LayoutMethodSeeded
+	}
+	return LayoutMethodSnake
+}
+
 // Validate проверяет консистентность значений правила (FR-2..FR-4) — не
 // знает ни про репозиторий, ни про соседние этапы (ErrSourceNotAllowed,
 // ErrRuleLocked и т.п. — гейты сервиса, план `service/seeding.go`).

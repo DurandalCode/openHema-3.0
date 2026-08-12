@@ -43,8 +43,12 @@ type clients struct {
 	poolPublic hemav1connect.StagePublicServiceClient
 	fighter    hemav1connect.FighterAdminServiceClient
 	nom        hemav1connect.NominationAdminServiceClient
-	bout       hemav1connect.BoutAdminServiceClient
-	arena      hemav1connect.ArenaAdminServiceClient
+	// nomPublic — публичный NominationService (спека 0021, T22): читает
+	// статус номинации (ACTIVE/FINISHED, выведенный из статусов этапов) без
+	// admin-токена, тем же путём, что и гость.
+	nomPublic hemav1connect.NominationServiceClient
+	bout      hemav1connect.BoutAdminServiceClient
+	arena     hemav1connect.ArenaAdminServiceClient
 }
 
 // setup поднимает PG (testdb.Postgres), применяет миграции всех модулей,
@@ -100,6 +104,7 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 		poolPublic: hemav1connect.NewStagePublicServiceClient(httpClient, server.URL),
 		fighter:    hemav1connect.NewFighterAdminServiceClient(httpClient, server.URL),
 		nom:        hemav1connect.NewNominationAdminServiceClient(httpClient, server.URL),
+		nomPublic:  hemav1connect.NewNominationServiceClient(httpClient, server.URL),
 		bout:       hemav1connect.NewBoutAdminServiceClient(httpClient, server.URL),
 		arena:      hemav1connect.NewArenaAdminServiceClient(httpClient, server.URL),
 	}, pool

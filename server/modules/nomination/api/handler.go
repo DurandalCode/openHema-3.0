@@ -207,7 +207,7 @@ func toProtoNomination(n domain.Nomination) *hemav1.Nomination {
 		Position:     n.Position,
 		CreatedAt:    timestamppb.New(n.CreatedAt),
 		UpdatedAt:    timestamppb.New(n.UpdatedAt),
-		Status:       toProtoStatus(n.Status),
+		Status:       toProtoStatus(n.PublicStatus()),
 	}
 	if n.HasFighterCapacity {
 		out.FighterCapacity = &n.FighterCapacity

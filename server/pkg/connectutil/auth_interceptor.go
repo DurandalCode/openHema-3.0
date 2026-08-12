@@ -32,6 +32,8 @@ var publicProcedures = map[string]struct{}{
 	// полноценный connect.Interceptor, оборачивает и unary, и streaming).
 	"/hema.v1.StagePublicService/GetNominationLive":   {},
 	"/hema.v1.StagePublicService/WatchNominationLive": {},
+	// Спека 0021: итоговый протокол номинации — публичный, без авторизации.
+	"/hema.v1.StagePublicService/GetNominationResults": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт

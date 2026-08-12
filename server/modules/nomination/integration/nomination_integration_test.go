@@ -411,4 +411,77 @@ func TestIntegration_RegistrationStatus_ClosedReasonConstraint(t *testing.T) {
 	}
 }
 
+// TestIntegration_ExecutionState_MigrationAppliedAndStatusNarrowed — спека
+// 0021, T21: миграция 00003_execution_state.sql применяется (execution_state
+// читается/пишется, дефолт 'none'), а CHECK chk_nominations_status сужен до
+// open/closed — active/finished переехали в execution_state и больше не
+// пишутся в status напрямую (NFR-4). Публичный GetNomination отдаёт
+// ACTIVE/FINISHED, когда execution_state не none — исполнительная ось
+// вытесняет регистрационную (FR-4). Нет публичного RPC, устанавливающего
+// execution_state (пишет только stage-сервис через порт) — правка колонки
+// напрямую моделирует этот push.
+func TestIntegration_ExecutionState_MigrationAppliedAndStatusNarrowed(t *testing.T) {
+	pub, admin, pool := setup(t)
+
+	createReq := connect.NewRequest(&hemav1.CreateNominationRequest{
+		TournamentId: seedTournamentID,
+		Title:        "Execution State",
+	})
+	createReq.Header().Set("Authorization", adminBearer(t))
+	created, err := admin.CreateNomination(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateNomination: %v", err)
+	}
+
+	ctx := context.Background()
+
+	var execState string
+	if err := pool.QueryRow(ctx,
+		`SELECT execution_state FROM nomination.nominations WHERE id = $1`,
+		created.Msg.Nomination.Id).Scan(&execState); err != nil {
+		t.Fatalf("select execution_state: %v", err)
+	}
+	if execState != "none" {
+		t.Fatalf("default execution_state = %q, want none", execState)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE nomination.nominations SET status = 'active' WHERE id = $1`,
+		created.Msg.Nomination.Id); err == nil {
+		t.Error("expected constraint violation: status can no longer be 'active' directly")
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE nomination.nominations SET execution_state = 'active' WHERE id = $1`,
+		created.Msg.Nomination.Id); err != nil {
+		t.Fatalf("set execution_state=active: %v", err)
+	}
+	got, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: created.Msg.Nomination.Id}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if got.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_ACTIVE {
+		t.Fatalf("public status = %v, want ACTIVE (execution axis overrides registration axis)", got.Msg.Nomination.Status)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE nomination.nominations SET execution_state = 'finished' WHERE id = $1`,
+		created.Msg.Nomination.Id); err != nil {
+		t.Fatalf("set execution_state=finished: %v", err)
+	}
+	got, err = pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: created.Msg.Nomination.Id}))
+	if err != nil {
+		t.Fatalf("GetNomination: %v", err)
+	}
+	if got.Msg.Nomination.Status != hemav1.NominationStatus_NOMINATION_STATUS_FINISHED {
+		t.Fatalf("public status = %v, want FINISHED", got.Msg.Nomination.Status)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE nomination.nominations SET execution_state = 'bogus' WHERE id = $1`,
+		created.Msg.Nomination.Id); err == nil {
+		t.Error("expected constraint violation: execution_state not in ('none','active','finished')")
+	}
+}
+
 func strPtr(s string) *string { return &s }

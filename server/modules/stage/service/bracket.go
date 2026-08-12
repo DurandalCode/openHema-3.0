@@ -46,6 +46,10 @@ func (s *Service) CreateStage(ctx context.Context, nominationID string, stageTyp
 	}
 
 	if !rule.IsZero() {
+		// Метод раскладки клиент не присылает (FR-4) — выводим сам из типа
+		// целевого этапа ДО валидации, иначе Validate отклонит правило по
+		// пустому Method независимо от остальных полей.
+		rule.Method = domain.ResolveMethod(stageType == domain.StageTypeBracket)
 		if err := rule.Validate(stageType == domain.StageTypeBracket); err != nil {
 			return domain.Stage{}, nil, err
 		}
@@ -76,6 +80,11 @@ func (s *Service) CreateStage(ctx context.Context, nominationID string, stageTyp
 
 	stages, err := s.repo.StagesByNomination(ctx, nominationID)
 	if err != nil {
+		return domain.Stage{}, nil, err
+	}
+	// Новый этап в draft может «расфинишировать» уже завершённую номинацию
+	// (спека 0021, FR-4/FR-6, AC-5) — синхронизируем сразу.
+	if err := s.syncNomination(ctx, nominationID); err != nil {
 		return domain.Stage{}, nil, err
 	}
 	return stage, stages, nil
@@ -154,7 +163,12 @@ func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Sta
 	// DeleteStage может убрать сетку, уже видимую публично (ready без
 	// начатых боёв — легитимное состояние, FR-3 не требует draft) —
 	// сигналим живой снапшот, как остальные мутации, способные его menять.
+	// Удаление недоигранного «хвоста» схемы может завершить номинацию (спека
+	// 0021, FR-6, AC-5) — синхронизируем.
 	s.liveBus.PublishNominationChanged(stage.NominationID)
+	if err := s.syncNomination(ctx, stage.NominationID); err != nil {
+		return nil, err
+	}
 	return s.stagesForRead(ctx, stage.NominationID)
 }
 
@@ -176,7 +190,7 @@ func (s *Service) ListStages(ctx context.Context, nominationID string) ([]domain
 	if _, err := s.repo.EnsureStage(ctx, nominationID); err != nil {
 		return nil, nil, err
 	}
-	stages, err := s.repo.StagesByNomination(ctx, nominationID)
+	stages, err := s.stageStatuses(ctx, nominationID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -327,16 +341,12 @@ func (s *Service) containerOfHalf(ctx context.Context, stageID string, half int)
 	return "", domain.ErrNotFound
 }
 
-// syncBracketRegistration синхронизирует приём заявок номинации после
-// посева/освобождения слота (спека 0012, FR-5/FR-6; спека 0017, FR-9): та
-// же механика, что и loadLayoutAndSync — считает распределённых бойцов по
-// ВСЕМ этапам номинации.
+// syncBracketRegistration синхронизирует состояние номинации после
+// посева/освобождения слота (спека 0012, FR-5/FR-6; спека 0017, FR-9; спека
+// 0021, FR-4/FR-5) — тонкая обёртка над syncNomination (той же механикой,
+// что и loadLayoutAndSync).
 func (s *Service) syncBracketRegistration(ctx context.Context, nominationID string) error {
-	distributed, err := s.hasDistributedAcrossStages(ctx, nominationID)
-	if err != nil {
-		return err
-	}
-	return s.nominations.SyncRegistrationState(ctx, nominationID, distributed)
+	return s.syncNomination(ctx, nominationID)
 }
 
 // ---------------------------------------------------------------------

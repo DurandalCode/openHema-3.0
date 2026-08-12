@@ -297,6 +297,9 @@ type Stage struct {
 	Bracket      BracketConfig
 	Rule         SeedingRule
 	Groups       GroupsConfig
+	// ExecutionStatus — вычисляемый статус этапа целиком (спека 0021, FR-1):
+	// заполняется сервисом при чтении (ComputeStageStatus), не хранится.
+	ExecutionStatus StageStatus
 }
 
 // PoolMember — сырое членство: боец в пуле (репозиторное чтение, без
@@ -775,6 +778,9 @@ type NominationSnapshot struct {
 	Stages       []Stage
 	Pools        []LivePool
 	Brackets     []Bracket
+	// Results — итоговый протокол номинации (спека 0021, FR-18): едет тем же
+	// живым каналом, чтобы призёры появлялись без перезагрузки.
+	Results NominationResults
 }
 
 // ArenaRef — проекция площадки для постановки пула (спека 0011, план
@@ -824,12 +830,15 @@ type NominationProvider interface {
 	// пулов). Отсутствующие id в ответе просто не встречаются в карте —
 	// service оставляет NominationName пустым, не падая.
 	NominationsByIDs(ctx context.Context, ids []string) (map[string]NominationRef, error)
-	// SyncRegistrationState уведомляет nomination о текущем факте «есть ли у
+	// SyncNominationState уведомляет nomination о текущем факте «есть ли у
 	// номинации хотя бы один распределённый по пулам боец» (спека 0012,
-	// FR-5/FR-6/FR-10). Вызывается после каждой pool-мутирующей операции,
-	// способной изменить число распределённых бойцов — сервис сам решает,
-	// когда звать (по результирующему состоянию, не по имени RPC).
-	SyncRegistrationState(ctx context.Context, nominationID string, hasDistributedFighters bool) error
+	// FR-5/FR-6/FR-10) и об исполнительной оси, выведенной из статусов этапов
+	// (спека 0021, FR-4/FR-5). Один вызов вместо двух отдельных портов — обе
+	// оси считаются в одной точке сервиса stage и пишутся одной операцией на
+	// стороне nomination. Вызывается после каждой мутирующей операции,
+	// способной изменить любую из осей — сервис сам решает, когда звать (по
+	// результирующему состоянию, не по имени RPC).
+	SyncNominationState(ctx context.Context, nominationID string, hasDistributedFighters bool, execution NominationExecution) error
 }
 
 // ---------------------------------------------------------------------
