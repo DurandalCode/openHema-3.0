@@ -2,16 +2,69 @@ import * as React from "react"
 
 import { cn } from "@/shared/lib/cn"
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+type CardProps = React.ComponentProps<"div"> & {
+  eyebrow?: React.ReactNode
+  title?: React.ReactNode
+  meta?: React.ReactNode
+  value?: React.ReactNode
+  accent?: boolean
+  dense?: boolean
+  raised?: boolean
+}
+
+function Card({
+  className,
+  eyebrow,
+  title,
+  meta,
+  value,
+  accent,
+  dense,
+  raised,
+  children,
+  ...props
+}: CardProps) {
+  const hasHead = eyebrow != null || title != null || meta != null || value != null
+  const isStatTile = hasHead || dense || raised
+
   return (
     <div
       data-slot="card"
       className={cn(
-        "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
+        "flex flex-col gap-6 rounded-lg border text-card-foreground shadow-sm",
+        raised ? "bg-surface-raised" : "bg-card",
+        isStatTile ? (dense ? "p-3.5" : "px-[22px] py-5") : "py-6",
         className
       )}
       {...props}
-    />
+    >
+      {hasHead && (
+        <div data-slot="card-head" className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-1">
+            {eyebrow != null && (
+              <span className="font-mono text-[10px] tracking-[.1em] text-caption-foreground">
+                {eyebrow}
+              </span>
+            )}
+            {title != null && <span className="text-[15px] font-bold">{title}</span>}
+            {meta != null && (
+              <span className="text-[13px] text-caption-foreground">{meta}</span>
+            )}
+          </div>
+          {value != null && (
+            <span
+              className={cn(
+                "font-mono text-2xl font-bold",
+                accent ? "text-primary" : "text-foreground"
+              )}
+            >
+              {value}
+            </span>
+          )}
+        </div>
+      )}
+      {children}
+    </div>
   )
 }
 
