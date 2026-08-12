@@ -10,6 +10,7 @@ import { useResetLayout } from "@/features/nomination-pools/api/use-reset-layout
 import { useResetBracket } from "@/features/bracket-seeding/api/use-reset-bracket";
 import { ApplyFormatDialog } from "@/features/format-presets/ui/apply-format-dialog";
 import { SavePresetDialog } from "@/features/format-presets/ui/save-preset-dialog";
+import { stageErrorMessage } from "@/entities/stage/lib/errors";
 import type { Stage } from "@/entities/stage/lib/types";
 import { useStages } from "../api/use-stages";
 import { useDeleteStage } from "../api/use-delete-stage";
@@ -61,7 +62,7 @@ export function StageManagement({ nominationId }: { nominationId: string }) {
 
       {deleteStage.error && (
         <Alert variant="destructive">
-          <AlertDescription>{deleteStage.error.message}</AlertDescription>
+          <AlertDescription>{stageErrorMessage(deleteStage.error.message)}</AlertDescription>
         </Alert>
       )}
 

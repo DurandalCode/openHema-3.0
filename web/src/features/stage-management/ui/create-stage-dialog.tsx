@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Col, Row } from "@/shared/ui/stack";
+import { stageErrorMessage } from "@/entities/stage/lib/errors";
 import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage/lib/types";
 import { useCreateStage } from "../api/use-create-stage";
 import type { SeedingRuleInput } from "../api/requests";
@@ -298,7 +299,7 @@ export function CreateStageDialog({
 
           {create.error && (
             <Alert variant="destructive">
-              <AlertDescription>{create.error.message}</AlertDescription>
+              <AlertDescription>{stageErrorMessage(create.error.message)}</AlertDescription>
             </Alert>
           )}
         </Col>
