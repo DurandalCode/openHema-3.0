@@ -2,7 +2,7 @@ export type AppShellProps = {
   brand?: React.ReactNode;
   nav?: React.ReactNode;
   userSlot?: React.ReactNode;
-  crumb?: string;
+  crumb?: React.ReactNode;
   title?: string;
   status?: React.ReactNode;
   meta?: string;
