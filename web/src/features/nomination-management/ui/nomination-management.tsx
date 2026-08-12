@@ -9,6 +9,7 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Textarea } from "@/shared/ui/textarea";
 import { Col, Row } from "@/shared/ui/stack";
 import { useNominations } from "../api/use-nominations";
@@ -134,7 +135,7 @@ export function NominationManagement({ tournamentId }: { tournamentId: string })
       </Card>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Загрузка…</p>
+        <SkeletonCards count={3} />
       ) : nominations.length === 0 ? (
         <p className="text-sm text-muted-foreground">Номинации ещё не добавлены.</p>
       ) : (

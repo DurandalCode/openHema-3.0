@@ -22,10 +22,12 @@ import { Button } from "@/shared/ui/button";
 export type DateTimeFieldProps = {
   /** ISO-строка или `null` — управляемое значение. */
   value: string | null;
-  /** Вызывается с ISO-строкой при выборе даты/времени. */
-  onChange: (value: string) => void;
+  /** Вызывается с ISO-строкой при выборе даты/времени, с `null` при очистке. */
+  onChange: (value: string | null) => void;
   /** Показывать ли выбор времени вместе с датой. */
   withTime?: boolean;
+  /** Разрешить очистку выбранного значения (напр., необязательная дата). */
+  clearable?: boolean;
   placeholder?: string;
   id?: string;
   className?: string;
@@ -72,6 +74,7 @@ export function DateTimeField({
   value,
   onChange,
   withTime = false,
+  clearable = false,
   placeholder = "Выбрать дату",
   id,
   className,
@@ -215,6 +218,20 @@ export function DateTimeField({
                 onChange={(e) => commitTime(e.target.value)}
               />
             </div>
+          )}
+          {clearable && selected && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-3 w-full justify-center text-muted-foreground"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+            >
+              Очистить
+            </Button>
           )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

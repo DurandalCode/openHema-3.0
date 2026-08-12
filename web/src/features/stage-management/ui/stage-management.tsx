@@ -3,6 +3,7 @@
 import { Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { NominationSchema } from "@/widgets/nomination-schema/nomination-schema";
 import { BuildStageDialog } from "@/features/stage-build/ui/build-stage-dialog";
@@ -38,7 +39,7 @@ export function StageManagement({ nominationId }: { nominationId: string }) {
   const deleteStage = useDeleteStage(nominationId);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <SkeletonCards count={2} />;
   }
   if (error || !data) {
     return (

@@ -72,4 +72,29 @@ describe("DateTimeField (AC-12)", () => {
     expect(date.getHours()).toBe(new Date("2026-08-12T14:30:00.000Z").getHours());
     expect(date.getMinutes()).toBe(30);
   });
+
+  // Спека 0023, T23: необязательная дата (напр. окончания турнира) должна
+  // быть очищаемой — иначе однодневный турнир нельзя было бы задать после
+  // случайного выбора даты окончания.
+  it("clears the value via the clear button when clearable", async () => {
+    const onChange = vi.fn();
+    render(
+      <DateTimeField value="2026-08-12T00:00:00.000Z" onChange={onChange} clearable />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /12\.08\.2026/ }));
+    const clearButton = await screen.findByRole("button", { name: "Очистить" });
+    fireEvent.click(clearButton);
+
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it("does not show a clear button when not clearable", () => {
+    render(
+      <DateTimeField value="2026-08-12T00:00:00.000Z" onChange={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /12\.08\.2026/ }));
+    expect(screen.queryByRole("button", { name: "Очистить" })).not.toBeInTheDocument();
+  });
 });

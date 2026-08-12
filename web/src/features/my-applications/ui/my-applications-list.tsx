@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { allowedApplicantActions, stateLabel } from "@/entities/application/lib/state";
 import type { Application } from "@/entities/application/lib/types";
@@ -17,7 +18,7 @@ export function MyApplicationsList() {
   const { data: applications = [], isLoading } = useMyApplications();
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <SkeletonCards count={2} />;
   }
   if (applications.length === 0) {
     return <p className="text-sm text-muted-foreground">Заявок пока нет.</p>;

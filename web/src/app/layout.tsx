@@ -7,6 +7,7 @@ import { QueryProvider } from "@/shared/lib/query-provider";
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
 import { Col } from "@/shared/ui/stack";
+import { Toaster } from "@/shared/ui/sonner";
 import "./globals.css";
 
 const archivo = Archivo({
@@ -51,6 +52,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <main className="flex-1">{children}</main>
             </Col>
             <AuthDialog />
+            <Toaster />
           </QueryProvider>
         </ThemeProvider>
       </body>
