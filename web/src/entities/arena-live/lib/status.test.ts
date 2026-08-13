@@ -53,6 +53,15 @@ describe("arenaLiveStatus", () => {
     expect(status.pulse).toBe(false);
   });
 
+  it("treats a bout-less pool as finished when the domain already says so (bracket bye slot)", () => {
+    const byePool: Pool = { ...pool, status: "POOL_STATUS_FINISHED" };
+    const board: BoutBoard = { pool: byePool, bouts: [], currentBoutId: "" };
+    const status = arenaLiveStatus(board);
+    expect(status.kind).toBe("finished");
+    expect(status.title).toBe("Пул завершён");
+    expect(status.pulse).toBe(false);
+  });
+
   it("returns preparing when no bout has started yet", () => {
     const board: BoutBoard = {
       pool,

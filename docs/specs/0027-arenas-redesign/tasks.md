@@ -64,20 +64,20 @@ web.
 
 ## Web — экран (волна 2)
 
-- [ ] T5. **fetchers (red→green)** —
+- [x] T5. **fetchers (red→green)** —
       `features/arena-management/api/requests.test.ts`:
       `getArenaBoardRequest` (успех, `board: null`, ошибка сети/HTTP) и
       `setArenaDefaultDurationRequest` (URL, метод `PUT`, тело) → затем оба
       fetcher'а в `api/requests.ts`, ключ `board` в `api/keys.ts`, хук
       `api/use-set-default-duration.ts`. Fetcher доски — **свой**, а не
       импорт из `features/bout-board` (границы FSD, plan «Риски»).
-- [ ] T6. **доски списка** — `api/use-arena-boards.ts`: `useQueries` по
+- [x] T6. **доски списка** — `api/use-arena-boards.ts`: `useQueries` по
       **активным** площадкам, `refetchInterval` ~10 с,
       `refetchIntervalInBackground: false`, `retry: false`; отдаёт
       `Map<arenaId, { status, isError }>` (spec FR-8/FR-10). Проверяется
       через тесты строки и экрана (T7/T10) — отдельный тест хука не пишем,
       мокать `useQueries` бессмысленно.
-- [ ] T7. **строка (red→green)** —
+- [x] T7. **строка (red→green)** —
       `features/arena-management/ui/arena-row.test.tsx`: пять колонок,
       индикатор состояния **плюс** текстовая подпись (AC-2, spec FR-4),
       архивная строка (приглушение, зачёркивание, «В архиве», нет стрелок,
@@ -85,18 +85,18 @@ web.
       (AC-13), клик по строке никуда не уводит (AC-11), действия «Открыть
       площадку»/«Табло»/«Править»/«В архив» → затем `ui/arena-row.tsx` на
       `TableRow` (+ `ui/arena-status-cell.tsx`, если ячейка вырастет).
-- [ ] T8. **таблица (red→green)** — `ui/arenas-table.test.tsx`: скелетон в
+- [x] T8. **таблица (red→green)** — `ui/arenas-table.test.tsx`: скелетон в
       форме таблицы, ошибка загрузки с повтором, два различающихся пустых
       состояния — «площадок ещё нет» и «все площадки в архиве» (AC-14) →
       затем `ui/arenas-table.tsx` (`TableHead` + строки).
-- [ ] T9. **модалки (red→green)** — `ui/create-arena-dialog.test.tsx`
+- [x] T9. **модалки (red→green)** — `ui/create-arena-dialog.test.tsx`
       (пустое название → инлайн-ошибка, модалка не закрывается; успех →
       тост, AC-6) и `ui/edit-arena-dialog.test.tsx` (правка реквизитов —
       AC-7; шаг ± и быстрые значения 2:00/3:00/5:00 зовут
       `useSetDefaultDuration` с секундами, текст «применяется к новым боям,
       идущий не затронет» — AC-8; «Убрать в архив» из модалки) → затем
       `ui/create-arena-dialog.tsx` и `ui/edit-arena-dialog.tsx`.
-- [ ] T10. **экран и роут (red→green)** — `ui/arenas-screen.test.tsx` (моки
+- [x] T10. **экран и роут (red→green)** — `ui/arenas-screen.test.tsx` (моки
       `useArenas`, `useArenaBoards`, мутаций и `shared/lib/toast`): шапка с
       крошкой, заголовком «Площадки» и счётчиком «N площадок · M заняты»
       (AC-5), чекбокс «Показать архивные N» (AC-1), порядок строк и
@@ -110,18 +110,34 @@ web.
 
 ## Проверка
 
-- [ ] T11. `make test-all` зелёный (сервер не задет — подтверждаем, а не
+- [x] T11. `make test-all` зелёный (сервер не задет — подтверждаем, а не
       правим).
-- [ ] T12. `pnpm exec tsc --noEmit` + `pnpm build` + `go build ./...`.
-- [ ] T13. Ручной смоук на `make dev` + `make demo-bouts`: список площадок
-      показывает «Идёт бой …» на площадке с начатым боем и «Свободна» на
-      пустой, статус обновляется без перезагрузки после действий на
-      странице площадки; архивация занятой площадки даёт русский
-      тост-отказ, архивация свободной — тост с «Отменить», возвращающий
-      площадку; правка длительности из модалки видна в строке и на табло.
-      **Проверить отдельно**: открытый список площадок **не** меняет
-      нумерацию табло и выбор источника таймера (spec FR-9) — открыть табло
-      площадки и убедиться, что счётчик комнаты не растёт от списка.
+- [x] T12. `pnpm exec tsc --noEmit` + `pnpm build` + `go build ./...`.
+- [x] T13. Ручной смоук на `make dev` + `make demo-bouts`. Браузерного
+      инструмента (headless Chromium/Playwright) в этой среде нет — сделан
+      функциональный смоук через реальный BFF (login `admin@local`,
+      `GET /admin/arenas` → 200): `GET /api/arenas/[id]/board` подтверждён
+      на всех содержательных состояниях реальных демо-данных — **идёт бой**
+      (Ристалище 2, счёт 5:5, `IN_PROGRESS`), **пул завершён** (Ристалище 1,
+      все бои `FINISHED`), **пул готовится** (Тренировочная зона, все бои
+      `NOT_STARTED`) и **bye-слот сетки без единого боя** (Ристалище 4,
+      `bouts: []`, `pool.status = POOL_STATUS_FINISHED`). Последний случай
+      вскрыл реальный баг T2: `arenaLiveStatus` для пустого `bouts` всегда
+      возвращала `preparing`, игнорируя `pool.status` — bye-слот показывал
+      бы «Пул готовится» вместо «Пул завершён». Исправлено (проверка
+      `pool.status === "POOL_STATUS_FINISHED"` до дефолта на `preparing`),
+      добавлен регрессионный тест, `pnpm test`/`tsc --noEmit` зелёные.
+      Также через BFF: `PUT .../default-duration` меняет
+      `defaultDurationSeconds` (проверено round-trip), `POST .../archive`
+      на **свободной** площадке проходит и `POST .../restore` возвращает
+      обратно (409-гейт на занятой площадке — см. T1). **FR-9 проверено
+      отдельно**: `scoreboardCount` живой комнаты арены (`GET .../live`,
+      SSE) был и остался `0` после серии запросов `GET .../board` — список
+      площадок не входит в комнату табло и не завышает нумерацию. Не
+      проверено кликами (нет браузера): визуальный вид индикатора/пульсации,
+      клиентский polling `useArenaBoards` (10 с интервал), модалки создания/
+      правки, тост «Отменить» — эти сценарии покрыты только автотестами
+      (T5–T10), не сквозной браузерной проверкой.
 - [ ] T14. Обновить `docs/design-sync.md` (строка «Арены»: актуальные
       repo-пути после переезда `arena-management/ui/*`; графа «новый API
       нужен?» остаётся «нет»), статусы `spec.md`/`plan.md`/`tasks.md` и

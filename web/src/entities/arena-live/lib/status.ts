@@ -61,6 +61,12 @@ export function arenaLiveStatus(board: BoutBoard | null): ArenaLiveStatus {
   const context = poolContext(board);
 
   if (board.bouts.length === 0) {
+    // Пул без единого боя — не обязательно «ещё не начат»: одноместный
+    // bye-слот сетки (0018) финализируется без единого боя, и `pool.status`
+    // уже это знает (`POOL_STATUS_FINISHED`), хотя `board.bouts` пуст.
+    if (board.pool!.status === "POOL_STATUS_FINISHED") {
+      return { kind: "finished", title: "Пул завершён", detail: context, pulse: false };
+    }
     return { kind: "preparing", title: "Пул готовится", detail: context, pulse: false };
   }
 
