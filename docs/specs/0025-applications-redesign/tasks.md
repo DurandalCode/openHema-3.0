@@ -33,7 +33,7 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/application.proto` — добавить в `ApplicationEvent`
+- [x] T1. `proto/hema/v1/application.proto` — добавить в `ApplicationEvent`
       поле `string actor_display_name = 5;` с комментарием «обогащается из
       домена auth, «» = имя недоступно»; `go tool buf lint`; `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
