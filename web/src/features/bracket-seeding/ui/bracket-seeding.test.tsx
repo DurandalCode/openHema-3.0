@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BracketSeeding } from "./bracket-seeding";
 import type { Bracket, BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import type { FighterRef, Pool } from "@/entities/pool/lib/types";
@@ -90,6 +90,8 @@ const clearMutate = vi.fn();
 const resetMutate = vi.fn();
 const undoMutate = vi.fn();
 const setStatusMutate = vi.fn();
+const toastUndoMock = vi.fn();
+const toastErrorMock = vi.fn();
 
 let bracketData: Bracket | undefined = draftBracket();
 let setStatusError: Error | null = null;
@@ -116,12 +118,27 @@ vi.mock("../api/use-set-bracket-status", () => ({
     error: setStatusError,
   }),
 }));
+vi.mock("@/shared/lib/toast", () => ({
+  toastUndo: (message: string, options: { onUndo: () => void }) => toastUndoMock(message, options),
+  toastError: (message: string, options?: { retry?: () => void }) => toastErrorMock(message, options),
+}));
+
+/**
+ * Radix `Dialog`/`FocusScope` в jsdom требуют pointer-capture/scrollIntoView
+ * полифиллов, которых jsdom не реализует (см. `shared/ui/dialog.test.tsx`).
+ */
+beforeAll(() => {
+  Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
+  Element.prototype.hasPointerCapture = Element.prototype.hasPointerCapture || (() => false);
+  Element.prototype.setPointerCapture = Element.prototype.setPointerCapture || (() => {});
+  Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture || (() => {});
+});
 
 describe("BracketSeeding", () => {
   beforeEach(() => {
     bracketData = draftBracket();
     setStatusError = null;
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   afterEach(() => {
@@ -159,11 +176,55 @@ describe("BracketSeeding", () => {
     ).toBeInTheDocument();
   });
 
-  it("resets the seed via the toolbar button after confirmation", () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  // Спека 0023, FR-8/AC-7: сброс посева идёт через ConfirmDialog
+  // дизайн-системы, а не системный window.confirm.
+  it("opens ConfirmDialog instead of window.confirm on reset click", () => {
     render(<BracketSeeding stageId="stage-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Сбросить посев/i }));
-    expect(resetMutate).toHaveBeenCalled();
+
+    expect(screen.getByText("Сбросить посев?")).toBeInTheDocument();
+    expect(screen.getByText("Все слоты будут очищены.")).toBeInTheDocument();
+    expect(resetMutate).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the dialog does not call resetBracket.mutate", () => {
+    render(<BracketSeeding stageId="stage-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Сбросить посев/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+
+    expect(resetMutate).not.toHaveBeenCalled();
+  });
+
+  // Спека 0023, FR-8: успех — toastUndo с «Отменить» поверх существующего undo.
+  it("confirming reset calls mutate and shows an undo toast on success", () => {
+    resetMutate.mockImplementation((_vars, options: { onSuccess?: () => void }) => {
+      options.onSuccess?.();
+    });
+
+    render(<BracketSeeding stageId="stage-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Сбросить посев/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Сбросить" }));
+
+    expect(resetMutate).toHaveBeenCalledTimes(1);
+    expect(toastUndoMock).toHaveBeenCalledTimes(1);
+    expect(toastUndoMock.mock.calls[0][0]).toBe("Посев сброшен");
+
+    toastUndoMock.mock.calls[0][1].onUndo();
+    expect(undoMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a retryable error toast when reset fails", () => {
+    resetMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
+      options.onError?.(new Error("сеть недоступна"));
+    });
+
+    render(<BracketSeeding stageId="stage-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Сбросить посев/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Сбросить" }));
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0][0]).toBe("сеть недоступна");
+    expect(toastErrorMock.mock.calls[0][1]?.retry).toBeTypeOf("function");
   });
 
   it("renders the read-only bracket view after fixation, with Undo gated by canUndo", () => {

@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
+import { DateTimeField } from "@/shared/ui/datetime-field";
 import { Col, Row } from "@/shared/ui/stack";
 import { useUpdateTournament } from "../api/use-update-tournament";
 import type { ContactType, Tournament } from "@/entities/tournament/lib/types";
@@ -33,8 +34,10 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
   const [title, setTitle] = useState(tournament.title);
   const [description, setDescription] = useState(tournament.description);
   const [emblemUrl, setEmblemUrl] = useState(tournament.emblemUrl);
-  const [eventStartAt, setEventStartAt] = useState(toLocalInput(tournament.eventStartAt));
-  const [eventEndAt, setEventEndAt] = useState(toLocalInput(tournament.eventEndAt));
+  const [eventStartAt, setEventStartAt] = useState<string | null>(
+    tournament.eventStartAt || null,
+  );
+  const [eventEndAt, setEventEndAt] = useState<string | null>(tournament.eventEndAt || null);
   const [contacts, setContacts] = useState<ContactRow[]>(
     tournament.contacts.map((c) => ({ type: c.type, value: c.value })),
   );
@@ -63,8 +66,8 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
       title,
       description,
       emblemUrl,
-      eventStartAt: eventStartAt.length > 0 ? new Date(eventStartAt).toISOString() : null,
-      eventEndAt: eventEndAt.length > 0 ? new Date(eventEndAt).toISOString() : null,
+      eventStartAt,
+      eventEndAt,
       contacts: contacts.filter((c) => c.value.trim() !== ""),
     });
   }
@@ -100,20 +103,22 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
         <div className="grid gap-4 sm:grid-cols-2">
           <Col gap={2}>
             <Label htmlFor="eventStartAt">Дата и время начала</Label>
-            <Input
+            <DateTimeField
               id="eventStartAt"
-              type="datetime-local"
               value={eventStartAt}
-              onChange={(e) => setEventStartAt(e.target.value)}
+              onChange={setEventStartAt}
+              withTime
+              clearable
             />
           </Col>
           <Col gap={2}>
             <Label htmlFor="eventEndAt">Дата и время окончания</Label>
-            <Input
+            <DateTimeField
               id="eventEndAt"
-              type="datetime-local"
               value={eventEndAt}
-              onChange={(e) => setEventEndAt(e.target.value)}
+              onChange={setEventEndAt}
+              withTime
+              clearable
             />
           </Col>
         </div>
@@ -195,13 +200,4 @@ export function TournamentSettingsForm({ tournament }: { tournament: Tournament 
       </div>
     </Col>
   );
-}
-
-/** toLocalInput превращает ISO-строку в значение для <input datetime-local>. */
-function toLocalInput(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

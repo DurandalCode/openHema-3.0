@@ -1,16 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { NominationSchema } from "@/widgets/nomination-schema/nomination-schema";
 import { BuildStageDialog } from "@/features/stage-build/ui/build-stage-dialog";
 import { useResetLayout } from "@/features/nomination-pools/api/use-reset-layout";
+import { useUndo } from "@/features/nomination-pools/api/use-undo";
 import { useResetBracket } from "@/features/bracket-seeding/api/use-reset-bracket";
+import { useUndoBracket } from "@/features/bracket-seeding/api/use-undo-bracket";
 import { ApplyFormatDialog } from "@/features/format-presets/ui/apply-format-dialog";
 import { SavePresetDialog } from "@/features/format-presets/ui/save-preset-dialog";
 import { stageErrorMessage } from "@/entities/stage/lib/errors";
+import { toastError, toastUndo } from "@/shared/lib/toast";
 import type { Stage } from "@/entities/stage/lib/types";
 import { useStages } from "../api/use-stages";
 import { useDeleteStage } from "../api/use-delete-stage";
@@ -38,7 +44,7 @@ export function StageManagement({ nominationId }: { nominationId: string }) {
   const deleteStage = useDeleteStage(nominationId);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <SkeletonCards count={2} />;
   }
   if (error || !data) {
     return (
@@ -99,8 +105,40 @@ function StageQuickActions({
 
   const resetLayout = useResetLayout(stage.id);
   const resetBracket = useResetBracket(stage.id);
+  const undoLayout = useUndo(stage.id);
+  const undoBracket = useUndoBracket(stage.id);
   const resetPending = isBracket ? resetBracket.isPending : resetLayout.isPending;
-  const onReset = () => (isBracket ? resetBracket.mutate() : resetLayout.mutate());
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+
+  /**
+   * Тот же RPC сброса, что у «Сбросить раскладку»/«Сбросить посев» (спека
+   * 0023, FR-8) — покрыт отменой последнего действия, поэтому подтверждение
+   * без ввода названия; успех/ошибка идут через тост, а не постоянный
+   * inline-баннер. Найдено при ручном смоуке 0023 (T28): эта кнопка звала
+   * `.mutate()` напрямую вовсе без подтверждения — разведка спеки искала
+   * только `window.confirm`, а здесь его не было и до этого изменения.
+   */
+  function handleResetConfirm() {
+    if (isBracket) {
+      resetBracket.mutate(undefined, {
+        onSuccess: () => {
+          toastUndo("Посев сброшен", { onUndo: () => undoBracket.mutate() });
+        },
+        onError: (err: Error) => {
+          toastError(err.message, { retry: handleResetConfirm });
+        },
+      });
+    } else {
+      resetLayout.mutate(undefined, {
+        onSuccess: () => {
+          toastUndo("Раскладка сброшена", { onUndo: () => undoLayout.mutate() });
+        },
+        onError: (err: Error) => {
+          toastError(err.message, { retry: handleResetConfirm });
+        },
+      });
+    }
+  }
 
   // composeEmpty (спека 0020, FR-2): точного числа членств этапа список
   // этапов не несёт (его даёт только GetLayout, отдельным запросом на
@@ -115,7 +153,13 @@ function StageQuickActions({
       <EditStageDialog stage={stage} composeEmpty={composeEmpty} />
       {stage.rule && <BuildStageDialog stage={stage} />}
       {stage.rule && (
-        <Button type="button" size="sm" variant="ghost" onClick={onReset} loading={resetPending}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setConfirmResetOpen(true)}
+          loading={resetPending}
+        >
           Расформировать
         </Button>
       )}
@@ -129,6 +173,18 @@ function StageQuickActions({
       >
         <Trash2 />
       </Button>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title={`Расформировать «${stage.title}»?`}
+        consequences={
+          isBracket ? "Все слоты будут очищены." : "Все пулы будут удалены, бойцы вернутся в нераспределённые."
+        }
+        confirmLabel="Да, расформировать"
+        destructive
+        onConfirm={handleResetConfirm}
+      />
     </Row>
   );
 }

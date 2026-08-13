@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Pool } from "@/entities/pool/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
@@ -25,7 +26,7 @@ export function PoolSeating({ arenaId }: { arenaId: string }) {
   const unseat = useUnseatPool(arenaId);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <SkeletonCards count={2} />;
   }
   if (error || !data) {
     return (

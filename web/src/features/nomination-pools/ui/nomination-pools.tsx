@@ -17,8 +17,10 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
+import { toastError, toastUndo } from "@/shared/lib/toast";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { Bout } from "@/entities/bout/lib/types";
@@ -58,6 +60,7 @@ export function NominationPools({ stageId }: { stageId: string }) {
   const { data: bouts } = useBouts(layout?.stage.nominationId ?? "", layout?.status);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -79,7 +82,8 @@ export function NominationPools({ stageId }: { stageId: string }) {
   const mutationError =
     createPool.error?.message ??
     deletePool.error?.message ??
-    resetLayout.error?.message ??
+    // resetLayout — намеренно не здесь: успех/ошибка идут через тост
+    // (toastUndo/toastError), см. handleResetConfirm ниже (спека 0023, FR-8).
     assign.error?.message ??
     unassign.error?.message ??
     autoDistribute.error?.message ??
@@ -111,6 +115,22 @@ export function NominationPools({ stageId }: { stageId: string }) {
     }
   }
 
+  /**
+   * Сброс раскладки покрыт отменой последнего действия (undo), поэтому
+   * подтверждение — без ввода названия (FR-8); успех/ошибка идут через
+   * тост, а не через постоянный inline-баннер (FR-6).
+   */
+  function handleResetConfirm() {
+    resetLayout.mutate(undefined, {
+      onSuccess: () => {
+        toastUndo("Раскладка сброшена", { onUndo: () => undo.mutate() });
+      },
+      onError: (err: Error) => {
+        toastError(err.message, { retry: handleResetConfirm });
+      },
+    });
+  }
+
   return (
     <Col gap={6}>
       <Toolbar
@@ -122,10 +142,7 @@ export function NominationPools({ stageId }: { stageId: string }) {
         autoDistributePending={autoDistribute.isPending}
         onUndo={() => undo.mutate()}
         undoPending={undo.isPending}
-        onResetLayout={() => {
-          if (window.confirm("Сбросить раскладку? Все пулы будут удалены, бойцы вернутся в нераспределённые."))
-            resetLayout.mutate();
-        }}
+        onResetLayout={() => setConfirmResetOpen(true)}
         resetPending={resetLayout.isPending}
         onToggleStatus={() => setStatus.mutate(readOnly ? "draft" : "ready")}
         statusPending={setStatus.isPending}
@@ -168,6 +185,16 @@ export function NominationPools({ stageId }: { stageId: string }) {
           )}
         </DragOverlay>
       </DndContext>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Сбросить раскладку?"
+        consequences="Все пулы будут удалены, бойцы вернутся в нераспределённые."
+        confirmLabel="Сбросить"
+        destructive
+        onConfirm={handleResetConfirm}
+      />
     </Col>
   );
 }

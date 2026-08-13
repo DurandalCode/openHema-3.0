@@ -17,8 +17,11 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
+import { toastError, toastUndo } from "@/shared/lib/toast";
 import type { FighterRef } from "@/entities/pool/lib/types";
 import type { BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
@@ -50,13 +53,14 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   const setStatus = useSetBracketStatus(stageId);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <SkeletonCards count={2} />;
   }
   if (error || !bracket) {
     return (
@@ -70,10 +74,27 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   const mutationError =
     seedSlot.error?.message ??
     clearSlot.error?.message ??
-    resetBracket.error?.message ??
+    // resetBracket — намеренно не здесь: успех/ошибка идут через тост
+    // (toastUndo/toastError), см. handleResetConfirm ниже (спека 0023, FR-8).
     undoBracket.error?.message ??
     setStatus.error?.message ??
     null;
+
+  /**
+   * Сброс посева покрыт отменой последнего действия (undo), поэтому
+   * подтверждение — без ввода названия (FR-8); успех/ошибка идут через
+   * тост, а не через постоянный inline-баннер (FR-6).
+   */
+  function handleResetConfirm() {
+    resetBracket.mutate(undefined, {
+      onSuccess: () => {
+        toastUndo("Посев сброшен", { onUndo: () => undoBracket.mutate() });
+      },
+      onError: (err: Error) => {
+        toastError(err.message, { retry: handleResetConfirm });
+      },
+    });
+  }
 
   function onDragStart(event: DragStartEvent) {
     const fighter = event.active.data.current?.fighter as FighterRef | undefined;
@@ -154,10 +175,7 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => {
-              if (window.confirm("Сбросить посев целиком? Все слоты будут очищены."))
-                resetBracket.mutate();
-            }}
+            onClick={() => setConfirmResetOpen(true)}
             loading={resetBracket.isPending}
           >
             <RotateCcw /> Сбросить посев
@@ -201,6 +219,16 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
           )}
         </DragOverlay>
       </DndContext>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Сбросить посев?"
+        consequences="Все слоты будут очищены."
+        confirmLabel="Сбросить"
+        destructive
+        onConfirm={handleResetConfirm}
+      />
     </Col>
   );
 }

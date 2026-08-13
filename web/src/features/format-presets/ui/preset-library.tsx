@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { formatPresetSummary } from "@/entities/stage/lib/labels";
 import type { FormatPreset } from "@/entities/stage/lib/types";
@@ -23,7 +24,7 @@ export function PresetLibrary() {
   const { data: presets, isLoading, error } = usePresets();
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <SkeletonCards count={3} />;
   }
   if (error || !presets) {
     return (

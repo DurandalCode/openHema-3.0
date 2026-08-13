@@ -8,23 +8,13 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
-import { Skeleton } from "@/shared/ui/skeleton";
+import { SkeletonRows } from "@/shared/ui/skeletons";
 import { Col } from "@/shared/ui/stack";
 import { useAdmins } from "../api/use-admins";
 import { useUsers } from "../api/use-users";
 import { usePromoteUser } from "../api/use-promote-user";
 import { useDemoteUser } from "../api/use-demote-user";
 import { UserRow } from "./user-row";
-
-/** RowsSkeleton — единый плейсхолдер загрузки списка (заменяет разнородный текст). */
-function RowsSkeleton() {
-  return (
-    <Col gap={2}>
-      <Skeleton className="h-14 w-full" />
-      <Skeleton className="h-14 w-full" />
-    </Col>
-  );
-}
 
 /** AdminList — клиентский дашборд: админы + все пользователи с actions. */
 export function AdminList({ currentUserId }: { currentUserId: string }) {
@@ -44,7 +34,7 @@ export function AdminList({ currentUserId }: { currentUserId: string }) {
         </CardHeader>
         <CardContent>
           <Col gap={2}>
-            {admins.isLoading && <RowsSkeleton />}
+            {admins.isLoading && <SkeletonRows rows={3} cols={2} />}
             {admins.error && (
               <Alert variant="destructive">
                 <AlertDescription>{admins.error.message}</AlertDescription>
@@ -83,7 +73,7 @@ export function AdminList({ currentUserId }: { currentUserId: string }) {
         </CardHeader>
         <CardContent>
           <Col gap={2}>
-            {users.isLoading && <RowsSkeleton />}
+            {users.isLoading && <SkeletonRows rows={3} cols={2} />}
             {users.error && (
               <Alert variant="destructive">
                 <AlertDescription>{users.error.message}</AlertDescription>

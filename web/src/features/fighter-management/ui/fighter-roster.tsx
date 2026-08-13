@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { SkeletonCards } from "@/shared/ui/skeletons";
 import {
   Select,
   SelectContent,
@@ -144,7 +145,7 @@ export function FighterRoster({
         </CardContent>
       </Card>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Загрузка…</p>}
+      {isLoading && <SkeletonCards count={3} />}
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{(error as Error).message}</AlertDescription>

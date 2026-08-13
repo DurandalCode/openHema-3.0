@@ -1,8 +1,19 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { StageManagement } from "./stage-management";
 import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
+
+/**
+ * Radix `Dialog`/`FocusScope` в jsdom требуют pointer-capture/scrollIntoView
+ * полифиллов, которых jsdom не реализует (см. `shared/ui/dialog.test.tsx`).
+ */
+beforeAll(() => {
+  Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
+  Element.prototype.hasPointerCapture = Element.prototype.hasPointerCapture || (() => false);
+  Element.prototype.setPointerCapture = Element.prototype.setPointerCapture || (() => {});
+  Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture || (() => {});
+});
 
 const groupsStage: Stage = {
   id: "s1",
@@ -63,6 +74,10 @@ const deleteMutate = vi.fn();
 const createMutate = vi.fn((_vars, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
 const resetLayoutMutate = vi.fn();
 const resetBracketMutate = vi.fn();
+const undoLayoutMutate = vi.fn();
+const undoBracketMutate = vi.fn();
+const toastUndoMock = vi.fn();
+const toastErrorMock = vi.fn();
 let stagesData: Stage[] = [groupsStage, bracketStage];
 let issuesData: SchemaIssue[] = [];
 let deleteError: Error | null = null;
@@ -92,6 +107,16 @@ vi.mock("@/features/nomination-pools/api/use-reset-layout", () => ({
 vi.mock("@/features/bracket-seeding/api/use-reset-bracket", () => ({
   useResetBracket: () => ({ mutate: resetBracketMutate, isPending: false, error: null }),
 }));
+vi.mock("@/features/nomination-pools/api/use-undo", () => ({
+  useUndo: () => ({ mutate: undoLayoutMutate, isPending: false, error: null }),
+}));
+vi.mock("@/features/bracket-seeding/api/use-undo-bracket", () => ({
+  useUndoBracket: () => ({ mutate: undoBracketMutate, isPending: false, error: null }),
+}));
+vi.mock("@/shared/lib/toast", () => ({
+  toastUndo: (message: string, options: { onUndo: () => void }) => toastUndoMock(message, options),
+  toastError: (message: string, options?: { retry?: () => void }) => toastErrorMock(message, options),
+}));
 vi.mock("@/features/stage-build/ui/build-stage-dialog", () => ({
   BuildStageDialog: ({ stage }: { stage: Stage }) => (
     <button type="button">Сформировать: {stage.title}</button>
@@ -118,6 +143,8 @@ describe("StageManagement", () => {
     deleteError = null;
     createError = null;
     vi.clearAllMocks();
+    resetLayoutMutate.mockReset();
+    resetBracketMutate.mockReset();
   });
 
   afterEach(() => {
@@ -195,12 +222,59 @@ describe("StageManagement", () => {
     expect(screen.getByText("Расформировать")).toBeInTheDocument();
   });
 
-  it("resetting a rule-bearing bracket stage calls useResetBracket, not useResetLayout", () => {
+  // Спека 0023, T28-finding: найдено при ручном смоуке — эта кнопка звала
+  // мутацию напрямую, без единого подтверждения (не было даже
+  // window.confirm). Теперь — тот же ConfirmDialog, что у «Сбросить
+  // раскладку»/«Сбросить посев» (FR-7/FR-8).
+  it("opens ConfirmDialog instead of calling the mutation directly", () => {
     stagesData = [groupsStage, ruledBracketStage];
     render(<StageManagement nominationId="n1" />);
     fireEvent.click(screen.getByText("Расформировать"));
-    expect(resetBracketMutate).toHaveBeenCalled();
+
+    expect(screen.getByText("Расформировать «Утешительная сетка»?")).toBeInTheDocument();
+    expect(screen.getByText("Все слоты будут очищены.")).toBeInTheDocument();
+    expect(resetBracketMutate).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the dialog does not call the mutation", () => {
+    stagesData = [groupsStage, ruledBracketStage];
+    render(<StageManagement nominationId="n1" />);
+    fireEvent.click(screen.getByText("Расформировать"));
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+
+    expect(resetBracketMutate).not.toHaveBeenCalled();
+  });
+
+  it("confirming reset calls useResetBracket, not useResetLayout, and shows an undo toast", () => {
+    resetBracketMutate.mockImplementation((_vars, options: { onSuccess?: () => void }) => {
+      options.onSuccess?.();
+    });
+    stagesData = [groupsStage, ruledBracketStage];
+    render(<StageManagement nominationId="n1" />);
+    fireEvent.click(screen.getByText("Расформировать"));
+    fireEvent.click(screen.getByRole("button", { name: "Да, расформировать" }));
+
+    expect(resetBracketMutate).toHaveBeenCalledTimes(1);
     expect(resetLayoutMutate).not.toHaveBeenCalled();
+    expect(toastUndoMock).toHaveBeenCalledTimes(1);
+    expect(toastUndoMock.mock.calls[0][0]).toBe("Посев сброшен");
+
+    toastUndoMock.mock.calls[0][1].onUndo();
+    expect(undoBracketMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a retryable error toast when reset fails", () => {
+    resetBracketMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
+      options.onError?.(new Error("сеть недоступна"));
+    });
+    stagesData = [groupsStage, ruledBracketStage];
+    render(<StageManagement nominationId="n1" />);
+    fireEvent.click(screen.getByText("Расформировать"));
+    fireEvent.click(screen.getByRole("button", { name: "Да, расформировать" }));
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0][0]).toBe("сеть недоступна");
+    expect(toastErrorMock.mock.calls[0][1]?.retry).toBeTypeOf("function");
   });
 
   it("creating a stage opens the dialog and submits the form with default size 8", () => {
