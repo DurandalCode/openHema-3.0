@@ -74,6 +74,10 @@ describe("app/api/admin/arenas/[id]/archive route", () => {
     const req = new NextRequest("http://localhost/api/admin/arenas/a1/archive", { method: "POST" });
     const res = await POST(req, { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data).toEqual({
+      error: "На площадке стоит пул — сначала снимите его на странице площадки",
+    });
     expect(stageAdminClient.getPoolsForArena).toHaveBeenCalledWith(
       { arenaId: "a1" },
       { headers: { Authorization: "Bearer token" } },

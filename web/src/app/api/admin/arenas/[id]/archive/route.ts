@@ -29,7 +29,7 @@ export async function POST(_req: NextRequest, ctx: RouteContext): Promise<NextRe
     const pools = await stageAdminClient.getPoolsForArena({ arenaId: id }, authHeaders);
     if (pools.seated) {
       return NextResponse.json(
-        { error: "arena has a seated pool, unseat it before archiving" },
+        { error: "На площадке стоит пул — сначала снимите его на странице площадки" },
         { status: 409 },
       );
     }
