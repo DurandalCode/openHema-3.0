@@ -49,7 +49,7 @@
 | `UiEmptyState` | `shared/ui/empty-state.tsx` (новый) | новый компонент, аналога нет |
 | `UiModal` | `shared/ui/dialog.tsx` | рестайл на месте (Radix — focus-trap/ESC/ARIA уже есть, не переписывать с нуля) |
 | `UiTableHead` | `shared/ui/table-head.tsx` (новый) | новый компонент, Table-примитива в репо нет |
-| `UiTableRow` | `shared/ui/table-row.tsx` (новый) | новый компонент |
+| `UiTableRow` | `shared/ui/table-row.tsx` (новый) | новый компонент; спека 0025 добавила необязательный слот `node?: React.ReactNode` (рендерится вместо `text`/`sub`) — аддитивно, `cells`-API не сломано |
 | `UiAppShell` + `AdminShell`/`AdminShellLight` | `shared/ui/app-shell.tsx` (topbar: `brand/nav/userSlot`) + `shared/ui/page-header.tsx` (заголовок раздела, вынесен спекой 0024, FR-19) + `widgets/admin-shell/admin-shell.tsx` | тема через `next-themes`, nav — по реальным роутам `admin-nav-links.tsx` (не по хардкоду дизайна, там фантомный пункт «Пульт» и подпись «Арены» вместо «Площадки»); `PageHeader` рендерится самим экраном, не layout'ом — см. `web/AGENTS.md` |
 | `UiSideNav` | — не портируется | не используется реальными экранами, только «альтернатива» в галерее дизайна |
 | `UiFighterCard` | `features/fighter-management/ui/` (НЕ `shared/ui`, вопреки карте дизайн-проекта) | переносится со спекой `0026-fighters-redesign`, не с фундаментом |
@@ -66,7 +66,7 @@
 | Экран (`.dc.html`) | Repo-пути (сверено) | Новый API нужен? |
 | --- | --- | --- |
 | Пользователи | `docs/adr/0007-rbac-bootstrap.md`, `app/(admin)/admin/page.tsx`, `features/admin/ui/{users-screen,users-table,users-filters,user-row,create-admin-dialog}.tsx` (редизайн — спека 0024) | нет |
-| Заявки | `entities/application/lib/{state,types}.ts` (статус-модель совпадает 1:1) | нет |
+| Заявки | `app/(admin)/admin/applications/page.tsx`, `features/application-review/ui/{applications-screen,applications-table,applications-filters,application-row,application-card-dialog,application-history,edit-application-dialog}.tsx`, `entities/application/lib/{state,types}.ts` (редизайн — спека 0025) | **да** — `ApplicationEvent.actor_display_name` (имя автора события истории; макет подписывает историю именами, наружу отдавался только `actor_id`); обогащение на чтении, без новой персистентности |
 | Бойцы | `entities/fighter`, `features/fighter-management/*`, `app/(admin)/admin/fighters/page.tsx` | нет |
 | Арены | `app/(admin)/admin/arenas/{page,[id]/page}.tsx`, `features/arena-management/*`, `entities/{arena,arena-live}` | нет |
 | Номинации (пропущен в github.md) | `app/(admin)/admin/nominations/page.tsx` (спека 0003) | нет |

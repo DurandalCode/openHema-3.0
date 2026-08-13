@@ -941,4 +941,103 @@ func TestEditApplication_NotFound(t *testing.T) {
 	}
 }
 
+// countingUserProvider оборачивает FakeUserProvider и считает число вызовов
+// DisplayNames — нужен, чтобы убедиться, что Service.Get резолвит имена
+// авторов истории одним батчем, а не по вызову на событие.
+type countingUserProvider struct {
+	*testutil.FakeUserProvider
+	calls int
+}
+
+func (p *countingUserProvider) DisplayNames(ctx context.Context, ids []string) (map[string]string, error) {
+	p.calls++
+	return p.FakeUserProvider.DisplayNames(ctx, ids)
+}
+
+// FR-19/AC-9: история заявки несёт отображаемое имя автора каждого события —
+// заявителя и админа, обогащённое из UserProvider; резолв — одним батчем.
+func TestGetApplication_HistoryActorDisplayNames(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	nominations := testutil.NewFakeNominationProvider()
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
+	fake := testutil.NewFakeUserProvider()
+	fake.Set(applicantID, "Applicant Name")
+	fake.Set(adminID, "Admin Name")
+	users := &countingUserProvider{FakeUserProvider: fake}
+	svc := service.New(repo, nominations, users, testutil.NewFakeFighterSink())
+	ctx := context.Background()
+
+	app, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	app, err = svc.DeclarePayment(ctx, applicantID, app.ID)
+	if err != nil {
+		t.Fatalf("DeclarePayment: %v", err)
+	}
+	if _, err := svc.ConfirmPayment(ctx, adminID, app.ID); err != nil {
+		t.Fatalf("ConfirmPayment: %v", err)
+	}
+
+	users.calls = 0
+	_, history, err := svc.Get(ctx, adminID, true, app.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("expected 3 history events, got %d", len(history))
+	}
+	if history[0].ActorDisplayName != "Applicant Name" {
+		t.Fatalf("expected applicant name on submitted event, got %q", history[0].ActorDisplayName)
+	}
+	if history[1].ActorDisplayName != "Applicant Name" {
+		t.Fatalf("expected applicant name on payment-declared event, got %q", history[1].ActorDisplayName)
+	}
+	if history[2].ActorDisplayName != "Admin Name" {
+		t.Fatalf("expected admin name on payment-confirmed event, got %q", history[2].ActorDisplayName)
+	}
+	if users.calls != 1 {
+		t.Fatalf("expected DisplayNames to be called exactly once (one batch), got %d", users.calls)
+	}
+}
+
+// AC-12: автор события, недоступный FakeUserProvider'у, даёт пустое имя, не
+// ошибку и не идентификатор-заглушку.
+func TestGetApplication_HistoryActorDisplayName_UnknownActor_Empty(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	nominations := testutil.NewFakeNominationProvider()
+	nominations.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
+	users := testutil.NewFakeUserProvider()
+	users.Set(applicantID, "Applicant Name")
+	// adminID намеренно не зарегистрирован в fake-провайдере.
+	svc := service.New(repo, nominations, users, testutil.NewFakeFighterSink())
+	ctx := context.Background()
+
+	app, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	app, err = svc.DeclarePayment(ctx, applicantID, app.ID)
+	if err != nil {
+		t.Fatalf("DeclarePayment: %v", err)
+	}
+	if _, err := svc.ConfirmPayment(ctx, adminID, app.ID); err != nil {
+		t.Fatalf("ConfirmPayment: %v", err)
+	}
+
+	_, history, err := svc.Get(ctx, adminID, true, app.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("expected 3 history events, got %d", len(history))
+	}
+	if history[2].Type != domain.EventPaymentConfirmed {
+		t.Fatalf("expected last event to be PaymentConfirmed, got %s", history[2].Type)
+	}
+	if history[2].ActorDisplayName != "" {
+		t.Fatalf("expected empty display name for unknown actor, got %q", history[2].ActorDisplayName)
+	}
+}
+
 func ptr[T any](v T) *T { return &v }

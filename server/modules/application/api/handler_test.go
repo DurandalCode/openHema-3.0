@@ -209,6 +209,68 @@ func TestOwnerRights_OtherUserForbidden(t *testing.T) {
 	}
 }
 
+// FR-19/AC-9/AC-12: GetApplication отдаёт actor_display_name в записях
+// истории (через toProtoHistory), и правила доступа к истории не
+// регрессируют: владелец и admin — допущены, посторонний non-admin — отказ.
+func TestGetApplication_ActorDisplayNamesAndAccess(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	submitResp, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationID,
+	}, applicantUserID, "user"))
+	if err != nil {
+		t.Fatalf("SubmitApplication: %v", err)
+	}
+	appID := submitResp.Msg.Application.Id
+
+	if _, err := c.app.DeclarePayment(ctx, authedReq(t, &hemav1.DeclarePaymentRequest{
+		ApplicationId: appID,
+	}, applicantUserID, "user")); err != nil {
+		t.Fatalf("DeclarePayment: %v", err)
+	}
+	if _, err := c.admin.ConfirmPayment(ctx, authedReq(t, &hemav1.ConfirmPaymentRequest{
+		ApplicationId: appID,
+	}, adminUserID, "admin")); err != nil {
+		t.Fatalf("ConfirmPayment: %v", err)
+	}
+
+	// Владелец допущен, и история несёт имена авторов.
+	ownerResp, err := c.app.GetApplication(ctx, authedReq(t, &hemav1.GetApplicationRequest{
+		ApplicationId: appID,
+	}, applicantUserID, "user"))
+	if err != nil {
+		t.Fatalf("GetApplication as owner: %v", err)
+	}
+	if len(ownerResp.Msg.History) != 3 {
+		t.Fatalf("expected 3 history events, got %d", len(ownerResp.Msg.History))
+	}
+	if ownerResp.Msg.History[0].ActorDisplayName != "Applicant Name" {
+		t.Fatalf("expected applicant name on submitted event, got %q", ownerResp.Msg.History[0].ActorDisplayName)
+	}
+	if ownerResp.Msg.History[1].ActorDisplayName != "Applicant Name" {
+		t.Fatalf("expected applicant name on payment-declared event, got %q", ownerResp.Msg.History[1].ActorDisplayName)
+	}
+	if ownerResp.Msg.History[2].ActorDisplayName != "Admin Name" {
+		t.Fatalf("expected admin name on payment-confirmed event, got %q", ownerResp.Msg.History[2].ActorDisplayName)
+	}
+
+	// admin допущен.
+	if _, err := c.app.GetApplication(ctx, authedReq(t, &hemav1.GetApplicationRequest{
+		ApplicationId: appID,
+	}, adminUserID, "admin")); err != nil {
+		t.Fatalf("GetApplication as admin: %v", err)
+	}
+
+	// Посторонний non-admin — отказ.
+	_, err = c.app.GetApplication(ctx, authedReq(t, &hemav1.GetApplicationRequest{
+		ApplicationId: appID,
+	}, otherUserID, "user"))
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied for unrelated user, got %v (%v)", connect.CodeOf(err), err)
+	}
+}
+
 func TestErrorMapping_InvalidTransitionAndDuplicate(t *testing.T) {
 	c := setup(t)
 	ctx := context.Background()

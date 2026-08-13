@@ -28,6 +28,12 @@ export type TableRowCell = {
   tone?: TableRowCellTone
   strike?: boolean
   tags?: { label: string; tone?: TableRowTagTone }[]
+  /**
+   * node — произвольный React-узел, рендерится вместо `text`/`sub` (спека
+   * 0025, план `shared/`). Остальные поля ячейки (`width`/`align`/`tags`) по-
+   * прежнему применяются вокруг него — слот только заменяет типографику.
+   */
+  node?: React.ReactNode
 }
 
 export type TableRowState = "default" | "selected" | "out"
@@ -104,23 +110,29 @@ function TableRow({
           )}
           style={cell.width === undefined ? undefined : { width: cell.width }}
         >
-          {cell.text !== undefined ? (
-            <span
-              className={cn(
-                cell.mono ? "font-mono" : "font-sans",
-                cell.tone ? cellToneClass[cell.tone] : cellToneClass.strong,
-                cell.strike && isOut ? "line-through" : undefined
-              )}
-              style={{ fontSize: cell.size ? `${cell.size}px` : "14px" }}
-            >
-              {cell.text}
-            </span>
-          ) : null}
-          {cell.sub !== undefined ? (
-            <span className="font-mono text-[10px] text-destructive">
-              {cell.sub}
-            </span>
-          ) : null}
+          {cell.node !== undefined ? (
+            cell.node
+          ) : (
+            <>
+              {cell.text !== undefined ? (
+                <span
+                  className={cn(
+                    cell.mono ? "font-mono" : "font-sans",
+                    cell.tone ? cellToneClass[cell.tone] : cellToneClass.strong,
+                    cell.strike && isOut ? "line-through" : undefined
+                  )}
+                  style={{ fontSize: cell.size ? `${cell.size}px` : "14px" }}
+                >
+                  {cell.text}
+                </span>
+              ) : null}
+              {cell.sub !== undefined ? (
+                <span className="font-mono text-[10px] text-destructive">
+                  {cell.sub}
+                </span>
+              ) : null}
+            </>
+          )}
           {cell.tags && cell.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {cell.tags.map((tag, j) => (

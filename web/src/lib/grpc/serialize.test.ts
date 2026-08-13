@@ -384,6 +384,7 @@ describe("applicationHistoryToJson", () => {
       type: "APPLICATION_EVENT_TYPE_SUBMITTED",
       actorId: "user-1",
       sequence: 1,
+      actorDisplayName: "Кораблёва Анна",
     });
 
     const json = applicationHistoryToJson([ev]);
@@ -392,6 +393,19 @@ describe("applicationHistoryToJson", () => {
     expect(json[0].type).toBe("APPLICATION_EVENT_TYPE_SUBMITTED");
     expect(json[0].actorId).toBe("user-1");
     expect(json[0].sequence).toBe(1);
+    expect(json[0].actorDisplayName).toBe("Кораблёва Анна");
+  });
+
+  it("defaults actorDisplayName to empty string when the proto3 field is omitted", () => {
+    const ev = fromJson(ApplicationEventSchema, {
+      type: "APPLICATION_EVENT_TYPE_SUBMITTED",
+      actorId: "user-1",
+      sequence: 1,
+    });
+
+    const json = applicationHistoryToJson([ev]);
+
+    expect(json[0].actorDisplayName).toBe("");
   });
 
   it("returns empty array for undefined", () => {

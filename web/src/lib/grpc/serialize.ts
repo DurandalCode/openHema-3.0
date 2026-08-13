@@ -252,6 +252,7 @@ export function applicationHistoryToJson(
       actorId: raw.actorId ?? "",
       occurredAt: raw.occurredAt ?? "",
       sequence: raw.sequence ?? 0,
+      actorDisplayName: raw.actorDisplayName ?? "",
     };
   });
 }
