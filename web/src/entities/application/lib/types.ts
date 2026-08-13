@@ -45,6 +45,9 @@ export type ApplicationEvent = {
   actorId: string;
   occurredAt: string;
   sequence: number;
+  // actorDisplayName — отображаемое имя автора события, обогащённое из
+  // домена auth (спека 0025, FR-19). "" = имя недоступно.
+  actorDisplayName: string;
 };
 
 // NominationParticipant — элемент публичного стартового листа номинации.

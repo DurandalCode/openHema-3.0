@@ -56,21 +56,21 @@
 
 ## Трек B — web-фундамент (shared/BFF/entities)
 
-- [ ] T4. **`TableRow` c `node`-ячейкой (red→green)** —
+- [x] T4. **`TableRow` c `node`-ячейкой (red→green)** —
       `shared/ui/table-row.test.tsx`: ячейка с `node` рендерит переданный
       узел; ячейки с `text/sub/tags` продолжают работать как раньше →
       затем аддитивно расширить `TableRowCell` полем `node?: React.ReactNode`
       в `shared/ui/table-row.tsx` (план, `shared/`). `user-row.tsx` на новый
       слот **не переводить** — вне скоупа.
-- [ ] T5. **Сериализация истории (red→green)** —
+- [x] T5. **Сериализация истории (red→green)** —
       `lib/grpc/serialize.test.ts`: `applicationHistoryToJson` переносит
       `actorDisplayName`; при опущенном proto3-поле даёт `""` → затем правка
       `lib/grpc/serialize.ts`.
-- [ ] T6. **BFF-ручка** — `app/api/applications/[id]/route.test.ts`:
+- [x] T6. **BFF-ручка** — `app/api/applications/[id]/route.test.ts`:
       дополнить проверку формы ответа новым полем (сам route handler
       меняться не должен — если меняется, значит поле протекло мимо
       сериализатора).
-- [ ] T7. **Представление сущности (red→green)** —
+- [x] T7. **Представление сущности (red→green)** —
       `entities/application/lib/state.test.ts`: `stateCaption` (пять
       состояний, FR-2), `eventLabel` (шесть типов, включая `AMENDED` →
       «Заявка изменена», FR-17), `nextExpectedStep` (нетерминальные → шаг и

@@ -41,6 +41,35 @@ describe("TableRow", () => {
     );
   });
 
+  it("renders the passed node when cell has a node prop", () => {
+    render(
+      <TableRow
+        cells={[{ node: <button type="button">Подтвердить оплату</button> }]}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Подтвердить оплату" })
+    ).toBeInTheDocument();
+  });
+
+  it("still renders text/sub/tags cells unchanged alongside a node cell", () => {
+    render(
+      <TableRow
+        cells={[
+          { text: "Иванов", sub: "оплата заявлена 19 мар" },
+          { tags: [{ label: "нужна экипировка", tone: "amber" }] },
+          { node: <span>действие</span> },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Иванов")).toBeInTheDocument();
+    expect(screen.getByText("оплата заявлена 19 мар")).toBeInTheDocument();
+    expect(screen.getByText("нужна экипировка")).toBeInTheDocument();
+    expect(screen.getByText("действие")).toBeInTheDocument();
+  });
+
   it("highlights the row differently when selected vs default", () => {
     const { container: defaultContainer } = render(
       <TableRow cells={[{ text: "A" }]} state="default" />
