@@ -55,39 +55,39 @@
 
 ## Трек B — фича `admin`
 
-- [ ] T6. **Чистая логика экрана (red→green)** —
+- [x] T6. **Чистая логика экрана (red→green)** —
       `features/admin/lib/select-users.test.ts`: `sortUsers` (админы выше,
       внутри — по имени, пустое имя → по email, FR-3), `filterUsers` (роль,
       подстрока по имени и email без учёта регистра, роль+поиск вместе,
       FR-5/FR-7), `roleCounts` (не зависит от поиска, FR-6), `initials`
       (FR-4) → затем `features/admin/lib/select-users.ts`.
-- [ ] T7. **API-слой (red→green)** — `features/admin/api/requests.test.ts`:
+- [x] T7. **API-слой (red→green)** — `features/admin/api/requests.test.ts`:
       `listUsersRequest` шлёт `?limit=…`; `listAdminsRequest` удалён → затем
       правки `requests.ts`, `use-users.ts`, `keys.ts`; удалить
       `api/use-admins.ts` (потребителей не остаётся, план §«Обзор» п.1).
-- [ ] T8. **Строка пользователя (red→green)** —
+- [x] T8. **Строка пользователя (red→green)** —
       `features/admin/ui/user-row.test.tsx`: инициалы, имя+email, `Tag` роли,
       дата регистрации с подсказкой, кнопка «Повысить»/«Понизить», подпись
       «вы · нельзя понизить себя» вместо кнопки в своей строке (FR-9/FR-10)
       → затем переписать `ui/user-row.tsx`. Здесь же — развилка из
       «Рисков» плана: расширять ли `TableRow` слотом-узлом или верстать
       строку экрана рядом; выбранный вариант зафиксировать комментарием.
-- [ ] T9. **Фильтры и поиск (red→green)** —
+- [x] T9. **Фильтры и поиск (red→green)** —
       `features/admin/ui/users-filters.test.tsx`: три чипа, ровно один
       выбран (`aria-pressed`), счётчики, поле поиска с доступным именем →
       затем `ui/users-filters.tsx`.
-- [ ] T10. **Таблица (red→green)** — `features/admin/ui/users-table.test.tsx`:
+- [x] T10. **Таблица (red→green)** — `features/admin/ui/users-table.test.tsx`:
       шапка из четырёх колонок, строки в порядке `sortUsers`, скелетон в
       форме таблицы при загрузке, ошибка с повтором, два разных пустых
       состояния (нет учёток / ничего не найдено) — FR-20/21/22 → затем
       `ui/users-table.tsx`.
-- [ ] T11. **Модалка создания (red→green)** —
+- [x] T11. **Модалка создания (red→green)** —
       `features/admin/ui/create-admin-dialog.test.tsx`: успех закрывает окно
       и сообщает наверх (AC-10); серверная ошибка оставляет окно открытым с
       введёнными данными (AC-11); ошибки полей — инлайн (FR-15) → затем
       `ui/create-admin-dialog.tsx` + перенос `ui/create-admin-form.tsx`
       внутрь модалки.
-- [ ] T12. **Экран целиком (red→green)** —
+- [x] T12. **Экран целиком (red→green)** —
       `features/admin/ui/users-screen.test.tsx` (моки `useUsers`, мутаций и
       `shared/lib/toast`): единый список (AC-1), счётчики не зависят от
       поиска (AC-3), фильтр (AC-4), поиск (AC-5), фильтр+поиск (AC-6),
