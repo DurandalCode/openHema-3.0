@@ -11,7 +11,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -43,18 +42,27 @@ const STATE_OPTIONS: ApplicationState[] = [
  * состоянии, включая терминальные (FR-9) — инструмент чистки данных и
  * разбора ошибок, а не пользовательский флоу.
  *
+ * Контролируемый диалог (spec 0025, FR-22): без собственного триггера —
+ * открывается извне (`ApplicationCardDialog`, поверх карточки заявки, как
+ * вложенный Radix `Dialog`); открытость и обработчик закрытия — пропами
+ * `open`/`onOpenChange`. Отдельной кнопки правки в строке таблицы больше
+ * нет — правка живёт там же, где история заявки.
+ *
  * nominationId/state отправляются на сервер только когда реально изменены —
  * так «ничего не менял» не читается бэкендом как перенос/смена статуса
  * (см. `EditApplicationRequest`, спека 0006, plan.md).
  */
 export function EditApplicationDialog({
+  open,
+  onOpenChange,
   application,
   nominations,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   application: Application;
   nominations: Nomination[];
 }) {
-  const [open, setOpen] = useState(false);
   const [club, setClub] = useState(application.club);
   const [needsEquipment, setNeedsEquipment] = useState(application.needsEquipment);
   const [nameOverride, setNameOverride] = useState(application.applicantDisplayName);
@@ -62,8 +70,8 @@ export function EditApplicationDialog({
   const [state, setState] = useState<ApplicationState>(application.state);
   const edit = useEditApplication();
 
-  function onOpenChange(next: boolean) {
-    setOpen(next);
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
     if (next) {
       // Пересинхронизировать форму с актуальными значениями заявки при
       // каждом открытии — иначе повторное открытие покажет устаревший ввод.
@@ -86,17 +94,12 @@ export function EditApplicationDialog({
         nominationId: nominationId !== application.nominationId ? nominationId : undefined,
         state: state !== application.state ? state : undefined,
       },
-      { onSuccess: () => setOpen(false) },
+      { onSuccess: () => onOpenChange(false) },
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
-          Редактировать
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Правка заявки</DialogTitle>

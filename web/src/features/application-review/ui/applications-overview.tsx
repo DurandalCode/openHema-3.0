@@ -199,6 +199,11 @@ function ApplicationReviewRow({
 }) {
   const confirm = useConfirmPayment();
   const register = useRegisterFighter();
+  // EditApplicationDialog стал контролируемым диалогом (spec 0025, FR-22) —
+  // этот экран целиком заменяется `ApplicationsScreen` на join-волне (T15),
+  // поэтому здесь заводится только минимальное локальное состояние
+  // открытости, чтобы файл продолжал собираться до переезда.
+  const [editOpen, setEditOpen] = useState(false);
   const actions = allowedSecretaryActions(application.state);
   const error = confirm.error?.message ?? register.error?.message ?? null;
   const warning = register.data?.capacityExceeded
@@ -222,7 +227,15 @@ function ApplicationReviewRow({
           </Col>
           <Row align="center" gap={2}>
             <Badge variant="outline">{stateLabel(application.state)}</Badge>
-            <EditApplicationDialog application={application} nominations={nominations} />
+            <Button type="button" size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              Редактировать
+            </Button>
+            <EditApplicationDialog
+              open={editOpen}
+              onOpenChange={setEditOpen}
+              application={application}
+              nominations={nominations}
+            />
             {actions.includes("confirmPayment") && (
               <Button
                 type="button"
