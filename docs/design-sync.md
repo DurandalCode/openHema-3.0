@@ -50,7 +50,7 @@
 | `UiModal` | `shared/ui/dialog.tsx` | рестайл на месте (Radix — focus-trap/ESC/ARIA уже есть, не переписывать с нуля) |
 | `UiTableHead` | `shared/ui/table-head.tsx` (новый) | новый компонент, Table-примитива в репо нет |
 | `UiTableRow` | `shared/ui/table-row.tsx` (новый) | новый компонент |
-| `UiAppShell` + `AdminShell`/`AdminShellLight` | `shared/ui` (или `widgets/app-shell/`, решается в `plan.md` 0022) | один `AppShell`, тема через `next-themes`, nav — по реальным роутам `admin-nav.tsx` (не по хардкоду дизайна, там фантомный пункт «Пульт» и подпись «Арены» вместо «Площадки») |
+| `UiAppShell` + `AdminShell`/`AdminShellLight` | `shared/ui/app-shell.tsx` (topbar: `brand/nav/userSlot`) + `shared/ui/page-header.tsx` (заголовок раздела, вынесен спекой 0024, FR-19) + `widgets/admin-shell/admin-shell.tsx` | тема через `next-themes`, nav — по реальным роутам `admin-nav-links.tsx` (не по хардкоду дизайна, там фантомный пункт «Пульт» и подпись «Арены» вместо «Площадки»); `PageHeader` рендерится самим экраном, не layout'ом — см. `web/AGENTS.md` |
 | `UiSideNav` | — не портируется | не используется реальными экранами, только «альтернатива» в галерее дизайна |
 | `UiFighterCard` | `features/fighter-management/ui/` (НЕ `shared/ui`, вопреки карте дизайн-проекта) | переносится со спекой `0026-fighters-redesign`, не с фундаментом |
 
@@ -65,7 +65,7 @@
 
 | Экран (`.dc.html`) | Repo-пути (сверено) | Новый API нужен? |
 | --- | --- | --- |
-| Пользователи | `docs/adr/0007-rbac-bootstrap.md`, `features/admin/ui/{admin-list,user-row,create-admin-form}.tsx` | нет |
+| Пользователи | `docs/adr/0007-rbac-bootstrap.md`, `app/(admin)/admin/page.tsx`, `features/admin/ui/{users-screen,users-table,users-filters,user-row,create-admin-dialog}.tsx` (редизайн — спека 0024) | нет |
 | Заявки | `entities/application/lib/{state,types}.ts` (статус-модель совпадает 1:1) | нет |
 | Бойцы | `entities/fighter`, `features/fighter-management/*`, `app/(admin)/admin/fighters/page.tsx` | нет |
 | Арены | `app/(admin)/admin/arenas/{page,[id]/page}.tsx`, `features/arena-management/*`, `entities/{arena,arena-live}` | нет |

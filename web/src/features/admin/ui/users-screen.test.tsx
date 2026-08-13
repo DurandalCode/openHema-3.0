@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsersScreen, PAGE_SIZE } from "./users-screen";
-import type { AdminUser } from "../api/requests";
+import { DEFAULT_LIST_LIMIT, type AdminUser } from "../api/requests";
 
 afterEach(() => {
   cleanup();
@@ -249,5 +249,45 @@ describe("UsersScreen", () => {
 
     expect(screen.getByText("User 01")).toBeInTheDocument();
     expect(screen.queryByText(`User ${PAGE_SIZE + 1}`)).not.toBeInTheDocument();
+  });
+
+  it("fills the section header: crumb with tournament name, title, count, and an action that opens the create-admin modal (AC-13)", () => {
+    usersState = {
+      data: Array.from({ length: 167 }, (_, i) => user({ id: `u${i}`, email: `u${i}@hema.test` })),
+      isLoading: false,
+      error: null,
+    };
+
+    render(<UsersScreen currentUserId="a1" tournamentName="Клинок Севера 2026" />);
+
+    const header = document.querySelector('[data-slot="page-header"]') as HTMLElement;
+    expect(within(header).getByText("ПОЛЬЗОВАТЕЛИ · КЛИНОК СЕВЕРА 2026")).toBeInTheDocument();
+    expect(within(header).getByText("Пользователи")).toBeInTheDocument();
+    expect(within(header).getByText("167 учётных записей")).toBeInTheDocument();
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "+ Создать админа" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("shows only 'ПОЛЬЗОВАТЕЛИ' in the crumb when there is no active tournament (AC-13)", () => {
+    render(<UsersScreen currentUserId="a1" />);
+
+    expect(screen.getByText("ПОЛЬЗОВАТЕЛИ")).toBeInTheDocument();
+    expect(screen.queryByText(/·/)).not.toBeInTheDocument();
+  });
+
+  it("shows 'N+ учётных записей' when the count hits the fetch limit, to avoid silently lying about the total (plan.md «Риски»)", () => {
+    usersState = {
+      data: Array.from({ length: DEFAULT_LIST_LIMIT }, (_, i) =>
+        user({ id: `u${i}`, email: `u${i}@hema.test` }),
+      ),
+      isLoading: false,
+      error: null,
+    };
+
+    render(<UsersScreen currentUserId="a1" />);
+
+    expect(screen.getByText(`${DEFAULT_LIST_LIMIT}+ учётных записей`)).toBeInTheDocument();
   });
 });

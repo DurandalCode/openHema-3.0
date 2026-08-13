@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Pagination } from "@/shared/ui/pagination";
+import { PageHeader } from "@/shared/ui/page-header";
+import { clampPage, pageSlice } from "@/shared/lib/paginate";
 import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
-import type { AdminUser } from "../api/requests";
+import { DEFAULT_LIST_LIMIT, type AdminUser } from "../api/requests";
 import { useUsers } from "../api/use-users";
 import { usePromoteUser } from "../api/use-promote-user";
 import { useDemoteUser } from "../api/use-demote-user";
 import { filterUsers, roleCounts, type RoleFilter } from "../lib/select-users";
-import { clampPage, pageSlice } from "../lib/paginate-local";
 import { CreateAdminDialog } from "./create-admin-dialog";
 import { UsersFilters } from "./users-filters";
 import { UsersTable } from "./users-table";
@@ -29,11 +30,17 @@ function personLabel(user: AdminUser): string {
  *
  * Владеет UI-состоянием (фильтр/поиск/страница/открытость модалки) через
  * `useState` (ADR 0006 — некроссcomponent состояние). Заголовок раздела —
- * временная локальная заглушка вместо `shared/ui/page-header.tsx`: этот
- * примитив параллельно строит Трек A (`tasks.md`, T1) в другом worktree;
- * реальное подключение — join-волна T13/T14.
+ * `PageHeader` (FR-18/FR-19, AC-13): крошка «ПОЛЬЗОВАТЕЛИ · <ТУРНИР>» (без
+ * турнира — просто «ПОЛЬЗОВАТЕЛИ»), заголовок, счётчик, действие открытия
+ * модалки создания.
  */
-export function UsersScreen({ currentUserId }: { currentUserId: string }) {
+export function UsersScreen({
+  currentUserId,
+  tournamentName,
+}: {
+  currentUserId: string;
+  tournamentName?: string | null;
+}) {
   const usersQuery = useUsers();
   const promote = usePromoteUser();
   const demote = useDemoteUser();
@@ -51,6 +58,17 @@ export function UsersScreen({ currentUserId }: { currentUserId: string }) {
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = clampPage(page, pageCount);
   const pageItems = pageSlice(filtered, currentPage, PAGE_SIZE);
+
+  // Плюс на границе лимита выборки (план, «Риски»): при total === DEFAULT_LIST_LIMIT
+  // за лимитом наверняка есть ещё учётки, которые `useUsers` не загрузил — счётчик
+  // не должен молча врать точным числом.
+  const countLabel =
+    counts.total >= DEFAULT_LIST_LIMIT
+      ? `${DEFAULT_LIST_LIMIT}+ учётных записей`
+      : `${counts.total} учётных записей`;
+  const crumb = tournamentName
+    ? `ПОЛЬЗОВАТЕЛИ · ${tournamentName.toUpperCase()}`
+    : "ПОЛЬЗОВАТЕЛИ";
 
   function onRoleChange(next: RoleFilter) {
     setRole(next);
@@ -110,38 +128,41 @@ export function UsersScreen({ currentUserId }: { currentUserId: string }) {
   }
 
   return (
-    <div data-slot="users-screen" className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Пользователи</h1>
-          <p className="text-sm text-caption-foreground">{counts.total} учётных записей</p>
-        </div>
-        <Button type="button" onClick={() => setCreateOpen(true)}>
-          + Создать админа
-        </Button>
+    <div data-slot="users-screen" className="flex flex-col">
+      <PageHeader
+        crumb={crumb}
+        title="Пользователи"
+        meta={countLabel}
+        action={
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            + Создать админа
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-6 p-4">
+        <UsersFilters
+          role={role}
+          onRoleChange={onRoleChange}
+          counts={counts}
+          query={query}
+          onQueryChange={onQueryChange}
+        />
+
+        <UsersTable
+          users={pageItems}
+          isLoading={usersQuery.isLoading}
+          error={usersQuery.error}
+          onRetry={() => usersQuery.refetch()}
+          hasAnyUsers={all.length > 0}
+          currentUserId={currentUserId}
+          getAction={getAction}
+        />
+
+        {pageCount > 1 && (
+          <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+        )}
       </div>
-
-      <UsersFilters
-        role={role}
-        onRoleChange={onRoleChange}
-        counts={counts}
-        query={query}
-        onQueryChange={onQueryChange}
-      />
-
-      <UsersTable
-        users={pageItems}
-        isLoading={usersQuery.isLoading}
-        error={usersQuery.error}
-        onRetry={() => usersQuery.refetch()}
-        hasAnyUsers={all.length > 0}
-        currentUserId={currentUserId}
-        getAction={getAction}
-      />
-
-      {pageCount > 1 && (
-        <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
-      )}
 
       <CreateAdminDialog
         open={createOpen}

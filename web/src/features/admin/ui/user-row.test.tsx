@@ -63,13 +63,11 @@ describe("UserRow", () => {
     fireEvent.focus(screen.getByText("вчера"));
 
     const tooltip = await screen.findByRole("tooltip");
-    // Полная дата/время — в локальном времени окружения (как и остальные
-    // datetime-утилиты проекта, см. `shared/lib/datetime.ts`), поэтому
-    // ожидание строится из того же `Date`, а не хардкодится в UTC.
-    const created = new Date(admin.createdAt);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const expected = `${pad(created.getDate())}.${pad(created.getMonth() + 1)}.${created.getFullYear()}, ${pad(created.getHours())}:${pad(created.getMinutes())}`;
-    expect(tooltip).toHaveTextContent(expected);
+    // Полная дата/время — реальный `shared/lib/datetime.ts#formatDateTime`
+    // (родительный падеж месяца, локальное время окружения), поэтому
+    // ожидание строится тем же форматтером, а не хардкодится в UTC.
+    const { formatDateTime } = await import("@/shared/lib/datetime");
+    expect(tooltip).toHaveTextContent(formatDateTime(admin.createdAt));
   });
 
   it("shows a 'Понизить' action for an admin row", () => {

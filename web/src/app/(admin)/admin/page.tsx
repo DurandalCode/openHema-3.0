@@ -1,24 +1,18 @@
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
-import { AdminList } from "@/features/admin/ui/admin-list";
-import { AdminHeader } from "./admin-header";
+import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
+import { UsersScreen } from "@/features/admin/ui/users-screen";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** /admin — дашборд администратора: списки админов и пользователей. */
+/** /admin — экран «Пользователи»: единый список учётных записей (спека 0024). */
 export default async function AdminPage() {
-  const user = await getCurrentUser();
+  const [user, tournament] = await Promise.all([
+    getCurrentUser(),
+    getActiveTournament(),
+  ]);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-16">
-      <AdminHeader
-        title="Админка"
-        description="Управление пользователями и администраторами."
-      />
-
-      <div className="mt-8">
-        <AdminList currentUserId={user?.id ?? ""} />
-      </div>
-    </div>
+    <UsersScreen currentUserId={user?.id ?? ""} tournamentName={tournament?.title} />
   );
 }

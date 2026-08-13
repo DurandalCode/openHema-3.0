@@ -3,7 +3,7 @@ import { Tag, type TagTone } from "@/shared/ui/tag";
 import { Tooltip } from "@/shared/ui/tooltip";
 import type { Role } from "@/entities/user/lib/types";
 import type { AdminUser } from "../api/requests";
-import { formatDateTime, formatRelativeDay } from "../lib/format-date";
+import { formatDateTime, formatRelativeDay } from "@/shared/lib/datetime";
 import { initials } from "../lib/select-users";
 
 export type UserRowAction = {
