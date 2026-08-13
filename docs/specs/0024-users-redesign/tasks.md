@@ -30,24 +30,24 @@
 
 ## Трек A — shared-примитивы и оболочка
 
-- [ ] T1. **`PageHeader` (red→green)** — `shared/ui/page-header.test.tsx`:
+- [x] T1. **`PageHeader` (red→green)** — `shared/ui/page-header.test.tsx`:
       рендер слотов `crumb/title/status/meta/secondary/action`; при всех
       пустых слотах строка не рендерится → затем `shared/ui/page-header.tsx`
       (разметка/классы переносятся из header-строки `app-shell.tsx` без
       визуальных изменений, `meta` расширяется до `React.ReactNode`).
-- [ ] T2. **`AppShell` сокращается** — убрать из `shared/ui/app-shell.tsx`
+- [x] T2. **`AppShell` сокращается** — убрать из `shared/ui/app-shell.tsx`
       header-слоты и их условный рендер, оставить `brand/nav/userSlot`;
       обновить doc-комментарий (ссылка на `PageHeader` вместо «заполняются
       спеками 0024+»). Проверка — `pnpm exec tsc --noEmit`: потребителей
       header-слотов быть не должно.
-- [ ] T3. **`datetime` (red→green)** — `shared/lib/datetime.test.ts`:
+- [x] T3. **`datetime` (red→green)** — `shared/lib/datetime.test.ts`:
       `formatRelativeDay` (сегодня / вчера / N дней назад / «18 мар» /
       «18 мар 2025») с явным `now`, `formatDateTime` → затем реализация в
       `shared/lib/datetime.ts` (FR-2).
-- [ ] T4. **`paginate` (red→green)** — `shared/lib/paginate.test.ts`:
+- [x] T4. **`paginate` (red→green)** — `shared/lib/paginate.test.ts`:
       `pageSlice` (первая/последняя неполная/пустой массив/страница вне
       диапазона), `clampPage` → затем реализация (FR-23).
-- [ ] T5. **Навигация без «+ Создать админа» (red→green)** —
+- [x] T5. **Навигация без «+ Создать админа» (red→green)** —
       `widgets/admin-shell/admin-shell.test.tsx`: пункта нет (AC-12) →
       затем убрать элемент из `ADMIN_NAV_ITEMS`
       (`widgets/admin-shell/admin-nav-links.tsx`); обновить комментарий
