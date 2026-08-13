@@ -38,14 +38,24 @@ describe("app/api/applications/[id] route", () => {
     vi.mocked(getAccessToken).mockResolvedValue("tok");
     vi.mocked(applicationClient.getApplication).mockResolvedValue({
       application: { id: "a1" },
-      history: [{ type: "APPLICATION_EVENT_TYPE_SUBMITTED" }],
+      history: [
+        {
+          type: "APPLICATION_EVENT_TYPE_SUBMITTED",
+          actorDisplayName: "Кораблёва Анна",
+        },
+      ],
     } as never);
 
     const res = await GET(new NextRequest("http://localhost/api/applications/a1"), ctx("a1"));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.application).toEqual({ id: "a1" });
-    expect(data.history).toEqual([{ type: "APPLICATION_EVENT_TYPE_SUBMITTED" }]);
+    expect(data.history).toEqual([
+      {
+        type: "APPLICATION_EVENT_TYPE_SUBMITTED",
+        actorDisplayName: "Кораблёва Анна",
+      },
+    ]);
     expect(applicationClient.getApplication).toHaveBeenCalledWith(
       { applicationId: "a1" },
       { headers: { Authorization: "Bearer tok" } },
