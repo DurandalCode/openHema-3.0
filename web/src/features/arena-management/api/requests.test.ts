@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   archiveArenaRequest,
   createArenaRequest,
+  getArenaBoardRequest,
   getArenaRequest,
   listArenasRequest,
   reorderArenasRequest,
   restoreArenaRequest,
+  setArenaDefaultDurationRequest,
   updateArenaRequest,
 } from "./requests";
 
@@ -202,6 +204,84 @@ describe("features/arena-management/api/requests", () => {
       const result = await reorderArenasRequest("t1", ["a"]);
 
       expect(result).toEqual({ ok: false, error: "bad" });
+    });
+  });
+
+  describe("getArenaBoardRequest", () => {
+    it("GETs /api/arenas/[id]/board and returns the board", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ board: { pool: { id: "p1" }, bouts: [], currentBoutId: "b1" } }),
+      });
+
+      const result = await getArenaBoardRequest("a1");
+
+      expect(result).toEqual({
+        ok: true,
+        board: { pool: { id: "p1" }, bouts: [], currentBoutId: "b1" },
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/arenas/a1/board", { method: "GET" });
+    });
+
+    it("defaults board to null when absent", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const result = await getArenaBoardRequest("a1");
+
+      expect(result).toEqual({ ok: true, board: null });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "unauthenticated" }) });
+
+      const result = await getArenaBoardRequest("a1");
+
+      expect(result).toEqual({ ok: false, error: "unauthenticated" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await getArenaBoardRequest("a1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("setArenaDefaultDurationRequest", () => {
+    it("PUTs /api/admin/arenas/[id]/default-duration with seconds", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ arena: { id: "a1", defaultDurationSeconds: 300 } }),
+      });
+
+      const result = await setArenaDefaultDurationRequest("a1", 300);
+
+      expect(result).toEqual({ ok: true, arena: { id: "a1", defaultDurationSeconds: 300 } });
+      expect(fetchMock).toHaveBeenCalledWith("/api/admin/arenas/a1/default-duration", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultDurationSeconds: 300 }),
+      });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "defaultDurationSeconds is required" }),
+      });
+
+      const result = await setArenaDefaultDurationRequest("a1", 300);
+
+      expect(result).toEqual({ ok: false, error: "defaultDurationSeconds is required" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await setArenaDefaultDurationRequest("a1", 300);
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 });

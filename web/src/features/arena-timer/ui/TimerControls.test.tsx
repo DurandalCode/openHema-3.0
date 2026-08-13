@@ -156,22 +156,12 @@ describe("TimerControls", () => {
     expect(controls.adjust).toHaveBeenCalledWith(-2);
   });
 
-  it("sets the default duration via PUT /default-duration", async () => {
+  it("does not render the default duration field (moved to arena edit dialog, spec 0027 FR-13)", () => {
     renderControls();
 
-    const input = screen.getByRole("spinbutton");
-    fireEvent.change(input, { target: { value: "120" } });
-    fireEvent.click(screen.getByRole("button", { name: "Задать" }));
-
-    await waitFor(() =>
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/admin/arenas/a1/default-duration",
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ defaultDurationSeconds: 120 }),
-        }),
-      ),
-    );
+    expect(screen.queryByText(/Дефолт/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Задать" })).not.toBeInTheDocument();
   });
 
   it("toggles sides via POST /scoreboard-sides with the negated current value", async () => {
