@@ -14,7 +14,6 @@ export function usePromoteUser() {
       return res.user;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.admins });
       qc.invalidateQueries({ queryKey: adminKeys.users });
     },
   });

@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAdminRequest,
   demoteUserRequest,
-  listAdminsRequest,
   listUsersRequest,
   promoteUserRequest,
 } from "./requests";
+import * as requestsModule from "./requests";
 
 describe("features/admin/api/requests", () => {
   const fetchMock = vi.fn();
@@ -66,34 +66,8 @@ describe("features/admin/api/requests", () => {
     });
   });
 
-  describe("listAdminsRequest", () => {
-    it("returns ok:true with admins array", async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ admins: [user] }) });
-
-      const res = await listAdminsRequest();
-
-      expect(res).toEqual({ ok: true, users: [user] });
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/admins", { method: "GET" });
-    });
-
-    it("returns ok:false on 401", async () => {
-      fetchMock.mockResolvedValue({
-        ok: false,
-        json: async () => ({ error: "unauthenticated" }),
-      });
-
-      const res = await listAdminsRequest();
-
-      expect(res).toEqual({ ok: false, error: "unauthenticated" });
-    });
-
-    it("returns empty array when field missing", async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-
-      const res = await listAdminsRequest();
-
-      expect(res).toEqual({ ok: true, users: [] });
-    });
+  it("does not export listAdminsRequest — the admin-only list is no longer consumed by this feature", () => {
+    expect((requestsModule as Record<string, unknown>).listAdminsRequest).toBeUndefined();
   });
 
   describe("listUsersRequest", () => {
@@ -103,7 +77,26 @@ describe("features/admin/api/requests", () => {
       const res = await listUsersRequest();
 
       expect(res).toEqual({ ok: true, users: [user] });
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/users", { method: "GET" });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/api\/admin\/users\?limit=\d+$/),
+        { method: "GET" },
+      );
+    });
+
+    it("sends an explicit limit in the query string", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ users: [] }) });
+
+      await listUsersRequest(250);
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/admin/users?limit=250", { method: "GET" });
+    });
+
+    it("returns empty array when field missing", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const res = await listUsersRequest();
+
+      expect(res).toEqual({ ok: true, users: [] });
     });
   });
 
