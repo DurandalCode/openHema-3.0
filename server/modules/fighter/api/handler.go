@@ -221,6 +221,7 @@ func toProtoFighter(f domain.Fighter) *hemav1.Fighter {
 		Participations:   parts,
 		CreatedAt:        timestamppb.New(f.CreatedAt),
 		UpdatedAt:        timestamppb.New(f.UpdatedAt),
+		FromApplication:  f.OriginUserID != nil,
 	}
 }
 

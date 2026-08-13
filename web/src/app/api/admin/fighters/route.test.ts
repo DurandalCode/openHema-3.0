@@ -43,17 +43,19 @@ describe("app/api/admin/fighters route", () => {
       expect(fighterAdminClient.listRoster).not.toHaveBeenCalled();
     });
 
-    it("returns roster JSON on ok", async () => {
+    it("returns roster JSON on ok, including fromApplication", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
       vi.mocked(fighterAdminClient.listRoster).mockResolvedValue({
         fighters: [{ id: "f1", name: "Ivan" }],
       } as never);
-      vi.mocked(fightersToJson).mockReturnValue([{ id: "f1", name: "Ivan" }] as never);
+      vi.mocked(fightersToJson).mockReturnValue([
+        { id: "f1", name: "Ivan", fromApplication: true },
+      ] as never);
 
       const res = await GET(getReq("http://localhost/api/admin/fighters?tournamentId=t1"));
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data).toEqual({ fighters: [{ id: "f1", name: "Ivan" }] });
+      expect(data).toEqual({ fighters: [{ id: "f1", name: "Ivan", fromApplication: true }] });
       expect(fighterAdminClient.listRoster).toHaveBeenCalledWith(
         { tournamentId: "t1" },
         { headers: { Authorization: "Bearer token" } },

@@ -9,6 +9,7 @@ import {
   NominationParticipantSchema,
 } from "@/gen/hema/v1/application_pb";
 import { ArenaSchema } from "@/gen/hema/v1/arena_pb";
+import { FighterSchema } from "@/gen/hema/v1/fighter_pb";
 import {
   NominationLiveSnapshotSchema,
   ArenaLiveSnapshotSchema,
@@ -31,6 +32,7 @@ import {
   arenasToJson,
   arenaLiveToJson,
   bracketToJson,
+  fighterToJson,
   formatPresetsToJson,
   formatPresetToJson,
   formatStageSpecToJson,
@@ -429,6 +431,37 @@ describe("nominationParticipantsToJson", () => {
 
   it("returns empty array for undefined", () => {
     expect(nominationParticipantsToJson(undefined)).toEqual([]);
+  });
+});
+
+describe("fighterToJson", () => {
+  it("converts a protobuf Fighter to plain JSON, carrying fromApplication", () => {
+    const f = fromJson(FighterSchema, {
+      id: "f1",
+      tournamentId: "t1",
+      name: "Ivan",
+      club: "Sokol",
+      status: "FIGHTER_STATUS_ACTIVE",
+      fromApplication: true,
+    });
+
+    const json = fighterToJson(f);
+
+    expect(json).not.toBeNull();
+    expect(json?.id).toBe("f1");
+    expect(json?.fromApplication).toBe(true);
+  });
+
+  it("defaults fromApplication to false when the proto3 field is omitted", () => {
+    const f = fromJson(FighterSchema, { id: "f2", name: "Petr" });
+
+    const json = fighterToJson(f);
+
+    expect(json?.fromApplication).toBe(false);
+  });
+
+  it("returns null for undefined", () => {
+    expect(fighterToJson(undefined)).toBeNull();
   });
 });
 

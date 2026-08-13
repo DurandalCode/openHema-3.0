@@ -30,6 +30,7 @@ type clients struct {
 	admin  hemav1connect.FighterAdminServiceClient
 	public hemav1connect.FighterPublicServiceClient
 	noms   *testutil.FakeNominationProvider
+	svc    *service.Service
 }
 
 func setup(t *testing.T) clients {
@@ -68,6 +69,7 @@ func setup(t *testing.T) clients {
 		admin:  hemav1connect.NewFighterAdminServiceClient(client, server.URL),
 		public: hemav1connect.NewFighterPublicServiceClient(client, server.URL),
 		noms:   noms,
+		svc:    svc,
 	}
 }
 
@@ -265,6 +267,57 @@ func TestListRoster_ResolvesActiveTournament(t *testing.T) {
 	}
 	if len(resp.Msg.Fighters) != 1 {
 		t.Fatalf("expected 1 fighter in active tournament roster, got %d", len(resp.Msg.Fighters))
+	}
+}
+
+func TestListRoster_FromApplication(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	_, err := c.svc.RegisterFromApplication(ctx, service.RegistrationInput{
+		TournamentID: tournamentID,
+		NominationID: nominationID,
+		OriginUserID: "applicant-1",
+		Name:         "From Application",
+		Club:         "Club A",
+	})
+	if err != nil {
+		t.Fatalf("RegisterFromApplication: %v", err)
+	}
+
+	_, err = c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Manual Fighter",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter: %v", err)
+	}
+
+	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("ListRoster: %v", err)
+	}
+	if len(resp.Msg.Fighters) != 2 {
+		t.Fatalf("expected 2 fighters, got %d", len(resp.Msg.Fighters))
+	}
+
+	var fromApp, manual *hemav1.Fighter
+	for _, f := range resp.Msg.Fighters {
+		switch f.Name {
+		case "From Application":
+			fromApp = f
+		case "Manual Fighter":
+			manual = f
+		}
+	}
+	if fromApp == nil || manual == nil {
+		t.Fatalf("expected both fighters in roster, got %+v", resp.Msg.Fighters)
+	}
+	if !fromApp.FromApplication {
+		t.Fatalf("expected FromApplication=true for fighter registered from application")
+	}
+	if manual.FromApplication {
+		t.Fatalf("expected FromApplication=false for manually created fighter")
 	}
 }
 

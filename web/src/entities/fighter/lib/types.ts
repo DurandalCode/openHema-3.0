@@ -36,6 +36,9 @@ export type Fighter = {
   participations: Participation[];
   createdAt: string;
   updatedAt: string;
+  // fromApplication — боец появился регистрацией заявки (true) либо заведён
+  // admin вручную (false). Признак, не идентификатор заявителя (спека 0026).
+  fromApplication: boolean;
 };
 
 // RosterEntry — элемент публичного состава номинации. Без id: публичная

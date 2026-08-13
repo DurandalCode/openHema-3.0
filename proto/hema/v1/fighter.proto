@@ -85,6 +85,11 @@ message Fighter {
   repeated Participation participations = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+  // from_application — боец появился регистрацией заявки (true) либо
+  // заведён admin вручную (false). Признак, а не идентификатор
+  // заявителя: origin_user_id наружу не отдаётся (спека 0007 отвязала
+  // бойца от учётки, спека 0026 NFR-2 связь не восстанавливает).
+  bool from_application = 10;
 }
 
 // RosterEntry — элемент публичного состава номинации. Без id/происхождения:

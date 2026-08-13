@@ -52,7 +52,7 @@
 | `UiTableRow` | `shared/ui/table-row.tsx` (новый) | новый компонент; спека 0025 добавила необязательный слот `node?: React.ReactNode` (рендерится вместо `text`/`sub`) — аддитивно, `cells`-API не сломано |
 | `UiAppShell` + `AdminShell`/`AdminShellLight` | `shared/ui/app-shell.tsx` (topbar: `brand/nav/userSlot`) + `shared/ui/page-header.tsx` (заголовок раздела, вынесен спекой 0024, FR-19) + `widgets/admin-shell/admin-shell.tsx` | тема через `next-themes`, nav — по реальным роутам `admin-nav-links.tsx` (не по хардкоду дизайна, там фантомный пункт «Пульт» и подпись «Арены» вместо «Площадки»); `PageHeader` рендерится самим экраном, не layout'ом — см. `web/AGENTS.md` |
 | `UiSideNav` | — не портируется | не используется реальными экранами, только «альтернатива» в галерее дизайна |
-| `UiFighterCard` | `features/fighter-management/ui/` (НЕ `shared/ui`, вопреки карте дизайн-проекта) | переносится со спекой `0026-fighters-redesign`, не с фундаментом |
+| `UiFighterCard` | `features/fighter-management/ui/fighter-card-dialog.tsx` (НЕ `shared/ui`, вопреки карте дизайн-проекта) | перенесена спекой `0026-fighters-redesign`, не фундаментом |
 
 Токены: дизайн вводит новую hex-палитру (красный акцент) и свою систему
 имён (`--bg-page`, `--fg`, ...), НЕ совпадающую с текущими shadcn/oklch
@@ -67,7 +67,7 @@
 | --- | --- | --- |
 | Пользователи | `docs/adr/0007-rbac-bootstrap.md`, `app/(admin)/admin/page.tsx`, `features/admin/ui/{users-screen,users-table,users-filters,user-row,create-admin-dialog}.tsx` (редизайн — спека 0024) | нет |
 | Заявки | `app/(admin)/admin/applications/page.tsx`, `features/application-review/ui/{applications-screen,applications-table,applications-filters,application-row,application-card-dialog,application-history,edit-application-dialog}.tsx`, `entities/application/lib/{state,types}.ts` (редизайн — спека 0025) | **да** — `ApplicationEvent.actor_display_name` (имя автора события истории; макет подписывает историю именами, наружу отдавался только `actor_id`); обогащение на чтении, без новой персистентности |
-| Бойцы | `entities/fighter`, `features/fighter-management/*`, `app/(admin)/admin/fighters/page.tsx` | нет |
+| Бойцы | `entities/fighter`, `features/fighter-management/*`, `app/(admin)/admin/fighters/page.tsx` (редизайн — спека 0026) | **да** — `Fighter.from_application` (признак происхождения бойца: из заявки/заведён вручную; `origin_user_id` хранится с 0007, наружу не отдавался); аддитивное поле, без новой персистентности |
 | Арены | `app/(admin)/admin/arenas/{page,[id]/page}.tsx`, `features/arena-management/*`, `entities/{arena,arena-live}` | нет |
 | Номинации (пропущен в github.md) | `app/(admin)/admin/nominations/page.tsx` (спека 0003) | нет |
 | Турнир и форматы | `app/(admin)/admin/{tournament,formats}/page.tsx`, `features/{tournament-settings,format-presets}/*` — **github.md ошибочно называет это «недостающими разделами», на деле готово целиком (спеки 0001, 0020)** | нет |

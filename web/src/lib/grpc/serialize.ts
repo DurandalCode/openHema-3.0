@@ -299,6 +299,7 @@ export function fighterToJson(fighter: Fighter | undefined): FighterDto | null {
       : [],
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
+    fromApplication: raw.fromApplication ?? false,
   };
 }
 
