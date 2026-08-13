@@ -37,7 +37,7 @@ function toggled<T>(set: Set<T>, value: T): Set<T> {
  * обрабатывается отдельно (название номинации, не счётчик), сюда попадает
  * только N ≥ 2.
  */
-function nominationsCountWord(n: number): string {
+export function nominationsCountWord(n: number): string {
   const mod100 = n % 100;
   if (mod100 >= 11 && mod100 <= 14) return "номинаций";
   const mod10 = n % 10;

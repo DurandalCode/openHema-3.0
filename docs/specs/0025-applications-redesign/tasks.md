@@ -137,7 +137,7 @@
 
 ## Волна 2 — join
 
-- [ ] T15. **Экран целиком (red→green)** —
+- [x] T15. **Экран целиком (red→green)** —
       `features/application-review/ui/applications-screen.test.tsx` (моки
       `useApplicationsOverview`, мутаций и `shared/lib/toast`): порядок
       очереди (AC-1), счётчики (AC-2), фильтры и предвыбор номинации
@@ -147,7 +147,7 @@
       фильтра (AC-15), шапка раздела (AC-13) → затем
       `ui/applications-screen.tsx`; подключить реальные импорты вместо
       заглушек трека C; удалить `ui/applications-overview.tsx`.
-- [ ] T16. **Сборка на роуте** —
+- [x] T16. **Сборка на роуте** —
       `app/(admin)/admin/applications/page.tsx`: рендерит
       `<ApplicationsScreen …>` (турнир, номинации, название турнира для
       крошки, предвыбранная номинация из `?nominationId=`), убрать
