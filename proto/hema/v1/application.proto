@@ -95,6 +95,9 @@ message ApplicationEvent {
   string actor_id = 2;
   google.protobuf.Timestamp occurred_at = 3;
   int32 sequence = 4;
+  // actor_display_name — отображаемое имя автора события, обогащённое из
+  // домена auth (в журнале не хранится). "" — имя недоступно.
+  string actor_display_name = 5;
 }
 
 // NominationParticipant — элемент публичного стартового листа номинации.
