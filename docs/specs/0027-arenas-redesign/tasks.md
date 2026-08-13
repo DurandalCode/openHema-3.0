@@ -34,13 +34,13 @@ web.
 
 ## Web — независимые куски (волна 1)
 
-- [ ] T1. **BFF-гейт архивации (red→green)** —
+- [x] T1. **BFF-гейт архивации (red→green)** —
       `app/api/admin/arenas/[id]/archive/route.test.ts`: при стоящем на
       площадке пуле ответ 409 несёт русскую формулировку «На площадке стоит
       пул — сначала снимите его на странице площадки» (spec FR-15, AC-10),
       `ArchiveArena` при этом не вызывается → затем правка текста в
       `route.ts`. Статус, порядок проверок и вызовы gRPC не меняются.
-- [ ] T2. **живой статус (red→green)** —
+- [x] T2. **живой статус (red→green)** —
       `entities/arena-live/lib/status.test.ts`: `arenaLiveStatus` на всех
       ветках — `board === null` и `pool === null` → «Свободна»; идущий бой →
       заголовок с парой, `detail` «номинация · пул · бой N из M · счёт» и
@@ -50,11 +50,11 @@ web.
       затем `entities/arena-live/lib/status.ts` поверх существующих
       `boutNumber`/`nextBout` (вторую реализацию «какой бой по счёту» не
       заводить).
-- [ ] T3. **формат длительности (red→green)** —
+- [x] T3. **формат длительности (red→green)** —
       `entities/arena/lib/format.test.ts`: `formatDurationLabel` (`180 →
       «3:00»`, `90 → «1:30»`, `0`, некруглые значения) → затем
       `entities/arena/lib/format.ts`.
-- [ ] T4. **панель таймера (red→green)** —
+- [x] T4. **панель таймера (red→green)** —
       `features/arena-timer/ui/TimerControls.test.tsx`: поля «Дефолт (с)» и
       его кнопки на панели **нет**, пуск/пауза/сброс/±секунды и swap сторон
       работают как раньше (spec FR-13, AC-8) → затем удалить из
