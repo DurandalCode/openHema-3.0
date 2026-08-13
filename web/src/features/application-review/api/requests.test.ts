@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   confirmPaymentRequest,
   editApplicationRequest,
+  getApplicationRequest,
   listApplicationsOverviewRequest,
   registerFighterRequest,
 } from "./requests";
@@ -135,6 +136,49 @@ describe("features/application-review/api/requests", () => {
       const result = await editApplicationRequest("a1", { club: "X" });
 
       expect(result).toEqual({ ok: false, error: "duplicate" });
+    });
+  });
+
+  describe("getApplicationRequest", () => {
+    it("GETs /api/applications/[id] and returns application + history", async () => {
+      const application = { id: "a1", state: "APPLICATION_STATE_PAID" };
+      const history = [{ type: "APPLICATION_EVENT_TYPE_SUBMITTED", actorId: "u1", actorDisplayName: "Иван" }];
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ application, history }),
+      });
+
+      const result = await getApplicationRequest("a1");
+
+      expect(result).toEqual({ ok: true, application, history });
+      expect(fetchMock).toHaveBeenCalledWith("/api/applications/a1", { method: "GET" });
+    });
+
+    it("defaults history to [] when omitted", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ application: { id: "a1" } }),
+      });
+
+      const result = await getApplicationRequest("a1");
+
+      expect(result).toEqual({ ok: true, application: { id: "a1" }, history: [] });
+    });
+
+    it("returns ok:false with server error", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "forbidden" }) });
+
+      const result = await getApplicationRequest("a1");
+
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    });
+
+    it("returns ok:false on network failure", async () => {
+      fetchMock.mockRejectedValue(new Error("network down"));
+
+      const result = await getApplicationRequest("a1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 });

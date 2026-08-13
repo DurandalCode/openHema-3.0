@@ -81,7 +81,7 @@
 
 ## Трек C — фича `application-review`
 
-- [ ] T8. **Отбор и порядок (red→green)** —
+- [x] T8. **Отбор и порядок (red→green)** —
       `features/application-review/lib/select-applications.test.ts`:
       `sortApplications` (группы очереди FR-6 и порядок внутри группы),
       `filterApplications` (статусы, номинации, экипировка, поиск по имени и
@@ -90,38 +90,38 @@
       (лимит не задан → пусто; ровно на границе → есть — FR-4),
       `rowAction` (действие либо текст-причина, FR-5) → затем
       `lib/select-applications.ts`.
-- [ ] T9. **История (red→green)** —
+- [x] T9. **История (red→green)** —
       `features/application-review/lib/history.test.ts`: порядок записей по
       времени, роль автора («заявитель» при совпадении с заявителем, иначе
       «организатор»), пустое имя → только роль без идентификатора (AC-12),
       ожидаемый шаг добавляется только для нетерминальных состояний (FR-18)
       → затем `lib/history.ts`.
-- [ ] T10. **API-слой (red→green)** —
+- [x] T10. **API-слой (red→green)** —
       `features/application-review/api/requests.test.ts`:
       `getApplicationRequest` зовёт `GET /api/applications/<id>` и
       возвращает `{application, history}`, сетевая ошибка → `ok: false` →
       затем `api/requests.ts`, `api/keys.ts` (`detail`),
       `api/use-application-detail.ts` (`enabled` по открытости карточки) и
       инвалидация `detail` в существующих мутациях.
-- [ ] T11. **Строка (red→green)** —
+- [x] T11. **Строка (red→green)** —
       `features/application-review/ui/application-row.test.tsx`: пять
       колонок, подстрока «состояние + дата» (FR-2), теги «номинация
       переполнена» и «нужна экипировка» (FR-4), действие либо причина
       (FR-5), приглушение терминальных и зачёркивание отозванной (FR-3),
       клик по строке открывает карточку, клик по кнопке — **не** открывает
       (AC-16) → затем `ui/application-row.tsx`.
-- [ ] T12. **Фильтры (red→green)** —
+- [x] T12. **Фильтры (red→green)** —
       `features/application-review/ui/applications-filters.test.tsx`: чипы
       статусов со счётчиками и множественным выбором (`aria-pressed`,
       AC-3), выпадающий список номинаций с подписью «Все номинации» /
       название / «N номинаций» (AC-4), чип экипировки, поиск с доступным
       именем, сброс всех фильтров → затем `ui/applications-filters.tsx`.
-- [ ] T13. **Таблица (red→green)** —
+- [x] T13. **Таблица (red→green)** —
       `features/application-review/ui/applications-table.test.tsx`: шапка из
       пяти колонок, строки в порядке `sortApplications`, скелетон в форме
       таблицы (FR-24), ошибка с повтором (FR-25), два разных пустых
       состояния (FR-26/AC-14) → затем `ui/applications-table.tsx`.
-- [ ] T14. **Карточка заявки (red→green)** —
+- [x] T14. **Карточка заявки (red→green)** —
       `features/application-review/ui/application-card-dialog.test.tsx`:
       шапка (имя, номинация, клуб), статус с пояснением, история с авторами
       и ожидаемым шагом (AC-9), предупреждение о переполнении, действие

@@ -5,4 +5,6 @@
 export const applicationReviewKeys = {
   overview: (tournamentId: string, status: number | null, nominationId: string | null) =>
     ["application-review", "overview", tournamentId, status, nominationId] as const,
+  /** detail — заявка с историей событий, запрашивается при открытии карточки (FR-20). */
+  detail: (applicationId: string) => ["application-review", "detail", applicationId] as const,
 };

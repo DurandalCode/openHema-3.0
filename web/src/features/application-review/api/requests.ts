@@ -1,4 +1,8 @@
 import type { Application, ApplicationState } from "@/entities/application/lib/types";
+// TEMPORARY (join-wave stub, see `../lib/state-stub.ts` header): once Track B
+// merges, `ApplicationEvent` itself carries `actorDisplayName` — replace this
+// import with `ApplicationEvent` from `@/entities/application/lib/types`.
+import type { ApplicationEventWithActor } from "../lib/state-stub";
 
 export type ApplicationListResult =
   | { ok: true; applications: Application[] }
@@ -120,6 +124,39 @@ export async function editApplicationRequest(
     }
     const data = (await res.json().catch(() => ({}))) as { application?: Application };
     return { ok: true, application: data.application as Application };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+export type ApplicationDetailResult =
+  | { ok: true; application: Application; history: ApplicationEventWithActor[] }
+  | { ok: false; error: string };
+
+/**
+ * getApplicationRequest — GET /api/applications/[id] (owner заявки либо
+ * admin, проверяется сервером). Заявка с историей событий — отдельно от
+ * сводного списка (spec FR-16/FR-20): запрашивается только при открытии
+ * карточки.
+ */
+export async function getApplicationRequest(applicationId: string): Promise<ApplicationDetailResult> {
+  try {
+    const res = await fetch(`/api/applications/${encodeURIComponent(applicationId)}`, {
+      method: "GET",
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as {
+      application?: Application;
+      history?: ApplicationEventWithActor[];
+    };
+    return {
+      ok: true,
+      application: data.application as Application,
+      history: data.history ?? [],
+    };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
