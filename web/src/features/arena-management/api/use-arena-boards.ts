@@ -46,7 +46,11 @@ export function useArenaBoards(activeArenas: Arena[]): Map<string, ArenaBoardSta
   activeArenas.forEach((arena, i) => {
     const result = results[i];
     map.set(arena.id, {
-      status: arenaLiveStatus(result.data ?? null),
+      // Пока не пришёл ни один ответ — «—», а не преждевременное «Свободна»
+      // (не врём результатом до первого разрешения запроса).
+      status: result.isPending
+        ? { kind: "unknown", title: "—", detail: null, pulse: false }
+        : arenaLiveStatus(result.data ?? null),
       isError: result.isError,
     });
   });
