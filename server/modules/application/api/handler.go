@@ -284,10 +284,11 @@ func toProtoHistory(history []service.HistoryEvent) []*hemav1.ApplicationEvent {
 	out := make([]*hemav1.ApplicationEvent, 0, len(history))
 	for _, ev := range history {
 		out = append(out, &hemav1.ApplicationEvent{
-			Type:       toProtoEventType(ev.Type),
-			ActorId:    ev.ActorID,
-			OccurredAt: timestamppb.New(ev.OccurredAt),
-			Sequence:   int32(ev.Sequence),
+			Type:             toProtoEventType(ev.Type),
+			ActorId:          ev.ActorID,
+			OccurredAt:       timestamppb.New(ev.OccurredAt),
+			Sequence:         int32(ev.Sequence),
+			ActorDisplayName: ev.ActorDisplayName,
 		})
 	}
 	return out

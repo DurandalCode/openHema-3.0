@@ -40,7 +40,7 @@
 
 ## Трек A — server (`modules/application`)
 
-- [ ] T2. **service (red→green)** —
+- [x] T2. **service (red→green)** —
       `modules/application/service/service_test.go`: `Get` отдаёт историю, в
       которой у события заявителя стоит его имя, у события админа — имя
       админа (оба из `testutil.FakeUserProvider`); неизвестный автор → пустое
@@ -48,7 +48,7 @@
       вызовов у фейка) → затем `HistoryEvent.ActorDisplayName` +
       обогащение в `Service.Get` (собрать уникальные `ActorID`, один вызов
       порта, разложить по записям). Домен и repo не трогать.
-- [ ] T3. **api (red→green)** — `modules/application/api/handler_test.go`:
+- [x] T3. **api (red→green)** — `modules/application/api/handler_test.go`:
       `GetApplication` отдаёт `actor_display_name` в записях истории; правила
       доступа (владелец — да, чужой — `PermissionDenied`, admin — да) не
       регрессируют (план, «Риски») → затем `toProtoHistory` в

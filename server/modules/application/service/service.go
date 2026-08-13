@@ -39,11 +39,15 @@ type Application struct {
 }
 
 // HistoryEvent — одна запись истории заявки (для GetApplication).
+// ActorDisplayName — обогащение на чтении (спека 0025, FR-19): не хранится в
+// журнале, резолвится батчем через UserProvider в Service.Get, как
+// ApplicantDisplayName у Application. Пустая строка — имя недоступно.
 type HistoryEvent struct {
-	Type       domain.EventType
-	ActorID    string
-	OccurredAt time.Time
-	Sequence   int
+	Type             domain.EventType
+	ActorID          string
+	OccurredAt       time.Time
+	Sequence         int
+	ActorDisplayName string
 }
 
 // Participant — элемент публичного стартового листа номинации.
@@ -293,11 +297,21 @@ func (s *Service) Get(ctx context.Context, callerID string, callerIsAdmin bool, 
 		return Application{}, nil, domain.ErrForbidden
 	}
 
-	out, err := s.enrich(ctx, app)
+	history := toHistory(events)
+
+	// Один батч на весь GetApplication: имя заявителя (для Application) и
+	// имена авторов истории (спека 0025, FR-19) резолвятся вместе — не по
+	// отдельному вызову на заявителя и на каждое событие.
+	ids := append(uniqueActorIDs(history), app.ApplicantUserID)
+	names, err := s.users.DisplayNames(ctx, dedupeIDs(ids))
 	if err != nil {
 		return Application{}, nil, err
 	}
-	return out, toHistory(events), nil
+	out := enrichWithNames(app, names)
+	for i := range history {
+		history[i].ActorDisplayName = names[history[i].ActorID]
+	}
+	return out, history, nil
 }
 
 // ListMy возвращает заявки текущего пользователя.
@@ -432,6 +446,14 @@ func (s *Service) enrich(ctx context.Context, app domain.Application) (Applicati
 	if err != nil {
 		return Application{}, err
 	}
+	return enrichWithNames(app, names), nil
+}
+
+// enrichWithNames — чистая часть enrich: раскладывает уже резолвленную карту
+// имён на Application, без обращения к порту. Вынесена, чтобы GetApplication
+// мог резолвить имя заявителя тем же батчем, что и имена авторов истории
+// (спека 0025, FR-19), не делая отдельный вызов DisplayNames.
+func enrichWithNames(app domain.Application, names map[string]string) Application {
 	return Application{
 		ID:                    app.ID,
 		NominationID:          app.NominationID,
@@ -444,7 +466,21 @@ func (s *Service) enrich(ctx context.Context, app domain.Application) (Applicati
 		ApplicantNameOverride: app.ApplicantNameOverride,
 		CreatedAt:             app.CreatedAt,
 		UpdatedAt:             app.UpdatedAt,
-	}, nil
+	}
+}
+
+// dedupeIDs убирает повторы, сохраняя порядок первого появления.
+func dedupeIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (s *Service) enrichViews(ctx context.Context, views []domain.ApplicationView) ([]Application, error) {
@@ -505,6 +541,19 @@ func toHistory(events []domain.Event) []HistoryEvent {
 			OccurredAt: ev.OccurredAt,
 			Sequence:   ev.Sequence,
 		})
+	}
+	return out
+}
+
+func uniqueActorIDs(history []HistoryEvent) []string {
+	seen := make(map[string]struct{}, len(history))
+	out := make([]string, 0, len(history))
+	for _, ev := range history {
+		if _, ok := seen[ev.ActorID]; ok {
+			continue
+		}
+		seen[ev.ActorID] = struct{}{}
+		out = append(out, ev.ActorID)
 	}
 	return out
 }
