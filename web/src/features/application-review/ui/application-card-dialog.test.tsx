@@ -164,9 +164,12 @@ describe("ApplicationCardDialog", () => {
   it("renders the history with authors and a muted next-step line (AC-9)", () => {
     render(<ApplicationCardDialog {...baseProps()} />);
 
-    expect(screen.getByText("Подана")).toBeInTheDocument();
+    expect(screen.getByText("Заявка подана")).toBeInTheDocument();
     expect(screen.getByText(/Кораблёва Анна/)).toBeInTheDocument();
-    expect(screen.getByText(/Боец зарегистрирован — ожидает действия секретаря/)).toBeInTheDocument();
+    // Текст встречается дважды: в пояснении к статусу (statusExplanation) и
+    // в приглушённой строке ожидаемого шага истории — оба легитимно выводят
+    // один и тот же nextExpectedStep (FR-16/FR-18).
+    expect(screen.getAllByText(/Боец зарегистрирован — ожидает действия секретаря/).length).toBeGreaterThan(0);
   });
 
   it("shows the overfull-nomination warning when applicable", () => {

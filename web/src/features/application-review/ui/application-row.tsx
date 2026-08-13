@@ -7,11 +7,8 @@ import { Tooltip } from "@/shared/ui/tooltip";
 import { cn } from "@/shared/lib/cn";
 import { formatDateTime, formatRelativeDay } from "@/shared/lib/datetime";
 import type { Application } from "@/entities/application/lib/types";
+import { isTerminal, stateCaption } from "@/entities/application/lib/state";
 import { rowAction } from "../lib/select-applications";
-// TEMPORARY (join-wave stub, see `../lib/state-stub.ts` header): once Track B
-// merges, import `stateCaption`/`isTerminal` from
-// `@/entities/application/lib/state` instead.
-import { isTerminal, stateCaption } from "../lib/state-stub";
 
 /**
  * ApplicationRow — строка таблицы «Заявки» (spec FR-1..FR-5): пять колонок

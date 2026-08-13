@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Application } from "@/entities/application/lib/types";
-import { historyEntries, type ApplicationEventWithActor } from "./history";
+import type { Application, ApplicationEvent } from "@/entities/application/lib/types";
+import { historyEntries } from "./history";
 
 function app(overrides: Partial<Application>): Application {
   return {
@@ -18,7 +18,7 @@ function app(overrides: Partial<Application>): Application {
   };
 }
 
-function ev(overrides: Partial<ApplicationEventWithActor>): ApplicationEventWithActor {
+function ev(overrides: Partial<ApplicationEvent>): ApplicationEvent {
   return {
     type: "APPLICATION_EVENT_TYPE_SUBMITTED",
     actorId: "fighter-1",
@@ -42,7 +42,7 @@ describe("historyEntries", () => {
     const eventEntries = entries.filter((e) => e.kind === "event");
 
     expect(eventEntries.map((e) => e.label)).toEqual([
-      "Подана",
+      "Заявка подана",
       "Оплата заявлена",
       "Оплата подтверждена",
     ]);
@@ -84,8 +84,8 @@ describe("historyEntries", () => {
 
     expect(last).toEqual({
       kind: "next-step",
-      label: "Боец зарегистрирован",
-      waitingOn: "ожидает действия секретаря",
+      label: "Боец зарегистрирован — ожидает действия секретаря",
+      waitingOn: "секретарь/организатор",
     });
   });
 

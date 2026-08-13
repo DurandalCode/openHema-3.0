@@ -1,8 +1,4 @@
-import type { Application, ApplicationState } from "@/entities/application/lib/types";
-// TEMPORARY (join-wave stub, see `../lib/state-stub.ts` header): once Track B
-// merges, `ApplicationEvent` itself carries `actorDisplayName` — replace this
-// import with `ApplicationEvent` from `@/entities/application/lib/types`.
-import type { ApplicationEventWithActor } from "../lib/state-stub";
+import type { Application, ApplicationEvent, ApplicationState } from "@/entities/application/lib/types";
 
 export type ApplicationListResult =
   | { ok: true; applications: Application[] }
@@ -130,7 +126,7 @@ export async function editApplicationRequest(
 }
 
 export type ApplicationDetailResult =
-  | { ok: true; application: Application; history: ApplicationEventWithActor[] }
+  | { ok: true; application: Application; history: ApplicationEvent[] }
   | { ok: false; error: string };
 
 /**
@@ -150,7 +146,7 @@ export async function getApplicationRequest(applicationId: string): Promise<Appl
     }
     const data = (await res.json().catch(() => ({}))) as {
       application?: Application;
-      history?: ApplicationEventWithActor[];
+      history?: ApplicationEvent[];
     };
     return {
       ok: true,

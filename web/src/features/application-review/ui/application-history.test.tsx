@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Application } from "@/entities/application/lib/types";
-import type { ApplicationEventWithActor } from "../lib/history";
+import type { Application, ApplicationEvent } from "@/entities/application/lib/types";
 import { ApplicationHistory } from "./application-history";
 
 afterEach(() => {
@@ -22,7 +21,7 @@ const application: Application = {
   updatedAt: "2026-03-20T00:00:00.000Z",
 };
 
-function ev(overrides: Partial<ApplicationEventWithActor>): ApplicationEventWithActor {
+function ev(overrides: Partial<ApplicationEvent>): ApplicationEvent {
   return {
     type: "APPLICATION_EVENT_TYPE_SUBMITTED",
     actorId: "fighter-1",
@@ -79,7 +78,7 @@ describe("ApplicationHistory", () => {
       <ApplicationHistory application={application} history={history} isLoading={false} error={null} onRetry={vi.fn()} />,
     );
 
-    expect(screen.getByText("Подана")).toBeInTheDocument();
+    expect(screen.getByText("Заявка подана")).toBeInTheDocument();
     expect(screen.getByText("Оплата заявлена")).toBeInTheDocument();
     expect(screen.getByText("Оплата подтверждена")).toBeInTheDocument();
     expect(screen.getAllByText(/Иван Петров/).length).toBeGreaterThan(0);

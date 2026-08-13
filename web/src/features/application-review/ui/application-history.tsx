@@ -2,8 +2,8 @@
 
 import { Button } from "@/shared/ui/button";
 import { formatDateTime } from "@/shared/lib/datetime";
-import type { Application } from "@/entities/application/lib/types";
-import { historyEntries, type ApplicationEventWithActor } from "../lib/history";
+import type { Application, ApplicationEvent } from "@/entities/application/lib/types";
+import { historyEntries } from "../lib/history";
 
 const ROLE_LABEL = { applicant: "заявитель", organizer: "организатор" } as const;
 
@@ -23,7 +23,7 @@ export function ApplicationHistory({
   onRetry,
 }: {
   application: Application;
-  history: ApplicationEventWithActor[];
+  history: ApplicationEvent[];
   isLoading: boolean;
   error: Error | null;
   onRetry: () => void;
@@ -68,9 +68,7 @@ export function ApplicationHistory({
         ) : (
           <li key={i} className="flex items-start gap-2 text-sm opacity-60">
             <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground" />
-            <span>
-              {entry.label} — {entry.waitingOn}
-            </span>
+            <span>{entry.label}</span>
           </li>
         ),
       )}

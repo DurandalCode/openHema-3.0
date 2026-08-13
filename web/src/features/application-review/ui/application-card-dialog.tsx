@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Col } from "@/shared/ui/stack";
-import { stateLabel } from "@/entities/application/lib/state";
+import { isTerminal, nextExpectedStep, stateLabel } from "@/entities/application/lib/state";
 import type { Application, ApplicationState } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
@@ -21,10 +21,6 @@ import { useApplicationDetail } from "../api/use-application-detail";
 import { useConfirmPayment } from "../api/use-confirm-payment";
 import { useRegisterFighter } from "../api/use-register-fighter";
 import { rowAction } from "../lib/select-applications";
-// TEMPORARY (join-wave stub, see `../lib/state-stub.ts` header): once
-// Track B merges, import `isTerminal`/`nextExpectedStep` from
-// `@/entities/application/lib/state` instead.
-import { isTerminal, nextExpectedStep } from "../lib/state-stub";
 import { ApplicationHistory } from "./application-history";
 import { EditApplicationDialog } from "./edit-application-dialog";
 
@@ -37,7 +33,7 @@ function statusExplanation(state: ApplicationState): string {
     return "Боец зарегистрирован — терминальное состояние заявки.";
   }
   const next = nextExpectedStep(state);
-  return next ? `Далее: «${next.label}» — ${next.waitingOn}.` : "";
+  return next ? `Далее: ${next.label}.` : "";
 }
 
 /**

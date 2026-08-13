@@ -1,16 +1,5 @@
-import type { Application } from "@/entities/application/lib/types";
-// TEMPORARY (join-wave stub, see `./state-stub.ts` header): `eventLabel`,
-// `isTerminal`, `nextExpectedStep` and `ApplicationEventWithActor` live in
-// entities/application/lib/state.ts (+ lib/types.ts) once Track B merges —
-// replace this import accordingly at join time (tasks.md T15).
-import {
-  eventLabel,
-  isTerminal,
-  nextExpectedStep,
-  type ApplicationEventWithActor,
-} from "./state-stub";
-
-export type { ApplicationEventWithActor };
+import type { Application, ApplicationEvent } from "@/entities/application/lib/types";
+import { eventLabel, isTerminal, nextExpectedStep } from "@/entities/application/lib/state";
 
 export type HistoryEntry =
   | {
@@ -33,7 +22,7 @@ export type HistoryEntry =
  */
 export function historyEntries(
   application: Application,
-  history: ApplicationEventWithActor[],
+  history: ApplicationEvent[],
 ): HistoryEntry[] {
   const sorted = [...history].sort((a, b) => a.sequence - b.sequence);
 
