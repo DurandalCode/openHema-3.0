@@ -17,7 +17,6 @@ export function useCreateAdmin() {
       return res.user;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.admins });
       qc.invalidateQueries({ queryKey: adminKeys.users });
     },
   });

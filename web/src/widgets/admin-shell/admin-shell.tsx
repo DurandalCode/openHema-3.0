@@ -12,8 +12,9 @@ import { AdminNavLinks } from "./admin-nav-links";
  * повторный вызов нужен для прокидывания `UserMenu`; дублирование —
  * существующий паттерн, см. `widgets/navbar/navbar.tsx`).
  *
- * Header-слоты `AppShell` (crumb/title/status/meta/action/secondary) — вне
- * скоупа 0022, заполняются экранными спеками `0024`+.
+ * Строку заголовка раздела (крошка/заголовок/счётчик/действия) `AppShell`
+ * больше не рендерит — с спеки 0024 (FR-19) это `shared/ui/page-header.tsx`,
+ * которую рендерит сам экран.
  */
 export async function AdminShell() {
   const user = await getCurrentUser();
