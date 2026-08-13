@@ -40,3 +40,95 @@ export function fromLocalInputValue(value: string): string | null {
   if (Number.isNaN(date.getTime())) return null;
   return dateToIso(date);
 }
+
+const MONTHS_SHORT = [
+  "янв",
+  "фев",
+  "мар",
+  "апр",
+  "май",
+  "июн",
+  "июл",
+  "авг",
+  "сен",
+  "окт",
+  "ноя",
+  "дек",
+];
+
+const MONTHS_GENITIVE = [
+  "января",
+  "февраля",
+  "марта",
+  "апреля",
+  "мая",
+  "июня",
+  "июля",
+  "августа",
+  "сентября",
+  "октября",
+  "ноября",
+  "декабря",
+];
+
+/** Порог (в днях), ниже которого разница показывается как «N дней назад». */
+const RELATIVE_DAYS_THRESHOLD = 7;
+
+function daysAgoWord(days: number): string {
+  if (days % 10 === 1 && days % 100 !== 11) return "день";
+  if ([2, 3, 4].includes(days % 10) && ![12, 13, 14].includes(days % 100)) {
+    return "дня";
+  }
+  return "дней";
+}
+
+function startOfLocalDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+/**
+ * formatRelativeDay — колонка «Регистрация» (FR-2 спеки 0024): «сегодня» /
+ * «вчера» / «N дней назад» (небольшое N) / далее «18 мар» (в этом
+ * календарном году) / «18 мар 2025» (в прошлом году). `now` передаётся
+ * явно, чтобы вызов не зависел от системных часов; по умолчанию — текущее
+ * время. Пусто/невалидная строка → `""`.
+ */
+export function formatRelativeDay(
+  iso: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  const date = parseIsoToDate(iso);
+  if (!date) return "";
+
+  const diffDays = Math.round(
+    (startOfLocalDay(now) - startOfLocalDay(date)) / 86_400_000,
+  );
+
+  if (diffDays === 0) return "сегодня";
+  if (diffDays === 1) return "вчера";
+  if (diffDays >= 2 && diffDays < RELATIVE_DAYS_THRESHOLD) {
+    return `${diffDays} ${daysAgoWord(diffDays)} назад`;
+  }
+
+  const day = date.getDate();
+  const month = MONTHS_SHORT[date.getMonth()];
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${day} ${month}`;
+  }
+  return `${day} ${month} ${date.getFullYear()}`;
+}
+
+/**
+ * formatDateTime — полная дата и время для подсказки при наведении (FR-2
+ * спеки 0024), например «12 августа 2026, 14:30». Пусто/невалидная строка
+ * → `""`.
+ */
+export function formatDateTime(iso: string | null | undefined): string {
+  const date = parseIsoToDate(iso);
+  if (!date) return "";
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = date.getDate();
+  const month = MONTHS_GENITIVE[date.getMonth()];
+  return `${day} ${month} ${date.getFullYear()}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   dateToIso,
+  formatDateTime,
+  formatRelativeDay,
   fromLocalInputValue,
   parseIsoToDate,
   toLocalInputValue,
@@ -68,5 +70,61 @@ describe("datetime (FR-12)", () => {
       const iso = dateToIso(date);
       expect(parseIsoToDate(iso)?.getTime()).toBe(date.getTime());
     });
+  });
+});
+
+// FR-2 (спека 0024): колонка «Регистрация» — относительная дата с полной
+// датой+временем в подсказке. `now` передаётся явно, чтобы тесты не зависели
+// от системных часов; ISO-строки — без "Z" (local date-time form), так и
+// `iso`, и `now` разбираются в один и тот же локальный календарный день
+// независимо от таймзоны машины, на которой запущен тест.
+describe("formatRelativeDay (FR-2)", () => {
+  const now = new Date(2026, 7, 13, 12, 0, 0);
+
+  it('returns "сегодня" for a timestamp earlier the same day', () => {
+    expect(formatRelativeDay("2026-08-13T08:00:00", now)).toBe("сегодня");
+  });
+
+  it('returns "вчера" for a timestamp the previous calendar day', () => {
+    expect(formatRelativeDay("2026-08-12T20:00:00", now)).toBe("вчера");
+  });
+
+  it('returns "N дней назад" for a small number of days ago', () => {
+    expect(formatRelativeDay("2026-08-10T08:00:00", now)).toBe("3 дня назад");
+    expect(formatRelativeDay("2026-08-08T08:00:00", now)).toBe(
+      "5 дней назад",
+    );
+  });
+
+  it('returns "day month" without a year for dates further back this calendar year', () => {
+    expect(formatRelativeDay("2026-03-18T08:00:00", now)).toBe("18 мар");
+  });
+
+  it('returns "day month year" for dates in a previous year', () => {
+    expect(formatRelativeDay("2025-03-18T08:00:00", now)).toBe("18 мар 2025");
+  });
+
+  it("returns an empty string for empty/invalid input", () => {
+    expect(formatRelativeDay("", now)).toBe("");
+    expect(formatRelativeDay("not-a-date", now)).toBe("");
+  });
+});
+
+describe("formatDateTime (FR-2)", () => {
+  it("formats a full date and time for a tooltip", () => {
+    expect(formatDateTime("2026-08-12T14:30:00")).toBe(
+      "12 августа 2026, 14:30",
+    );
+  });
+
+  it("pads single-digit hours and minutes", () => {
+    expect(formatDateTime("2026-01-05T09:05:00")).toBe(
+      "5 января 2026, 09:05",
+    );
+  });
+
+  it("returns an empty string for empty/invalid input", () => {
+    expect(formatDateTime("")).toBe("");
+    expect(formatDateTime("not-a-date")).toBe("");
   });
 });

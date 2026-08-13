@@ -13,7 +13,6 @@ export const ADMIN_NAV_ITEMS = [
   { title: "Площадки", href: "/admin/arenas" },
   { title: "Заявки", href: "/admin/applications" },
   { title: "Бойцы", href: "/admin/fighters" },
-  { title: "+ Создать админа", href: "/admin/create" },
 ] as const;
 
 /**

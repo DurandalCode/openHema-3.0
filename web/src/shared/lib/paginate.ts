@@ -40,3 +40,26 @@ export function paginationWindow(
   }
   return result;
 }
+
+/**
+ * pageSlice — чистая нарезка уже загруженного списка на страницу заданного
+ * размера (FR-23). Страница вне диапазона (в т.ч. `page <= 0`) → пустой
+ * массив, без клампа — клампить вызывающая сторона должна сама через
+ * `clampPage`, если хочет "прилипание" к границе.
+ */
+export function pageSlice<T>(items: T[], page: number, size: number): T[] {
+  if (size <= 0 || page <= 0) return [];
+  const start = (page - 1) * size;
+  if (start >= items.length) return [];
+  return items.slice(start, start + size);
+}
+
+/**
+ * clampPage — зажимает номер страницы в диапазон `[1, pageCount]`. При
+ * `pageCount <= 0` (пустой список) возвращает `1` — единственная валидная
+ * "первая" страница пустого состояния.
+ */
+export function clampPage(page: number, pageCount: number): number {
+  if (pageCount <= 0) return 1;
+  return Math.min(Math.max(page, 1), pageCount);
+}

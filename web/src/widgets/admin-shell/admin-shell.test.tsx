@@ -43,4 +43,12 @@ describe("AdminNavLinks", () => {
     render(<AdminNavLinks />);
     expect(screen.queryByRole("link", { name: "Пульт" })).toBeNull();
   });
+
+  it("does not render '+ Создать админа' — creation moved into a modal on the users screen (спека 0024, AC-12)", () => {
+    pathname = "/admin";
+    render(<AdminNavLinks />);
+    expect(
+      screen.queryByRole("link", { name: "+ Создать админа" }),
+    ).toBeNull();
+  });
 });
