@@ -1,4 +1,5 @@
 import type { Nomination } from "@/entities/nomination/lib/types";
+import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
 
 export type NominationInput = {
   title: string;
@@ -9,7 +10,7 @@ export type NominationInput = {
 
 export type NominationResult =
   | { ok: true; nomination: Nomination }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export type NominationListResult =
   | { ok: true; nominations: Nomination[] }
@@ -17,49 +18,24 @@ export type NominationListResult =
 
 export type DeleteResult = { ok: true } | { ok: false; error: string };
 
-export type PoolLayoutStatus = {
-  status: string;
-  canUndo: boolean;
-  // hasDistributedFighters — есть ли хотя бы один распределённый боец в
-  // раскладке (спека 0012, FR-9/AC-12/AC-16) — определяет доступность
-  // кнопки «Открыть приём» (canReopen) независимо от status раскладки.
-  hasDistributedFighters: boolean;
-};
-
-export type PoolLayoutStatusResult =
-  | { ok: true; status: PoolLayoutStatus }
+export type NominationStagesResult =
+  | { ok: true; stages: Stage[]; issues: SchemaIssue[] }
   | { ok: false; error: string };
 
-/**
- * getPoolLayoutStatusRequest — GET /api/nominations/[id]/pool-status (только
- * admin): тонкий срез раскладки пулов (status + canUndo) для бейджа статуса в
- * списке номинаций.
- */
-export async function getPoolLayoutStatusRequest(
+/** listNominationStagesRequest — GET /api/nominations/[id]/stages (только admin). */
+export async function listNominationStagesRequest(
   nominationId: string,
-): Promise<PoolLayoutStatusResult> {
+): Promise<NominationStagesResult> {
   try {
-    const res = await fetch(
-      `/api/nominations/${encodeURIComponent(nominationId)}/pool-status`,
-      { method: "GET" },
-    );
+    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
+      method: "GET",
+    });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? "Ошибка запроса" };
     }
-    const data = (await res.json().catch(() => ({}))) as {
-      status?: string;
-      canUndo?: boolean;
-      hasDistributedFighters?: boolean;
-    };
-    return {
-      ok: true,
-      status: {
-        status: data.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED",
-        canUndo: data.canUndo ?? false,
-        hasDistributedFighters: data.hasDistributedFighters ?? false,
-      },
-    };
+    const data = (await res.json().catch(() => ({}))) as { stages?: Stage[]; issues?: SchemaIssue[] };
+    return { ok: true, stages: data.stages ?? [], issues: data.issues ?? [] };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
@@ -174,13 +150,19 @@ async function sendNomination(
   }
 }
 
-/** postNominationAction — POST без тела (close/reopen-registration). */
+/**
+ * postNominationAction — POST без тела (close/reopen-registration).
+ * В ветке отказа прокидывает HTTP-статус (спека 0028, T4): на 409
+ * `ReopenRegistration` от сервера (`FailedPrecondition`) строится русское
+ * объяснение (`registrationErrorMessage`), а не показывается техническая
+ * строка сервера.
+ */
 async function postNominationAction(url: string): Promise<NominationResult> {
   try {
     const res = await fetch(url, { method: "POST" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { nomination?: Nomination };
     return { ok: true, nomination: data.nomination as Nomination };

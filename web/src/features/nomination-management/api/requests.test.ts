@@ -4,7 +4,7 @@ import {
   closeRegistrationRequest,
   createNominationRequest,
   deleteNominationRequest,
-  getPoolLayoutStatusRequest,
+  listNominationStagesRequest,
   listNominationsRequest,
   reopenRegistrationRequest,
   reorderNominationsRequest,
@@ -137,54 +137,32 @@ describe("features/nomination-management/api/requests", () => {
     });
   });
 
-  describe("getPoolLayoutStatusRequest", () => {
-    it("GETs /api/nominations/[id]/pool-status and returns status slice on 2xx", async () => {
+  describe("listNominationStagesRequest", () => {
+    it("GETs /api/nominations/[id]/stages and returns stages+issues on 2xx", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({
-          status: "POOL_LAYOUT_STATUS_READY",
-          canUndo: true,
-          hasDistributedFighters: true,
+          stages: [{ id: "s1", title: "Группы" }],
+          issues: [{ severity: "SCHEMA_ISSUE_SEVERITY_ERROR", message: "bad" }],
         }),
       });
 
-      const result = await getPoolLayoutStatusRequest("n1");
+      const result = await listNominationStagesRequest("n1");
 
       expect(result).toEqual({
         ok: true,
-        status: {
-          status: "POOL_LAYOUT_STATUS_READY",
-          canUndo: true,
-          hasDistributedFighters: true,
-        },
+        stages: [{ id: "s1", title: "Группы" }],
+        issues: [{ severity: "SCHEMA_ISSUE_SEVERITY_ERROR", message: "bad" }],
       });
-      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/pool-status", {
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1/stages", {
         method: "GET",
-      });
-    });
-
-    it("defaults hasDistributedFighters to false when omitted", async () => {
-      fetchMock.mockResolvedValue({
-        ok: true,
-        json: async () => ({ status: "POOL_LAYOUT_STATUS_DRAFT", canUndo: false }),
-      });
-
-      const result = await getPoolLayoutStatusRequest("n1");
-
-      expect(result).toEqual({
-        ok: true,
-        status: {
-          status: "POOL_LAYOUT_STATUS_DRAFT",
-          canUndo: false,
-          hasDistributedFighters: false,
-        },
       });
     });
 
     it("returns ok:false with server error on 4xx", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "forbidden" }) });
 
-      const result = await getPoolLayoutStatusRequest("n1");
+      const result = await listNominationStagesRequest("n1");
 
       expect(result).toEqual({ ok: false, error: "forbidden" });
     });
@@ -192,7 +170,7 @@ describe("features/nomination-management/api/requests", () => {
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
 
-      const result = await getPoolLayoutStatusRequest("n1");
+      const result = await listNominationStagesRequest("n1");
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
@@ -252,15 +230,18 @@ describe("features/nomination-management/api/requests", () => {
     });
 
     // Спека 0012, AC-9/AC-16: сервер отвечает 409, если раскладка активна.
-    it("returns ok:false with server error on 409", async () => {
+    // Спека 0028, T4: HTTP-статус прокидывается наружу — на нём строится
+    // русское объяснение отказа (registrationErrorMessage).
+    it("returns ok:false with server error and status on 409", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 409,
         json: async () => ({ error: "cannot reopen registration" }),
       });
 
       const result = await reopenRegistrationRequest("n1");
 
-      expect(result).toEqual({ ok: false, error: "cannot reopen registration" });
+      expect(result).toEqual({ ok: false, error: "cannot reopen registration", status: 409 });
     });
 
     it("returns network error when fetch throws", async () => {
