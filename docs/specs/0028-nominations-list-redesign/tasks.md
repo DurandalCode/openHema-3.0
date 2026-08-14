@@ -84,7 +84,7 @@ management/api/*`, включая удаление мёртвого вызова
 
 ## Web — экран (волна 2)
 
-- [ ] T6. **строка (red→green)** —
+- [x] T6. **строка (red→green)** —
       `features/nomination-management/ui/nomination-row.test.tsx`: шесть
       колонок (AC-1), статус приёма текстом на всех четырёх значениях
       (AC-2), сводка схемы и «Схема не задана» (AC-3), маркер «N ошибок»
@@ -93,17 +93,17 @@ management/api/*`, включая удаление мёртвого вызова
       никуда не уводит (AC-14), «Открыть приём» недоступно в фазе боёв с
       объяснением (AC-10) → затем `ui/nomination-row.tsx` на `TableRow`
       (+ `ui/nomination-schema-cell.tsx`, если ячейка вырастет).
-- [ ] T7. **таблица (red→green)** — `ui/nominations-table.test.tsx`:
+- [x] T7. **таблица (red→green)** — `ui/nominations-table.test.tsx`:
       скелетон в форме таблицы, ошибка загрузки с кнопкой повтора, пустое
       состояние с подсказкой завести первую номинацию (AC-15) → затем
       `ui/nominations-table.tsx` (`TableHead` + строки).
-- [ ] T8. **модалки (red→green)** — `ui/create-nomination-dialog.test.tsx`
+- [x] T8. **модалки (red→green)** — `ui/create-nomination-dialog.test.tsx`
       (пустое название → инлайн-ошибка, модалка не закрывается; успех →
       тост — AC-7) и `ui/edit-nomination-dialog.test.tsx` (правка описания
       и вместимости уходит в мутацию, «не задано» отличается от 0 — AC-8)
       → затем обе модалки по образцу `create-arena-dialog.tsx` /
       `edit-arena-dialog.tsx` (0027).
-- [ ] T9. **экран и роут (red→green)** — `ui/nominations-screen.test.tsx`
+- [x] T9. **экран и роут (red→green)** — `ui/nominations-screen.test.tsx`
       (моки `useNominations`, `useNominationSchemas`, мутаций и
       `shared/lib/toast`): шапка с крошкой, заголовком «Номинации» и
       счётчиком «N номинаций · M с открытым приёмом» (AC-6), подпись о
@@ -118,9 +118,9 @@ management/api/*`, включая удаление мёртвого вызова
 
 ## Проверка
 
-- [ ] T10. `make test-all` зелёный (сервер не задет — подтверждаем, а не
+- [x] T10. `make test-all` зелёный (сервер не задет — подтверждаем, а не
       правим).
-- [ ] T11. `pnpm exec tsc --noEmit` + `pnpm build` + `go build ./...`.
+- [x] T11. `pnpm exec tsc --noEmit` + `pnpm build` + `go build ./...`.
 - [ ] T12. Ручной смоук на `make dev` (+ `make demo-bouts` для номинации в
       фазе боёв): открыть `/admin/nominations` — убедиться, что **запросов
       `pool-status` в сетевом логе нет** (AC-16), сводка схемы совпадает с
