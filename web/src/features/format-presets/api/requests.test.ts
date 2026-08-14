@@ -115,13 +115,14 @@ describe("features/format-presets/api/requests", () => {
       });
     });
 
-    it("returns ok:false with server error on 4xx", async () => {
+    it("returns ok:false with server error and status on 4xx", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 409,
         json: async () => ({ error: "preset name is already taken" }),
       });
       const result = await renameFormatPresetRequest("p1", "Дубль");
-      expect(result).toEqual({ ok: false, error: "preset name is already taken" });
+      expect(result).toEqual({ ok: false, error: "preset name is already taken", status: 409 });
     });
 
     it("returns network error when fetch throws", async () => {
@@ -139,10 +140,10 @@ describe("features/format-presets/api/requests", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/formats/p1", { method: "DELETE" });
     });
 
-    it("returns ok:false with server error on 4xx", async () => {
-      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "not found" }) });
+    it("returns ok:false with server error and status on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({ error: "not found" }) });
       const result = await deleteFormatPresetRequest("p1");
-      expect(result).toEqual({ ok: false, error: "not found" });
+      expect(result).toEqual({ ok: false, error: "not found", status: 404 });
     });
 
     it("returns network error when fetch throws", async () => {
