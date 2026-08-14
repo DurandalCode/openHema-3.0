@@ -5,7 +5,7 @@
  * заводим.
  */
 
-import type { FormatPreset, FormatStageSpec, SeedingRule, Stage, StageType } from "./types";
+import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage, StageType } from "./types";
 
 export function stageTypeLabel(type: StageType): string {
   switch (type) {
@@ -92,20 +92,32 @@ export function groupStagesByLevel<T extends Pick<Stage, "position" | "title">>(
 }
 
 /**
+ * stageTypeSummary — общая форма «тип + ключевой параметр» («Группы (2)»,
+ * «Сетка (8)»), над которой строятся и `formatStageSpecSummary` (пресеты,
+ * `FormatStageSpec` — конфиги всегда объекты), и `stageSchemaSummary` (живые
+ * `Stage` номинации — `groups`/`bracket` нулевые, если этап другого типа).
+ * Групповой этап без заданного числа групп (0019, FR-9) подписывается просто
+ * «Группы» — число ещё не выбрано.
+ */
+function stageTypeSummary(spec: { type: StageType; groupCount: number; bracketSize: number }): string {
+  switch (spec.type) {
+    case "STAGE_TYPE_GROUPS":
+      return spec.groupCount > 0 ? `Группы (${spec.groupCount})` : "Группы";
+    case "STAGE_TYPE_BRACKET":
+      return `Сетка (${spec.bracketSize})`;
+    default:
+      return "—";
+  }
+}
+
+/**
  * formatStageSpecSummary — краткая подпись одного этапа пресета: тип +
  * ключевой параметр конфига («Группы (2)», «Сетка (8)»). Групповой этап без
  * заданного числа групп (0019, FR-9) подписывается просто «Группы» — число
  * ещё не выбрано.
  */
 function formatStageSpecSummary(stage: FormatStageSpec): string {
-  switch (stage.type) {
-    case "STAGE_TYPE_GROUPS":
-      return stage.groups.groupCount > 0 ? `Группы (${stage.groups.groupCount})` : "Группы";
-    case "STAGE_TYPE_BRACKET":
-      return `Сетка (${stage.bracket.size})`;
-    default:
-      return "—";
-  }
+  return stageTypeSummary({ type: stage.type, groupCount: stage.groups.groupCount, bracketSize: stage.bracket.size });
 }
 
 /**
@@ -121,4 +133,45 @@ function formatStageSpecSummary(stage: FormatStageSpec): string {
 export function formatPresetSummary(preset: FormatPreset): string {
   if (preset.stages.length === 0) return "";
   return preset.stages.map(formatStageSpecSummary).join(" → ");
+}
+
+/**
+ * stageSchemaSummary — краткая сводка схемы этапов номинации для колонки
+ * списка (спека 0028, FR-5), например «Группы (4) → Сетка (8)»: уровни
+ * (`groupStagesByLevel`, 0019, FR-10) идут через « → », параллельные ветки
+ * одного уровня — через « + ». Пустая строка — когда схемы фактически нет
+ * (спека 0028, FR-5): этапов нет вовсе либо единственный этап — групповой
+ * без заданного числа групп (авто-этап, 0017, FR-4 / 0019, FR-9). Подпись
+ * «Схема не задана» — забота вызывающего UI, не этой функции (см. plan.md).
+ */
+export function stageSchemaSummary(stages: Stage[]): string {
+  if (stages.length === 0) return "";
+  if (stages.length === 1) {
+    const [only] = stages;
+    if (only.type === "STAGE_TYPE_GROUPS" && (only.groups === null || only.groups.groupCount === 0)) {
+      return "";
+    }
+  }
+  return groupStagesByLevel(stages)
+    .map((level) =>
+      level
+        .map((stage) =>
+          stageTypeSummary({
+            type: stage.type,
+            groupCount: stage.groups?.groupCount ?? 0,
+            bracketSize: stage.bracket?.size ?? 0,
+          }),
+        )
+        .join(" + "),
+    )
+    .join(" → ");
+}
+
+/**
+ * schemaErrorCount — число проблем схемы уровня «ошибка» (спека 0028,
+ * FR-5/AC-4): предупреждения и информационные пункты в списке номинаций не
+ * показываются, их место — экран схемы (0031/0032).
+ */
+export function schemaErrorCount(issues: SchemaIssue[]): number {
+  return issues.filter((issue) => issue.severity === "SCHEMA_ISSUE_SEVERITY_ERROR").length;
 }

@@ -4,8 +4,9 @@
  */
 export const nominationManagementKeys = {
   list: (tournamentId: string) => ["nomination-management", "list", tournamentId] as const,
-  // poolLayoutStatus — статус раскладки бойцов по пулам для одной номинации
-  // (draft/ready/...); используется списком номинаций для бейджа статуса.
-  poolLayoutStatus: (nominationId: string) =>
-    ["nomination-management", "pool-status", nominationId] as const,
+  // stages — этапы + диагностика схемы одной номинации (спека 0028,
+  // FR-5/FR-6). Ключ свой, не переиспользует ключ `features/stage-management`
+  // (тот инвалидируется мутациями схемы соседней фичи — общий ключ связал бы
+  // два экрана скрытой зависимостью, см. plan.md).
+  stages: (nominationId: string) => ["nomination-management", "stages", nominationId] as const,
 };

@@ -3,20 +3,24 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { reopenRegistrationRequest } from "./requests";
 import { nominationManagementKeys } from "./keys";
+import { registrationErrorMessage } from "./registration-gate";
 
 /**
  * useReopenRegistration — мутация открытия приёма заявок обратно (спека
- * 0012, FR-3/FR-4). Сервер отклоняет `FailedPrecondition` (маппится в 409 →
- * `Error` с сообщением сервера), если закрытие было не ручным или раскладка
- * сейчас активна (AC-9/AC-16) — кнопка в UI и так недоступна в этом случае
- * (`canReopen`), но мутация остаётся defensive.
+ * 0012, FR-3/FR-4). Кнопка в UI недоступна, когда клиентский гейт не
+ * пропускает (`canReopen`, спека 0028), но мутация остаётся defensive —
+ * сервер отклоняет `FailedPrecondition` (→ HTTP 409), если закрытие было не
+ * ручным или сейчас есть распределённые бойцы (0012, FR-4). `res.status`
+ * прокидывается через `registrationErrorMessage` (0028, FR-14/AC-11) —
+ * единственное место, где 409 переводится в фиксированную русскую
+ * формулировку вместо показа технической строки сервера.
  */
 export function useReopenRegistration(tournamentId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
       const res = await reopenRegistrationRequest(id);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(registrationErrorMessage(res.error, res.status));
       return res.nomination;
     },
     onSuccess: () => {

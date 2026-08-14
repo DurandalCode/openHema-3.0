@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatPresetSummary, groupStagesByLevel, stageRuleLabel, stageTypeLabel } from "./labels";
-import type { FormatPreset, FormatStageSpec, SeedingRule, Stage } from "./types";
+import { formatPresetSummary, groupStagesByLevel, schemaErrorCount, stageRuleLabel, stageSchemaSummary, stageTypeLabel } from "./labels";
+import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage } from "./types";
 
 describe("entities/stage/lib/labels stageTypeLabel", () => {
   it("labels a group stage", () => {
@@ -189,5 +189,86 @@ describe("entities/stage/lib/labels formatPresetSummary", () => {
       }),
     ]);
     expect(formatPresetSummary(preset)).toBe("Группы (2) → Сетка (8) → Сетка (8)");
+  });
+});
+
+describe("entities/stage/lib/labels stageSchemaSummary", () => {
+  it("returns an empty string for a nomination with no stages", () => {
+    expect(stageSchemaSummary([])).toBe("");
+  });
+
+  it("returns an empty string for a single auto-stage without a set group count (groups: null)", () => {
+    const stages = [stage({ id: "auto", position: 0, type: "STAGE_TYPE_GROUPS", groups: null, bracket: null })];
+    expect(stageSchemaSummary(stages)).toBe("");
+  });
+
+  it("returns an empty string for a single group stage with groupCount 0", () => {
+    const stages = [stage({ id: "auto", position: 0, type: "STAGE_TYPE_GROUPS", groups: { groupCount: 0 }, bracket: null })];
+    expect(stageSchemaSummary(stages)).toBe("");
+  });
+
+  it("summarizes a single fully-configured stage without an arrow", () => {
+    const stages = [stage({ id: "bracket", position: 0, type: "STAGE_TYPE_BRACKET", groups: null, bracket: { size: 8, thirdPlace: true } })];
+    expect(stageSchemaSummary(stages)).toBe("Сетка (8)");
+  });
+
+  it("joins two sequential stages with ' → ' (AC-3)", () => {
+    const stages = [
+      stage({ id: "groups", position: 0, type: "STAGE_TYPE_GROUPS", groups: { groupCount: 4 }, bracket: null }),
+      stage({ id: "bracket", position: 1, type: "STAGE_TYPE_BRACKET", groups: null, bracket: { size: 8, thirdPlace: true } }),
+    ];
+    expect(stageSchemaSummary(stages)).toBe("Группы (4) → Сетка (8)");
+  });
+
+  it("joins parallel branches on one level with ' + ' and levels with ' → '", () => {
+    const stages = [
+      stage({ id: "groups", position: 0, type: "STAGE_TYPE_GROUPS", groups: { groupCount: 4 }, bracket: null }),
+      stage({
+        id: "final",
+        position: 1,
+        title: "Сетка за 1-е место",
+        type: "STAGE_TYPE_BRACKET",
+        bracket: { size: 8, thirdPlace: true },
+        groups: null,
+      }),
+      stage({
+        id: "consolation",
+        position: 1,
+        title: "Утешительная сетка",
+        type: "STAGE_TYPE_BRACKET",
+        bracket: { size: 4, thirdPlace: false },
+        groups: null,
+      }),
+    ];
+    expect(stageSchemaSummary(stages)).toBe("Группы (4) → Сетка (8) + Сетка (4)");
+  });
+});
+
+function issue(overrides: Partial<SchemaIssue>): SchemaIssue {
+  return {
+    severity: "SCHEMA_ISSUE_SEVERITY_ERROR",
+    code: "SCHEMA_ISSUE_CODE_BAD_SOURCE",
+    stageIds: [],
+    message: "—",
+    ...overrides,
+  };
+}
+
+describe("entities/stage/lib/labels schemaErrorCount", () => {
+  it("counts only ERROR severity, ignoring WARNING (AC-4)", () => {
+    const issues = [issue({}), issue({}), issue({ severity: "SCHEMA_ISSUE_SEVERITY_WARNING" })];
+    expect(schemaErrorCount(issues)).toBe(2);
+  });
+
+  it("returns 0 when there are only warnings/info", () => {
+    const issues = [
+      issue({ severity: "SCHEMA_ISSUE_SEVERITY_WARNING" }),
+      issue({ severity: "SCHEMA_ISSUE_SEVERITY_INFO" }),
+    ];
+    expect(schemaErrorCount(issues)).toBe(0);
+  });
+
+  it("returns 0 for an empty issues array", () => {
+    expect(schemaErrorCount([])).toBe(0);
   });
 });

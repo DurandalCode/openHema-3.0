@@ -58,3 +58,24 @@ export function nominationStatusLabel(status: NominationStatus): string {
       return "—";
   }
 }
+
+/**
+ * nominationStatusTag — короткая подпись статуса для тега в колонке таблицы
+ * (RU, спека 0028, FR-4): в отличие от фразовой `nominationStatusLabel`
+ * («приём заявок открыт», используется другими экранами и не трогается),
+ * здесь нужна форма именно тега, а не предложения.
+ */
+export function nominationStatusTag(status: NominationStatus): string {
+  switch (status) {
+    case "NOMINATION_STATUS_OPEN":
+      return "Приём открыт";
+    case "NOMINATION_STATUS_CLOSED":
+      return "Приём закрыт";
+    case "NOMINATION_STATUS_ACTIVE":
+      return "Бои идут";
+    case "NOMINATION_STATUS_FINISHED":
+      return "Завершена";
+    default:
+      return "—";
+  }
+}
