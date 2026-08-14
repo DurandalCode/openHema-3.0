@@ -33,7 +33,7 @@ management/api/*`, включая удаление мёртвого вызова
 
 ## Web — чистые функции представления (волна 1, трек A)
 
-- [ ] T1. **сводка схемы и счётчик ошибок (red→green)** —
+- [x] T1. **сводка схемы и счётчик ошибок (red→green)** —
       `entities/stage/lib/labels.test.ts`: `stageSchemaSummary` даёт
       «Группы (4) → Сетка (8)» для двух этапов подряд (AC-3), параллельные
       ветки одного уровня перечисляет через « + » (0019, FR-10), возвращает
@@ -46,7 +46,7 @@ management/api/*`, включая удаление мёртвого вызова
       общий хелпер с приватной `formatStageSpecSummary` (вторую реализацию
       не заводить). Строку «Схема не задана» функция **не** возвращает —
       это дело UI (plan `entities/stage/`).
-- [ ] T2. **короткий статус приёма (red→green)** —
+- [x] T2. **короткий статус приёма (red→green)** —
       `entities/nomination/lib/types.test.ts`: `nominationStatusTag` на
       `OPEN`/`CLOSED`/`ACTIVE`/`FINISHED`/`UNSPECIFIED` — «Приём открыт»,
       «Приём закрыт», «Бои идут», «Завершена» (AC-2) → затем функция в
@@ -55,14 +55,14 @@ management/api/*`, включая удаление мёртвого вызова
 
 ## Web — слой данных фичи (волна 1, трек B)
 
-- [ ] T3. **мёртвый вызов (red→green)** —
+- [x] T3. **мёртвый вызов (red→green)** —
       `features/nomination-management/api/requests.test.ts`: кейсы
       `getPoolLayoutStatusRequest` удалены → затем из `api/requests.ts`
       удаляются fetcher и типы `PoolLayoutStatus`/`PoolLayoutStatusResult`,
       из `api/keys.ts` — ключ `poolLayoutStatus`, файл
       `api/use-pool-layout-status.ts` удаляется целиком (spec FR-17, AC-16).
       Ручку `pool-status` **не восстанавливать**.
-- [ ] T4. **fetcher этапов и статус отказа (red→green)** —
+- [x] T4. **fetcher этапов и статус отказа (red→green)** —
       `api/requests.test.ts`: `listNominationStagesRequest` (успех со
       `stages`+`issues`, ошибка HTTP, ошибка сети) и
       `reopenRegistrationRequest`, возвращающий `status: 409` в ветке отказа
@@ -70,7 +70,7 @@ management/api/*`, включая удаление мёртвого вызова
       `features/stage-management` — границы FSD, plan «Риски»), ключ
       `stages` в `api/keys.ts`, проброс HTTP-статуса в
       `postNominationAction`.
-- [ ] T5. **гейты и тексты приёма (red→green)** —
+- [x] T5. **гейты и тексты приёма (red→green)** —
       `api/registration-gate.test.ts`: `canReopen(status)` без
       `hasDistributedFighters`, `canClose` как раньше,
       `reopenBlockedReason` для `ACTIVE`/`FINISHED` (AC-10),
