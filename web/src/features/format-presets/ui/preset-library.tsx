@@ -1,172 +1,148 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Pencil, Trash2, X } from "lucide-react";
-import { Alert, AlertDescription } from "@/shared/ui/alert";
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Input } from "@/shared/ui/input";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { EmptyState } from "@/shared/ui/empty-state";
+import { PageHeader } from "@/shared/ui/page-header";
 import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
-import { formatPresetSummary } from "@/entities/stage/lib/labels";
-import type { FormatPreset } from "@/entities/stage/lib/types";
+import { toastError, toastSuccess } from "@/shared/lib/toast";
 import { usePresets } from "../api/use-presets";
-import { useRenamePreset } from "../api/use-rename-preset";
 import { useDeletePreset } from "../api/use-delete-preset";
+import { PresetCard } from "./preset-card";
+import { RenamePresetDialog } from "./rename-preset-dialog";
 
-/**
- * PresetLibrary — библиотека пресетов формата (спека 0020, FR-12): список
- * карточек с кратким описанием схемы (`formatPresetSummary`), переименование
- * и удаление. Библиотека рассчитана на десятки записей (NFR-3) — без
- * поиска/фильтров/пагинации.
- */
-export function PresetLibrary() {
-  const { data: presets, isLoading, error } = usePresets();
-
-  if (isLoading) {
-    return <SkeletonCards count={3} />;
-  }
-  if (error || !presets) {
-    return (
-      <Alert variant="destructive">
-        <AlertDescription>{error?.message ?? "Не удалось загрузить пресеты"}</AlertDescription>
-      </Alert>
-    );
-  }
-  if (presets.length === 0) {
-    return <p className="text-sm text-muted-foreground">Пресетов ещё нет.</p>;
-  }
-
-  return (
-    <Col gap={3}>
-      {presets.map((preset) => (
-        <PresetCard key={preset.id} preset={preset} />
-      ))}
-    </Col>
-  );
+function countWord(n: number, forms: [string, string, string]): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return forms[2];
+  const mod10 = n % 10;
+  if (mod10 === 1) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4) return forms[1];
+  return forms[2];
 }
 
-function PresetCard({ preset }: { preset: FormatPreset }) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(preset.name);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const rename = useRenamePreset();
+function presetsCountWord(n: number): string {
+  return countWord(n, ["пресет", "пресета", "пресетов"]);
+}
+
+const NOMINATIONS_HREF = "/admin/nominations";
+
+/**
+ * PresetLibrary — корень экрана «Форматы» (спека 0029, FR-17…FR-23):
+ * `PageHeader` со счётчиком (FR-17), пояснение, что такое пресет, и переход
+ * к номинациям, где схему сохраняют как пресет (FR-18), карточки в
+ * детерминированном порядке по имени (FR-20), модалка переименования и
+ * `ConfirmDialog` удаления **без** `confirmWord` (FR-22 — пресет не уносит
+ * данные турнира, схема восстановима из номинации, где применена), тосты
+ * (FR-21/FR-22; удаление — без `toastUndo`, отмены у него нет). Заменяет
+ * прежний вид с инлайн-правкой имени, инлайн-подтверждением удаления и
+ * `Alert`-ами внутри карточек.
+ */
+export function PresetLibrary() {
+  const { data: presets, isLoading, error, refetch } = usePresets();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const del = useDeletePreset();
 
-  function onStartEdit() {
-    setName(preset.name);
-    rename.reset();
-    setEditing(true);
-  }
+  const sorted = useMemo(
+    () => [...(presets ?? [])].sort((a, b) => a.name.localeCompare(b.name, "ru")),
+    [presets],
+  );
 
-  function onCancelEdit() {
-    setEditing(false);
-    rename.reset();
-  }
-
-  function onSaveEdit() {
-    rename.mutate({ presetId: preset.id, name }, { onSuccess: () => setEditing(false) });
-  }
+  const renamingPreset = renamingId ? (sorted.find((p) => p.id === renamingId) ?? null) : null;
+  const deletingPreset = deletingId ? (sorted.find((p) => p.id === deletingId) ?? null) : null;
 
   function onConfirmDelete() {
-    del.mutate(preset.id, { onSuccess: () => setConfirmingDelete(false) });
+    if (!deletingId) return;
+    const name = deletingPreset?.name;
+    del.mutate(deletingId, {
+      onSuccess: () => toastSuccess(name ? `Пресет «${name}» удалён` : "Пресет удалён"),
+      onError: (err: Error) => toastError(err.message),
+    });
+    setDeletingId(null);
   }
 
+  const count = presets?.length ?? 0;
+
   return (
-    <Card>
-      <CardHeader>
-        <Row align="center" justify="between" gap={2} className="flex-wrap">
-          {editing ? (
-            <Row gap={2} align="center" className="flex-1">
-              <Input
-                aria-label="Новое имя пресета"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                loading={rename.isPending}
-                onClick={onSaveEdit}
-                aria-label="Сохранить имя"
-              >
-                <Check />
-              </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                onClick={onCancelEdit}
-                aria-label="Отменить переименование"
-              >
-                <X />
-              </Button>
-            </Row>
-          ) : (
-            <>
-              <CardTitle>{preset.name}</CardTitle>
-              <Row gap={1}>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  onClick={onStartEdit}
-                  aria-label={`Переименовать «${preset.name}»`}
-                >
-                  <Pencil />
-                </Button>
-                {confirmingDelete ? (
-                  <Row gap={1} align="center">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      loading={del.isPending}
-                      onClick={onConfirmDelete}
-                    >
-                      Удалить
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setConfirmingDelete(false)}
-                    >
-                      Отмена
-                    </Button>
-                  </Row>
-                ) : (
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="ghost"
-                    onClick={() => setConfirmingDelete(true)}
-                    aria-label={`Удалить «${preset.name}»`}
-                  >
-                    <Trash2 />
-                  </Button>
-                )}
-              </Row>
-            </>
-          )}
+    <div data-slot="preset-library" className="flex flex-col">
+      <PageHeader
+        crumb="ФОРМАТЫ · ВНЕ ТУРНИРА"
+        title="Библиотека форматов"
+        meta={`${count} ${presetsCountWord(count)}`}
+      />
+
+      <Col gap={6} className="p-4">
+        <Row align="center" justify="between" gap={4} className="flex-wrap">
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Пресет — это сохранённая схема номинации (этапы, правила отбора, размеры групп): она
+            живёт вне турнира и переиспользуется между ними. Сохранить текущую схему как пресет
+            можно на экране номинации.
+          </p>
+          <Button type="button" variant="outline" size="sm" asChild>
+            <Link href={NOMINATIONS_HREF}>К номинациям</Link>
+          </Button>
         </Row>
-      </CardHeader>
-      <CardContent>
-        <Col gap={2}>
-          <p className="text-sm text-muted-foreground">{formatPresetSummary(preset)}</p>
-          {editing && rename.error && (
-            <Alert variant="destructive">
-              <AlertDescription>{rename.error.message}</AlertDescription>
-            </Alert>
-          )}
-          {del.error && (
-            <Alert variant="destructive">
-              <AlertDescription>{del.error.message}</AlertDescription>
-            </Alert>
-          )}
-        </Col>
-      </CardContent>
-    </Card>
+
+        {isLoading ? (
+          <SkeletonCards count={3} />
+        ) : error || !presets ? (
+          <Col gap={3} align="center" className="p-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              {error?.message ?? "Не удалось загрузить пресеты"}
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+              Повторить
+            </Button>
+          </Col>
+        ) : sorted.length === 0 ? (
+          <EmptyState
+            title="Пресетов ещё нет"
+            hint="Соберите схему этапов на экране номинации и сохраните её как пресет — он появится здесь."
+          >
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href={NOMINATIONS_HREF}>К номинациям</Link>
+            </Button>
+          </EmptyState>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {sorted.map((preset) => (
+              <PresetCard
+                key={preset.id}
+                preset={preset}
+                onRename={() => setRenamingId(preset.id)}
+                onDelete={() => setDeletingId(preset.id)}
+              />
+            ))}
+          </div>
+        )}
+      </Col>
+
+      {renamingPreset && (
+        <RenamePresetDialog
+          preset={renamingPreset}
+          open={renamingId !== null}
+          onOpenChange={(next) => {
+            if (!next) setRenamingId(null);
+          }}
+        />
+      )}
+
+      {deletingPreset && (
+        <ConfirmDialog
+          open={deletingId !== null}
+          onOpenChange={(next) => {
+            if (!next) setDeletingId(null);
+          }}
+          title={`Удалить пресет «${deletingPreset.name}»?`}
+          consequences="Пресет исчезнет из библиотеки у всех организаторов. Номинации, к которым его уже применяли, не изменятся — схема давно скопирована в них по значению."
+          confirmLabel="Удалить"
+          destructive
+          onConfirm={onConfirmDelete}
+        />
+      )}
+    </div>
   );
 }

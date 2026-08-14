@@ -12,9 +12,11 @@ export type FormatPresetsResult =
   | { ok: true; presets: FormatPreset[] }
   | { ok: false; error: string };
 
-export type FormatPresetResult = { ok: true; preset: FormatPreset } | { ok: false; error: string };
+export type FormatPresetResult =
+  | { ok: true; preset: FormatPreset }
+  | { ok: false; error: string; status?: number };
 
-export type DeleteFormatPresetResult = { ok: true } | { ok: false; error: string };
+export type DeleteFormatPresetResult = { ok: true } | { ok: false; error: string; status?: number };
 
 /**
  * ApplyFormatSource — источник схемы для применения (спека 0020, FR-13/
@@ -66,7 +68,12 @@ export async function saveFormatPresetRequest(
   }
 }
 
-/** renameFormatPresetRequest — PATCH /api/formats/[presetId] (FR-12, только имя). */
+/**
+ * renameFormatPresetRequest — PATCH /api/formats/[presetId] (FR-12, только
+ * имя). Ветка ошибки несёт HTTP-статус (спека 0029, B1) — на 409 (имя занято)
+ * строится русское объяснение (`presetErrorMessage`), а не показывается
+ * техническая строка сервера.
+ */
 export async function renameFormatPresetRequest(
   presetId: string,
   name: string,
@@ -79,7 +86,7 @@ export async function renameFormatPresetRequest(
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { preset?: FormatPreset };
     return { ok: true, preset: data.preset as FormatPreset };
@@ -90,14 +97,15 @@ export async function renameFormatPresetRequest(
 
 /**
  * deleteFormatPresetRequest — DELETE /api/formats/[presetId] (FR-12): не
- * трогает номинации, к которым пресет уже применялся (FR-16).
+ * трогает номинации, к которым пресет уже применялся (FR-16). Ветка ошибки
+ * несёт HTTP-статус (спека 0029, B1), как у `renameFormatPresetRequest`.
  */
 export async function deleteFormatPresetRequest(presetId: string): Promise<DeleteFormatPresetResult> {
   try {
     const res = await fetch(`/api/formats/${encodeURIComponent(presetId)}`, { method: "DELETE" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     return { ok: true };
   } catch {

@@ -103,26 +103,26 @@
 
 ## Трек B — экран «Форматы»
 
-- [ ] B1. **`features/format-presets/api/requests.ts` (red→green)** —
+- [x] B1. **`features/format-presets/api/requests.ts` (red→green)** —
       дополнить `requests.test.ts`: `renameFormatPresetRequest` и
       `deleteFormatPresetRequest` возвращают `status` в ветке ошибки →
       затем расширить типы результатов.
-- [ ] B2. **`features/format-presets/api/errors.ts` (red→green)** — новый
+- [x] B2. **`features/format-presets/api/errors.ts` (red→green)** — новый
       `errors.test.ts` на `presetErrorMessage(error, status)`: 409 →
       «Пресет с таким именем уже есть — выберите другое», прочее → общая
       формулировка (AC-13) → затем функция.
-- [ ] B3. **`api/use-rename-preset.ts` / `api/use-delete-preset.ts`** —
+- [x] B3. **`api/use-rename-preset.ts` / `api/use-delete-preset.ts`** —
       оборачивают ошибку в `presetErrorMessage` перед `throw`; инвалидацию
       не трогать.
-- [ ] B4. **`ui/preset-card.tsx` (red→green)** — тест: имя, сводка схемы
+- [x] B4. **`ui/preset-card.tsx` (red→green)** — тест: имя, сводка схемы
       (`formatPresetSummary`), «обновлён …» через `formatRelativeDay`, обе
       подписанные кнопки действий, «Удалить» — `variant="destructive"`
       (AC-12) → затем компонент.
-- [ ] B5. **`ui/rename-preset-dialog.tsx` (red→green)** — тест: пустое имя
+- [x] B5. **`ui/rename-preset-dialog.tsx` (red→green)** — тест: пустое имя
       даёт инлайн-ошибку и не закрывает модалку, успех даёт тост, занятое
       имя объясняется по-русски (AC-13) → затем модалка по образцу
       `edit-arena-dialog.tsx` (0027).
-- [ ] B6. **`ui/preset-library.tsx` (red→green)** — переписать тест: шапка
+- [x] B6. **`ui/preset-library.tsx` (red→green)** — переписать тест: шапка
       с крошкой «ФОРМАТЫ · ВНЕ ТУРНИРА», заголовком «Библиотека форматов» и
       счётчиком «N пресетов», пояснение о пресете и переход к номинациям
       (AC-11); порядок карточек по имени (AC-12); удаление через
@@ -131,7 +131,7 @@
       с подсказкой и переходом (AC-15) → затем переписать компонент
       (инлайн-правка имени, инлайн-подтверждение удаления и оба `Alert`
       уходят).
-- [ ] B7. **Роут** — `app/(admin)/admin/formats/page.tsx`: убрать
+- [x] B7. **Роут** — `app/(admin)/admin/formats/page.tsx`: убрать
       `AdminHeader` и `max-w-3xl px-4 py-16`; `PageHeader` рендерит сам
       экран (правило 0024, FR-19).
 
