@@ -34,24 +34,24 @@
 
 ## Трек A — экран «Турнир»
 
-- [ ] A1. **`shared/lib/datetime.ts` (red→green)** — тест в
+- [x] A1. **`shared/lib/datetime.ts` (red→green)** — тест в
       `shared/lib/datetime.test.ts` на `formatRelativeTime(iso, now)`:
       «только что» (< минуты), минуты и часы со склонениями, делегирование
       `formatRelativeDay` начиная с суток, `""` на пустом/невалидном входе →
       затем сама функция. Существующие кейсы `formatRelativeDay` не трогать.
-- [ ] A2. **Перенос чистых функций турнира (red→green)** — создать
+- [x] A2. **Перенос чистых функций турнира (red→green)** — создать
       `entities/tournament/lib/format.test.ts` **копией** кейсов
       `widgets/tournament-hero/tournament-hero.test.ts` с импортом из
       `@/entities/tournament/lib/format` (red: модуля нет) → затем
       `entities/tournament/lib/format.ts` с `formatEventRange` и
       `contactHref`, перенесёнными из тела виджета **без изменения логики**.
       Старый тест-файл удалить.
-- [ ] A3. **Перенос блока турнира** — `entities/tournament/ui/
+- [x] A3. **Перенос блока турнира** — `entities/tournament/ui/
       tournament-hero.tsx`: тот же компонент, импорт чистых функций из
       `../lib/format`, разметка и классы **без изменений**; правка импорта в
       `app/page.tsx`; удаление `widgets/tournament-hero/` целиком. Зелёный
       критерий — `pnpm exec tsc --noEmit` и весь `pnpm test`.
-- [ ] A4. **`entities/tournament/lib/draft.ts` (red→green)** — тест
+- [x] A4. **`entities/tournament/lib/draft.ts` (red→green)** — тест
       `draft.test.ts`: `tournamentDraftChanges` (перечисление по каждому
       полю и в сочетании, склонение контактов, пустой добавленный контакт
       изменением не считается, идентичный черновик → пустой список — AC-4/
@@ -60,34 +60,34 @@
       `draftToTournament` (поля из черновика, `id`/`createdAt` из
       сохранённого, пустые контакты отброшены — AC-2/AC-3) → затем сами
       функции.
-- [ ] A5. **`features/tournament-settings/api/requests.ts` (red→green)** —
+- [x] A5. **`features/tournament-settings/api/requests.ts` (red→green)** —
       дополнить `requests.test.ts`: ветка ошибки несёт `status` → затем
       расширить `TournamentResult`.
-- [ ] A6. **`features/tournament-settings/api/errors.ts` (red→green)** —
+- [x] A6. **`features/tournament-settings/api/errors.ts` (red→green)** —
       новый `errors.test.ts` на `tournamentErrorMessage(error, status)`:
       400 → русское объяснение про название и даты, 401/403 → «Недостаточно
       прав», прочее → общая формулировка, английская строка сервера в
       результат не попадает (AC-9) → затем функция.
-- [ ] A7. **`api/use-update-tournament.ts`** — `mutationFn` оборачивает
+- [x] A7. **`api/use-update-tournament.ts`** — `mutationFn` оборачивает
       `res.error` в `tournamentErrorMessage(res.error, res.status)` перед
       `throw` (иначе статус теряется на границе хука — поправка 0028/T9).
       Инвалидацию ключа не трогать.
-- [ ] A8. **`ui/unsaved-changes-bar.tsx` (red→green)** — тест: перечисление
+- [x] A8. **`ui/unsaved-changes-bar.tsx` (red→green)** — тест: перечисление
       изменённого и подпись «правки появятся на главной после сохранения»;
       при пустом списке компонент не рендерится (AC-4) → затем компонент.
-- [ ] A9. **`ui/tournament-preview.tsx` (red→green)** — тест: превью
+- [x] A9. **`ui/tournament-preview.tsx` (red→green)** — тест: превью
       показывает значения черновика, а не сохранённого (AC-2); пустые поля
       скрыты, пустое название даёт заглушку «Турнир скоро появится» (AC-3);
       ссылка «Открыть главную» ведёт на `/` в новой вкладке (FR-6) → затем
       компонент поверх `TournamentHero` из `entities`.
-- [ ] A10. **`ui/tournament-settings-form.tsx` (red→green)** — переписать
+- [x] A10. **`ui/tournament-settings-form.tsx` (red→green)** — переписать
       тест под **контролируемую** форму: ввод уходит в `onChange`,
       инлайн-ошибки рендерятся из `errors` и связаны с полями, превью
       эмблемы даёт заглушку при пустом/битом адресе (AC-10), кнопки сабмита
       в форме нет → затем переписать компонент (убрать `useUpdateTournament`,
       `Alert` и кнопку «Сохранить», добавить превью эмблемы и подписи правил
       контактов).
-- [ ] A11. **`ui/tournament-screen.tsx` (red→green)** — тест (моки мутации и
+- [x] A11. **`ui/tournament-screen.tsx` (red→green)** — тест (моки мутации и
       `shared/lib/toast`): шапка с крошкой, заголовком «Профиль турнира» и
       «Изменено …» (AC-1); правка → полоса изменений (AC-4); «Отменить
       правки» возвращает поля и не ходит на сервер (AC-5); успех → тост,
@@ -95,7 +95,7 @@
       название и битые даты не уходят на сервер (AC-7/AC-8); отказ → тост-
       ошибка **без** «Повторить», значения не потеряны (AC-9) → затем
       компонент.
-- [ ] A12. **Роут** — `app/(admin)/admin/tournament/page.tsx`: убрать
+- [x] A12. **Роут** — `app/(admin)/admin/tournament/page.tsx`: убрать
       `AdminHeader`, `max-w-3xl px-4 py-16`, карточку «Настройки» и
       статический `TournamentHero`; рендерить `<TournamentScreen>`; ветку
       «активного турнира нет» перевести на `EmptyState` на языке

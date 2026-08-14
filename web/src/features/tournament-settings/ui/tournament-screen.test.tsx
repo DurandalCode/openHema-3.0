@@ -1,0 +1,166 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Tournament } from "@/entities/tournament/lib/types";
+import { TournamentScreen } from "./tournament-screen";
+
+beforeAll(() => {
+  Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
+  Element.prototype.hasPointerCapture = Element.prototype.hasPointerCapture || (() => false);
+  Element.prototype.setPointerCapture = Element.prototype.setPointerCapture || (() => {});
+  Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture || (() => {});
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+function tournament(overrides: Partial<Tournament> = {}): Tournament {
+  return {
+    id: "t1",
+    title: "Клинок Севера 2026",
+    description: "Ежегодный турнир",
+    eventStartAt: "2026-12-01T10:00:00.000Z",
+    eventEndAt: "2026-12-03T18:00:00.000Z",
+    emblemUrl: "",
+    isActive: true,
+    contacts: [{ id: "c1", type: "CONTACT_TYPE_TELEGRAM", value: "@org" }],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+type MutateOpts = {
+  onSuccess?: (t: Tournament) => void;
+  onError?: (e: Error) => void;
+};
+
+let updateResult: { ok: true; tournament: Tournament } | { ok: false; error: string } = {
+  ok: true,
+  tournament: tournament(),
+};
+const updateMutate = vi.fn((_input: unknown, opts?: MutateOpts) => {
+  if (updateResult.ok) opts?.onSuccess?.(updateResult.tournament);
+  else opts?.onError?.(new Error(updateResult.error));
+});
+let updatePending = false;
+
+vi.mock("../api/use-update-tournament", () => ({
+  useUpdateTournament: () => ({ mutate: updateMutate, isPending: updatePending }),
+}));
+
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+vi.mock("@/shared/lib/toast", () => ({
+  toastSuccess: (...args: unknown[]) => toastSuccess(...args),
+  toastError: (...args: unknown[]) => toastError(...args),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  updatePending = false;
+  updateResult = { ok: true, tournament: tournament() };
+});
+
+describe("TournamentScreen (spec 0029)", () => {
+  it("fills the section header: crumb, title, and last-change status (AC-1)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    const header = document.querySelector('[data-slot="page-header"]') as HTMLElement;
+    expect(within(header).getByText("ТУРНИР · КЛИНОК СЕВЕРА 2026")).toBeInTheDocument();
+    expect(within(header).getByText("Профиль турнира")).toBeInTheDocument();
+    expect(within(header).getByText(/Изменено/)).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Сохранить" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Отменить правки" })).toBeInTheDocument();
+  });
+
+  it("shows only 'ТУРНИР' in the crumb when the tournament has no title yet", () => {
+    render(<TournamentScreen tournament={tournament({ title: "" })} />);
+    const header = document.querySelector('[data-slot="page-header"]') as HTMLElement;
+    expect(within(header).getByText("ТУРНИР")).toBeInTheDocument();
+  });
+
+  it("shows the unsaved-changes bar once a field is edited (AC-4)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    expect(screen.queryByText(/Несохранённые изменения/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Название *"), {
+      target: { value: "Новое название" },
+    });
+
+    const bar = document.querySelector('[data-slot="unsaved-changes-bar"]') as HTMLElement;
+    expect(within(bar).getByText(/название/)).toBeInTheDocument();
+  });
+
+  it("'Отменить правки' resets fields, hides the bar, and never touches the server (AC-5)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Название *"), {
+      target: { value: "Новое название" },
+    });
+    expect(screen.getByText(/Несохранённые изменения/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Отменить правки" }));
+
+    expect(screen.queryByText(/Несохранённые изменения/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Название *")).toHaveValue("Клинок Севера 2026");
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("successful save shows a success toast and clears the unsaved bar (AC-6)", () => {
+    const saved = tournament({ description: "Новое описание", updatedAt: "2026-08-14T12:00:00.000Z" });
+    updateResult = { ok: true, tournament: saved };
+
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Описание"), {
+      target: { value: "Новое описание" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(toastSuccess).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Несохранённые изменения/)).not.toBeInTheDocument();
+  });
+
+  it("an empty title blocks saving with an inline error and no request (AC-7)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Название *"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(screen.getByText("Введите название турнира")).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("an end date before the start date blocks saving with an inline error (AC-8)", () => {
+    // Исходно start=1 дек, end=3 дек (валидно). Двигаем start на 20 дек —
+    // end остаётся раньше начала.
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Дата и время начала" }));
+    fireEvent.click(screen.getByRole("button", { name: "20" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("a server rejection shows an error toast without retry and keeps entered values (AC-9)", () => {
+    updateResult = { ok: false, error: "Проверьте название и даты" };
+
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Название *"), {
+      target: { value: "Новое название" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    const [message, options] = toastError.mock.calls[0] as [string, { retry?: () => void } | undefined];
+    expect(message).toBe("Проверьте название и даты");
+    expect(options?.retry).toBeUndefined();
+    expect(screen.getByLabelText("Название *")).toHaveValue("Новое название");
+  });
+});

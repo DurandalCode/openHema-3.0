@@ -118,6 +118,54 @@ export function formatRelativeDay(
   return `${day} ${month} ${date.getFullYear()}`;
 }
 
+const MINUTE_MS = 60_000;
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+
+function minuteWord(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return "минуту";
+  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) {
+    return "минуты";
+  }
+  return "минут";
+}
+
+function hourWord(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return "час";
+  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) {
+    return "часа";
+  }
+  return "часов";
+}
+
+/**
+ * formatRelativeTime — признак «Изменено …» в шапке экрана «Турнир» (spec
+ * 0029, FR-1): «только что» (< минуты), «N минут/часов назад» со
+ * склонениями, а начиная с полных суток — делегирует существующей
+ * `formatRelativeDay` (0024), не повторяя её пороги и склонения дней.
+ * `now` передаётся явно (тесты не зависят от системных часов). Пусто/
+ * невалидная строка → `""`.
+ */
+export function formatRelativeTime(
+  iso: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  const date = parseIsoToDate(iso);
+  if (!date) return "";
+
+  const diffMs = Math.max(0, now.getTime() - date.getTime());
+  if (diffMs < MINUTE_MS) return "только что";
+  if (diffMs < HOUR_MS) {
+    const minutes = Math.floor(diffMs / MINUTE_MS);
+    return `${minutes} ${minuteWord(minutes)} назад`;
+  }
+  if (diffMs < DAY_MS) {
+    const hours = Math.floor(diffMs / HOUR_MS);
+    return `${hours} ${hourWord(hours)} назад`;
+  }
+  return formatRelativeDay(iso, now);
+}
+
 /**
  * formatDateTime — полная дата и время для подсказки при наведении (FR-2
  * спеки 0024), например «12 августа 2026, 14:30». Пусто/невалидная строка

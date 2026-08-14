@@ -30,31 +30,32 @@ describe("features/tournament-settings/api/requests", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/tournament", { method: "GET" });
     });
 
-    it("returns ok:false with server error on 4xx", async () => {
+    it("returns ok:false with server error and status on 4xx", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 404,
         json: async () => ({ error: "not found" }),
       });
 
       const result = await getActiveTournamentRequest();
 
-      expect(result).toEqual({ ok: false, error: "not found" });
+      expect(result).toEqual({ ok: false, error: "not found", status: 404 });
     });
 
     it("returns default error when server returns no error field", async () => {
-      fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) });
+      fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
 
       const result = await getActiveTournamentRequest();
 
-      expect(result).toEqual({ ok: false, error: "Ошибка запроса" });
+      expect(result).toEqual({ ok: false, error: "Ошибка запроса", status: 500 });
     });
 
-    it("returns network error when fetch throws", async () => {
+    it("returns network error with status 0 when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
 
       const result = await getActiveTournamentRequest();
 
-      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна", status: 0 });
     });
   });
 
@@ -92,23 +93,24 @@ describe("features/tournament-settings/api/requests", () => {
       });
     });
 
-    it("returns ok:false with server error on 4xx", async () => {
+    it("returns ok:false with server error and status on 4xx", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 400,
         json: async () => ({ error: "title is required" }),
       });
 
       const result = await updateTournamentRequest({ title: "" });
 
-      expect(result).toEqual({ ok: false, error: "title is required" });
+      expect(result).toEqual({ ok: false, error: "title is required", status: 400 });
     });
 
-    it("returns network error when fetch throws", async () => {
+    it("returns network error with status 0 when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
 
       const result = await updateTournamentRequest({ title: "X" });
 
-      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна", status: 0 });
     });
   });
 });

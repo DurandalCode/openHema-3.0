@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { contactHref, formatEventRange } from "./tournament-hero";
+import { contactHref, formatEventRange } from "./format";
 
-describe("widgets/tournament-hero contactHref", () => {
+describe("entities/tournament/lib/format contactHref", () => {
   it("passes through http(s) URLs as-is", () => {
     expect(contactHref("CONTACT_TYPE_WEBSITE", "https://example.com")).toBe(
       "https://example.com",
@@ -58,7 +58,7 @@ describe("widgets/tournament-hero contactHref", () => {
   });
 });
 
-describe("widgets/tournament-hero formatEventRange", () => {
+describe("entities/tournament/lib/format formatEventRange", () => {
   it("returns null when both empty", () => {
     expect(formatEventRange("", "")).toBeNull();
   });

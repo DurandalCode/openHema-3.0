@@ -3,6 +3,7 @@ import {
   dateToIso,
   formatDateTime,
   formatRelativeDay,
+  formatRelativeTime,
   fromLocalInputValue,
   parseIsoToDate,
   toLocalInputValue,
@@ -107,6 +108,45 @@ describe("formatRelativeDay (FR-2)", () => {
   it("returns an empty string for empty/invalid input", () => {
     expect(formatRelativeDay("", now)).toBe("");
     expect(formatRelativeDay("not-a-date", now)).toBe("");
+  });
+});
+
+// spec 0029, FR-1: признак «Изменено …» в шапке экрана «Турнир» — минуты и
+// часы со своими склонениями, начиная с суток делегирует `formatRelativeDay`
+// (0024) вместо повторения её логики с нуля.
+describe("formatRelativeTime (spec 0029, FR-1)", () => {
+  const now = new Date(2026, 7, 13, 12, 0, 0);
+
+  it('returns "только что" for less than a minute ago', () => {
+    expect(formatRelativeTime("2026-08-13T11:59:31", now)).toBe("только что");
+  });
+
+  it('returns "только что" for the exact same instant', () => {
+    expect(formatRelativeTime("2026-08-13T12:00:00", now)).toBe("только что");
+  });
+
+  it("declines minutes correctly", () => {
+    expect(formatRelativeTime("2026-08-13T11:59:00", now)).toBe("1 минуту назад");
+    expect(formatRelativeTime("2026-08-13T11:58:00", now)).toBe("2 минуты назад");
+    expect(formatRelativeTime("2026-08-13T11:55:00", now)).toBe("5 минут назад");
+    expect(formatRelativeTime("2026-08-13T11:49:00", now)).toBe("11 минут назад");
+  });
+
+  it("declines hours correctly", () => {
+    expect(formatRelativeTime("2026-08-13T11:00:00", now)).toBe("1 час назад");
+    expect(formatRelativeTime("2026-08-13T10:00:00", now)).toBe("2 часа назад");
+    expect(formatRelativeTime("2026-08-13T07:00:00", now)).toBe("5 часов назад");
+  });
+
+  it("delegates to formatRelativeDay starting at a full day", () => {
+    const iso = "2026-08-10T08:00:00";
+    expect(formatRelativeTime(iso, now)).toBe(formatRelativeDay(iso, now));
+  });
+
+  it("returns an empty string for empty/invalid input", () => {
+    expect(formatRelativeTime("", now)).toBe("");
+    expect(formatRelativeTime(null, now)).toBe("");
+    expect(formatRelativeTime("not-a-date", now)).toBe("");
   });
 });
 
