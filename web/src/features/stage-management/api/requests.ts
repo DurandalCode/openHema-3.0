@@ -1,3 +1,4 @@
+import type { PoolLayoutStatus } from "@/entities/pool/lib/types";
 import type {
   SchemaIssue,
   Stage,
@@ -30,6 +31,16 @@ export type CreateStageResult =
   | { ok: false; error: string };
 
 export type SetStageRuleResult = { ok: true; stage: Stage } | { ok: false; error: string };
+
+/**
+ * SetStageStatusResult — итог фиксации/расфиксации состава этапа (спека
+ * 0031, FR-22). Только `status` — инспектор не нуждается в полной
+ * `PoolLayout`, статус самого этапа берётся из инвалидации списка этапов
+ * номинации (`stageManagementKeys.list`).
+ */
+export type SetStageStatusResult =
+  | { ok: true; status: PoolLayoutStatus }
+  | { ok: false; error: string };
 
 /**
  * UpdateStageInput — правка уже созданного этапа (спека 0020, FR-2): название
@@ -198,6 +209,39 @@ export async function setStageRuleRequest(
     }
     const data = (await res.json().catch(() => ({}))) as { stage?: Stage };
     return { ok: true, stage: data.stage as Stage };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
+/**
+ * setStageStatusRequest — POST /api/stages/[stageId]/status: фиксация
+ * состава этапа draft↔ready (спека 0031, FR-22). Тот же BFF-маршрут, что
+ * используют `nomination-pools`/`bracket-seeding` (0030) — фетчер здесь
+ * намеренный дубль их тонких фетчеров (правило 6 `web/AGENTS.md` запрещает
+ * `features` импортировать друг друга, см. `plan.md` риск «вторая точка
+ * входа»). Ответ маршрута несёт `{ layout }` (общая форма с `nomination-pools`
+ * — единственный статус-эндпоинт на все типы этапов), клиенту нужен только
+ * итоговый `status`.
+ */
+export async function setStageStatusRequest(
+  stageId: string,
+  status: "draft" | "ready",
+): Promise<SetStageStatusResult> {
+  try {
+    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as {
+      layout?: { status?: PoolLayoutStatus };
+    };
+    return { ok: true, status: data.layout?.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED" };
   } catch {
     return { ok: false, error: "Сеть недоступна" };
   }
