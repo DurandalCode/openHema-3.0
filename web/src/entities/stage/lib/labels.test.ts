@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPresetSummary, groupStagesByLevel, schemaErrorCount, stageConfigLabel, stageRuleLabel, stageSchemaSummary, stageTypeLabel } from "./labels";
+import { formatPresetSummary, groupStagesByLevel, schemaErrorCount, stageConfigLabel, stageExecutionStatusLabel, stageRuleLabel, stageSchemaSummary, stageTypeLabel } from "./labels";
 import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage } from "./types";
 
 describe("entities/stage/lib/labels stageTypeLabel", () => {
@@ -81,6 +81,7 @@ function stage(overrides: Partial<Stage>): Stage {
     bracket: null,
     groups: { groupCount: 4 },
     rule: null,
+    executionStatus: "STAGE_STATUS_UNSPECIFIED",
     ...overrides,
   };
 }
@@ -297,5 +298,29 @@ describe("entities/stage/lib/labels schemaErrorCount", () => {
 
   it("returns 0 for an empty issues array", () => {
     expect(schemaErrorCount([])).toBe(0);
+  });
+});
+
+// Спека 0032 (T1): статус выполнения этапа в шапке страницы этапа и в
+// рельсе схемы (FR-5/FR-17) — четыре значения StageStatus (0021).
+describe("entities/stage/lib/labels stageExecutionStatusLabel", () => {
+  it("labels draft", () => {
+    expect(stageExecutionStatusLabel("STAGE_STATUS_DRAFT")).toBe("Черновик");
+  });
+
+  it("labels ready", () => {
+    expect(stageExecutionStatusLabel("STAGE_STATUS_READY")).toBe("Готов");
+  });
+
+  it("labels active", () => {
+    expect(stageExecutionStatusLabel("STAGE_STATUS_ACTIVE")).toBe("Идут бои");
+  });
+
+  it("labels finished", () => {
+    expect(stageExecutionStatusLabel("STAGE_STATUS_FINISHED")).toBe("Завершён");
+  });
+
+  it("falls back to a dash for unspecified", () => {
+    expect(stageExecutionStatusLabel("STAGE_STATUS_UNSPECIFIED")).toBe("—");
   });
 });

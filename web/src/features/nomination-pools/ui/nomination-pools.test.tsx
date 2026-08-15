@@ -48,6 +48,7 @@ const stage = {
   bracket: null,
   groups: null,
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED" as const,
 };
 
 const layout: PoolLayout = {

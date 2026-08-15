@@ -97,6 +97,7 @@ import type {
 import type {
   Stage as StageDto,
   StageType as StageTypeDto,
+  StageStatus as StageStatusDto,
   StageSourceKind as StageSourceKindDto,
   StageSelectorKind as StageSelectorKindDto,
   StageLayoutMethod as StageLayoutMethodDto,
@@ -413,6 +414,7 @@ function emptyStageDto(): StageDto {
     bracket: null,
     groups: null,
     rule: null,
+    executionStatus: "STAGE_STATUS_UNSPECIFIED",
   };
 }
 
@@ -452,6 +454,8 @@ function seedingRuleRawToDto(raw: Partial<SeedingRuleDto> | undefined): SeedingR
  * только у `type = STAGE_TYPE_BRACKET` (FR-1), иначе `null`. `groups`/`rule`
  * (0019) — `null`, если proto-поле не заполнено (presence решает «правила/
  * конфига групп нет», не значения полей), иначе нормализованный объект.
+ * `executionStatus` (0021, спека 0032) — вычисляемый статус этапа целиком;
+ * до 0032 приходил с сервера, но терялся здесь.
  */
 export function stageToJson(stage: Stage | undefined): StageDto | null {
   if (!stage) return null;
@@ -472,6 +476,7 @@ export function stageToJson(stage: Stage | undefined): StageDto | null {
       : null,
     groups: raw.groups ? groupsConfigRawToDto(raw.groups) : null,
     rule: raw.rule ? seedingRuleRawToDto(raw.rule) : null,
+    executionStatus: (raw.executionStatus as StageStatusDto) ?? "STAGE_STATUS_UNSPECIFIED",
   };
 }
 

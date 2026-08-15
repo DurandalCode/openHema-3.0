@@ -21,6 +21,7 @@ const bracketStage: Stage = {
     placeTo: 2,
     method: "STAGE_LAYOUT_METHOD_SEEDED",
   },
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const groupsStage: Stage = {

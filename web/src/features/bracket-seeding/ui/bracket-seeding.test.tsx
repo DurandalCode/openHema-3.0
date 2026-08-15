@@ -57,6 +57,7 @@ function draftBracket(): Bracket {
       bracket: { size: 4, thirdPlace: false },
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_UNSPECIFIED",
     },
     rounds: [
       {

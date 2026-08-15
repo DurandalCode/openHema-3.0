@@ -26,6 +26,7 @@ const groupsStage: Stage = {
   bracket: null,
   groups: { groupCount: 4 },
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const bracketStage: Stage = {
@@ -38,6 +39,7 @@ const bracketStage: Stage = {
   bracket: { size: 8, thirdPlace: false },
   groups: null,
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const createMutate = vi.fn((_vars, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());

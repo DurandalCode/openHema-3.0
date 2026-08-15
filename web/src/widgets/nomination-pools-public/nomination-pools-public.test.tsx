@@ -76,6 +76,7 @@ const snapshot: NominationLiveSnapshotDto = {
       bracket: null,
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_UNSPECIFIED",
     },
   ],
   brackets: [],
@@ -96,6 +97,7 @@ const bracket: Bracket = {
     bracket: { size: 4, thirdPlace: false },
     groups: null,
     rule: null,
+    executionStatus: "STAGE_STATUS_UNSPECIFIED",
   },
   rounds: [
     {
@@ -272,6 +274,7 @@ describe("NominationPoolsPublic", () => {
         placeTo: 2,
         method: "STAGE_LAYOUT_METHOD_SEEDED" as const,
       },
+      executionStatus: "STAGE_STATUS_UNSPECIFIED" as const,
     };
     const weakBracket = {
       ...strongBracket,

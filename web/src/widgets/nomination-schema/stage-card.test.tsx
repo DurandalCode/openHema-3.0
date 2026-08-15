@@ -25,6 +25,7 @@ const groupsStage: Stage = {
   bracket: null,
   groups: { groupCount: 4 },
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const bracketStage: Stage = {
@@ -37,6 +38,7 @@ const bracketStage: Stage = {
   bracket: { size: 8, thirdPlace: true },
   groups: null,
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const ruledBracketStage: Stage = {
@@ -56,6 +58,7 @@ const ruledBracketStage: Stage = {
     placeTo: 0,
     method: "STAGE_LAYOUT_METHOD_SEEDED",
   },
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const resetLayoutMutate = vi.fn();

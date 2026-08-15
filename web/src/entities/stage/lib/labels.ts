@@ -5,7 +5,7 @@
  * заводим.
  */
 
-import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage, StageType } from "./types";
+import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage, StageStatus, StageType } from "./types";
 
 /**
  * stageConfigLabel — сводка конфига этапа на карточке схемы (спека 0031,
@@ -21,6 +21,26 @@ export function stageConfigLabel(stage: Pick<Stage, "type" | "bracket" | "groups
     return `${stage.groups.groupCount} гр.`;
   }
   return "";
+}
+
+/**
+ * stageExecutionStatusLabel — человекочитаемая подпись статуса выполнения
+ * этапа (0021, спека 0032, FR-5/FR-17): используется в `PageHeader`
+ * страницы этапа и в правом рельсе схемы.
+ */
+export function stageExecutionStatusLabel(status: StageStatus): string {
+  switch (status) {
+    case "STAGE_STATUS_DRAFT":
+      return "Черновик";
+    case "STAGE_STATUS_READY":
+      return "Готов";
+    case "STAGE_STATUS_ACTIVE":
+      return "Идут бои";
+    case "STAGE_STATUS_FINISHED":
+      return "Завершён";
+    default:
+      return "—";
+  }
 }
 
 export function stageTypeLabel(type: StageType): string {

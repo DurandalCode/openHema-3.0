@@ -15,6 +15,7 @@ function stage(overrides: Partial<Stage>): Stage {
     bracket: null,
     groups: { groupCount: 4 },
     rule: null,
+    executionStatus: "STAGE_STATUS_UNSPECIFIED",
     ...overrides,
   };
 }
