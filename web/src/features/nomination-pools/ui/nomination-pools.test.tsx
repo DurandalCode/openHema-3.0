@@ -90,7 +90,6 @@ const assignMutate = vi.fn();
 const unassignMutate = vi.fn();
 const autoDistributeMutate = vi.fn();
 const undoMutate = vi.fn();
-const setStatusMutate = vi.fn();
 const toastSuccessMock = vi.fn();
 const toastUndoMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -141,9 +140,6 @@ vi.mock("../api/use-auto-distribute", () => ({
 vi.mock("../api/use-undo", () => ({
   useUndo: () => ({ mutate: undoMutate, isPending: false, error: null }),
 }));
-vi.mock("../api/use-set-layout-status", () => ({
-  useSetLayoutStatus: () => ({ mutate: setStatusMutate, isPending: false, error: null }),
-}));
 vi.mock("../api/use-bouts", () => ({ useBouts: () => ({ data: [] }) }));
 vi.mock("@/shared/lib/toast", () => ({
   toastSuccess: (message: string) => toastSuccessMock(message),
@@ -165,8 +161,9 @@ describe("NominationPools", () => {
     expect(container).toHaveTextContent("Групповой этап");
   });
 
-  // Спека 0030, FR-1/AC-1: сводка состава раскладки в тулбаре.
-  it("shows the assigned/total and pool count summary", () => {
+  // Спека 0032, FR-3: статус/сводка/фиксация ушли из тулбара в PageHeader —
+  // на экране их больше нет ни в каком виде.
+  it("no longer renders status, summary, or the fixation button in the toolbar", () => {
     useLayoutMock.mockReturnValue({
       data: layoutWithPools,
       isLoading: false,
@@ -176,7 +173,11 @@ describe("NominationPools", () => {
 
     render(<NominationPools stageId="stage-1" />);
 
-    expect(screen.getByText("2 / 3 распределено · 2 пула")).toBeInTheDocument();
+    expect(screen.queryByText("черновик")).not.toBeInTheDocument();
+    expect(screen.queryByText("готово")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 / 3 распределено · 2 пула")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Зафиксировать" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Вернуть в черновик" })).not.toBeInTheDocument();
   });
 
   // Спека 0030, FR-2/AC-2: новые подписи кнопок, старых на экране нет.
@@ -185,10 +186,27 @@ describe("NominationPools", () => {
 
     expect(screen.getByRole("button", { name: "+ Пул" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Распределить автоматически" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Зафиксировать" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Добавить группу" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Распределить по группам" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Зафиксировать раскладку" })).not.toBeInTheDocument();
+  });
+
+  // Спека 0032, FR-3: read-only при ready по-прежнему прячет действия
+  // тулбара (кнопка фиксации ушла, но сам гейтинг остался).
+  it("hides all toolbar actions when the layout is ready (read-only)", () => {
+    useLayoutMock.mockReturnValue({
+      data: { ...layout, status: "POOL_LAYOUT_STATUS_READY" },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<NominationPools stageId="stage-1" />);
+
+    expect(screen.queryByRole("button", { name: "+ Пул" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Распределить автоматически" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Сбросить раскладку/ })).not.toBeInTheDocument();
   });
 
   // Спека 0030, FR-3/AC-3: создание пула — тост-успех/тост-ошибка без retry.
@@ -327,48 +345,6 @@ describe("NominationPools", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
 
     expect(toastErrorMock).toHaveBeenCalledWith("Отменить нечего", undefined);
-  });
-
-  // Спека 0030, FR-8/AC-8: смена статуса — тост по направлению перехода.
-  it("fixing the layout shows a success toast", () => {
-    setStatusMutate.mockImplementation((_status, options: { onSuccess?: () => void }) => {
-      options?.onSuccess?.();
-    });
-
-    render(<NominationPools stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Зафиксировать" }));
-
-    expect(setStatusMutate).toHaveBeenCalledWith("ready", expect.objectContaining({ onSuccess: expect.any(Function) }));
-    expect(toastSuccessMock).toHaveBeenCalledWith("Раскладка зафиксирована");
-  });
-
-  it("returning to draft shows its own success toast", () => {
-    useLayoutMock.mockReturnValue({
-      data: { ...layout, status: "POOL_LAYOUT_STATUS_READY" },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
-    setStatusMutate.mockImplementation((_status, options: { onSuccess?: () => void }) => {
-      options?.onSuccess?.();
-    });
-
-    render(<NominationPools stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Вернуть в черновик" }));
-
-    expect(setStatusMutate).toHaveBeenCalledWith("draft", expect.objectContaining({ onSuccess: expect.any(Function) }));
-    expect(toastSuccessMock).toHaveBeenCalledWith("Раскладка возвращена в черновик");
-  });
-
-  it("a failed status change shows an error toast without retry", () => {
-    setStatusMutate.mockImplementation((_status, options: { onError?: (err: Error) => void }) => {
-      options?.onError?.(new Error("Действие недоступно"));
-    });
-
-    render(<NominationPools stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Зафиксировать" }));
-
-    expect(toastErrorMock).toHaveBeenCalledWith("Действие недоступно", undefined);
   });
 
   // Спека 0030, FR-9/AC-9: DnD — тихий успех, тост на ошибку.

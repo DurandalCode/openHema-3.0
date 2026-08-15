@@ -21,8 +21,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
-import type { FighterRef, Pool, PoolLayout, PoolLayoutCounts } from "@/entities/pool/lib/types";
-import { poolLayoutCounts } from "@/entities/pool/lib/types";
+import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { Bout } from "@/entities/bout/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
@@ -34,22 +33,11 @@ import { useAssignFighter } from "../api/use-assign-fighter";
 import { useUnassignFighter } from "../api/use-unassign-fighter";
 import { useAutoDistribute } from "../api/use-auto-distribute";
 import { useUndo } from "../api/use-undo";
-import { useSetLayoutStatus } from "../api/use-set-layout-status";
 import { useBouts } from "../api/use-bouts";
 
 const UNASSIGNED_ZONE = "zone:unassigned";
 const poolZoneId = (poolId: string) => `zone:pool:${poolId}`;
 const fighterDragId = (fighterId: string) => `fighter:${fighterId}`;
-
-/** poolCountWord — склонение «пул/пула/пулов» для сводки тулбара (спека 0030, FR-1). */
-function poolCountWord(n: number): string {
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 14) return "пулов";
-  const mod10 = n % 10;
-  if (mod10 === 1) return "пул";
-  if (mod10 >= 2 && mod10 <= 4) return "пула";
-  return "пулов";
-}
 
 /**
  * NominationPools — экран управления составом этапа: нераспределённые
@@ -59,8 +47,11 @@ function poolCountWord(n: number): string {
  * этап) берётся из загруженной раскладки (`layout.stage.nominationId`).
  *
  * Обратная связь по мутациям — спека 0030: тосты вызываются здесь, в
- * компоненте (не внутри хуков — единообразно для всех семи мутаций и
- * тестируемо, т.к. `nomination-pools.test.tsx` мокает хуки целиком).
+ * компоненте (не внутри хуков — единообразно для всех шести мутаций и
+ * тестируемо, т.к. `nomination-pools.test.tsx` мокает хуки целиком). Статус,
+ * сводка распределения и кнопка фиксации переехали в `PageHeader` (спека
+ * 0032, FR-3) — тулбар несёт только «+ Пул»/автораспределение/undo/сброс;
+ * `readOnly` внутри компонента считается по-прежнему (гейтит DnD).
  * Удаление пула и автораспределение предлагают «Отменить» в тосте через
  * тот же общий undo-слот (0009, FR-7a), что и кнопка тулбара — без
  * ConfirmDialog (решение пользователя, spec «Решения по открытым
@@ -75,7 +66,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
   const unassign = useUnassignFighter(stageId);
   const autoDistribute = useAutoDistribute(stageId);
   const undo = useUndo(stageId);
-  const setStatus = useSetLayoutStatus(stageId);
   const { data: bouts } = useBouts(layout?.stage.nominationId ?? "", layout?.status);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
@@ -103,7 +93,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
 
   const readOnly = layout.status === "POOL_LAYOUT_STATUS_READY";
   const boutsByPool = groupBoutsByPool(bouts ?? []);
-  const counts = poolLayoutCounts(layout);
 
   function onDragStart(event: DragStartEvent) {
     const fighter = event.active.data.current?.fighter as FighterRef | undefined;
@@ -160,17 +149,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
     undo.mutate(undefined, { onError: (err: Error) => toastError(err.message) });
   }
 
-  function handleToggleStatus() {
-    const nextStatus = readOnly ? "draft" : "ready";
-    setStatus.mutate(nextStatus, {
-      onSuccess: () =>
-        toastSuccess(
-          nextStatus === "ready" ? "Раскладка зафиксирована" : "Раскладка возвращена в черновик",
-        ),
-      onError: (err: Error) => toastError(err.message),
-    });
-  }
-
   /**
    * Сброс раскладки покрыт отменой последнего действия (undo), поэтому
    * подтверждение — без ввода названия (0023, FR-8); успех/ошибка идут через
@@ -193,7 +171,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
     <Col gap={6}>
       <Toolbar
         layout={layout}
-        counts={counts}
         readOnly={readOnly}
         onCreatePool={handleCreatePool}
         createPending={createPool.isPending}
@@ -203,8 +180,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
         undoPending={undo.isPending}
         onResetLayout={() => setConfirmResetOpen(true)}
         resetPending={resetLayout.isPending}
-        onToggleStatus={handleToggleStatus}
-        statusPending={setStatus.isPending}
       />
 
       {/* Подпись этапа над составом групп (спека 0017, FR-11, AC-3). */}
@@ -285,7 +260,6 @@ function NominationPoolsSkeleton() {
 
 function Toolbar({
   layout,
-  counts,
   readOnly,
   onCreatePool,
   createPending,
@@ -295,11 +269,8 @@ function Toolbar({
   undoPending,
   onResetLayout,
   resetPending,
-  onToggleStatus,
-  statusPending,
 }: {
   layout: PoolLayout;
-  counts: PoolLayoutCounts;
   readOnly: boolean;
   onCreatePool: () => void;
   createPending: boolean;
@@ -309,61 +280,35 @@ function Toolbar({
   undoPending: boolean;
   onResetLayout: () => void;
   resetPending: boolean;
-  onToggleStatus: () => void;
-  statusPending: boolean;
 }) {
+  if (readOnly) return null;
+
   return (
-    <Row align="center" justify="between" gap={3} className="flex-wrap">
-      <Row align="center" gap={2} className="flex-wrap">
-        <Badge tone={readOnly ? "success" : "warn"}>{readOnly ? "готово" : "черновик"}</Badge>
-        <span className="text-xs text-muted-foreground">
-          {counts.assigned} / {counts.total} распределено · {counts.poolCount}{" "}
-          {poolCountWord(counts.poolCount)}
-        </span>
-        {!readOnly && (
-          <>
-            <Button type="button" size="sm" onClick={onCreatePool} loading={createPending}>
-              + Пул
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onAutoDistribute}
-              loading={autoDistributePending}
-            >
-              <Shuffle /> Распределить автоматически
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!layout.canUndo}
-              onClick={onUndo}
-              loading={undoPending}
-            >
-              <Undo2 /> Отменить
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onResetLayout}
-              loading={resetPending}
-            >
-              <RotateCcw /> Сбросить раскладку
-            </Button>
-          </>
-        )}
-      </Row>
+    <Row align="center" gap={2} className="flex-wrap">
+      <Button type="button" size="sm" onClick={onCreatePool} loading={createPending}>
+        + Пул
+      </Button>
       <Button
         type="button"
         size="sm"
-        variant={readOnly ? "outline" : "default"}
-        onClick={onToggleStatus}
-        loading={statusPending}
+        variant="outline"
+        onClick={onAutoDistribute}
+        loading={autoDistributePending}
       >
-        {readOnly ? "Вернуть в черновик" : "Зафиксировать"}
+        <Shuffle /> Распределить автоматически
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={!layout.canUndo}
+        onClick={onUndo}
+        loading={undoPending}
+      >
+        <Undo2 /> Отменить
+      </Button>
+      <Button type="button" size="sm" variant="outline" onClick={onResetLayout} loading={resetPending}>
+        <RotateCcw /> Сбросить раскладку
       </Button>
     </Row>
   );
