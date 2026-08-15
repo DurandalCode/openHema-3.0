@@ -41,6 +41,21 @@ export async function listNominationStagesRequest(
   }
 }
 
+/** getNominationRequest — GET /api/nominations/[id] (публичный). */
+export async function getNominationRequest(id: string): Promise<NominationResult> {
+  try {
+    const res = await fetch(`/api/nominations/${encodeURIComponent(id)}`, { method: "GET" });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: data.error ?? "Ошибка запроса" };
+    }
+    const data = (await res.json().catch(() => ({}))) as { nomination?: Nomination };
+    return { ok: true, nomination: data.nomination as Nomination };
+  } catch {
+    return { ok: false, error: "Сеть недоступна" };
+  }
+}
+
 /** listNominationsRequest — GET /api/nominations?tournamentId=... (публичный). */
 export async function listNominationsRequest(tournamentId: string): Promise<NominationListResult> {
   try {

@@ -9,4 +9,7 @@ export const nominationManagementKeys = {
   // (тот инвалидируется мутациями схемы соседней фичи — общий ключ связал бы
   // два экрана скрытой зависимостью, см. plan.md).
   stages: (nominationId: string) => ["nomination-management", "stages", nominationId] as const,
+  // one — одна номинация (спека 0031, FR-2): инлайн-шапка экрана схемы
+  // читает и обновляет одну номинацию, отдельно от списка `list`.
+  one: (nominationId: string) => ["nomination-management", "one", nominationId] as const,
 };
