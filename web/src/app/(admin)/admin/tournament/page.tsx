@@ -1,50 +1,32 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card";
+import { EmptyState } from "@/shared/ui/empty-state";
+import { PageHeader } from "@/shared/ui/page-header";
 import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
-import { TournamentSettingsForm } from "@/features/tournament-settings/ui/tournament-settings-form";
-import { TournamentHero } from "@/widgets/tournament-hero/tournament-hero";
-import { AdminHeader } from "../admin-header";
+import { TournamentScreen } from "@/features/tournament-settings/ui/tournament-screen";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** /admin/tournament — настройки профиля активного турнира. */
+/**
+ * /admin/tournament — профиль активного турнира (spec 0029, A12): редактор и
+ * живое превью главной в два столбца (`TournamentScreen`). Отсутствие
+ * активного турнира объясняется на языке организатора (FR-16, AC-10) — без
+ * упоминания миграций/модулей, которые видел прежний текст.
+ */
 export default async function AdminTournamentPage() {
   const tournament = await getActiveTournament();
 
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-16">
-      <AdminHeader
-        title="Турнир"
-        description="Профиль активного турнира. Изменения сразу видны на главной."
-      />
-
-      <div className="mt-8">
-        <TournamentHero tournament={tournament} />
+  if (!tournament) {
+    return (
+      <div data-slot="tournament-screen" className="flex flex-col">
+        <PageHeader crumb="ТУРНИР" title="Профиль турнира" />
+        <EmptyState
+          className="p-16"
+          title="Активный турнир не найден"
+          hint="Обратитесь к администратору системы: профиль турнира ещё не заведён."
+        />
       </div>
+    );
+  }
 
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle>Настройки</CardTitle>
-          <CardDescription>
-            Название, описание, дата проведения, эмблема и контакты.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {tournament ? (
-            <TournamentSettingsForm tournament={tournament} />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Активный турнир не найден. Проверьте миграции модуля tournament.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <TournamentScreen tournament={tournament} />;
 }

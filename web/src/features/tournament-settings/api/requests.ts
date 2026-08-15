@@ -16,7 +16,7 @@ export type UpdateTournamentInput = {
 
 export type TournamentResult =
   | { ok: true; tournament: Tournament }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status: number };
 
 /** getActiveTournamentRequest — GET /api/tournament (публичный). */
 export async function getActiveTournamentRequest(): Promise<TournamentResult> {
@@ -35,14 +35,14 @@ async function getTournament(url: string): Promise<TournamentResult> {
     const res = await fetch(url, { method: "GET" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as {
       tournament?: Tournament;
     };
     return { ok: true, tournament: data.tournament as Tournament };
   } catch {
-    return { ok: false, error: "Сеть недоступна" };
+    return { ok: false, error: "Сеть недоступна", status: 0 };
   }
 }
 
@@ -58,13 +58,13 @@ async function putTournament(
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as {
       tournament?: Tournament;
     };
     return { ok: true, tournament: data.tournament as Tournament };
   } catch {
-    return { ok: false, error: "Сеть недоступна" };
+    return { ok: false, error: "Сеть недоступна", status: 0 };
   }
 }

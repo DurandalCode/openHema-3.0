@@ -8,7 +8,7 @@ import type { RosterEntry } from "@/entities/fighter/lib/types";
 import { siteConfig } from "@/shared/config/site-config";
 import { Col, Row } from "@/shared/ui/stack";
 import { AuthCta } from "@/features/auth/ui/auth-cta";
-import { TournamentHero } from "@/widgets/tournament-hero/tournament-hero";
+import { TournamentHero } from "@/entities/tournament/ui/tournament-hero";
 import { NominationsList } from "@/widgets/nominations-list/nominations-list";
 
 export const dynamic = "force-dynamic";
