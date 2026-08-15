@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-08-15
 - План: `./plan.md`
 
@@ -32,15 +32,15 @@
 
 ## Волна 0 — чистые функции (`entities/stage/lib`)
 
-- [ ] T1. **`labels.ts` (red→green)** — `labels.test.ts`: `stageConfigLabel`
+- [x] T1. **`labels.ts` (red→green)** — `labels.test.ts`: `stageConfigLabel`
       для сетки с боем за 3-е место («8 · бронза») и без («8»), для группового
       этапа с числом групп («4 гр.») и без него (пусто), для этапа без
       конфига → затем сама функция. Существующие функции файла не трогать.
-- [ ] T2. **`issues.ts` (red→green)** — `issues.test.ts`: `schemaIssueCounts`
+- [x] T2. **`issues.ts` (red→green)** — `issues.test.ts`: `schemaIssueCounts`
       на пустом списке, на смеси error/warning/info, на неизвестной severity
       → затем функция. Свериться с `schemaErrorCount` (0028): поведение
       списка номинаций не меняется.
-- [ ] T3. **`schema-drag.ts` (red→green)** — `schema-drag.test.ts`:
+- [x] T3. **`schema-drag.ts` (red→green)** — `schema-drag.test.ts`:
       `resolveSchemaDrop` для всех намерений — палитра «группы»/«плейофф» на
       пустую зону (`create-stage` без источника), те же на карточку
       (`create-stage` с `sourceStageId`), «ростер» на карточку
@@ -49,13 +49,13 @@
 
 ## Волна 1, трек A — шапка номинации (FR-1..FR-5)
 
-- [ ] T4. **`api` (red→green)** — `requests.test.ts`: `getNominationRequest`
+- [x] T4. **`api` (red→green)** — `requests.test.ts`: `getNominationRequest`
       (успех/4xx/сеть) → затем фетчер в `features/nomination-management/api/requests.ts`
       и `api/use-nomination.ts` (`useQuery` с `initialData`).
-- [ ] T5. **`use-update-nomination.ts`** — аддитивно инвалидировать ключ
+- [x] T5. **`use-update-nomination.ts`** — аддитивно инвалидировать ключ
       одной номинации; тест: после успешной мутации инвалидируются оба ключа
       (список и одиночная), экран списка не ломается.
-- [ ] T6. **`ui/nomination-inline-header.tsx` (red→green)** —
+- [x] T6. **`ui/nomination-inline-header.tsx` (red→green)** —
       `nomination-inline-header.test.tsx`: сохранение названия по Enter и по
       blur (AC-1), `Esc` откатывает к сохранённому, пустое название даёт
       инлайн-ошибку **без** запроса (FR-3), правка вместимости и ссылки на
@@ -65,7 +65,7 @@
 
 ## Волна 1, трек B — пресеты (FR-25..FR-27)
 
-- [ ] T7. **`ui/preset-chips.tsx` (red→green)** — `preset-chips.test.tsx`:
+- [x] T7. **`ui/preset-chips.tsx` (red→green)** — `preset-chips.test.tsx`:
       первый клик по чипу «взводит» и схему не меняет, второй применяет
       (AC-16), клик по другому чипу сбрасывает взвод, инлайн-поле
       «Сохранить как пресет» сохраняет по Enter и по «OK», пустое имя
@@ -75,27 +75,27 @@
 
 ## Волна 1, трек C — ядро конструктора (FR-6..FR-24, FR-28..FR-31)
 
-- [ ] T8. **`stage-management/api` (red→green)** — тест фетчера
+- [x] T8. **`stage-management/api` (red→green)** — тест фетчера
       `setStageStatusRequest` → затем фетчер + `api/use-set-stage-status.ts`
       (инвалидация списка этапов номинации и раскладки этапа — риск из
       `plan.md`).
-- [ ] T9. **`create-stage-dialog.tsx` → управляемый (red→green)** — тест:
+- [x] T9. **`create-stage-dialog.tsx` → управляемый (red→green)** — тест:
       диалог открывается пропом `open`, `prefill` предвыбирает тип и
       источник правила, `DialogTrigger` необязателен → затем правка
       компонента. Существующие тесты диалога должны остаться зелёными.
-- [ ] T10. **`widgets/nomination-schema/schema-diagnostics.tsx` (red→green)**
+- [x] T10. **`widgets/nomination-schema/schema-diagnostics.tsx` (red→green)**
       — тест: «Схема корректна» при пустых `issues`, счётчики по классам при
       смешанных (AC-4) → затем компонент.
-- [ ] T11. **`stage-card.tsx` (red→green)** — тест: сводка конфига на
+- [x] T11. **`stage-card.tsx` (red→green)** — тест: сводка конфига на
       карточке (AC-5), `href` ссылки «Посев →» (AC-6), подпись правила и
       «Правила нет — набирается руками», сообщения проблем этапа (FR-7),
       слот действий «Сформировать»/«Расформировать» (FR-11) → затем
       компонент (`useDraggable` + `useDroppable`).
-- [ ] T12. **`schema-palette.tsx` + `schema-canvas.tsx` (red→green)** — тест:
+- [x] T12. **`schema-palette.tsx` + `schema-canvas.tsx` (red→green)** — тест:
       подписи «Уровень N» (AC-5), параллельные ветки в одном ряду, пустое
       состояние с кнопками «+ Группы»/«+ Плейофф» (AC-18/FR-30), три
       элемента палитры (FR-12) → затем компоненты.
-- [ ] T13. **`stage-inspector.tsx` (red→green)** — тест: правка названия,
+- [x] T13. **`stage-inspector.tsx` (red→green)** — тест: правка названия,
       тип только для чтения (FR-19), конфиг блокируется непустым составом
       (AC-13), правило отбора — смена источника/селектора/границ и
       «Очистить» (AC-11), селектор заблокирован при источнике-ростере
@@ -103,12 +103,12 @@
       `ConfirmDialog` с последствиями и тостами (AC-15/FR-24) → затем
       компонент. **Ключевая задача инкремента**: закрывает мёртвый
       `useSetStageRule` (0019 FR-6).
-- [ ] T14. **`schema-skeleton.tsx`** — скелетон в форме палитры и двух рядов
+- [x] T14. **`schema-skeleton.tsx`** — скелетон в форме палитры и двух рядов
       уровней (FR-28); тест — присутствие скелетона вместо текста загрузки.
 
 ## Волна 2 — join: сборка, роут, удаление старого
 
-- [ ] T15. **`nomination-schema-screen.tsx` (red→green)** —
+- [x] T15. **`nomination-schema-screen.tsx` (red→green)** —
       `nomination-schema-screen.test.tsx`: `PageHeader` с названием, статусом
       и счётчиком этапов (FR-1), скелетон при загрузке и ошибка с повтором
       (AC-19), выделение карточки открывает инспектор и «×» закрывает
@@ -116,32 +116,60 @@
       создания с предзаполнением (AC-7/AC-8), бросок «Ростер» на карточку
       вызывает `SetStageRule` (AC-9), бросок карточки на карточку задаёт
       источник (AC-10) — `@dnd-kit` мокается приёмом 0030 → затем компонент.
-- [ ] T16. **Роут** — `app/(admin)/admin/nominations/[id]/stages/page.tsx`:
+- [x] T16. **Роут** — `app/(admin)/admin/nominations/[id]/stages/page.tsx`:
       убрать `AdminHeader` и кнопку «← Все номинации», рендерить
       `NominationSchemaScreen`; `NominationResults` оставить как есть.
-- [ ] T17. **Удалить `features/stage-management/ui/stage-management.tsx`** и
+- [x] T17. **Удалить `features/stage-management/ui/stage-management.tsx`** и
       его тест; убедиться, что все четыре кросс-фичевых импорта ушли вместе
       с файлом.
-- [ ] T18. **Удалить заменённые файлы**: `ui/edit-stage-dialog.tsx`,
+- [x] T18. **Удалить заменённые файлы**: `ui/edit-stage-dialog.tsx`,
       `features/format-presets/ui/{apply-format-dialog,save-preset-dialog}.tsx`
-      и их тесты, `widgets/nomination-schema/nomination-schema.tsx` + тест.
-      Проверить, что удалённые сценарии покрыты новыми тестами (инспектор,
-      чипы), а не потеряны.
-- [ ] T19. **Границы слоёв (AC-20)** — grep по `web/src/features`: ни одного
+      и их тесты. Проверить, что удалённые сценарии покрыты новыми тестами
+      (инспектор, чипы), а не потеряны.
+      **`widgets/nomination-schema/nomination-schema.tsx` + тест — НЕ
+      удалены**: план ошибочно считал `mode="public"` мёртвой веткой; grep
+      после первой попытки удаления вскрыл живого потребителя
+      (`widgets/nomination-pools-public/nomination-pools-public.tsx`) — файл
+      восстановлен (`git restore`), см. `spec.md`/`plan.md`/`docs/design-sync.md`.
+- [x] T19. **Границы слоёв (AC-20)** — grep по `web/src/features`: ни одного
       импорта `@/features/<другая фича>`. Зафиксировать результат в отчёте
-      задачи.
+      задачи. Подтверждено: `stage-management` не импортирует ни одну
+      соседнюю фичу. (Три несвязанных пред-существующих кросс-фичевых
+      импорта — `arena-timer`→{`arena-live`,`bout-board`},
+      `stage-build`→{`bracket-seeding`,`nomination-pools`,`stage-management`},
+      `format-presets`→`stage-management/api/keys` — были на `main` до этой
+      спеки, вне скоупа AC-20.)
 
 ## Проверка
 
-- [ ] T20. `make test-web` зелёный; `pnpm exec tsc --noEmit`; `pnpm lint`.
-- [ ] T21. `pnpm build` (`make test-all` — сервер не менялся, но прогнать
-      целиком). Ручной смоук на реальном демо-турнире: сборка схемы броском,
-      правка правила в инспекторе, переход «Посев →», применение пресета
-      чипом, инлайн-правка шапки, обе темы.
-- [ ] T22. Обновить `docs/specs/README.md` (статус 0031 → done) и
-      `docs/design-sync.md`: строка «Схема номинации» — новые repo-пути
-      (`widgets/nomination-schema/*` как композиция), пометки об исчезнувшем
-      UI-пути «схема номинации-донора» и об удалённом `mode="public"`.
+- [x] T20. `make test-web` зелёный (205 файлов / 1588 тестов);
+      `pnpm exec tsc --noEmit` чисто; `pnpm lint` — 0 ошибок, 3
+      пред-существующих warning'а (не в файлах этой спеки).
+- [x] T21. `pnpm build` — успешно. Ручной смоук — **через реальный BFF +
+      Go-сервер + Postgres** (нет headless-браузера в среде реализации, тот
+      же приём, что 0030): вход `admin@local`/BOOTSTRAP_ADMIN, реальный
+      демо-турнир. Проверено сквозным curl-сценарием на свежей номинации:
+      инлайн-правка номинации (`PUT /api/nominations/[id]`), создание этапа
+      без правила и с правилом-источником, **`SetStageRule` — сохранение и
+      очистка правила** (`PUT /api/stages/[stageId]/rule`, ключевой путь
+      0019 FR-6, ранее не вызывавшийся ниоткуда), правило с источником-
+      ростером, переключение статуса draft⇄ready
+      (`POST /api/stages/[stageId]/status`), удаление этапа (гейт
+      «источник другой ветки», 404 на повторное удаление), очистка. SSR
+      страницы (`curl` без JS) отдаёт 200, `PageHeader`/инлайн-шапку с
+      реальными данными номинации и скелетон холста (список этапов —
+      клиентский `useStages` без SSR-prefetch по `plan.md`, поэтому карточки
+      появляются только после гидратации в браузере — не проверено вживую,
+      закрыто модульными/компонентными тестами). Обе темы — не проверены
+      визуально (нет браузера), новых цветовых решений мимо токенов 0022 в
+      коде нет (NFR-3).
+- [x] T22. `docs/specs/README.md` (статус 0031 → done) и `docs/design-sync.md`
+      обновлены: строка «Схема номинации» — новые repo-пути
+      (`widgets/nomination-schema/nomination-schema-screen.tsx` как
+      композиция + дочерние файлы), исчезновение UI-пути «схема номинации-
+      донора» (0020 FR-15, решение пользователя №3). Поправка найденной по
+      ходу реализации ошибки разведки: `mode="public"` **не** мёртвая ветка
+      (см. T18) — `nomination-schema.tsx` не удалён.
 
 _Задачи-шаблон адаптированы под фичу: контрактов и server-слоёв нет —
 инкремент чисто клиентский (NFR-1)._
