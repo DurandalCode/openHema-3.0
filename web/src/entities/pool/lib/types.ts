@@ -110,6 +110,20 @@ export function poolLayoutCounts(layout: PoolLayout): PoolLayoutCounts {
   return { assigned: distributed, total, poolCount: layout.pools.length };
 }
 
+/**
+ * poolCountWord — склонение «пул/пула/пулов» (спека 0030, FR-1; переехало
+ * из `features/nomination-pools` в спеке 0032 join-волны вместе со сводкой
+ * тулбара, которая теперь живёт в `PageHeader` страницы этапа).
+ */
+export function poolCountWord(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return "пулов";
+  const mod10 = n % 10;
+  if (mod10 === 1) return "пул";
+  if (mod10 >= 2 && mod10 <= 4) return "пула";
+  return "пулов";
+}
+
 /** poolLayoutStatusLabel — человекочитаемый статус раскладки (RU). */
 export function poolLayoutStatusLabel(status: PoolLayoutStatus): string {
   switch (status) {

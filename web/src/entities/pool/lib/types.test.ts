@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outcomeOf, poolLayoutCounts } from "./types";
+import { outcomeOf, poolCountWord, poolLayoutCounts } from "./types";
 import type { FighterRef, Pool, PoolLayout } from "./types";
 
 function fighter(id: string): FighterRef {
@@ -81,5 +81,31 @@ describe("entities/pool/lib/types outcomeOf", () => {
 
   it("returns 'draw' for 0:0 (not started bout)", () => {
     expect(outcomeOf(0, 0)).toBe("draw");
+  });
+});
+
+// Спека 0032 (T12, join): склонение «пул/пула/пулов» — переехало из
+// features/nomination-pools (0030, статус/сводка ушли из тулбара в
+// PageHeader, FR-3) в entities/pool, где им пользуется stage-page-screen.
+describe("entities/pool/lib/types poolCountWord", () => {
+  it("declines 1 as 'пул'", () => {
+    expect(poolCountWord(1)).toBe("пул");
+    expect(poolCountWord(21)).toBe("пул");
+  });
+
+  it("declines 2-4 as 'пула'", () => {
+    expect(poolCountWord(2)).toBe("пула");
+    expect(poolCountWord(3)).toBe("пула");
+    expect(poolCountWord(4)).toBe("пула");
+    expect(poolCountWord(22)).toBe("пула");
+  });
+
+  it("declines 5-20 and 0 as 'пулов'", () => {
+    expect(poolCountWord(0)).toBe("пулов");
+    expect(poolCountWord(5)).toBe("пулов");
+    expect(poolCountWord(11)).toBe("пулов");
+    expect(poolCountWord(12)).toBe("пулов");
+    expect(poolCountWord(14)).toBe("пулов");
+    expect(poolCountWord(20)).toBe("пулов");
   });
 });

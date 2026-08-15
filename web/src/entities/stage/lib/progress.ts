@@ -7,6 +7,7 @@
  */
 
 import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
+import { bracketRoundOneFilledCount } from "@/entities/bracket/lib/types";
 
 export type StageProgress = {
   fighters: number;
@@ -37,15 +38,7 @@ export function stageProgressFromSnapshot(
     const stageId = bracket.stage.id;
     const progress = (result[stageId] ??= { fighters: 0, boutsTotal: 0, boutsFinished: 0 });
 
-    const firstRound = bracket.rounds.find((round) => round.number === 1);
-    if (firstRound) {
-      for (const half of firstRound.halves) {
-        for (const pair of half.pairs) {
-          if (pair.slotA.state === "BRACKET_SLOT_STATE_FILLED") progress.fighters += 1;
-          if (pair.slotB.state === "BRACKET_SLOT_STATE_FILLED") progress.fighters += 1;
-        }
-      }
-    }
+    progress.fighters += bracketRoundOneFilledCount(bracket);
 
     for (const round of bracket.rounds) {
       for (const half of round.halves) {

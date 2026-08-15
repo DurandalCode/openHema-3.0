@@ -110,3 +110,23 @@ export type Bracket = {
   champion: FighterRef | null;
   thirdPlaceWinner: FighterRef | null;
 };
+
+/**
+ * bracketRoundOneFilledCount — число занятых слотов первого круга (спека
+ * 0032, join): «Заполнено N / M» страницы этапа для сетки. Та же логика,
+ * что `stageProgressFromSnapshot` (`entities/stage/lib/progress.ts`)
+ * использует для счётчика бойцов в правом рельсе — вынесена сюда как
+ * переиспользуемая чистая функция вместо дублирования подсчёта.
+ */
+export function bracketRoundOneFilledCount(bracket: Bracket): number {
+  const firstRound = bracket.rounds.find((round) => round.number === 1);
+  if (!firstRound) return 0;
+  let count = 0;
+  for (const half of firstRound.halves) {
+    for (const pair of half.pairs) {
+      if (pair.slotA.state === "BRACKET_SLOT_STATE_FILLED") count += 1;
+      if (pair.slotB.state === "BRACKET_SLOT_STATE_FILLED") count += 1;
+    }
+  }
+  return count;
+}
