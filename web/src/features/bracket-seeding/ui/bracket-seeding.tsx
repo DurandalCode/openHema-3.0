@@ -20,7 +20,7 @@ import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
-import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
+import { toastError, toastUndo } from "@/shared/lib/toast";
 import type { FighterRef } from "@/entities/pool/lib/types";
 import type { BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
@@ -29,7 +29,6 @@ import { useSeedSlot } from "../api/use-seed-slot";
 import { useClearSlot } from "../api/use-clear-slot";
 import { useResetBracket } from "../api/use-reset-bracket";
 import { useUndoBracket } from "../api/use-undo-bracket";
-import { useSetBracketStatus } from "../api/use-set-bracket-status";
 import { bracketErrorMessage } from "../api/errors";
 import { resolveDrop } from "../lib/drop-action";
 
@@ -48,8 +47,10 @@ const fighterDragId = (fighterId: string, slot: number | null) =>
  * постоянный inline-баннер (`mutationError`) убран целиком, все отказы идут
  * тостом через `bracketErrorMessage` (санкционированный дубль
  * `nomination-pools/api/errors.ts`, правило 6 `web/AGENTS.md`). DnD и
- * тулбарная «Отменить» — тихий успех, тост только на ошибку; создающие
- * видимый эффект действия (фиксация, сброс) — тост-успех/`toastUndo`.
+ * тулбарная «Отменить» — тихий успех, тост только на ошибку; сброс —
+ * тост-успех/`toastUndo`. Статус этапа и переключатель фиксации ушли из
+ * тулбара в `PageHeader` страницы этапа (спека 0032, FR-3) — их здесь
+ * больше нет, `readOnly` вычисляется локально и только гейтит DnD/действия.
  */
 export function BracketSeeding({ stageId }: { stageId: string }) {
   const { data: bracket, isLoading, error, refetch } = useBracket(stageId);
@@ -57,7 +58,6 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   const clearSlot = useClearSlot(stageId);
   const resetBracket = useResetBracket(stageId);
   const undoBracket = useUndoBracket(stageId);
-  const setStatus = useSetBracketStatus(stageId);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
@@ -103,15 +103,6 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
     });
   }
 
-  function handleToggleStatus() {
-    const nextStatus = readOnly ? "draft" : "ready";
-    setStatus.mutate(nextStatus, {
-      onSuccess: () =>
-        toastSuccess(nextStatus === "ready" ? "Сетка зафиксирована" : "Сетка возвращена в черновик"),
-      onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
-    });
-  }
-
   /**
    * Сброс посева покрыт отменой последнего действия (undo), поэтому
    * подтверждение — без ввода названия (FR-8); успех/ошибка идут через
@@ -150,29 +141,17 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   if (readOnly) {
     return (
       <Col gap={6}>
-        <Row align="center" justify="between" gap={3} className="flex-wrap">
-          <Badge tone="success">готово</Badge>
-          <Row gap={2} className="flex-wrap">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!bracket.canUndo}
-              onClick={handleUndo}
-              loading={undoBracket.isPending}
-            >
-              <Undo2 /> Отменить
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleToggleStatus}
-              loading={setStatus.isPending}
-            >
-              Вернуть в черновик
-            </Button>
-          </Row>
+        <Row justify="end" gap={2} className="flex-wrap">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!bracket.canUndo}
+            onClick={handleUndo}
+            loading={undoBracket.isPending}
+          >
+            <Undo2 /> Отменить
+          </Button>
         </Row>
 
         <BracketView bracket={bracket} />
@@ -184,37 +163,26 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
 
   return (
     <Col gap={6}>
-      <Row align="center" justify="between" gap={3} className="flex-wrap">
-        <Badge tone="warn">черновик</Badge>
-        <Row gap={2} className="flex-wrap">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!bracket.canUndo}
-            onClick={handleUndo}
-            loading={undoBracket.isPending}
-          >
-            <Undo2 /> Отменить
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setConfirmResetOpen(true)}
-            loading={resetBracket.isPending}
-          >
-            <RotateCcw /> Сбросить посев
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleToggleStatus}
-            loading={setStatus.isPending}
-          >
-            Зафиксировать сетку
-          </Button>
-        </Row>
+      <Row justify="end" gap={2} className="flex-wrap">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!bracket.canUndo}
+          onClick={handleUndo}
+          loading={undoBracket.isPending}
+        >
+          <Undo2 /> Отменить
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setConfirmResetOpen(true)}
+          loading={resetBracket.isPending}
+        >
+          <RotateCcw /> Сбросить посев
+        </Button>
       </Row>
 
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>

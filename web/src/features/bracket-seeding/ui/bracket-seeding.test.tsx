@@ -91,7 +91,6 @@ const seedMutate = vi.fn();
 const clearMutate = vi.fn();
 const resetMutate = vi.fn();
 const undoMutate = vi.fn();
-const setStatusMutate = vi.fn();
 const toastSuccessMock = vi.fn();
 const toastUndoMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -147,13 +146,6 @@ vi.mock("../api/use-reset-bracket", () => ({
 }));
 vi.mock("../api/use-undo-bracket", () => ({
   useUndoBracket: () => ({ mutate: undoMutate, isPending: false, error: null }),
-}));
-vi.mock("../api/use-set-bracket-status", () => ({
-  useSetBracketStatus: () => ({
-    mutate: setStatusMutate,
-    isPending: false,
-    error: null,
-  }),
 }));
 vi.mock("@/shared/lib/toast", () => ({
   toastSuccess: (message: string) => toastSuccessMock(message),
@@ -256,37 +248,22 @@ describe("BracketSeeding", () => {
     expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied"), undefined);
   });
 
-  // Спека 0032, FR-3: смена статуса — тост-успех по направлению перехода.
-  it("fixing the bracket via the toolbar button shows a success toast", () => {
-    setStatusMutate.mockImplementation((_status, options: { onSuccess?: () => void }) => {
-      options?.onSuccess?.();
-    });
-
+  // Спека 0032, FR-3: статус/фиксация ушли из тулбара в PageHeader (по
+  // образцу трека C, `nomination-pools`) — на экране их больше нет.
+  it("no longer renders the status badge or the fixation button in the toolbar", () => {
     render(<BracketSeeding stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Зафиксировать сетку" }));
 
-    expect(setStatusMutate).toHaveBeenCalledWith(
-      "ready",
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    );
-    expect(toastSuccessMock).toHaveBeenCalledWith("Сетка зафиксирована");
-  });
+    expect(screen.queryByText("черновик")).not.toBeInTheDocument();
+    expect(screen.queryByText("готово")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Зафиксировать сетку" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Вернуть в черновик" })).not.toBeInTheDocument();
 
-  it("a failed status change shows a translated error toast, no permanent banner", () => {
-    setStatusMutate.mockImplementation((_status, options: { onError?: (err: Error) => void }) => {
-      options?.onError?.(new Error("not enough seeded fighters to lock the bracket"));
-    });
-
+    mockBracketData(readyBracket(false));
     render(<BracketSeeding stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Зафиксировать сетку" }));
-
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      bracketErrorMessage("not enough seeded fighters to lock the bracket"),
-      undefined,
-    );
-    expect(
-      screen.queryByText("not enough seeded fighters to lock the bracket"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("черновик")).not.toBeInTheDocument();
+    expect(screen.queryByText("готово")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Зафиксировать сетку" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Вернуть в черновик" })).not.toBeInTheDocument();
   });
 
   // Спека 0023, FR-8/AC-7: сброс посева идёт через ConfirmDialog
@@ -346,7 +323,6 @@ describe("BracketSeeding", () => {
     render(<BracketSeeding stageId="stage-1" />);
 
     expect(screen.queryByText("Нераспределённые")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Вернуть в черновик" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Отменить/i })).toBeDisabled();
   });
 
@@ -376,22 +352,6 @@ describe("BracketSeeding", () => {
     fireEvent.click(screen.getByRole("button", { name: /Отменить/i }));
 
     expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("nothing to undo"), undefined);
-  });
-
-  it("toggling back to draft shows its own success toast", () => {
-    mockBracketData(readyBracket(false));
-    setStatusMutate.mockImplementation((_status, options: { onSuccess?: () => void }) => {
-      options?.onSuccess?.();
-    });
-
-    render(<BracketSeeding stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Вернуть в черновик" }));
-
-    expect(setStatusMutate).toHaveBeenCalledWith(
-      "draft",
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
-    expect(toastSuccessMock).toHaveBeenCalledWith("Сетка возвращена в черновик");
   });
 
   // Спека 0032, FR-23: скелетон в форме экрана (нераспределённые + пары),
