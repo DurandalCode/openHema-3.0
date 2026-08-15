@@ -98,8 +98,12 @@
   `new Error(poolsErrorMessage(res.error, res.status))` (перевод — сразу
   внутри `mutationFn`, как `use-delete-preset.ts` в 0029 — `onError`/
   компонент видят уже русский `err.message`, без доп. полей на `Error`).
-  `onSuccess` → `toastSuccess("Пул создан")` (spec FR-3); `onError` →
-  `toastError(err.message)` без `retry`.
+  Тост — из компонента (spec FR-3), не в хуке — единообразно с остальными
+  шестью мутациями экрана (проще и тестируемо: компонентные тесты мокают
+  хуки целиком, поэтому обратная связь внутри самого хука была бы не видна
+  тестам `nomination-pools.test.tsx`): `createPool.mutate(undefined, {
+  onSuccess: () => toastSuccess("Пул создан"), onError: (e) =>
+  toastError(e.message) })`.
 - **`use-delete-pool.ts`** — тот же перевод ошибки внутри `mutationFn`.
   Toast — не в хуке: хук не знает про `undo`-хук (циклическая зависимость
   между хуками нежелательна), связка делается в `nomination-pools.tsx`
@@ -116,12 +120,13 @@
   хук уже используется и кнопкой тулбара, и как цель `onUndo` из тостов
   FR-4/FR-5, поэтому тост на его собственную ошибку логичнее держать там
   же, где остальные обработчики этого экрана).
-- **`use-set-layout-status.ts`** — перевод ошибки внутри `mutationFn`;
-  `onSuccess` → `toastSuccess` с текстом по направлению перехода
-  («Раскладка зафиксирована» / «Раскладка возвращена в черновик», spec
-  FR-8 — направление известно хуку по аргументу `status: "draft"|"ready"`);
-  `onError` → `toastError(err.message)` без retry (покрывает и случай 0013
-  «есть проведённые бои» — под общим текстом `poolsErrorMessage(409)`, см.
+- **`use-set-layout-status.ts`** — перевод ошибки внутри `mutationFn`; тост
+  — из компонента (та же причина, что у `use-create-pool.ts`), с текстом по
+  направлению перехода («Раскладка зафиксирована» / «Раскладка возвращена в
+  черновик», spec FR-8 — направление известно компоненту, он же вызывает
+  `.mutate("draft"|"ready", {...})`); `onError` → `toastError(e.message)`
+  без retry (покрывает и случай 0013 «есть проведённые бои» — под общим
+  текстом `poolsErrorMessage(409)`, см.
   «Риски»).
 - **`use-reset-layout.ts`** — **без изменений** (уже `toastUndo` +
   `ConfirmDialog`, spec FR-6; текст ошибки при желании можно тоже перевести

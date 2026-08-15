@@ -1,7 +1,6 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toastSuccess } from "@/shared/lib/toast";
 import { setLayoutStatusRequest } from "./requests";
 import { nominationPoolsKeys } from "./keys";
 import { poolsErrorMessage } from "./errors";
@@ -29,10 +28,7 @@ export function useSetLayoutStatus(stageId: string) {
       if (!res.ok) throw new Error(poolsErrorMessage(res.error, res.status));
       return res.layout;
     },
-    onSuccess: (_layout, status) => {
-      toastSuccess(
-        status === "ready" ? "Раскладка зафиксирована" : "Раскладка возвращена в черновик",
-      );
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
       qc.invalidateQueries({ queryKey: ["nomination-pools", "bouts"] });
     },

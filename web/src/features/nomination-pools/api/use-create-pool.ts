@@ -1,7 +1,6 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toastSuccess } from "@/shared/lib/toast";
 import { createPoolRequest } from "./requests";
 import { nominationPoolsKeys } from "./keys";
 import { poolsErrorMessage } from "./errors";
@@ -9,8 +8,9 @@ import { poolsErrorMessage } from "./errors";
 /**
  * useCreatePool — мутация создания пула в этапе (только draft, FR-3).
  * Отказ переводится на русский по HTTP-статусу (спека 0030, FR-3) прямо в
- * `mutationFn`, поэтому `onError` компонента видит уже русский
- * `err.message`.
+ * `mutationFn`, поэтому `onError` видит уже русский `err.message`. Тост —
+ * не здесь: вызывается компонентом (`nomination-pools.tsx`), как и у
+ * остальных мутаций экрана (по образцу `preset-library.tsx`, 0029).
  */
 export function useCreatePool(stageId: string) {
   const qc = useQueryClient();
@@ -21,7 +21,6 @@ export function useCreatePool(stageId: string) {
       return res.layout;
     },
     onSuccess: () => {
-      toastSuccess("Пул создан");
       qc.invalidateQueries({ queryKey: nominationPoolsKeys.layout(stageId) });
     },
   });
