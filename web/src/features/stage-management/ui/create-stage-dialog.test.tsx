@@ -217,4 +217,141 @@ describe("CreateStageDialog", () => {
     openDialog();
     expect(screen.getByText("bracket size must be a power of two")).toBeInTheDocument();
   });
+
+  describe("controlled mode (спека 0031, T9)", () => {
+    it("renders no trigger button when `open` prop is passed — the widget opens it programmatically", () => {
+      render(
+        <CreateStageDialog nominationId="n1" stages={[groupsStage, bracketStage]} open={false} onOpenChange={vi.fn()} />,
+      );
+      expect(screen.queryByRole("button", { name: /Добавить этап/i })).not.toBeInTheDocument();
+    });
+
+    it("shows dialog content when `open` is true", () => {
+      render(
+        <CreateStageDialog nominationId="n1" stages={[groupsStage, bracketStage]} open={true} onOpenChange={vi.fn()} />,
+      );
+      expect(screen.getByText("Новый этап")).toBeInTheDocument();
+    });
+
+    it("calls onOpenChange(false) when the dialog is dismissed", () => {
+      const onOpenChange = vi.fn();
+      render(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={true}
+          onOpenChange={onOpenChange}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("calls onOpenChange(false) after a successful submit", () => {
+      const onOpenChange = vi.fn();
+      render(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={true}
+          onOpenChange={onOpenChange}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }));
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe("prefill (спека 0031, FR-13/FR-14, AC-7/AC-8)", () => {
+    it("preselects the bracket type and submits without a rule when only `type` is prefilled (AC-7)", () => {
+      render(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={true}
+          onOpenChange={vi.fn()}
+          prefill={{ type: "bracket" }}
+        />,
+      );
+      expect(screen.getByText("Размер сетки")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }));
+
+      expect(createMutate).toHaveBeenCalledWith(
+        { type: "bracket", title: "Плейофф", bracketSize: 8, thirdPlace: false },
+        expect.anything(),
+      );
+    });
+
+    it("preselects the groups type when prefilled with type: 'groups'", () => {
+      render(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={true}
+          onOpenChange={vi.fn()}
+          prefill={{ type: "groups" }}
+        />,
+      );
+      expect(screen.getByLabelText("Число групп")).toBeInTheDocument();
+      expect(screen.queryByText("Размер сетки")).not.toBeInTheDocument();
+    });
+
+    it("preselects type and rule source when prefilled with sourceStageId (AC-8)", () => {
+      render(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={true}
+          onOpenChange={vi.fn()}
+          prefill={{ type: "bracket", sourceStageId: "g1" }}
+        />,
+      );
+
+      // rule block already open, source preselected to the dragged card
+      expect(screen.getByText("Источник")).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Источник" })).toHaveTextContent("Групповой этап");
+
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }));
+
+      expect(createMutate).toHaveBeenCalledWith(
+        {
+          type: "bracket",
+          title: "Плейофф",
+          bracketSize: 8,
+          thirdPlace: false,
+          rule: {
+            sourceKind: "STAGE_SOURCE_KIND_STAGE",
+            sourceStageId: "g1",
+            selector: "STAGE_SELECTOR_KIND_ALL",
+            placeFrom: 0,
+            placeTo: 0,
+          },
+        },
+        expect.anything(),
+      );
+    });
+
+    it("re-applies prefill when the dialog is reopened with a different prefill", () => {
+      const { rerender } = render(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={false}
+          onOpenChange={vi.fn()}
+          prefill={{ type: "groups" }}
+        />,
+      );
+      rerender(
+        <CreateStageDialog
+          nominationId="n1"
+          stages={[groupsStage, bracketStage]}
+          open={true}
+          onOpenChange={vi.fn()}
+          prefill={{ type: "groups" }}
+        />,
+      );
+      expect(screen.getByLabelText("Число групп")).toBeInTheDocument();
+    });
+  });
 });

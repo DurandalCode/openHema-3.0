@@ -87,10 +87,11 @@ describe("features/format-presets/api/requests", () => {
     it("returns ok:false with the server's 409 error when the name is taken (AC-17)", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 409,
         json: async () => ({ error: "preset name is already taken" }),
       });
       const result = await saveFormatPresetRequest("Дубль", "n1");
-      expect(result).toEqual({ ok: false, error: "preset name is already taken" });
+      expect(result).toEqual({ ok: false, error: "preset name is already taken", status: 409 });
     });
 
     it("returns network error when fetch throws", async () => {
@@ -203,10 +204,15 @@ describe("features/format-presets/api/requests", () => {
     it("returns ok:false with the server's 409 FailedPrecondition error when schema is not empty", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 409,
         json: async () => ({ error: "schema is not empty: reset stages first" }),
       });
       const result = await applyFormatRequest("n1", { presetId: "p1" });
-      expect(result).toEqual({ ok: false, error: "schema is not empty: reset stages first" });
+      expect(result).toEqual({
+        ok: false,
+        error: "schema is not empty: reset stages first",
+        status: 409,
+      });
     });
 
     it("returns network error when fetch throws", async () => {

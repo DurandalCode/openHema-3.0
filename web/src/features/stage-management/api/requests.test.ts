@@ -5,6 +5,7 @@ import {
   deleteStageRequest,
   listStagesRequest,
   setStageRuleRequest,
+  setStageStatusRequest,
   updateStageRequest,
 } from "./requests";
 
@@ -298,6 +299,55 @@ describe("features/stage-management/api/requests", () => {
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await setStageRuleRequest("s1", null);
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("setStageStatusRequest", () => {
+    it("POSTs /api/stages/[stageId]/status with 'ready' and returns the new status (спека 0031, FR-22)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ layout: { status: "POOL_LAYOUT_STATUS_READY" } }),
+      });
+
+      const result = await setStageStatusRequest("s1", "ready");
+
+      expect(result).toEqual({ ok: true, status: "POOL_LAYOUT_STATUS_READY" });
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ready" }),
+      });
+    });
+
+    it("POSTs with 'draft' and returns the new status", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ layout: { status: "POOL_LAYOUT_STATUS_DRAFT" } }),
+      });
+
+      const result = await setStageStatusRequest("s1", "draft");
+
+      expect(result).toEqual({ ok: true, status: "POOL_LAYOUT_STATUS_DRAFT" });
+      expect(fetchMock).toHaveBeenCalledWith("/api/stages/s1/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "draft" }),
+      });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "not enough seeded fighters" }),
+      });
+      const result = await setStageStatusRequest("s1", "ready");
+      expect(result).toEqual({ ok: false, error: "not enough seeded fighters" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+      const result = await setStageStatusRequest("s1", "ready");
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });

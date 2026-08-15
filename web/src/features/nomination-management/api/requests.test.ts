@@ -4,6 +4,7 @@ import {
   closeRegistrationRequest,
   createNominationRequest,
   deleteNominationRequest,
+  getNominationRequest,
   listNominationStagesRequest,
   listNominationsRequest,
   reopenRegistrationRequest,
@@ -89,6 +90,36 @@ describe("features/nomination-management/api/requests", () => {
       const result = await createNominationRequest("t1", { title: "" });
 
       expect(result).toEqual({ ok: false, error: "title is required" });
+    });
+  });
+
+  describe("getNominationRequest", () => {
+    it("GETs /api/nominations/[id] and returns the nomination on 2xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ nomination: { id: "n1", title: "Длинный меч" } }),
+      });
+
+      const result = await getNominationRequest("n1");
+
+      expect(result).toEqual({ ok: true, nomination: { id: "n1", title: "Длинный меч" } });
+      expect(fetchMock).toHaveBeenCalledWith("/api/nominations/n1", { method: "GET" });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "not found" }) });
+
+      const result = await getNominationRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "not found" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await getNominationRequest("n1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });
 

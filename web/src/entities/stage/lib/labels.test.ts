@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPresetSummary, groupStagesByLevel, schemaErrorCount, stageRuleLabel, stageSchemaSummary, stageTypeLabel } from "./labels";
+import { formatPresetSummary, groupStagesByLevel, schemaErrorCount, stageConfigLabel, stageRuleLabel, stageSchemaSummary, stageTypeLabel } from "./labels";
 import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage } from "./types";
 
 describe("entities/stage/lib/labels stageTypeLabel", () => {
@@ -253,6 +253,33 @@ function issue(overrides: Partial<SchemaIssue>): SchemaIssue {
     ...overrides,
   };
 }
+
+describe("entities/stage/lib/labels stageConfigLabel (spec 0031, FR-9)", () => {
+  it("labels a bracket with third place", () => {
+    const bracket = stage({ id: "b", type: "STAGE_TYPE_BRACKET", groups: null, bracket: { size: 8, thirdPlace: true } });
+    expect(stageConfigLabel(bracket)).toBe("8 · бронза");
+  });
+
+  it("labels a bracket without third place", () => {
+    const bracket = stage({ id: "b", type: "STAGE_TYPE_BRACKET", groups: null, bracket: { size: 16, thirdPlace: false } });
+    expect(stageConfigLabel(bracket)).toBe("16");
+  });
+
+  it("labels a group stage with a set group count", () => {
+    const groups = stage({ id: "g", type: "STAGE_TYPE_GROUPS", groups: { groupCount: 4 }, bracket: null });
+    expect(stageConfigLabel(groups)).toBe("4 гр.");
+  });
+
+  it("returns an empty string for a group stage without a set group count", () => {
+    const groups = stage({ id: "g", type: "STAGE_TYPE_GROUPS", groups: null, bracket: null });
+    expect(stageConfigLabel(groups)).toBe("");
+  });
+
+  it("returns an empty string for a stage without any config (unspecified type)", () => {
+    const unspecified = stage({ id: "u", type: "STAGE_TYPE_UNSPECIFIED", groups: null, bracket: null });
+    expect(stageConfigLabel(unspecified)).toBe("");
+  });
+});
 
 describe("entities/stage/lib/labels schemaErrorCount", () => {
   it("counts only ERROR severity, ignoring WARNING (AC-4)", () => {

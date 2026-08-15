@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
@@ -25,6 +25,7 @@ import {
 } from "@/shared/ui/select";
 import { Col, Row } from "@/shared/ui/stack";
 import { stageErrorMessage } from "@/entities/stage/lib/errors";
+import type { StageTypeChoice } from "@/entities/stage/lib/schema-drag";
 import type { Stage, StageSelectorKind, StageSourceKind } from "@/entities/stage/lib/types";
 import { useCreateStage } from "../api/use-create-stage";
 import type { SeedingRuleInput } from "../api/requests";
@@ -32,7 +33,14 @@ import type { SeedingRuleInput } from "../api/requests";
 const BRACKET_SIZES = [4, 8, 16, 32] as const;
 const ROSTER_VALUE = "roster";
 
-type StageTypeChoice = "bracket" | "groups";
+/**
+ * CreateStagePrefill — предзаполнение диалога броском на холст (спека 0031,
+ * FR-13/FR-14): `type` предвыбирает тип этапа, `sourceStageId` — источник
+ * правила отбора (карточка, на которую бросили «Группы»/«Плейофф»). Бросок
+ * на пустую зону холста (FR-13) даёт `{ type }` без `sourceStageId` — состав
+ * набирается вручную, правило не заводится вовсе.
+ */
+export type CreateStagePrefill = { type: StageTypeChoice; sourceStageId?: string };
 
 /**
  * CreateStageDialog — добавление этапа к номинации: сетка (спека 0018,
@@ -41,19 +49,37 @@ type StageTypeChoice = "bracket" | "groups";
  * его сам из типа целевого этапа.
  *
  * `stages` — этапы номинации, уже существующие на момент открытия диалога
- * (переданы вызывающей стороной, `features/stage-management/ui/stage-management.tsx`):
- * источник правила предлагается только из этапов типа «группы» (FR-2) — они
- * по построению стоят раньше ещё не созданного этапа. Финальную валидацию
+ * (переданы вызывающей стороной, `widgets/nomination-schema`): источник
+ * правила предлагается только из этапов типа «группы» (FR-2) — они по
+ * построению стоят раньше ещё не созданного этапа. Финальную валидацию
  * (порядок, тип, число групп источника) всё равно делает сервер (FR-9a).
+ *
+ * Управляемый (спека 0031, T9): без `open`/`onOpenChange` диалог остаётся
+ * самодостаточным — своя кнопка-триггер и внутреннее состояние открытости
+ * (обратная совместимость с прежним использованием). С `open` — триггер не
+ * рендерится вовсе: открытость и её смена целиком у вызывающей стороны
+ * (`widgets/nomination-schema`), которой нужно открывать диалог программно —
+ * и по кнопкам палитры/зоны броска, и по завершению перетаскивания
+ * (FR-13/FR-14). `prefill` применяется каждый раз, когда `open` становится
+ * `true` — не только при первом монтировании.
  */
 export function CreateStageDialog({
   nominationId,
   stages,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+  prefill,
 }: {
   nominationId: string;
   stages: Stage[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  prefill?: CreateStagePrefill;
 }) {
-  const [open, setOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? openProp : internalOpen;
+
   const [type, setType] = useState<StageTypeChoice>("bracket");
   const [title, setTitle] = useState("Плейофф");
   const [bracketSize, setBracketSize] = useState<(typeof BRACKET_SIZES)[number]>(8);
@@ -71,24 +97,43 @@ export function CreateStageDialog({
 
   const sourceStages = stages.filter((s) => s.type === "STAGE_TYPE_GROUPS");
 
-  function reset() {
-    setType("bracket");
-    setTitle("Плейофф");
+  function applyPrefill(p?: CreateStagePrefill) {
+    const nextType = p?.type ?? "bracket";
+    setType(nextType);
+    setTitle(nextType === "bracket" ? "Плейофф" : "Группы");
     setBracketSize(8);
     setThirdPlace(false);
     setGroupCount(4);
-    setHasRule(false);
-    setSourceKind("STAGE_SOURCE_KIND_ROSTER");
-    setSourceStageId("");
-    setSelector("STAGE_SELECTOR_KIND_ALL");
     setPlaceFrom("1");
     setPlaceTo("");
+    if (p?.sourceStageId) {
+      setHasRule(true);
+      setSourceKind("STAGE_SOURCE_KIND_STAGE");
+      setSourceStageId(p.sourceStageId);
+      setSelector("STAGE_SELECTOR_KIND_ALL");
+    } else {
+      setHasRule(false);
+      setSourceKind("STAGE_SOURCE_KIND_ROSTER");
+      setSourceStageId("");
+      setSelector("STAGE_SELECTOR_KIND_ALL");
+    }
     create.reset();
   }
 
-  function onOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) reset();
+  // Применяем prefill (или дефолты без него) при каждом переходе в открытое
+  // состояние — и по клику своего триггера (неуправляемый режим), и когда
+  // родитель программно выставляет `open=true` (управляемый режим, FR-13/FR-14):
+  // в этом случае `handleOpenChange` не вызывается вовсе, только сама смена
+  // пропа. Зависимость — только `open`: пока диалог остаётся открытым, ввод
+  // организатора не должен сбрасываться на каждый ре-рендер.
+  useEffect(() => {
+    if (open) applyPrefill(prefill);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  function handleOpenChange(next: boolean) {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChangeProp?.(next);
   }
 
   function onTypeChange(next: StageTypeChoice) {
@@ -125,18 +170,20 @@ export function CreateStageDialog({
       type === "bracket"
         ? { type: "bracket" as const, title, bracketSize, thirdPlace, ...(rule ? { rule } : {}) }
         : { type: "groups" as const, title, groupCount, ...(rule ? { rule } : {}) };
-    create.mutate(input, { onSuccess: () => setOpen(false) });
+    create.mutate(input, { onSuccess: () => handleOpenChange(false) });
   }
 
   const showPlaceBounds = hasRule && selector !== "STAGE_SELECTOR_KIND_ALL";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm">
-          <Plus /> Добавить этап
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button type="button" size="sm">
+            <Plus /> Добавить этап
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Новый этап</DialogTitle>
