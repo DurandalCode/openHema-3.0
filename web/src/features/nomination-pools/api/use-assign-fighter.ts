@@ -5,6 +5,7 @@ import type { PoolLayout } from "@/entities/pool/lib/types";
 import { assignFighterRequest } from "./requests";
 import { nominationPoolsKeys } from "./keys";
 import { moveFighterInLayout } from "./move-fighter";
+import { poolsErrorMessage } from "./errors";
 
 /**
  * useAssignFighter — мутация DnD: положить бойца в пул (из нераспределённых
@@ -19,7 +20,7 @@ export function useAssignFighter(stageId: string) {
   return useMutation({
     mutationFn: async (vars: { fighterId: string; poolId: string }) => {
       const res = await assignFighterRequest(stageId, vars.fighterId, vars.poolId);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(poolsErrorMessage(res.error, res.status));
       return res.layout;
     },
     onMutate: async (vars) => {

@@ -12,16 +12,17 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { GripVertical, Plus, RotateCcw, Shuffle, Trash2, Undo2 } from "lucide-react";
-import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { GripVertical, RotateCcw, Shuffle, Trash2, Undo2 } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
-import { toastError, toastUndo } from "@/shared/lib/toast";
-import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
+import type { FighterRef, Pool, PoolLayout, PoolLayoutCounts } from "@/entities/pool/lib/types";
+import { poolLayoutCounts } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { Bout } from "@/entities/bout/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
@@ -40,15 +41,33 @@ const UNASSIGNED_ZONE = "zone:unassigned";
 const poolZoneId = (poolId: string) => `zone:pool:${poolId}`;
 const fighterDragId = (fighterId: string) => `fighter:${fighterId}`;
 
+/** poolCountWord — склонение «пул/пула/пулов» для сводки тулбара (спека 0030, FR-1). */
+function poolCountWord(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return "пулов";
+  const mod10 = n % 10;
+  if (mod10 === 1) return "пул";
+  if (mod10 >= 2 && mod10 <= 4) return "пула";
+  return "пулов";
+}
+
 /**
  * NominationPools — экран управления составом этапа: нераспределённые
  * бойцы + пулы, drag & drop, автораспределение, undo, статус draft/ready
  * (спека 0009). В `ready` — read-only (FR-11). Адресуется `stageId` (спека
  * 0018, FR-18); `nominationId` для боёв (`useBouts`, ручка не переехала на
  * этап) берётся из загруженной раскладки (`layout.stage.nominationId`).
+ *
+ * Обратная связь по мутациям — спека 0030: тосты вызываются здесь, в
+ * компоненте (не внутри хуков — единообразно для всех семи мутаций и
+ * тестируемо, т.к. `nomination-pools.test.tsx` мокает хуки целиком).
+ * Удаление пула и автораспределение предлагают «Отменить» в тосте через
+ * тот же общий undo-слот (0009, FR-7a), что и кнопка тулбара — без
+ * ConfirmDialog (решение пользователя, spec «Решения по открытым
+ * вопросам»). Постоянный баннер ошибки (`mutationError`) убран целиком.
  */
 export function NominationPools({ stageId }: { stageId: string }) {
-  const { data: layout, isLoading, error } = useLayout(stageId);
+  const { data: layout, isLoading, error, refetch } = useLayout(stageId);
   const createPool = useCreatePool(stageId);
   const deletePool = useDeletePool(stageId);
   const resetLayout = useResetLayout(stageId);
@@ -67,29 +86,24 @@ export function NominationPools({ stageId }: { stageId: string }) {
   );
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+    return <NominationPoolsSkeleton />;
   }
   if (error || !layout) {
     return (
-      <Alert variant="destructive">
-        <AlertDescription>{error?.message ?? "Не удалось загрузить раскладку"}</AlertDescription>
-      </Alert>
+      <Col gap={3} className="items-start">
+        <p className="text-sm text-destructive">
+          {error?.message ?? "Не удалось загрузить раскладку"}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+          Повторить
+        </Button>
+      </Col>
     );
   }
 
   const readOnly = layout.status === "POOL_LAYOUT_STATUS_READY";
   const boutsByPool = groupBoutsByPool(bouts ?? []);
-  const mutationError =
-    createPool.error?.message ??
-    deletePool.error?.message ??
-    // resetLayout — намеренно не здесь: успех/ошибка идут через тост
-    // (toastUndo/toastError), см. handleResetConfirm ниже (спека 0023, FR-8).
-    assign.error?.message ??
-    unassign.error?.message ??
-    autoDistribute.error?.message ??
-    undo.error?.message ??
-    setStatus.error?.message ??
-    null;
+  const counts = poolLayoutCounts(layout);
 
   function onDragStart(event: DragStartEvent) {
     const fighter = event.active.data.current?.fighter as FighterRef | undefined;
@@ -108,17 +122,61 @@ export function NominationPools({ stageId }: { stageId: string }) {
 
     if (toPoolId === fromPoolId) return; // тот же пул/те же нераспределённые — no-op
 
+    const onDndError = (err: Error) => toastError(err.message);
     if (toPoolId === null) {
-      unassign.mutate(fighterId);
+      unassign.mutate(fighterId, { onError: onDndError });
     } else {
-      assign.mutate({ fighterId, poolId: toPoolId });
+      assign.mutate({ fighterId, poolId: toPoolId }, { onError: onDndError });
     }
+  }
+
+  function handleCreatePool() {
+    createPool.mutate(undefined, {
+      onSuccess: () => toastSuccess("Пул создан"),
+      onError: (err: Error) => toastError(err.message),
+    });
+  }
+
+  /**
+   * Удаление пула — сразу, без `ConfirmDialog` (спека 0030, FR-4): покрыто
+   * общим undo-слотом (0009, FR-7a), тот же приём, что архивация площадки
+   * в 0027. Тост «Отменить» зовёт тот же `undo`, что и кнопка тулбара.
+   */
+  function handleDeletePool(pool: Pool) {
+    deletePool.mutate(pool.id, {
+      onSuccess: () => toastUndo("Пул удалён", { onUndo: () => undo.mutate() }),
+      onError: (err: Error) => toastError(err.message),
+    });
+  }
+
+  function handleAutoDistribute() {
+    autoDistribute.mutate(undefined, {
+      onSuccess: () => toastUndo("Раскладка обновлена", { onUndo: () => undo.mutate() }),
+      onError: (err: Error) => toastError(err.message),
+    });
+  }
+
+  function handleUndo() {
+    undo.mutate(undefined, { onError: (err: Error) => toastError(err.message) });
+  }
+
+  function handleToggleStatus() {
+    const nextStatus = readOnly ? "draft" : "ready";
+    setStatus.mutate(nextStatus, {
+      onSuccess: () =>
+        toastSuccess(
+          nextStatus === "ready" ? "Раскладка зафиксирована" : "Раскладка возвращена в черновик",
+        ),
+      onError: (err: Error) => toastError(err.message),
+    });
   }
 
   /**
    * Сброс раскладки покрыт отменой последнего действия (undo), поэтому
-   * подтверждение — без ввода названия (FR-8); успех/ошибка идут через
-   * тост, а не через постоянный inline-баннер (FR-6).
+   * подтверждение — без ввода названия (0023, FR-8); успех/ошибка идут через
+   * тост, а не через постоянный inline-баннер (0023, FR-6). Единственная
+   * мутация экрана, оставшаяся с `ConfirmDialog` — блэст-радиус в разы
+   * больше единичных действий (весь состав раскладки разом, spec FR-6).
    */
   function handleResetConfirm() {
     resetLayout.mutate(undefined, {
@@ -135,24 +193,19 @@ export function NominationPools({ stageId }: { stageId: string }) {
     <Col gap={6}>
       <Toolbar
         layout={layout}
+        counts={counts}
         readOnly={readOnly}
-        onCreatePool={() => createPool.mutate()}
+        onCreatePool={handleCreatePool}
         createPending={createPool.isPending}
-        onAutoDistribute={() => autoDistribute.mutate()}
+        onAutoDistribute={handleAutoDistribute}
         autoDistributePending={autoDistribute.isPending}
-        onUndo={() => undo.mutate()}
+        onUndo={handleUndo}
         undoPending={undo.isPending}
         onResetLayout={() => setConfirmResetOpen(true)}
         resetPending={resetLayout.isPending}
-        onToggleStatus={() => setStatus.mutate(readOnly ? "draft" : "ready")}
+        onToggleStatus={handleToggleStatus}
         statusPending={setStatus.isPending}
       />
-
-      {mutationError && (
-        <Alert variant="destructive">
-          <AlertDescription>{mutationError}</AlertDescription>
-        </Alert>
-      )}
 
       {/* Подпись этапа над составом групп (спека 0017, FR-11, AC-3). */}
       <h2 className="text-sm font-medium text-muted-foreground">{layout.stage.title}</h2>
@@ -167,7 +220,7 @@ export function NominationPools({ stageId }: { stageId: string }) {
                 pool={pool}
                 readOnly={readOnly}
                 bouts={boutsByPool[pool.id] ?? []}
-                onDelete={() => deletePool.mutate(pool.id)}
+                onDelete={() => handleDeletePool(pool)}
                 deletePending={deletePool.isPending}
               />
             ))}
@@ -199,8 +252,40 @@ export function NominationPools({ stageId }: { stageId: string }) {
   );
 }
 
+/** NominationPoolsSkeleton — скелетон в форме раскладки: колонка + сетка карточек (спека 0030, FR-11). */
+function NominationPoolsSkeleton() {
+  return (
+    <div
+      data-testid="nomination-pools-skeleton"
+      className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]"
+    >
+      <Card>
+        <CardContent className="pt-6">
+          <Col gap={3}>
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-24 w-full" />
+          </Col>
+        </CardContent>
+      </Card>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <Card key={i}>
+            <CardContent className="pt-6">
+              <Col gap={3}>
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-24 w-full" />
+              </Col>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Toolbar({
   layout,
+  counts,
   readOnly,
   onCreatePool,
   createPending,
@@ -214,6 +299,7 @@ function Toolbar({
   statusPending,
 }: {
   layout: PoolLayout;
+  counts: PoolLayoutCounts;
   readOnly: boolean;
   onCreatePool: () => void;
   createPending: boolean;
@@ -229,13 +315,15 @@ function Toolbar({
   return (
     <Row align="center" justify="between" gap={3} className="flex-wrap">
       <Row align="center" gap={2} className="flex-wrap">
-        <Badge variant={readOnly ? "default" : "secondary"}>
-          {readOnly ? "готово" : "черновик"}
-        </Badge>
+        <Badge tone={readOnly ? "success" : "warn"}>{readOnly ? "готово" : "черновик"}</Badge>
+        <span className="text-xs text-muted-foreground">
+          {counts.assigned} / {counts.total} распределено · {counts.poolCount}{" "}
+          {poolCountWord(counts.poolCount)}
+        </span>
         {!readOnly && (
           <>
             <Button type="button" size="sm" onClick={onCreatePool} loading={createPending}>
-              <Plus /> Добавить группу
+              + Пул
             </Button>
             <Button
               type="button"
@@ -244,7 +332,7 @@ function Toolbar({
               onClick={onAutoDistribute}
               loading={autoDistributePending}
             >
-              <Shuffle /> Распределить по группам
+              <Shuffle /> Распределить автоматически
             </Button>
             <Button
               type="button"
@@ -268,8 +356,14 @@ function Toolbar({
           </>
         )}
       </Row>
-      <Button type="button" size="sm" variant={readOnly ? "outline" : "default"} onClick={onToggleStatus} loading={statusPending}>
-        {readOnly ? "Вернуть в черновик" : "Зафиксировать раскладку"}
+      <Button
+        type="button"
+        size="sm"
+        variant={readOnly ? "outline" : "default"}
+        onClick={onToggleStatus}
+        loading={statusPending}
+      >
+        {readOnly ? "Вернуть в черновик" : "Зафиксировать"}
       </Button>
     </Row>
   );
@@ -370,7 +464,7 @@ function PoolColumn({
                 <FighterCard key={f.fighterId} fighter={f} fromPoolId={pool.id} readOnly={readOnly} />
               ))}
               {pool.members.length === 0 && (
-                <p className="text-xs text-muted-foreground">Пусто</p>
+                <p className="text-xs text-muted-foreground">Перетащите бойца сюда</p>
               )}
             </Col>
           </div>

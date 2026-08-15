@@ -40,10 +40,10 @@ describe("features/nomination-pools/api/requests", () => {
       });
     });
 
-    it("returns ok:false with server error on 4xx", async () => {
-      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "bad" }) });
+    it("returns ok:false with server error and status on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: "bad" }) });
       const result = await getLayoutRequest("s1");
-      expect(result).toEqual({ ok: false, error: "bad" });
+      expect(result).toEqual({ ok: false, error: "bad", status: 403 });
     });
 
     it("returns network error when fetch throws", async () => {
@@ -115,13 +115,18 @@ describe("features/nomination-pools/api/requests", () => {
       });
     });
 
-    it("returns ok:false on FailedPrecondition (no pools)", async () => {
+    it("returns ok:false with status on FailedPrecondition (no pools)", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
+        status: 409,
         json: async () => ({ error: "no pools to distribute into" }),
       });
       const result = await autoDistributeRequest("s1");
-      expect(result).toEqual({ ok: false, error: "no pools to distribute into" });
+      expect(result).toEqual({
+        ok: false,
+        error: "no pools to distribute into",
+        status: 409,
+      });
     });
   });
 

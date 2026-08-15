@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { setLayoutStatusRequest } from "./requests";
 import { nominationPoolsKeys } from "./keys";
+import { poolsErrorMessage } from "./errors";
 
 /**
  * useSetLayoutStatus — мутация переключения статуса раскладки draft↔ready
@@ -24,7 +25,7 @@ export function useSetLayoutStatus(stageId: string) {
   return useMutation({
     mutationFn: async (status: "draft" | "ready") => {
       const res = await setLayoutStatusRequest(stageId, status);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(poolsErrorMessage(res.error, res.status));
       return res.layout;
     },
     onSuccess: () => {

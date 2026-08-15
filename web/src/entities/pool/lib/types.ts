@@ -96,6 +96,20 @@ export type PoolLayout = {
   stage: Stage;
 };
 
+/**
+ * PoolLayoutCounts — сводка состава раскладки для тулбара экрана (спека
+ * 0030, FR-1): сколько бойцов распределено из скольких и сколько пулов.
+ * Чистая функция от уже загруженных данных — новый запрос не нужен.
+ */
+export type PoolLayoutCounts = { assigned: number; total: number; poolCount: number };
+
+/** poolLayoutCounts вычисляет сводку раскладки (спека 0030, FR-1). */
+export function poolLayoutCounts(layout: PoolLayout): PoolLayoutCounts {
+  const distributed = layout.pools.reduce((sum, p) => sum + p.members.length, 0);
+  const total = layout.unassigned.length + distributed;
+  return { assigned: distributed, total, poolCount: layout.pools.length };
+}
+
 /** poolLayoutStatusLabel — человекочитаемый статус раскладки (RU). */
 export function poolLayoutStatusLabel(status: PoolLayoutStatus): string {
   switch (status) {
