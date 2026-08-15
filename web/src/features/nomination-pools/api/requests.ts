@@ -3,7 +3,7 @@ import type { Bout } from "@/entities/bout/lib/types";
 
 export type PoolLayoutResult =
   | { ok: true; layout: PoolLayout }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export type BoutsResult =
   | { ok: true; bouts: Bout[] }
@@ -118,7 +118,7 @@ async function fetchLayout(url: string, init: RequestInit): Promise<PoolLayoutRe
     const res = await fetch(url, init);
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { layout?: PoolLayout };
     return { ok: true, layout: data.layout as PoolLayout };
