@@ -7,9 +7,10 @@ import { useStages } from "./use-stages";
 import type { Stage } from "@/entities/stage/lib/types";
 
 function wrapperFor(qc: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-  );
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  }
+  return Wrapper;
 }
 
 const stage: Stage = {

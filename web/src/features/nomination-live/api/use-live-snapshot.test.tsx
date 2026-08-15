@@ -7,9 +7,10 @@ import { useLiveSnapshot } from "./use-live-snapshot";
 import { nominationLiveKeys } from "./keys";
 
 function wrapperFor(qc: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-  );
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  }
+  return Wrapper;
 }
 
 describe("features/nomination-live/api/useLiveSnapshot (спека 0032, T8)", () => {
