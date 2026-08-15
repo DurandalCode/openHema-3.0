@@ -50,11 +50,11 @@
 
 ## Волна 1 · трек A — редизайн посева сетки
 
-- [ ] T3. **errors (red→green)** — `features/bracket-seeding/api/errors.test.ts`:
+- [x] T3. **errors (red→green)** — `features/bracket-seeding/api/errors.test.ts`:
       перевод отказов по HTTP-статусу (409 — слот занят/состав зафиксирован,
       404, сеть) → затем `api/errors.ts` (санкционированный дубль тонкого
       модуля соседней фичи, правило 6 `web/AGENTS.md`).
-- [ ] T4. **экран (red→green)** — `ui/bracket-seeding.test.tsx`: тост-успех и
+- [x] T4. **экран (red→green)** — `ui/bracket-seeding.test.tsx`: тост-успех и
       тост-ошибка на мутациях вместо постоянного баннера (FR-21, AC-14),
       `toastUndo` на сбросе посева (FR-22), скелетон в форме экрана (FR-23),
       ошибка загрузки с «Повторить» (FR-24), пустые состояния «Пусто» /
@@ -64,12 +64,12 @@
 
 ## Волна 1 · трек B — окно формирования
 
-- [ ] T5. **`buildBlockedReason` (red→green)** —
+- [x] T5. **`buildBlockedReason` (red→green)** —
       `features/stage-build/lib/build-gate.test.ts`: дележи → «пока есть
       неразрешённые дележи», пересечения → «пока есть пересечение веток»,
       чисто → `null`, приоритет при обоих сразу → затем `lib/build-gate.ts`
       (FR-16).
-- [ ] T6. **диалог (red→green)** — `ui/build-stage-dialog.test.tsx`:
+- [x] T6. **диалог (red→green)** — `ui/build-stage-dialog.test.tsx`:
       управляемость (`open`/`onOpenChange`, опциональный триггер), подпись
       блокировки рядом с кнопкой (AC-8/AC-9), доступность кнопки при
       незавершённом источнике (AC-10), отсутствие «FR-…» в пользовательских
@@ -77,7 +77,7 @@
 
 ## Волна 1 · трек C — тулбар посева групп
 
-- [ ] T7. **(red→green)** — `features/nomination-pools/ui/nomination-pools.test.tsx`:
+- [x] T7. **(red→green)** — `features/nomination-pools/ui/nomination-pools.test.tsx`:
       статуса, сводки «N/M распределено · K пула» и кнопки фиксации в тулбаре
       **больше нет** (переехали в `PageHeader`, FR-3); «+ Пул»,
       автораспределение, «Отменить», «Сбросить», DnD и read-only при `ready`
@@ -85,16 +85,16 @@
 
 ## Волна 1 · трек D — части каркаса
 
-- [ ] T8. **живой снапшот (red→green)** —
+- [x] T8. **живой снапшот (red→green)** —
       `features/nomination-live/api/use-live-snapshot.test.ts`: запрос
       `/api/nominations/[id]/live-snapshot`, ключ, обработка ошибки → затем
       `api/keys.ts` + `api/use-live-snapshot.ts`.
-- [ ] T9. **рельс (red→green)** — `widgets/stage-page/stage-rail.test.tsx`:
+- [x] T9. **рельс (red→green)** — `widgets/stage-page/stage-rail.test.tsx`:
       порядок этапов и пометка «текущий» (AC-11), ссылки на страницы этапов,
       счётчики «18 бойцов · 45 из 45 боёв» и их отсутствие у черновика
       (AC-12), диагностика и «Схема корректна» + ссылка «Открыть схему»
       (AC-13) → затем `stage-rail.tsx` (FR-17..FR-20).
-- [ ] T10. **сводка и скелетон (red→green)** —
+- [x] T10. **сводка и скелетон (red→green)** —
       `widgets/stage-page/stage-summary-cards.test.tsx`: три карточки, подпись
       правила и «Правила нет — состав набирается руками», «Заполнено N / M»,
       ссылка на схему (AC-2, FR-6..FR-8) → затем `stage-summary-cards.tsx` и
