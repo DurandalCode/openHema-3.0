@@ -36,6 +36,7 @@ function layout(pools: Pool[], unassigned: FighterRef[] = [], canUndo = false): 
       bracket: null,
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_UNSPECIFIED",
     },
   };
 }

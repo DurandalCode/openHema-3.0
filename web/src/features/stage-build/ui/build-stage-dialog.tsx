@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import {
@@ -17,20 +17,41 @@ import { cn } from "@/shared/lib/cn";
 import type { Stage, StageBuildTie, TieResolution } from "@/entities/stage/lib/types";
 import { useBuildPreview } from "../api/use-build-preview";
 import { useBuildStage } from "../api/use-build-stage";
+import { buildBlockedReason } from "../lib/build-gate";
 import { allTiesResolved, findTieResolution, toggleTieContender } from "../lib/tie-resolution";
 
 /**
- * BuildStageDialog — превью и формирование этапа (0019, FR-13/FR-15/FR-16):
- * этап с заданным правилом отбора. Цикл превью↔дележ (см.
+ * BuildStageDialog — превью и формирование этапа (0019, FR-13/FR-15; 0032,
+ * FR-15/FR-16): этап с заданным правилом отбора. Цикл превью↔дележ (см.
  * `lib/tie-resolution.ts`): открытие диалога шлёт превью с пустыми `ties`;
- * если сервер вернул дележи (FR-22) — организатор выбирает порядок прохода
- * прямо здесь, затем «Обновить превью с ответами» пересчитывает превью с
- * накопленными `ties`; когда сервер перестаёт возвращать дележи, «Сформировать»
- * становится доступной и отправляет ровно те же `ties`. Пересечения веток
- * (FR-11) блокируют кнопку независимо от дележей.
+ * если сервер вернул дележи — организатор выбирает порядок прохода прямо
+ * здесь, затем «Обновить превью с ответами» пересчитывает превью с
+ * накопленными `ties`; когда сервер перестаёт возвращать дележи и
+ * пересечений нет, «Сформировать» становится доступной и отправляет ровно
+ * те же `ties`. Причина недоступности кнопки — единая функция
+ * `buildBlockedReason` (`lib/build-gate.ts`), она же и объясняет блокировку
+ * рядом с кнопкой (FR-16).
+ *
+ * Управляемый (спека 0032, T6, по образцу `create-stage-dialog` после
+ * 0031): без `open`/`onOpenChange` диалог остаётся самодостаточным — своя
+ * кнопка-триггер и внутреннее состояние открытости (карточка этапа схемы,
+ * 0031 FR-11, продолжает открывать его так же). С `open` — триггер не
+ * рендерится вовсе, открытость целиком у вызывающей стороны (строка
+ * действий страницы этапа, FR-12).
  */
-export function BuildStageDialog({ stage }: { stage: Stage }) {
-  const [open, setOpen] = useState(false);
+export function BuildStageDialog({
+  stage,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+}: {
+  stage: Stage;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const isControlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? openProp : internalOpen;
+
   const [resolutions, setResolutions] = useState<TieResolution[]>([]);
   const preview = useBuildPreview(stage.id);
   const build = useBuildStage(stage.id, stage.nominationId);
@@ -40,16 +61,26 @@ export function BuildStageDialog({ stage }: { stage: Stage }) {
   const ties = data?.ties ?? [];
   const overlaps = data?.overlaps ?? [];
   const readyToRefresh = ties.length > 0 && allTiesResolved(ties, resolutions);
-  const canBuild = !!data && overlaps.length === 0 && ties.length === 0;
+  const blockedReason = data ? buildBlockedReason(data) : null;
+  const canBuild = !!data && blockedReason === null;
 
-  function onOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) {
+  // Сброс и первый запрос превью при каждом переходе в открытое состояние —
+  // и по клику своего триггера (неуправляемый режим), и когда вызывающая
+  // сторона программно выставляет `open=true` (управляемый режим), как в
+  // `create-stage-dialog` (спека 0031, T9).
+  useEffect(() => {
+    if (open) {
       setResolutions([]);
       preview.reset();
       build.reset();
       preview.mutate([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  function handleOpenChange(next: boolean) {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChangeProp?.(next);
   }
 
   function onToggleContender(tie: StageBuildTie, fighterId: string) {
@@ -61,21 +92,23 @@ export function BuildStageDialog({ stage }: { stage: Stage }) {
   }
 
   function onBuild() {
-    build.mutate(resolutions, { onSuccess: () => setOpen(false) });
+    build.mutate(resolutions, { onSuccess: () => handleOpenChange(false) });
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
-          Формирование
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button type="button" size="sm" variant="outline">
+            Формирование
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Формирование этапа «{stage.title}»</DialogTitle>
           <DialogDescription>
-            Превью отбора по правилу (FR-15): проверьте состав, прежде чем подтвердить.
+            Превью отбора по правилу: проверьте состав, прежде чем подтвердить.
           </DialogDescription>
         </DialogHeader>
 
@@ -96,7 +129,7 @@ export function BuildStageDialog({ stage }: { stage: Stage }) {
               <Alert data-testid="unfinished-warning">
                 <AlertDescription>
                   В источнике {data.sourceUnfinishedBouts} незавершённых боёв — итоги могут
-                  измениться (FR-14). Формирование всё равно доступно.
+                  измениться. Формирование всё равно доступно.
                 </AlertDescription>
               </Alert>
             )}
@@ -104,8 +137,8 @@ export function BuildStageDialog({ stage }: { stage: Stage }) {
             {overlaps.length > 0 && (
               <Alert variant="destructive" data-testid="overlaps-warning">
                 <AlertDescription>
-                  Пересечение с другой веткой отбора — формирование недоступно, пока не сузите
-                  селекторы (FR-11): {overlaps.map((f) => f.name).join(", ")}
+                  Пересечение с другой веткой отбора — сузьте селекторы:{" "}
+                  {overlaps.map((f) => f.name).join(", ")}
                 </AlertDescription>
               </Alert>
             )}
@@ -137,9 +170,7 @@ export function BuildStageDialog({ stage }: { stage: Stage }) {
 
             {ties.length > 0 && (
               <Col gap={3} className="rounded-md border p-3" data-testid="build-ties">
-                <span className="text-sm font-medium">
-                  Разделены места — укажите порядок прохода (FR-22)
-                </span>
+                <span className="text-sm font-medium">Разделены места — укажите порядок прохода</span>
                 {ties.map((tie) => (
                   <TieRow
                     key={`${tie.sourcePoolId}::${tie.place}`}
@@ -169,7 +200,12 @@ export function BuildStageDialog({ stage }: { stage: Stage }) {
           </Col>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="items-center gap-3 sm:justify-between">
+          {blockedReason && (
+            <span className="text-sm text-muted-foreground" data-testid="build-blocked-reason">
+              {blockedReason}
+            </span>
+          )}
           <Button type="button" disabled={!canBuild} loading={build.isPending} onClick={onBuild}>
             Сформировать
           </Button>

@@ -603,6 +603,7 @@ describe("stageToJson", () => {
       type: "STAGE_TYPE_BRACKET",
       status: "POOL_LAYOUT_STATUS_READY",
       bracket: { size: 8, thirdPlace: true },
+      executionStatus: "STAGE_STATUS_ACTIVE",
     });
 
     const json = stageToJson(stage);
@@ -617,7 +618,25 @@ describe("stageToJson", () => {
       bracket: { size: 8, thirdPlace: true },
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_ACTIVE",
     });
+  });
+
+  // Спека 0032 (T1): execution_status (0021) приходит с сервера, но до этой
+  // спеки терялся в сериализаторе — без него нечем заполнить статус этапа в
+  // шапке страницы этапа и в рельсе.
+  it("defaults executionStatus to UNSPECIFIED when proto3-omitted", () => {
+    const stage = fromJson(StageSchema, {
+      id: "stage-5",
+      nominationId: "n1",
+      position: 0,
+      title: "Группы",
+      type: "STAGE_TYPE_GROUPS",
+    });
+
+    const json = stageToJson(stage);
+
+    expect(json?.executionStatus).toBe("STAGE_STATUS_UNSPECIFIED");
   });
 
   it("normalizes a group stage without bracket config to bracket: null and status default", () => {
@@ -1038,6 +1057,7 @@ describe("poolLayoutToJson", () => {
       bracket: null,
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_UNSPECIFIED",
     });
   });
 
@@ -1278,6 +1298,7 @@ describe("nominationLiveToJson", () => {
         bracket: null,
         groups: null,
         rule: null,
+        executionStatus: "STAGE_STATUS_UNSPECIFIED",
       },
     ]);
     expect(json?.brackets).toHaveLength(1);

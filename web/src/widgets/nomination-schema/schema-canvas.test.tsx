@@ -18,6 +18,7 @@ const groupsStage: Stage = {
   bracket: null,
   groups: { groupCount: 4 },
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const bracketStage: Stage = {
@@ -30,6 +31,7 @@ const bracketStage: Stage = {
   bracket: { size: 8, thirdPlace: true },
   groups: null,
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const parallelBracketStage: Stage = {

@@ -42,6 +42,7 @@ const groupsStage: Stage = {
   bracket: null,
   groups: { groupCount: 4 },
   rule: null,
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 const bracketStage: Stage = {
@@ -61,6 +62,7 @@ const bracketStage: Stage = {
     placeTo: 0,
     method: "STAGE_LAYOUT_METHOD_SEEDED",
   },
+  executionStatus: "STAGE_STATUS_UNSPECIFIED",
 };
 
 let stagesState: { data: { stages: Stage[]; issues: SchemaIssue[] } | undefined; isLoading: boolean; error: Error | null } = {

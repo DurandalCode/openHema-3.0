@@ -22,6 +22,19 @@ export type StageType =
   | "STAGE_TYPE_GROUPS"
   | "STAGE_TYPE_BRACKET";
 
+/**
+ * StageStatus — статус этапа целиком (спека 0021, ADR 0014 §2, спека 0032):
+ * `DRAFT`/`READY` совпадают по значениям с хранимой фиксацией состава
+ * (`PoolLayoutStatus`), `ACTIVE`/`FINISHED` вычисляются сервером из
+ * прогресса боёв этапа. Read-only — клиент это значение не присылает.
+ */
+export type StageStatus =
+  | "STAGE_STATUS_UNSPECIFIED"
+  | "STAGE_STATUS_DRAFT"
+  | "STAGE_STATUS_READY"
+  | "STAGE_STATUS_ACTIVE"
+  | "STAGE_STATUS_FINISHED";
+
 export type BracketConfig = {
   size: number;
   thirdPlace: boolean;
@@ -93,6 +106,7 @@ export type Stage = {
   bracket: BracketConfig | null;
   groups: GroupsConfig | null; // заполнен только у явно созданного group-этапа
   rule: SeedingRule | null; // null — правила нет (набирается руками)
+  executionStatus: StageStatus;
 };
 
 /**

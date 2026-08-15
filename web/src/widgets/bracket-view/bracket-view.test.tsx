@@ -214,6 +214,7 @@ const bracket: Bracket = {
     bracket: { size: 8, thirdPlace: true },
     groups: null,
     rule: null,
+    executionStatus: "STAGE_STATUS_UNSPECIFIED",
   },
   rounds: [
     { number: 1, title: "1/4 финала", thirdPlace: false, halves: quarterfinal },

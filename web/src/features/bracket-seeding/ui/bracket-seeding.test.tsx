@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BracketSeeding } from "./bracket-seeding";
+import { bracketErrorMessage } from "../api/errors";
 import type { Bracket, BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import type { FighterRef, Pool } from "@/entities/pool/lib/types";
 
@@ -57,6 +58,7 @@ function draftBracket(): Bracket {
       bracket: { size: 4, thirdPlace: false },
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_UNSPECIFIED",
     },
     rounds: [
       {
@@ -89,15 +91,49 @@ const seedMutate = vi.fn();
 const clearMutate = vi.fn();
 const resetMutate = vi.fn();
 const undoMutate = vi.fn();
-const setStatusMutate = vi.fn();
+const toastSuccessMock = vi.fn();
 const toastUndoMock = vi.fn();
 const toastErrorMock = vi.fn();
 
-let bracketData: Bracket | undefined = draftBracket();
-let setStatusError: Error | null = null;
+const useBracketMock = vi.fn();
+let capturedOnDragEnd: ((event: unknown) => void) | undefined;
+
+function mockBracketData(bracket: Bracket | undefined, overrides: Partial<{
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => void;
+}> = {}) {
+  useBracketMock.mockReturnValue({
+    data: bracket,
+    isLoading: overrides.isLoading ?? false,
+    error: overrides.error ?? null,
+    refetch: overrides.refetch ?? vi.fn(),
+  });
+}
+
+vi.mock("@dnd-kit/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dnd-kit/core")>();
+  return {
+    ...actual,
+    // Реальный DndContext требует настоящих pointer/gesture-событий, которых
+    // jsdom не эмулирует (см. `nomination-pools.test.tsx`); тут перехватывается
+    // только `onDragEnd`, чтобы вызвать его напрямую синтетическим событием.
+    // `useDraggable`/`useDroppable` внутри детей остаются настоящими.
+    DndContext: ({
+      children,
+      onDragEnd,
+    }: {
+      children: React.ReactNode;
+      onDragEnd?: (event: unknown) => void;
+    }) => {
+      capturedOnDragEnd = onDragEnd;
+      return children;
+    },
+  };
+});
 
 vi.mock("../api/use-bracket", () => ({
-  useBracket: () => ({ data: bracketData, isLoading: false, error: null }),
+  useBracket: (...args: unknown[]) => useBracketMock(...args),
 }));
 vi.mock("../api/use-seed-slot", () => ({
   useSeedSlot: () => ({ mutate: seedMutate, isPending: false, error: null }),
@@ -111,14 +147,8 @@ vi.mock("../api/use-reset-bracket", () => ({
 vi.mock("../api/use-undo-bracket", () => ({
   useUndoBracket: () => ({ mutate: undoMutate, isPending: false, error: null }),
 }));
-vi.mock("../api/use-set-bracket-status", () => ({
-  useSetBracketStatus: () => ({
-    mutate: setStatusMutate,
-    isPending: false,
-    error: setStatusError,
-  }),
-}));
 vi.mock("@/shared/lib/toast", () => ({
+  toastSuccess: (message: string) => toastSuccessMock(message),
   toastUndo: (message: string, options: { onUndo: () => void }) => toastUndoMock(message, options),
   toastError: (message: string, options?: { retry?: () => void }) => toastErrorMock(message, options),
 }));
@@ -136,9 +166,9 @@ beforeAll(() => {
 
 describe("BracketSeeding", () => {
   beforeEach(() => {
-    bracketData = draftBracket();
-    setStatusError = null;
+    capturedOnDragEnd = undefined;
     vi.resetAllMocks();
+    mockBracketData(draftBracket());
   });
 
   afterEach(() => {
@@ -153,27 +183,87 @@ describe("BracketSeeding", () => {
     expect(screen.getByText("Верхняя половина")).toBeInTheDocument();
     expect(screen.getByText("Нижняя половина")).toBeInTheDocument();
     expect(screen.getByText("b1")).toBeInTheDocument();
-    expect(screen.getByText("Слот 2 — пусто")).toBeInTheDocument();
   });
 
+  // Спека 0032, FR-25/AC-14: пустые состояния различимы — пустой список
+  // нераспределённых («Пусто») отличается от пустого слота сетки.
+  it("differentiates the empty unassigned list from an empty slot", () => {
+    mockBracketData({ ...draftBracket(), unassigned: [] });
+    render(<BracketSeeding stageId="stage-1" />);
+
+    expect(screen.getByText("Пусто")).toBeInTheDocument();
+    expect(screen.getAllByText("Перетащите бойца сюда").length).toBeGreaterThan(0);
+  });
+
+  // Спека 0032, FR-21/AC-14: клик по кнопке очистки — мутация с обработчиком
+  // ошибки, тост вместо постоянного баннера.
   it("clears a filled slot via its clear button", () => {
     render(<BracketSeeding stageId="stage-1" />);
     fireEvent.click(screen.getByLabelText("Освободить слот 1"));
-    expect(clearMutate).toHaveBeenCalledWith(1);
+
+    expect(clearMutate).toHaveBeenCalledWith(1, expect.objectContaining({ onError: expect.any(Function) }));
   });
 
-  it("fixes the bracket via the toolbar button", () => {
+  it("a failed slot clear shows a translated error toast", () => {
+    clearMutate.mockImplementation((_slot, options: { onError?: (err: Error) => void }) => {
+      options?.onError?.(new Error("bracket: layout is ready, cannot modify"));
+    });
+
     render(<BracketSeeding stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Зафиксировать сетку" }));
-    expect(setStatusMutate).toHaveBeenCalledWith("ready");
+    fireEvent.click(screen.getByLabelText("Освободить слот 1"));
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      bracketErrorMessage("bracket: layout is ready, cannot modify"),
+      undefined,
+    );
   });
 
-  it("shows the server error when fixation is rejected (fewer than two seeded)", () => {
-    setStatusError = new Error("not enough seeded fighters to lock the bracket");
+  // Спека 0032, FR-21: DnD-посев — тихий успех, тост только на ошибку.
+  it("a successful seed drag calls seedSlot without a toast", () => {
     render(<BracketSeeding stageId="stage-1" />);
-    expect(
-      screen.getByText("not enough seeded fighters to lock the bracket"),
-    ).toBeInTheDocument();
+    capturedOnDragEnd?.({
+      active: { data: { current: { fighterId: "b3", fromSlot: null } } },
+      over: { data: { current: { slot: 2 } } },
+    });
+
+    expect(seedMutate).toHaveBeenCalledWith(
+      { fighterId: "b3", slot: 2 },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("a failed seed drag shows a translated error toast (slot occupied)", () => {
+    seedMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
+      options?.onError?.(new Error("bracket: slot occupied"));
+    });
+
+    render(<BracketSeeding stageId="stage-1" />);
+    capturedOnDragEnd?.({
+      active: { data: { current: { fighterId: "b3", fromSlot: null } } },
+      over: { data: { current: { slot: 2 } } },
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied"), undefined);
+  });
+
+  // Спека 0032, FR-3: статус/фиксация ушли из тулбара в PageHeader (по
+  // образцу трека C, `nomination-pools`) — на экране их больше нет.
+  it("no longer renders the status badge or the fixation button in the toolbar", () => {
+    render(<BracketSeeding stageId="stage-1" />);
+
+    expect(screen.queryByText("черновик")).not.toBeInTheDocument();
+    expect(screen.queryByText("готово")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Зафиксировать сетку" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Вернуть в черновик" })).not.toBeInTheDocument();
+
+    mockBracketData(readyBracket(false));
+    render(<BracketSeeding stageId="stage-1" />);
+    expect(screen.queryByText("черновик")).not.toBeInTheDocument();
+    expect(screen.queryByText("готово")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Зафиксировать сетку" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Вернуть в черновик" })).not.toBeInTheDocument();
   });
 
   // Спека 0023, FR-8/AC-7: сброс посева идёт через ConfirmDialog
@@ -195,7 +285,8 @@ describe("BracketSeeding", () => {
     expect(resetMutate).not.toHaveBeenCalled();
   });
 
-  // Спека 0023, FR-8: успех — toastUndo с «Отменить» поверх существующего undo.
+  // Спека 0032, FR-22: успех — toastUndo с «Отменить», зовущий тот же undo,
+  // что и кнопка тулбара (по образцу nomination-pools, спека 0030).
   it("confirming reset calls mutate and shows an undo toast on success", () => {
     resetMutate.mockImplementation((_vars, options: { onSuccess?: () => void }) => {
       options.onSuccess?.();
@@ -213,7 +304,7 @@ describe("BracketSeeding", () => {
     expect(undoMutate).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a retryable error toast when reset fails", () => {
+  it("shows a retryable, translated error toast when reset fails", () => {
     resetMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
       options.onError?.(new Error("сеть недоступна"));
     });
@@ -223,33 +314,66 @@ describe("BracketSeeding", () => {
     fireEvent.click(screen.getByRole("button", { name: "Сбросить" }));
 
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
-    expect(toastErrorMock.mock.calls[0][0]).toBe("сеть недоступна");
+    expect(toastErrorMock.mock.calls[0][0]).toBe(bracketErrorMessage("сеть недоступна"));
     expect(toastErrorMock.mock.calls[0][1]?.retry).toBeTypeOf("function");
   });
 
   it("renders the read-only bracket view after fixation, with Undo gated by canUndo", () => {
-    bracketData = readyBracket(false);
+    mockBracketData(readyBracket(false));
     render(<BracketSeeding stageId="stage-1" />);
 
     expect(screen.queryByText("Нераспределённые")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Вернуть в черновик" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Отменить/i })).toBeDisabled();
   });
 
-  it("enables Undo after fixation when canUndo is true, and calls the mutation", () => {
-    bracketData = readyBracket(true);
+  it("enables Undo after fixation when canUndo is true, and calls the mutation silently on success", () => {
+    mockBracketData(readyBracket(true));
     render(<BracketSeeding stageId="stage-1" />);
 
     const undoButton = screen.getByRole("button", { name: /Отменить/i });
     expect(undoButton).toBeEnabled();
     fireEvent.click(undoButton);
-    expect(undoMutate).toHaveBeenCalled();
+
+    expect(undoMutate).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
-  it("toggles back to draft from the read-only view", () => {
-    bracketData = readyBracket(false);
+  it("a failed toolbar Отменить shows a translated error toast", () => {
+    mockBracketData(readyBracket(true));
+    undoMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
+      options?.onError?.(new Error("nothing to undo"));
+    });
+
     render(<BracketSeeding stageId="stage-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Вернуть в черновик" }));
-    expect(setStatusMutate).toHaveBeenCalledWith("draft");
+    fireEvent.click(screen.getByRole("button", { name: /Отменить/i }));
+
+    expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("nothing to undo"), undefined);
+  });
+
+  // Спека 0032, FR-23: скелетон в форме экрана (нераспределённые + пары),
+  // а не общие карточки-заглушки.
+  it("shows a screen-shaped skeleton (not the generic SkeletonCards) while loading", () => {
+    mockBracketData(undefined, { isLoading: true });
+
+    render(<BracketSeeding stageId="stage-1" />);
+
+    expect(screen.queryByText("Загрузка…")).not.toBeInTheDocument();
+    expect(screen.getByTestId("bracket-seeding-skeleton")).toBeInTheDocument();
+    expect(screen.queryByTestId("skeleton-cards")).not.toBeInTheDocument();
+  });
+
+  // Спека 0032, FR-24: ошибка загрузки — сообщение с кнопкой «Повторить».
+  it("shows a retry button on load error that calls refetch", () => {
+    const refetch = vi.fn();
+    mockBracketData(undefined, { isLoading: false, error: new Error("boom"), refetch });
+
+    render(<BracketSeeding stageId="stage-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -45,6 +45,7 @@ const updated: NominationLiveSnapshotDto = {
       bracket: null,
       groups: null,
       rule: null,
+      executionStatus: "STAGE_STATUS_UNSPECIFIED",
     },
   ],
 };
