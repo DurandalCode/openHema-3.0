@@ -25,7 +25,9 @@ export type DeleteFormatPresetResult = { ok: true } | { ok: false; error: string
  */
 export type ApplyFormatSource = { presetId: string } | { sourceNominationId: string };
 
-export type ApplyFormatResult = { ok: true; stages: Stage[] } | { ok: false; error: string };
+export type ApplyFormatResult =
+  | { ok: true; stages: Stage[] }
+  | { ok: false; error: string; status?: number };
 
 /** listFormatPresetsRequest — GET /api/formats (библиотека пресетов, FR-12). */
 export async function listFormatPresetsRequest(): Promise<FormatPresetsResult> {
@@ -59,7 +61,7 @@ export async function saveFormatPresetRequest(
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { preset?: FormatPreset };
     return { ok: true, preset: data.preset as FormatPreset };
@@ -117,8 +119,9 @@ export async function deleteFormatPresetRequest(presetId: string): Promise<Delet
  * applyFormatRequest — POST /api/nominations/[id]/format: заменяет схему
  * номинации целиком (FR-13/FR-15/NFR-1) — из пресета библиотеки либо из
  * схемы номинации-донора. Разрешено, только если схема номинации не тронута
- * — сервер отклоняет иначе 409 (`FailedPrecondition`, FR-14), клиент
- * показывает его текст ошибки как есть.
+ * — сервер отклоняет иначе 409 (`FailedPrecondition`, FR-14). Ветка ошибки
+ * несёт HTTP-статус (спека 0031, FR-27) — `useApplyFormat` переводит его в
+ * русский текст через `presetErrorMessage(..., "apply")`.
  */
 export async function applyFormatRequest(
   nominationId: string,
@@ -132,7 +135,7 @@ export async function applyFormatRequest(
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
     return { ok: true, stages: data.stages ?? [] };
