@@ -5,6 +5,7 @@ import type { PoolLayout } from "@/entities/pool/lib/types";
 import { unassignFighterRequest } from "./requests";
 import { nominationPoolsKeys } from "./keys";
 import { moveFighterInLayout } from "./move-fighter";
+import { poolsErrorMessage } from "./errors";
 
 /**
  * useUnassignFighter — мутация DnD: вернуть бойца из пула в
@@ -17,7 +18,7 @@ export function useUnassignFighter(stageId: string) {
   return useMutation({
     mutationFn: async (fighterId: string) => {
       const res = await unassignFighterRequest(stageId, fighterId);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(poolsErrorMessage(res.error, res.status));
       return res.layout;
     },
     onMutate: async (fighterId) => {
