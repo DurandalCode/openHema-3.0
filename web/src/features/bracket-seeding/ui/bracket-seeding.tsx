@@ -13,15 +13,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical, RotateCcw, Undo2, X } from "lucide-react";
-import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
-import { SkeletonCards } from "@/shared/ui/skeletons";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
-import { toastError, toastUndo } from "@/shared/lib/toast";
+import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
 import type { FighterRef } from "@/entities/pool/lib/types";
 import type { BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
@@ -31,6 +30,7 @@ import { useClearSlot } from "../api/use-clear-slot";
 import { useResetBracket } from "../api/use-reset-bracket";
 import { useUndoBracket } from "../api/use-undo-bracket";
 import { useSetBracketStatus } from "../api/use-set-bracket-status";
+import { bracketErrorMessage } from "../api/errors";
 import { resolveDrop } from "../lib/drop-action";
 
 const UNASSIGNED_ZONE = "zone:unassigned";
@@ -43,9 +43,16 @@ const fighterDragId = (fighterId: string, slot: number | null) =>
  * слева нераспределённые бойцы, справа пары первого круга по половинам, DnD
  * на `@dnd-kit` по образцу `features/nomination-pools`. После фиксации —
  * read-only `widgets/bracket-view` (FR-19).
+ *
+ * Обратная связь по мутациям — спека 0032, FR-21/FR-22 (по образцу 0030):
+ * постоянный inline-баннер (`mutationError`) убран целиком, все отказы идут
+ * тостом через `bracketErrorMessage` (санкционированный дубль
+ * `nomination-pools/api/errors.ts`, правило 6 `web/AGENTS.md`). DnD и
+ * тулбарная «Отменить» — тихий успех, тост только на ошибку; создающие
+ * видимый эффект действия (фиксация, сброс) — тост-успех/`toastUndo`.
  */
 export function BracketSeeding({ stageId }: { stageId: string }) {
-  const { data: bracket, isLoading, error } = useBracket(stageId);
+  const { data: bracket, isLoading, error, refetch } = useBracket(stageId);
   const seedSlot = useSeedSlot(stageId);
   const clearSlot = useClearSlot(stageId);
   const resetBracket = useResetBracket(stageId);
@@ -60,30 +67,55 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   );
 
   if (isLoading) {
-    return <SkeletonCards count={2} />;
+    return <BracketSeedingSkeleton />;
   }
   if (error || !bracket) {
     return (
-      <Alert variant="destructive">
-        <AlertDescription>{error?.message ?? "Не удалось загрузить сетку"}</AlertDescription>
-      </Alert>
+      <Col gap={3} className="items-start">
+        <p className="text-sm text-destructive">
+          {error?.message ?? "Не удалось загрузить сетку"}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+          Повторить
+        </Button>
+      </Col>
     );
   }
 
   const readOnly = bracket.stage.status === "POOL_LAYOUT_STATUS_READY";
-  const mutationError =
-    seedSlot.error?.message ??
-    clearSlot.error?.message ??
-    // resetBracket — намеренно не здесь: успех/ошибка идут через тост
-    // (toastUndo/toastError), см. handleResetConfirm ниже (спека 0023, FR-8).
-    undoBracket.error?.message ??
-    setStatus.error?.message ??
-    null;
+
+  function handleSeedSlot(fighterId: string, slot: number) {
+    seedSlot.mutate(
+      { fighterId, slot },
+      { onError: (err: Error) => toastError(bracketErrorMessage(err.message)) },
+    );
+  }
+
+  function handleClearSlot(slot: number) {
+    clearSlot.mutate(slot, {
+      onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+    });
+  }
+
+  function handleUndo() {
+    undoBracket.mutate(undefined, {
+      onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+    });
+  }
+
+  function handleToggleStatus() {
+    const nextStatus = readOnly ? "draft" : "ready";
+    setStatus.mutate(nextStatus, {
+      onSuccess: () =>
+        toastSuccess(nextStatus === "ready" ? "Сетка зафиксирована" : "Сетка возвращена в черновик"),
+      onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+    });
+  }
 
   /**
    * Сброс посева покрыт отменой последнего действия (undo), поэтому
    * подтверждение — без ввода названия (FR-8); успех/ошибка идут через
-   * тост, а не через постоянный inline-баннер (FR-6).
+   * тост, а не через постоянный inline-баннер (спека 0032, FR-21/FR-22).
    */
   function handleResetConfirm() {
     resetBracket.mutate(undefined, {
@@ -91,7 +123,7 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
         toastUndo("Посев сброшен", { onUndo: () => undoBracket.mutate() });
       },
       onError: (err: Error) => {
-        toastError(err.message, { retry: handleResetConfirm });
+        toastError(bracketErrorMessage(err.message), { retry: handleResetConfirm });
       },
     });
   }
@@ -111,22 +143,22 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
     const toSlot = (over.data.current?.slot as number | null | undefined) ?? null;
     const action = resolveDrop(fighterId, fromSlot, toSlot);
 
-    if (action.type === "seed") seedSlot.mutate({ fighterId: action.fighterId, slot: action.slot });
-    if (action.type === "clear") clearSlot.mutate(action.slot);
+    if (action.type === "seed") handleSeedSlot(action.fighterId, action.slot);
+    if (action.type === "clear") handleClearSlot(action.slot);
   }
 
   if (readOnly) {
     return (
       <Col gap={6}>
         <Row align="center" justify="between" gap={3} className="flex-wrap">
-          <Badge>готово</Badge>
+          <Badge tone="success">готово</Badge>
           <Row gap={2} className="flex-wrap">
             <Button
               type="button"
               size="sm"
               variant="outline"
               disabled={!bracket.canUndo}
-              onClick={() => undoBracket.mutate()}
+              onClick={handleUndo}
               loading={undoBracket.isPending}
             >
               <Undo2 /> Отменить
@@ -135,19 +167,13 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => setStatus.mutate("draft")}
+              onClick={handleToggleStatus}
               loading={setStatus.isPending}
             >
               Вернуть в черновик
             </Button>
           </Row>
         </Row>
-
-        {mutationError && (
-          <Alert variant="destructive">
-            <AlertDescription>{mutationError}</AlertDescription>
-          </Alert>
-        )}
 
         <BracketView bracket={bracket} />
       </Col>
@@ -159,14 +185,14 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   return (
     <Col gap={6}>
       <Row align="center" justify="between" gap={3} className="flex-wrap">
-        <Badge variant="secondary">черновик</Badge>
+        <Badge tone="warn">черновик</Badge>
         <Row gap={2} className="flex-wrap">
           <Button
             type="button"
             size="sm"
             variant="outline"
             disabled={!bracket.canUndo}
-            onClick={() => undoBracket.mutate()}
+            onClick={handleUndo}
             loading={undoBracket.isPending}
           >
             <Undo2 /> Отменить
@@ -183,7 +209,7 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
           <Button
             type="button"
             size="sm"
-            onClick={() => setStatus.mutate("ready")}
+            onClick={handleToggleStatus}
             loading={setStatus.isPending}
           >
             Зафиксировать сетку
@@ -191,22 +217,12 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
         </Row>
       </Row>
 
-      {mutationError && (
-        <Alert variant="destructive">
-          <AlertDescription>{mutationError}</AlertDescription>
-        </Alert>
-      )}
-
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
           <UnassignedColumn fighters={bracket.unassigned} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {round?.halves.map((half) => (
-              <HalfColumn
-                key={half.half}
-                half={half}
-                onClearSlot={(slot) => clearSlot.mutate(slot)}
-              />
+              <HalfColumn key={half.half} half={half} onClearSlot={handleClearSlot} />
             ))}
           </div>
         </div>
@@ -230,6 +246,42 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
         onConfirm={handleResetConfirm}
       />
     </Col>
+  );
+}
+
+/**
+ * BracketSeedingSkeleton — скелетон в форме экрана посева: нераспределённые
+ * + пары первого круга по половинам (спека 0032, FR-23), а не общие
+ * карточки-заглушки (`SkeletonCards`).
+ */
+function BracketSeedingSkeleton() {
+  return (
+    <div
+      data-testid="bracket-seeding-skeleton"
+      className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]"
+    >
+      <Card>
+        <CardContent className="pt-6">
+          <Col gap={3}>
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-24 w-full" />
+          </Col>
+        </CardContent>
+      </Card>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {Array.from({ length: 2 }, (_, i) => (
+          <Card key={i}>
+            <CardContent className="pt-6">
+              <Col gap={3}>
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+              </Col>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -370,7 +422,7 @@ function SlotBox({ slot, onClear }: { slot: BracketSlot; onClear: (slot: number)
           </Button>
         </>
       ) : (
-        <span className="text-xs text-muted-foreground">Слот {slot.slot} — пусто</span>
+        <span className="text-xs text-muted-foreground">Перетащите бойца сюда</span>
       )}
     </div>
   );

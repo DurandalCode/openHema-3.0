@@ -4,9 +4,37 @@ import { MapPin, Medal, Trophy } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
-import { boutStateLabel, poolStatusLabel } from "@/entities/pool/lib/types";
+import { boutStateLabel, poolStatusLabel, type BoutState, type PoolStatus } from "@/entities/pool/lib/types";
 import { slotDisplayName } from "@/entities/bracket/lib/labels";
 import type { Bracket, BracketHalf, BracketPair, BracketRound, BracketSlot } from "@/entities/bracket/lib/types";
+
+/** boutStateTone — статусный тон боя пары (дизайн-система 0022). */
+function boutStateTone(state: BoutState): "neutral" | "live" | "success" {
+  switch (state) {
+    case "BOUT_STATE_IN_PROGRESS":
+      return "live";
+    case "BOUT_STATE_FINISHED":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+/** containerStatusTone — статусный тон половины круга (дизайн-система 0022). */
+function containerStatusTone(status: PoolStatus): "neutral" | "info" | "warn" | "live" | "success" {
+  switch (status) {
+    case "POOL_STATUS_READY":
+      return "info";
+    case "POOL_STATUS_PREPARING":
+      return "warn";
+    case "POOL_STATUS_ACTIVE":
+      return "live";
+    case "POOL_STATUS_FINISHED":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
 
 /**
  * SlotRow — один слот пары: имя бойца, «Бай» пустого слота уже разрешённой
@@ -19,7 +47,7 @@ function SlotRow({ slot, pairResolved }: { slot: BracketSlot; pairResolved: bool
     <Row
       align="center"
       className={cn(
-        "rounded px-2 py-1 text-sm",
+        "rounded-md px-2 py-1 text-sm",
         filled ? "bg-muted font-medium" : "text-muted-foreground",
         pending && "text-xs italic",
       )}
@@ -39,7 +67,10 @@ function PairCard({ pair, isCurrent }: { pair: BracketPair; isCurrent: boolean }
   return (
     <Col
       gap={1}
-      className={cn("rounded-md border p-2", isCurrent && "outline outline-2 outline-primary")}
+      className={cn(
+        "rounded-md border bg-card p-2 transition-colors",
+        isCurrent && "border-primary outline outline-2 outline-primary/30",
+      )}
       data-current={isCurrent || undefined}
     >
       <SlotRow slot={pair.slotA} pairResolved={pair.resolved} />
@@ -49,7 +80,7 @@ function PairCard({ pair, isCurrent }: { pair: BracketPair; isCurrent: boolean }
           <span className="text-sm font-medium tabular-nums">
             {bout.scoreA}:{bout.scoreB}
           </span>
-          <Badge variant={isCurrent ? "default" : "outline"}>{boutStateLabel(bout.state)}</Badge>
+          <Badge tone={boutStateTone(bout.state)}>{boutStateLabel(bout.state)}</Badge>
         </Row>
       )}
     </Col>
@@ -66,11 +97,11 @@ function PairCard({ pair, isCurrent }: { pair: BracketPair; isCurrent: boolean }
 function HalfBlock({ half }: { half: BracketHalf }) {
   const { container } = half;
   return (
-    <Col gap={2} className="min-w-[240px] rounded-lg border p-3">
+    <Col gap={2} className="min-w-[240px] rounded-lg border bg-card p-3">
       <Col gap={1}>
         <Row align="center" justify="between" gap={2} className="flex-wrap">
           <span className="text-sm font-medium">{container.name}</span>
-          <Badge>{poolStatusLabel(container.status)}</Badge>
+          <Badge tone={containerStatusTone(container.status)}>{poolStatusLabel(container.status)}</Badge>
         </Row>
         {container.arenaId && (
           <Row align="center" gap={1} className="text-xs text-muted-foreground">
@@ -96,7 +127,7 @@ function HalfBlock({ half }: { half: BracketHalf }) {
 function RoundColumn({ round }: { round: BracketRound }) {
   return (
     <Col gap={3} className="w-[240px] shrink-0">
-      <h3 className="text-center text-sm font-semibold">{round.title}</h3>
+      <h3 className="text-center text-sm font-semibold text-foreground">{round.title}</h3>
       <Col gap={4}>
         {round.halves.map((half) => (
           <HalfBlock key={half.half} half={half} />
