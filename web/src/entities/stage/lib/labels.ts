@@ -7,6 +7,22 @@
 
 import type { FormatPreset, FormatStageSpec, SchemaIssue, SeedingRule, Stage, StageType } from "./types";
 
+/**
+ * stageConfigLabel — сводка конфига этапа на карточке схемы (спека 0031,
+ * FR-9): «8 · бронза» / «16» для сетки, «4 гр.» для группового этапа с
+ * заданным числом групп. Пустая строка — у группового этапа без заданного
+ * числа групп (авто-этап, 0019 FR-9) и у этапа без конфига вовсе.
+ */
+export function stageConfigLabel(stage: Pick<Stage, "type" | "bracket" | "groups">): string {
+  if (stage.type === "STAGE_TYPE_BRACKET" && stage.bracket) {
+    return stage.bracket.thirdPlace ? `${stage.bracket.size} · бронза` : `${stage.bracket.size}`;
+  }
+  if (stage.type === "STAGE_TYPE_GROUPS" && stage.groups && stage.groups.groupCount > 0) {
+    return `${stage.groups.groupCount} гр.`;
+  }
+  return "";
+}
+
 export function stageTypeLabel(type: StageType): string {
   switch (type) {
     case "STAGE_TYPE_GROUPS":
