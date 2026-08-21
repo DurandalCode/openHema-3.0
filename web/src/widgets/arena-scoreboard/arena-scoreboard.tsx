@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/shared/lib/cn";
 import { useArenaLive } from "@/features/arena-live/api/use-arena-live";
 import { useArenaTimer } from "@/features/arena-timer/api/use-arena-timer";
-import { TimerDisplay } from "@/features/arena-timer/ui/TimerDisplay";
+import { TimerDisplay, type TimerAlertKind } from "@/features/arena-timer/ui/TimerDisplay";
+import type { TimerStatus } from "@/features/arena-timer/model/timer-authority";
 import { nextBout, boutNumber, outcomeOf } from "@/entities/arena-live/lib/types";
+import type { TimerStatusDto } from "@/entities/arena-live/lib/types";
+import { scoreboardPhase, type ScoreboardPhase } from "@/entities/arena-live/lib/scoreboard-phase";
 import type { BoutBoard as BoutBoardDto, FighterRef } from "@/entities/pool/lib/types";
+import { AppearanceToggle, useScoreboardAppearance } from "./appearance-toggle";
 
 type Color = "blue" | "red";
 
@@ -15,24 +19,38 @@ function colorOfFighterA(sidesSwapped: boolean): Color {
   return sidesSwapped ? "blue" : "red";
 }
 
+// useArenaTimer отдаёт клиентский `TimerStatus` ("STOPPED"/"RUNNING"/...), а
+// `scoreboardPhase` (T9) принимает proto-зеркальный `TimerStatusDto`
+// ("TIMER_STATUS_..."). Локальная карта — табло не трогает
+// `features/arena-timer/api/use-arena-timer.ts` (вне трека E, дизъюнктный
+// файл), поэтому не переиспользует его внутренний (неэкспортированный)
+// маппинг, а держит свой.
+const TIMER_STATUS_TO_DTO: Record<TimerStatus, TimerStatusDto> = {
+  STOPPED: "TIMER_STATUS_STOPPED",
+  RUNNING: "TIMER_STATUS_RUNNING",
+  PAUSED: "TIMER_STATUS_PAUSED",
+  EXPIRED: "TIMER_STATUS_EXPIRED",
+};
+
 /**
- * ArenaScoreboard — полноэкранное табло арены (спека 0015): текущий бой
- * (синий/красный, счёт), таймер, следующая пара, оглашение победителя.
- * Read-only (FR-17) — нет обработчиков, меняющих состояние.
+ * ArenaScoreboard — полноэкранное табло арены (спека 0015, перестроено
+ * спекой 0033): полоса таймера — верхняя и самая крупная (FR-28/AC-14),
+ * пять фаз вместо двух с половиной (FR-29, `scoreboardPhase`), собственный
+ * тумблер оформления (FR-31/AC-18). Read-only (FR-17/FR-32) — из
+ * интерактивных элементов только тумблер оформления, и он не меняет ни
+ * доменного, ни живого состояния.
  *
  * Корневой `fixed inset-0 z-50` перекрывает родительский chrome (Navbar/
  * AdminNav) на весь просмотр без второго root layout (см. поправку к плану —
  * Next.js App Router не даёт снять родительский layout, а второй root
  * потребовал бы убрать общий `app/layout.tsx`).
  *
- * **Табло — намеренное исключение из дизайн-системы** (NFR-1, «читаемость
+ * **Табло — намеренное исключение из дизайн-системы** (NFR-2, «читаемость
  * с расстояния»): в отличие от остального приложения оно НЕ наследует тему
- * (`bg-background`/`text-foreground`/`dark:`/CSS-переменные) — фон и текст
- * захардкожены (чёрный/белый) независимо от системной/локальной темы
- * зрителя или админа, шрифты кратно крупнее обычных, цветовые панели —
- * сплошная насыщенная заливка, а не 10%-тинт. Это осознанно: экран на
- * проекторе у площадки должен выглядеть одинаково всегда, а не «поехать»
- * из-за чьей-то светлой темы браузера.
+ * (`bg-background`/`text-foreground`/`dark:`/CSS-переменные) — обе палитры
+ * (тёмная/светлая) захардкожены прямо здесь, независимо от системной/
+ * локальной темы приложения (`next-themes`) зрителя или админа. Переключает
+ * их только собственный тумблер табло (FR-31), а не тема приложения.
  */
 export function ArenaScoreboard({
   arenaId,
@@ -45,6 +63,8 @@ export function ArenaScoreboard({
 }) {
   const live = useArenaLive(arenaId, "scoreboard", initialBoard);
   const { display } = useArenaTimer(arenaId, live);
+  const [appearance] = useScoreboardAppearance(arenaId);
+  const isLight = appearance === "light";
   const snapshot = live.snapshot;
   const board = snapshot?.board ?? null;
   const room = snapshot?.room ?? {
@@ -131,17 +151,34 @@ export function ArenaScoreboard({
     setDisplayedBoutId(next);
   }, [board?.currentBoutId, board?.bouts, room.revealGeneration]);
 
-  const displayedBout = board?.bouts.find((b) => b.id === displayedBoutId) ?? null;
+  const timerStatusDto = TIMER_STATUS_TO_DTO[display.status];
+  const phase = scoreboardPhase({
+    board,
+    displayedBoutId,
+    timerStatus: timerStatusDto,
+    remainingCs: display.remainingCs,
+  });
 
-  if (!board || !board.pool || !displayedBout) {
+  if (phase === "idle") {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-black text-white">
-        <p className="text-3xl text-gray-400 sm:text-4xl">{arenaName || "Табло"}</p>
+      <div
+        className={cn(
+          "fixed inset-0 z-50 flex flex-col items-center justify-center gap-6",
+          isLight ? "bg-white text-black" : "bg-black text-white",
+        )}
+      >
+        <AppearanceToggle arenaId={arenaId} />
+        <p className={cn("text-3xl sm:text-4xl", isLight ? "text-gray-500" : "text-gray-400")}>
+          {arenaName || "Табло"}
+        </p>
         <p className="text-6xl font-black sm:text-7xl">Ожидание боя…</p>
       </div>
     );
   }
 
+  // phase !== "idle" гарантирует (scoreboardPhase, T9) board/board.pool и
+  // displayedBout непустыми — но TS об этом не знает, поэтому `!`.
+  const displayedBout = board!.bouts.find((b) => b.id === displayedBoutId)!;
   const number = boutNumber(board);
   const upNext = nextBout(board);
 
@@ -164,27 +201,34 @@ export function ArenaScoreboard({
     outcome === "draw" ? "Ничья" : outcome === "A" ? displayedBout.fighterA.name : outcome === "B" ? displayedBout.fighterB.name : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col gap-6 overflow-y-auto bg-black p-6 text-white sm:p-10">
-      <header className="flex flex-col items-center gap-1 text-center">
-        <h1 className="text-4xl font-bold sm:text-5xl lg:text-6xl">{arenaName || "Табло"}</h1>
-        <p className="text-xl text-gray-300 sm:text-2xl">
-          {board.pool.nominationName}
-          {board.pool.name ? ` · ${board.pool.name}` : ""}
-        </p>
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex flex-col gap-4 overflow-y-auto p-6 sm:p-10",
+        isLight ? "bg-white text-black" : "bg-black text-white",
+      )}
+    >
+      <AppearanceToggle arenaId={arenaId} />
+
+      <header className="flex flex-col items-center gap-1 text-center sm:flex-row sm:items-start sm:justify-between sm:text-left">
+        <div>
+          <h1 className="text-3xl font-bold sm:text-4xl">{arenaName || "Табло"}</h1>
+          <p className={cn("text-lg sm:text-xl", isLight ? "text-gray-600" : "text-gray-300")}>
+            {board!.pool!.nominationName}
+            {board!.pool!.name ? ` · ${board!.pool!.name}` : ""}
+          </p>
+        </div>
         {number && (
-          <p className="text-lg text-gray-400 sm:text-xl">
+          <p className={cn("text-lg sm:text-xl", isLight ? "text-gray-500" : "text-gray-400")}>
             Бой {number.current} из {number.total}
           </p>
         )}
       </header>
 
+      <TimerStrip phase={phase} status={display.status} remainingCs={display.remainingCs} />
+
       <div className="grid flex-1 grid-cols-1 items-center gap-6 sm:grid-cols-2">
         <FighterPanel color="blue" fighter={blueFighter} score={blueScore} />
         <FighterPanel color="red" fighter={redFighter} score={redScore} />
-      </div>
-
-      <div className="flex flex-col items-center gap-2">
-        <TimerDisplay status={display.status} remainingCs={display.remainingCs} size="scoreboard" />
       </div>
 
       {finished && outcomeLabel && (
@@ -203,7 +247,7 @@ export function ArenaScoreboard({
         </div>
       )}
 
-      <footer className="text-center text-2xl text-gray-300 sm:text-3xl">
+      <footer className={cn("text-center text-2xl sm:text-3xl", isLight ? "text-gray-600" : "text-gray-300")}>
         {upNext ? (
           <p>
             Далее: {upNext.fighterA.name} — {upNext.fighterB.name}
@@ -212,6 +256,67 @@ export function ArenaScoreboard({
           <p>Последний бой пула</p>
         )}
       </footer>
+    </div>
+  );
+}
+
+/** PHASE_LABEL — подпись фазы над таймером (FR-29: «ИДЁТ»/«ОЖИДАНИЕ СТАРТА»/«ВРЕМЯ ВЫШЛО»). */
+const PHASE_LABEL: Partial<Record<ScoreboardPhase, string>> = {
+  waiting: "ОЖИДАНИЕ СТАРТА",
+  running: "ИДЁТ",
+  endgame: "КОНЦОВКА",
+  expired: "ВРЕМЯ ВЫШЛО",
+};
+
+/**
+ * TimerStrip — верхняя полоса табло (спека 0033, FR-28/AC-14): занимает
+ * заметно больше пространства и рисует время крупнее счёта
+ * (`TimerDisplay size="scoreboard"` — 7/10/13rem против 6/8/10rem у счёта
+ * бойца). Держит собственный тёмный фон вне зависимости от тумблера
+ * оформления табло (FR-31) — цифровой блок таймера как «инструментальная
+ * панель» должен оставаться контрастным и в светлой палитре, поэтому
+ * тумблер меняет только окружающую «раму» экрана (шапку/футер/фон), не сам
+ * индикатор времени. Пять фаз рисуются по `scoreboardPhase` (T9): "idle"
+ * сюда не долетает — родитель отрисовывает для него отдельный экран.
+ * `motion-safe:` вместо голого `animate-pulse` — NFR-4 (prefers-reduced-motion).
+ */
+function TimerStrip({
+  phase,
+  status,
+  remainingCs,
+}: {
+  phase: ScoreboardPhase;
+  status: TimerStatus;
+  remainingCs: number;
+}) {
+  const alert: TimerAlertKind | null = phase === "expired" ? "expired" : phase === "endgame" ? "endgame" : null;
+  const label = PHASE_LABEL[phase] ?? null;
+
+  return (
+    <div
+      data-testid="timer-strip"
+      data-phase={phase}
+      className={cn(
+        "flex min-h-[32vh] flex-col items-center justify-center gap-3 rounded-2xl bg-neutral-950 py-8 sm:min-h-[38vh]",
+        phase === "expired" && "motion-safe:animate-pulse bg-red-950",
+        phase === "endgame" && "bg-amber-950/60",
+      )}
+    >
+      {label && (
+        <p
+          data-testid="timer-strip-label"
+          className={cn(
+            "text-xl font-bold tracking-[0.3em] sm:text-2xl",
+            phase === "running" && "motion-safe:animate-pulse text-emerald-400",
+            phase === "waiting" && "text-gray-400",
+            phase === "endgame" && "text-amber-400",
+            phase === "expired" && "text-red-400",
+          )}
+        >
+          {label}
+        </p>
+      )}
+      <TimerDisplay status={status} remainingCs={remainingCs} size="scoreboard" alert={alert} />
     </div>
   );
 }

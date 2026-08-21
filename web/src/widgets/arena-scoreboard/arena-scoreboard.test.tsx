@@ -16,6 +16,7 @@ vi.mock("@/features/arena-timer/api/use-arena-timer", () => ({
 }));
 
 import { useArenaLive } from "@/features/arena-live/api/use-arena-live";
+import { useArenaTimer } from "@/features/arena-timer/api/use-arena-timer";
 
 const pool: Pool = {
   id: "pool-1",
@@ -58,6 +59,13 @@ function mockLive(snapshot: ArenaLiveSnapshotDto | null) {
     snapshot,
     serverOffsetMs: 0,
     onCommand: () => () => {},
+  });
+}
+
+function mockTimer(status: "STOPPED" | "RUNNING" | "PAUSED" | "EXPIRED", remainingCs: number) {
+  vi.mocked(useArenaTimer).mockReturnValue({
+    display: { status, remainingCs },
+    controls: { start: vi.fn(), pause: vi.fn(), reset: vi.fn(), adjust: vi.fn() },
   });
 }
 
@@ -276,5 +284,106 @@ describe("ArenaScoreboard", () => {
 
     render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
     expect(screen.getByTestId("outcome-announcement").textContent).toContain("Ничья");
+  });
+
+  // Спека 0033, трек E: полоса таймера сверху и крупнее счёта (FR-28/AC-14),
+  // пять фаз табло вместо двух с половиной (FR-29/AC-15/AC-16).
+  describe("scoreboardPhase-driven layout (spec 0033)", () => {
+    it("AC-14: the timer strip is the top element and its digits are visually larger than the score", () => {
+      const b1 = bout({ id: "b1", sequenceNumber: 1, state: "BOUT_STATE_IN_PROGRESS", scoreA: 5, scoreB: 3 });
+      const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
+      mockLive(makeSnapshot(board));
+      mockTimer("RUNNING", 9000);
+
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+      const strip = screen.getByTestId("timer-strip");
+      const grid = document.querySelector('[data-color="blue"]')!.parentElement!;
+
+      // DOM order: timer strip precedes the fighter grid (FR-28: "прижата к
+      // верхнему краю").
+      expect(strip.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      // Time is visually the largest element on the board: bigger text-size
+      // utility at every breakpoint than the fighter score.
+      const timeEl = strip.querySelector(".font-mono")!;
+      const scoreEl = document.querySelector('[data-color="blue"] .font-mono')!;
+      expect(timeEl.className).toContain("text-[7rem]");
+      expect(scoreEl.className).toContain("text-[6rem]");
+    });
+
+    it("AC-15: endgame (<5s, amber) and expired (mig., red) render distinct classes", () => {
+      const b1 = bout({ id: "b1", sequenceNumber: 1, state: "BOUT_STATE_IN_PROGRESS" });
+      const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
+
+      mockLive(makeSnapshot(board));
+      mockTimer("RUNNING", 462); // 4.62s remaining, running — endgame (AC-15 "given")
+      const endgameView = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      const endgameStrip = screen.getByTestId("timer-strip");
+      expect(endgameStrip).toHaveAttribute("data-phase", "endgame");
+      const endgameDigits = endgameStrip.querySelector(".font-mono")!.className;
+      expect(endgameDigits).toContain("text-amber-400");
+      expect(endgameDigits).not.toContain("text-red-500");
+      endgameView.unmount();
+
+      mockLive(makeSnapshot(board));
+      mockTimer("EXPIRED", 0); // time hit zero (AC-15 "when")
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      const expiredStrip = screen.getByTestId("timer-strip");
+      expect(expiredStrip).toHaveAttribute("data-phase", "expired");
+      const expiredDigits = expiredStrip.querySelector(".font-mono")!.className;
+      expect(expiredDigits).toContain("text-red-500");
+      expect(expiredDigits).not.toContain("text-amber-400");
+
+      // AC-15: the two states are visually distinct, not the same class list.
+      expect(endgameDigits).not.toBe(expiredDigits);
+    });
+
+    it("AC-16: waiting state — new pair revealed but not started shows 0:0 and \"ОЖИДАНИЕ СТАРТА\", not \"ИДЁТ\"", () => {
+      const b1 = bout({
+        id: "b1",
+        sequenceNumber: 1,
+        state: "BOUT_STATE_NOT_STARTED",
+        fighterA: { fighterId: "fc", name: "Carol", club: "" },
+        fighterB: { fighterId: "fd", name: "Dave", club: "" },
+      });
+      const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
+      mockLive(makeSnapshot(board));
+      mockTimer("STOPPED", 9000);
+
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+      expect(screen.getByText("ОЖИДАНИЕ СТАРТА")).toBeInTheDocument();
+      expect(screen.queryByText("ИДЁТ")).not.toBeInTheDocument();
+      expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("0");
+      expect(document.querySelector('[data-color="red"]')?.textContent).toContain("0");
+      expect(screen.getByTestId("timer-strip")).toHaveAttribute("data-phase", "waiting");
+    });
+
+    it("running phase shows a pulsing \"ИДЁТ\" indicator, reduced-motion-safe (NFR-4)", () => {
+      const b1 = bout({ id: "b1", sequenceNumber: 1, state: "BOUT_STATE_IN_PROGRESS" });
+      const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
+      mockLive(makeSnapshot(board));
+      mockTimer("RUNNING", 9000);
+
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+      const label = screen.getByTestId("timer-strip-label");
+      expect(label.textContent).toBe("ИДЁТ");
+      expect(label.className).toContain("motion-safe:animate-pulse");
+    });
+
+    it("expired phase blinks the whole strip background, reduced-motion-safe (NFR-4)", () => {
+      const b1 = bout({ id: "b1", sequenceNumber: 1, state: "BOUT_STATE_IN_PROGRESS" });
+      const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
+      mockLive(makeSnapshot(board));
+      mockTimer("EXPIRED", 0);
+
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+
+      const strip = screen.getByTestId("timer-strip");
+      expect(strip.className).toContain("motion-safe:animate-pulse");
+      expect(screen.getByText("ВРЕМЯ ВЫШЛО")).toBeInTheDocument();
+    });
   });
 });
