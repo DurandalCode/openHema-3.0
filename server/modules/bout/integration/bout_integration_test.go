@@ -495,6 +495,15 @@ func TestIntegration_EventsForPools_OrdersNewestFirstWithoutScheduled(t *testing
 		t.Fatalf("ReopenBout: %v", err)
 	}
 
+	// GenerateRoundRobin sorts fighters by ID before pairing (domain/distribute.go),
+	// so which of the two random UUIDs lands in FighterA vs FighterB is not the
+	// input order — read the real projection to know the ground truth instead of
+	// assuming it.
+	wantBout, err := repo.GetBout(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("GetBout: %v", err)
+	}
+
 	entries, err := repo.EventsForPools(context.Background(), []string{poolID}, 50)
 	if err != nil {
 		t.Fatalf("EventsForPools: %v", err)
@@ -524,8 +533,8 @@ func TestIntegration_EventsForPools_OrdersNewestFirstWithoutScheduled(t *testing
 		if e.ActorID != actorID {
 			t.Errorf("entry ActorID = %q, want %q", e.ActorID, actorID)
 		}
-		if e.FighterA.Name != "A" || e.FighterB.Name != "B" {
-			t.Errorf("unexpected fighters (expected projection-sourced names): %+v / %+v", e.FighterA, e.FighterB)
+		if e.FighterA != wantBout.FighterA || e.FighterB != wantBout.FighterB {
+			t.Errorf("fighters = %+v / %+v, want projection-sourced %+v / %+v", e.FighterA, e.FighterB, wantBout.FighterA, wantBout.FighterB)
 		}
 	}
 
