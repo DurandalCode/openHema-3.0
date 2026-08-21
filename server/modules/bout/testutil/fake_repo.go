@@ -37,6 +37,16 @@ type FakeRepo struct {
 	// (для проверки, что расфиксация этапа трогает только свои пулы,
 	// спека 0017 FR-8).
 	deleteByPoolsCalls [][]string
+	// eventsForPoolsCalls — spy: аргументы каждого вызова EventsForPools
+	// (спека 0033, FR-33) — для проверки клэмпа лимита и no-op на пустом
+	// poolIDs в тестах service.
+	eventsForPoolsCalls []EventsForPoolsCall
+}
+
+// EventsForPoolsCall — зафиксированный вызов EventsForPools.
+type EventsForPoolsCall struct {
+	PoolIDs []string
+	Limit   int
 }
 
 // ReplaceCall — зафиксированный вызов ReplaceForPools.
@@ -290,6 +300,81 @@ func (r *FakeRepo) AnyStartedInPools(_ context.Context, poolIDs []string) (bool,
 	return false, nil
 }
 
+// EventsForPools возвращает журнал боёв перечисленных пулов (спека 0033,
+// FR-33): находит boutID, чья проекция (r.views) принадлежит одному из
+// poolIDs, берёт из r.events[boutID] все события кроме scheduled (у него
+// нет человека-инициатора, FR-34/FR-36) и собирает плоские EventRecord —
+// fighter/pool/sequence из проекции (у остальных типов событий их нет в
+// payload), ScoreA/ScoreB из payload события, ActorID/OccurredAt/Type — из
+// самого события. Сортировка — новыми вперёд (occurred_at DESC, при
+// совпадении — версия события DESC, как ORDER BY в реальном SQL). Пустой
+// poolIDs — no-op: пустой срез, без сканирования хранилища.
+func (r *FakeRepo) EventsForPools(_ context.Context, poolIDs []string, limit int) ([]domain.EventRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.eventsForPoolsCalls = append(r.eventsForPoolsCalls, EventsForPoolsCall{
+		PoolIDs: append([]string{}, poolIDs...),
+		Limit:   limit,
+	})
+
+	if len(poolIDs) == 0 {
+		return nil, nil
+	}
+
+	poolSet := make(map[string]struct{}, len(poolIDs))
+	for _, id := range poolIDs {
+		poolSet[id] = struct{}{}
+	}
+
+	type scored struct {
+		rec domain.EventRecord
+		seq int
+	}
+	var recs []scored
+	for boutID, view := range r.views {
+		if _, ok := poolSet[view.PoolID]; !ok {
+			continue
+		}
+		for _, ev := range r.events[boutID] {
+			if ev.Type == domain.EventScheduled {
+				continue
+			}
+			recs = append(recs, scored{
+				rec: domain.EventRecord{
+					BoutID:         boutID,
+					PoolID:         view.PoolID,
+					SequenceNumber: view.SequenceNumber,
+					FighterA:       view.FighterA,
+					FighterB:       view.FighterB,
+					Type:           ev.Type,
+					ScoreA:         ev.Payload.ScoreA,
+					ScoreB:         ev.Payload.ScoreB,
+					ActorID:        ev.ActorID,
+					OccurredAt:     ev.OccurredAt,
+				},
+				seq: ev.Sequence,
+			})
+		}
+	}
+
+	sort.Slice(recs, func(i, j int) bool {
+		if !recs[i].rec.OccurredAt.Equal(recs[j].rec.OccurredAt) {
+			return recs[i].rec.OccurredAt.After(recs[j].rec.OccurredAt)
+		}
+		return recs[i].seq > recs[j].seq
+	})
+
+	out := make([]domain.EventRecord, 0, len(recs))
+	for _, s := range recs {
+		out = append(out, s.rec)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // SeedBouts — тестовый хелпер: кладёт бои напрямую (проекция + синтетическое
 // событие scheduled), в обход ReplaceForPools (без записи в spy).
 // Автоматически присваивает ID, если не задан.
@@ -392,6 +477,20 @@ func (r *FakeRepo) DeleteByPoolsCalls() [][]string {
 	out := make([][]string, len(r.deleteByPoolsCalls))
 	for i, c := range r.deleteByPoolsCalls {
 		out[i] = append([]string{}, c...)
+	}
+	return out
+}
+
+// EventsForPoolsCalls возвращает зафиксированные вызовы EventsForPools (для
+// проверки клэмпа лимита и no-op на пустом poolIDs в тестах service, спека
+// 0033, FR-33).
+func (r *FakeRepo) EventsForPoolsCalls() []EventsForPoolsCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]EventsForPoolsCall, len(r.eventsForPoolsCalls))
+	for i, c := range r.eventsForPoolsCalls {
+		out[i] = EventsForPoolsCall{PoolIDs: append([]string{}, c.PoolIDs...), Limit: c.Limit}
 	}
 	return out
 }

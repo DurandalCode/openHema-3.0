@@ -116,6 +116,24 @@ type Bout struct {
 	Version int
 }
 
+// EventRecord — плоская запись журнала для чтения наружу (спека 0033,
+// FR-33): read-model, не агрегат — свёртки не требует. Fighter/pool/
+// sequence берутся из проекции (bout.bouts), а не из payload события —
+// только EventScheduled несёт FighterA/FighterB в payload, остальные типы
+// событий их не дублируют (спека 0033, план «Модуль bout»).
+type EventRecord struct {
+	BoutID         string
+	PoolID         string
+	SequenceNumber int
+	FighterA       FighterRef
+	FighterB       FighterRef
+	Type           EventType
+	ScoreA         int
+	ScoreB         int
+	ActorID        string
+	OccurredAt     time.Time
+}
+
 // BoutView — плоское текущее состояние агрегата для инлайн-проекции
 // (read-model). Обновляется атомарно с записью события (ADR 0011 п.4).
 // Совпадает по форме с Bout — отдельного набора полей проекция не несёт.
@@ -338,4 +356,11 @@ type Repository interface {
 	// Append атомарно вставляет событие с version = expectedVersion+1 и
 	// обновляет инлайн-проекцию. Конфликт версии → ErrConcurrency.
 	Append(ctx context.Context, boutID string, expectedVersion int, ev Event, view BoutView) error
+	// EventsForPools возвращает журнал боёв перечисленных пулов (спека 0033,
+	// FR-33) — для будущего RPC GetArenaJournal (модуль stage резолвит пул
+	// на арене и передаёт []string{poolID}). EventScheduled исключается: у
+	// него нет человека-инициатора (FR-34/FR-36). Новыми событиями вперёд
+	// (occurred_at DESC, затем версия события DESC), ограничено limit.
+	// Пустой poolIDs — валидный no-op: пустой срез, без ошибки.
+	EventsForPools(ctx context.Context, poolIDs []string, limit int) ([]EventRecord, error)
 }

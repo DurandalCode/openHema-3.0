@@ -18,6 +18,13 @@ import (
 
 const maxAppendAttempts = 2
 
+// Клэмп лимита ListEventsForPools (спека 0033, FR-33 / plan.md "service/
+// service.go"): 0 (не задан клиентом) → дефолт, > max → max.
+const (
+	defaultEventsForPoolsLimit = 50
+	maxEventsForPoolsLimit     = 200
+)
+
 // Service реализует юзкейсы модуля bout. Зависит от порта, не от pg/proto.
 // bout ни от кого не зависит (см. plan.md «Обзор решения»).
 type Service struct {
@@ -202,6 +209,25 @@ func (s *Service) ResetBout(ctx context.Context, boutID, actorID string, now tim
 	return s.act(ctx, boutID, func(b domain.Bout) (domain.Event, error) {
 		return b.Reset(actorID, now)
 	})
+}
+
+// ListEventsForPools возвращает журнал боёв перечисленных пулов (спека
+// 0033, FR-33) — для будущего RPC GetArenaJournal модуля stage. Клэмпит
+// лимит (0 → defaultEventsForPoolsLimit, > max → maxEventsForPoolsLimit) и
+// защищает от пустого списка пулов: пустой срез без обращения к репозиторию
+// (тот же приём, что AnyStartedInPools/ClearForPools) — площадка без пула
+// (AC-20) не должна порождать запрос к хранилищу.
+func (s *Service) ListEventsForPools(ctx context.Context, poolIDs []string, limit int) ([]domain.EventRecord, error) {
+	if len(poolIDs) == 0 {
+		return nil, nil
+	}
+	switch {
+	case limit <= 0:
+		limit = defaultEventsForPoolsLimit
+	case limit > maxEventsForPoolsLimit:
+		limit = maxEventsForPoolsLimit
+	}
+	return s.repo.EventsForPools(ctx, poolIDs, limit)
 }
 
 // act реализует общий цикл load → rebuild → decide → append (ADR 0011) для
