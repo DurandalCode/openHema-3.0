@@ -121,17 +121,17 @@
 
 ## Волна 2 · трек E — web/табло
 
-- [ ] **T18 (red→green).** `features/arena-timer/ui/TimerDisplay.test.tsx` →
+- [x] **T18 (red→green).** `features/arena-timer/ui/TimerDisplay.test.tsx` →
       `TimerDisplay.tsx`: компонент становится презентационным (решение
       «концовка/истекло» приходит пропсом из `scoreboardPhase`, T9),
       появляется размер полосы табло. Существующие тесты правятся, а не
       удаляются.
-- [ ] **T19 (red→green).** `widgets/arena-scoreboard/arena-scoreboard.test.tsx`
+- [x] **T19 (red→green).** `widgets/arena-scoreboard/arena-scoreboard.test.tsx`
       → `arena-scoreboard.tsx`: полоса таймера сверху и крупнее счёта
       (AC-14), пять фаз по `scoreboardPhase` (AC-15/AC-16/AC-17), шапка
       «площадка · номинация · пул» + «Бой N из M», нижняя полоса «Далее» /
       «Последний бой пула». `prefers-reduced-motion` уважается (NFR-4).
-- [ ] **T20 (red→green).** `widgets/arena-scoreboard/appearance-toggle.test.tsx`
+- [x] **T20 (red→green).** `widgets/arena-scoreboard/appearance-toggle.test.tsx`
       → `appearance-toggle.tsx`: тумблер тёмное/светлое поверх
       `use-local-preference` (T10), ключ на площадку, сохранение между
       открытиями (AC-18); тема приложения (`next-themes`) не читается —
@@ -139,14 +139,14 @@
 
 ## Волна 2 · трек F — web/живой канал и постановка пула
 
-- [ ] **T21 (red→green).** `features/arena-live/api/use-arena-live.test.ts` →
+- [x] **T21 (red→green).** `features/arena-live/api/use-arena-live.test.ts` →
       `use-arena-live.ts`: в результат добавляются `connection`,
       `lostSinceMs`, `reconnect()`; `lost` выставляется на пороге
       `SSE_ERROR_THRESHOLD` (там, где сейчас молчаливый
       `fallbackToPolling`), снимается первым успешным кадром; `reconnect()`
       пересоздаёт `EventSource`. Роль подписчика **не меняется** — комната
       табло не затрагивается (NFR-3).
-- [ ] **T22 (red→green).** `features/pool-seating/ui/pool-seating.test.tsx`
+- [x] **T22 (red→green).** `features/pool-seating/ui/pool-seating.test.tsx`
       → `pool-seating.tsx`: карточки готовых пулов с составом (FR-12),
       взаимоисключающие чипы номинаций с явным «Все номинации» (AC-6),
       объясняющее пустое состояние с переходом к посеву (AC-7).
