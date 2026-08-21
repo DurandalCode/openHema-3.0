@@ -1,18 +1,25 @@
 "use client";
 
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import { MapPin, Swords } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
+import { EmptyState } from "@/shared/ui/empty-state";
+import { filterChipVariants } from "@/shared/ui/filter-chip";
 import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
+import { cn } from "@/shared/lib/cn";
 import type { Pool } from "@/entities/pool/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
 import { usePoolsForArena } from "../api/use-pools-for-arena";
 import { useSeatPool } from "../api/use-seat-pool";
 import { useUnseatPool } from "../api/use-unseat-pool";
 import { useBoutsForNomination } from "../api/use-bouts-for-nomination";
+
+const NOMINATIONS_HREF = "/admin/nominations";
 
 /**
  * PoolSeating — секция постановки/снятия пула на странице конкретной арены
@@ -127,6 +134,48 @@ function SeatedPoolCard({
   );
 }
 
+/**
+ * NominationChip — переключатель фильтра номинации, поверх стилей
+ * `FilterChip` (см. `features/admin/ui/users-filters.tsx` `RoleChip` — тот
+ * же приём: `filterChipVariants` даёт тон, `aria-pressed` — настоящую
+ * a11y-семантику переключателя, которой примитив `FilterChip` сам по себе
+ * не отдаёт).
+ */
+function NominationChip({
+  label,
+  pressed,
+  onClick,
+}: {
+  label: string;
+  pressed: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={cn(filterChipVariants({ tone: pressed ? "active" : "idle" }))}
+    >
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/**
+ * availableNominations — множество номинаций, у которых есть хотя бы один
+ * готовый к постановке пул (спека 0033, FR-13): вычисляется из `pools`, не
+ * хардкодится. Порядок — первое появление в списке (стабильный для чипов).
+ */
+function availableNominations(pools: Pool[]): { id: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const pool of pools) {
+    if (!pool.nominationId || seen.has(pool.nominationId)) continue;
+    seen.set(pool.nominationId, pool.nominationName || pool.nominationId);
+  }
+  return [...seen.entries()].map(([id, name]) => ({ id, name }));
+}
+
 function AvailablePools({
   pools,
   onSeat,
@@ -136,12 +185,27 @@ function AvailablePools({
   onSeat: (poolId: string) => void;
   seatPending: boolean;
 }) {
+  const [selectedNominationId, setSelectedNominationId] = useState<string | null>(null);
+
+  const nominations = useMemo(() => availableNominations(pools), [pools]);
+  const visiblePools = useMemo(
+    () =>
+      selectedNominationId === null
+        ? pools
+        : pools.filter((pool) => pool.nominationId === selectedNominationId),
+    [pools, selectedNominationId],
+  );
+
   if (pools.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Нет готовых пулов для постановки. Пул должен быть «готов» (раскладка
-        номинации зафиксирована) и не стоять ни на одной арене.
-      </p>
+      <EmptyState
+        title="Нет готовых пулов для постановки"
+        hint="Пул появляется здесь, когда раскладка этапа зафиксирована — сначала нужно провести посев по группам."
+      >
+        <Button type="button" variant="outline" size="sm" asChild>
+          <Link href={NOMINATIONS_HREF}>К посеву</Link>
+        </Button>
+      </EmptyState>
     );
   }
 
@@ -150,7 +214,22 @@ function AvailablePools({
       <span className="text-sm text-muted-foreground">
         Арена свободна. Выберите готовый пул, чтобы поставить его на эту площадку.
       </span>
-      {pools.map((pool) => (
+      <div role="group" aria-label="Фильтр по номинации" className="flex flex-wrap gap-2">
+        <NominationChip
+          label="Все номинации"
+          pressed={selectedNominationId === null}
+          onClick={() => setSelectedNominationId(null)}
+        />
+        {nominations.map((n) => (
+          <NominationChip
+            key={n.id}
+            label={n.name}
+            pressed={selectedNominationId === n.id}
+            onClick={() => setSelectedNominationId(n.id)}
+          />
+        ))}
+      </div>
+      {visiblePools.map((pool) => (
         <Card key={pool.id}>
           <CardContent className="pt-6">
             <Row align="center" justify="between" gap={3} className="flex-wrap">

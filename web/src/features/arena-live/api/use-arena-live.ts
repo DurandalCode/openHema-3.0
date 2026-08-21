@@ -55,6 +55,27 @@ export type UseArenaLiveResult = {
    * Возвращает функцию отписки.
    */
   onCommand: (listener: (command: TimerCommandDto) => void) => () => void;
+  /**
+   * connection — видимое состояние живого канала (спека 0033, FR-23):
+   * `"lost"` с момента, когда канал молча падал на polling (тот же порог
+   * `SSE_ERROR_THRESHOLD`), `"live"` — оптимистичный дефолт до первого
+   * кадра и состояние после восстановления.
+   */
+  connection: "live" | "lost";
+  /**
+   * lostSinceMs — `Date.now()` момента перехода в `"lost"`; `null`, пока
+   * `connection === "live"`. Основа для `connectionLabel` (entities/
+   * arena-live/lib/connection.ts, T8) — сама длительность здесь не считается.
+   */
+  lostSinceMs: number | null;
+  /**
+   * reconnect — принудительно закрывает текущее соединение (EventSource
+   * либо polling-интервал) и заново запускает цикл открытия EventSource
+   * (FR-24, кнопка «Переподключиться»). Не переключает автоматически с
+   * polling обратно на EventSource сама по себе — это делает только явный
+   * вызов.
+   */
+  reconnect: () => void;
 };
 
 /**
@@ -74,12 +95,36 @@ export function useArenaLive(
     emptySnapshotFromBoard(initialBoard),
   );
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [connection, setConnection] = useState<"live" | "lost">("live");
+  const [lostSinceMs, setLostSinceMs] = useState<number | null>(null);
   const listenersRef = useRef<Set<(command: TimerCommandDto) => void>>(new Set());
+  const reconnectRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     let cancelled = false;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     let es: EventSource | null = null;
+    let errorCount = 0;
+
+    const markLive = () => {
+      errorCount = 0;
+      setConnection("live");
+      setLostSinceMs(null);
+    };
+
+    const markLost = () => {
+      setConnection("lost");
+      setLostSinceMs(Date.now());
+    };
+
+    const closeAll = () => {
+      es?.close();
+      es = null;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
 
     const startPolling = () => {
       if (pollInterval || cancelled) return;
@@ -87,55 +132,67 @@ export function useArenaLive(
         const board = await fetchBoard(arenaId);
         if (!cancelled && board) {
           setSnapshot((prev) => (prev ? { ...prev, board } : emptySnapshotFromBoard(board)));
+          markLive();
         }
       }, POLL_INTERVAL_MS);
     };
 
-    if (typeof EventSource === "undefined") {
-      startPolling();
-      return () => {
-        cancelled = true;
-        if (pollInterval) clearInterval(pollInterval);
-      };
-    }
-
-    let errorCount = 0;
-    es = new EventSource(`/api/arenas/${encodeURIComponent(arenaId)}/live?role=${role}`);
-
     const fallbackToPolling = () => {
       es?.close();
       es = null;
+      markLost();
       startPolling();
     };
 
-    es.onmessage = (ev: MessageEvent<string>) => {
+    /**
+     * connect — (пере)открывает живой канал: тот же цикл, что и при
+     * монтировании. Общая точка входа и для первого запуска, и для
+     * `reconnect()` (FR-24) — счётчик ошибок и текущее соединение
+     * сбрасываются, EventSource пробуется заново, даже если до этого канал
+     * был на polling-fallback.
+     */
+    const connect = () => {
+      closeAll();
       errorCount = 0;
-      try {
-        const frame = JSON.parse(ev.data) as LiveFrame;
-        if (cancelled) return;
-        if (frame.type === "snapshot" && frame.snapshot) {
-          setSnapshot(frame.snapshot);
-          setServerOffsetMs(Number(frame.snapshot.serverNowUnixMs) - Date.now());
-        } else if (frame.type === "command" && frame.command) {
-          const command = frame.command;
-          listenersRef.current.forEach((listener) => listener(command));
-        }
-      } catch {
-        // кадр повреждён — игнорируем, ждём следующий.
+
+      if (typeof EventSource === "undefined") {
+        startPolling();
+        return;
       }
+
+      es = new EventSource(`/api/arenas/${encodeURIComponent(arenaId)}/live?role=${role}`);
+
+      es.onmessage = (ev: MessageEvent<string>) => {
+        markLive();
+        try {
+          const frame = JSON.parse(ev.data) as LiveFrame;
+          if (cancelled) return;
+          if (frame.type === "snapshot" && frame.snapshot) {
+            setSnapshot(frame.snapshot);
+            setServerOffsetMs(Number(frame.snapshot.serverNowUnixMs) - Date.now());
+          } else if (frame.type === "command" && frame.command) {
+            const command = frame.command;
+            listenersRef.current.forEach((listener) => listener(command));
+          }
+        } catch {
+          // кадр повреждён — игнорируем, ждём следующий.
+        }
+      };
+
+      es.onerror = () => {
+        errorCount += 1;
+        if (errorCount >= SSE_ERROR_THRESHOLD) {
+          fallbackToPolling();
+        }
+      };
     };
 
-    es.onerror = () => {
-      errorCount += 1;
-      if (errorCount >= SSE_ERROR_THRESHOLD) {
-        fallbackToPolling();
-      }
-    };
+    connect();
+    reconnectRef.current = connect;
 
     return () => {
       cancelled = true;
-      es?.close();
-      if (pollInterval) clearInterval(pollInterval);
+      closeAll();
     };
   }, [arenaId, role]);
 
@@ -144,5 +201,9 @@ export function useArenaLive(
     return () => listenersRef.current.delete(listener);
   }
 
-  return { snapshot, serverOffsetMs, onCommand };
+  function reconnect(): void {
+    reconnectRef.current();
+  }
+
+  return { snapshot, serverOffsetMs, onCommand, connection, lostSinceMs, reconnect };
 }
