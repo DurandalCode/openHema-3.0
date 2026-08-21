@@ -157,7 +157,7 @@
       `route.e2e.test.ts` → `route.ts`: `GET`, Node runtime, admin-only по
       образцу соседнего `board/route.ts`. E2E — по правилу ADR 0010
       (`Timestamp` в ответе).
-- [ ] **T24 (red→green).** `features/arena-journal/`: `api/{keys,requests,
+- [x] **T24 (red→green).** `features/arena-journal/`: `api/{keys,requests,
       use-arena-journal}.ts` + тесты fetcher'а → `ui/arena-journal.tsx`:
       лента новыми сверху, время и имя автора у каждой записи (AC-19),
       пустое состояние, объясняющее, что записи появятся с первым действием
