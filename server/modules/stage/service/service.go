@@ -23,6 +23,10 @@ type Service struct {
 	arenas      domain.ArenaProvider
 	nominations domain.NominationProvider
 	liveBus     domain.LiveBus
+	// users — межмодульная зависимость stage → auth (спека 0033, приём
+	// 0025): резолв имён авторов записей журнала боёв площадки на чтении
+	// (GetArenaJournal), без новой персистентности.
+	users domain.UserProvider
 	// rooms — реестр живых комнат табло арен (спека 0015, ADR 0013):
 	// недоменный таймер-реле, целиком в памяти процесса (эфемерно, без PG).
 	// Живёт внутри Service — наружу (Deps/module.go) новых зависимостей не
@@ -33,8 +37,9 @@ type Service struct {
 // New создаёт сервис pool. liveBus — порт живой шины (спека 0014, ADR
 // 0012): Service — единственный держатель этой зависимости в модуле, api-
 // слой обращается к подписке через passthrough-метод Service.SubscribeNomination.
-func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider, liveBus domain.LiveBus) *Service {
-	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, rooms: newArenaRooms()}
+// users — порт имён авторов журнала площадки (спека 0033).
+func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider, liveBus domain.LiveBus, users domain.UserProvider) *Service {
+	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, users: users, rooms: newArenaRooms()}
 }
 
 // GetLayout возвращает раскладку этапа (спека 0018, FR-18 — адресация
@@ -481,6 +486,68 @@ func (s *Service) GetBoutBoard(ctx context.Context, arenaID string) (domain.Bout
 		return domain.BoutBoard{}, nil
 	}
 	return s.boardForPool(ctx, seated.ID)
+}
+
+// GetArenaJournal возвращает журнал боёв пула, стоящего на площадке (спека
+// 0033, FR-33/FR-35/FR-36): события начала/счёта/завершения/переоткрытия/
+// сброса текущего пула площадки, новыми вперёд — сервис не пересортировывает
+// то, что уже в этом порядке отдаёт BoutConductor.EventsForPools. Каждая
+// запись обогащена именем автора (батч по дедуплицированным непустым
+// ActorID, приём 0025) — пустой ActorID (события без автора в поток не
+// попадают, но защита на всякий случай) и неизвестный пользователь дают
+// пустое ActorDisplayName, не ошибку. Площадка без пула — пустой журнал без
+// ошибки (AC-20), тем же путём резолва, что и GetBoutBoard.
+func (s *Service) GetArenaJournal(ctx context.Context, arenaID string, limit int) ([]domain.JournalEntry, error) {
+	arenaID = strings.TrimSpace(arenaID)
+	if arenaID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	seated, found, err := s.repo.PoolsForArena(ctx, arenaID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return []domain.JournalEntry{}, nil
+	}
+
+	records, err := s.bouts.EventsForPools(ctx, []string{seated.ID}, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool, len(records))
+	ids := make([]string, 0, len(records))
+	for _, r := range records {
+		if r.ActorID == "" || seen[r.ActorID] {
+			continue
+		}
+		seen[r.ActorID] = true
+		ids = append(ids, r.ActorID)
+	}
+	names := map[string]string{}
+	if len(ids) > 0 {
+		names, err = s.users.DisplayNames(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	out := make([]domain.JournalEntry, len(records))
+	for i, r := range records {
+		out[i] = domain.JournalEntry{
+			BoutID:           r.BoutID,
+			SequenceNumber:   r.SequenceNumber,
+			FighterA:         r.FighterA,
+			FighterB:         r.FighterB,
+			Kind:             r.Kind,
+			ScoreA:           r.ScoreA,
+			ScoreB:           r.ScoreB,
+			ActorID:          r.ActorID,
+			OccurredAt:       r.OccurredAt,
+			ActorDisplayName: names[r.ActorID],
+		}
+	}
+	return out, nil
 }
 
 // SetCurrentBout назначает текущим любой бой пула — циркуляция (FR-8),

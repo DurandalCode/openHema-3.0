@@ -53,8 +53,9 @@ func setupFull(t *testing.T) (
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	liveBus := testutil.NewFakeLiveBus()
+	users := testutil.NewFakeUserProvider()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo, fighters, bouts, arenas, nominations, liveBus)
+	svc := service.New(repo, fighters, bouts, arenas, nominations, liveBus, users)
 	adminHandler := NewAdminHandler(svc)
 	publicHandler := NewPublicHandler(svc)
 
@@ -79,6 +80,43 @@ func setupFull(t *testing.T) (
 	adminClient := hemav1connect.NewStageAdminServiceClient(client, server.URL)
 	publicClient := hemav1connect.NewStagePublicServiceClient(client, server.URL)
 	return adminClient, publicClient, repo, fighters, arenas, nominations, bouts, liveBus
+}
+
+// setupJournal — как setupFull, но также возвращает FakeUserProvider (спека
+// 0033: тесты GetArenaJournal — резолв имён авторов). Отдельный сетап вместо
+// расширения кортежа setupFull (45 существующих вызывающих) — узкий фейк
+// нужен только журналу.
+func setupJournal(t *testing.T) (hemav1connect.StageAdminServiceClient, *testutil.FakeRepo, *testutil.FakeBoutConductor, *testutil.FakeUserProvider) {
+	t.Helper()
+
+	repo := testutil.NewFakeRepo()
+	fighters := testutil.NewFakeActiveFightersProvider()
+	bouts := testutil.NewFakeBoutConductor()
+	arenas := testutil.NewFakeArenaProvider()
+	nominations := testutil.NewFakeNominationProvider()
+	liveBus := testutil.NewFakeLiveBus()
+	users := testutil.NewFakeUserProvider()
+	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
+	svc := service.New(repo, fighters, bouts, arenas, nominations, liveBus, users)
+	adminHandler := NewAdminHandler(svc)
+
+	baseOpts := []connect.HandlerOption{
+		connect.WithInterceptors(connectutil.Auth(tokens)),
+	}
+	adminOpts := []connect.HandlerOption{
+		connect.WithInterceptors(connectutil.RequireAdmin()),
+	}
+	adminPath, adminH := hemav1connect.NewStageAdminServiceHandler(adminHandler, append(baseOpts, adminOpts...)...)
+
+	mux := http.NewServeMux()
+	mux.Handle(adminPath, adminH)
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := server.Client()
+	adminClient := hemav1connect.NewStageAdminServiceClient(client, server.URL)
+	return adminClient, repo, bouts, users
 }
 
 // stageIDFor — тестовый хелпер (спека 0018, T19): резолвит id канонического
@@ -714,6 +752,97 @@ func TestGetBoutBoard_E2E_EmptyWhenArenaFree(t *testing.T) {
 	}
 	if res.Msg.Board.Pool != nil || len(res.Msg.Board.Bouts) != 0 {
 		t.Errorf("expected empty board, got %v", res.Msg.Board)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0033: журнал боёв площадки (GetArenaJournal).
+// ---------------------------------------------------------------------
+
+// Счастливый путь: площадка с журналом → корректный proto-ответ, порядок
+// как отдаёт сервис (api-слой не пересортировывает), маппинг
+// domain.BoutEventKind → hemav1.BoutEventKind и имя автора.
+func TestGetArenaJournal_E2E_HappyPath(t *testing.T) {
+	admin, repo, bouts, users := setupJournal(t)
+	poolID := repo.SeedPool(n1, 1, "f1", "f2")
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	users.Set("admin-1", "Иванов")
+	now := time.Now()
+	bouts.SeedEvent(poolID, domain.BoutEventRecord{
+		BoutID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		Kind: domain.BoutEventStarted, ActorID: "admin-1", OccurredAt: now,
+	})
+	bouts.SeedEvent(poolID, domain.BoutEventRecord{
+		BoutID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		Kind: domain.BoutEventFinished, ScoreA: 5, ScoreB: 2,
+		ActorID: "admin-1", OccurredAt: now.Add(time.Minute),
+	})
+
+	req := connect.NewRequest(&hemav1.GetArenaJournalRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetArenaJournal(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetArenaJournal: %v", err)
+	}
+	if len(res.Msg.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d: %+v", len(res.Msg.Entries), res.Msg.Entries)
+	}
+	// Порядок — как отдаёт FakeBoutConductor (occurred_at DESC): finished
+	// новее, идёт первой.
+	first := res.Msg.Entries[0]
+	if first.Kind != hemav1.BoutEventKind_BOUT_EVENT_KIND_FINISHED {
+		t.Errorf("Entries[0].Kind = %v, want FINISHED", first.Kind)
+	}
+	if first.ScoreA != 5 || first.ScoreB != 2 {
+		t.Errorf("Entries[0] score = %d:%d, want 5:2", first.ScoreA, first.ScoreB)
+	}
+	if first.ActorDisplayName != "Иванов" {
+		t.Errorf("Entries[0].ActorDisplayName = %q, want Иванов", first.ActorDisplayName)
+	}
+	if first.BoutId != "b1" || first.SequenceNumber != 1 {
+		t.Errorf("Entries[0] BoutId/SequenceNumber = %q/%d, want b1/1", first.BoutId, first.SequenceNumber)
+	}
+	if first.FighterA == nil || first.FighterA.FighterId != "f1" || first.FighterB == nil || first.FighterB.FighterId != "f2" {
+		t.Errorf("Entries[0] fighters = %+v/%+v, want f1/f2", first.FighterA, first.FighterB)
+	}
+	if first.OccurredAt == nil {
+		t.Errorf("Entries[0].OccurredAt is nil")
+	}
+	second := res.Msg.Entries[1]
+	if second.Kind != hemav1.BoutEventKind_BOUT_EVENT_KIND_STARTED {
+		t.Errorf("Entries[1].Kind = %v, want STARTED", second.Kind)
+	}
+}
+
+// AC-20: площадка без пула — пустой журнал без ошибки.
+func TestGetArenaJournal_E2E_EmptyWhenArenaFree(t *testing.T) {
+	admin, _, _, _ := setupJournal(t)
+
+	req := connect.NewRequest(&hemav1.GetArenaJournalRequest{ArenaId: "arena-1"})
+	req.Header().Set("Authorization", adminBearer(t))
+	res, err := admin.GetArenaJournal(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetArenaJournal: %v", err)
+	}
+	if len(res.Msg.Entries) != 0 {
+		t.Errorf("expected empty journal, got %+v", res.Msg.Entries)
+	}
+}
+
+// ErrInvalidInput (пустой arena_id) мапится в connect.CodeInvalidArgument —
+// как у соседних чтений (GetBoutBoard).
+func TestGetArenaJournal_E2E_EmptyArenaIDIsInvalidArgument(t *testing.T) {
+	admin, _, _, _ := setupJournal(t)
+
+	req := connect.NewRequest(&hemav1.GetArenaJournalRequest{ArenaId: ""})
+	req.Header().Set("Authorization", adminBearer(t))
+	_, err := admin.GetArenaJournal(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/google/uuid"
@@ -77,11 +78,12 @@ type FakeBoutConductor struct {
 	FinishErr error
 	ReopenErr error
 	ResetErr  error
-	// BoutsByPoolErr/PoolProgressErr/AnyStartedErr — ошибки соответствующих
-	// чтений.
-	BoutsByPoolErr  error
-	PoolProgressErr error
-	AnyStartedErr   error
+	// BoutsByPoolErr/PoolProgressErr/AnyStartedErr/EventsForPoolsErr —
+	// ошибки соответствующих чтений.
+	BoutsByPoolErr    error
+	PoolProgressErr   error
+	AnyStartedErr     error
+	EventsForPoolsErr error
 
 	GenerateCalls    []GenerateCall
 	ClearCalls       []ClearCall
@@ -98,6 +100,11 @@ type FakeBoutConductor struct {
 	poolOfBout  map[string]string          // bout id -> pool id (для чистки boutsByPool при DeleteBouts, спека 0018)
 
 	anyStarted map[string]bool // pool id -> есть ли начатый/проведённый бой (FR-13/спека 0017 FR-8)
+
+	// events — журнал боёв по пулам (спека 0033, FR-33): pool id -> посеянные
+	// записи, в порядке SeedEvent (EventsForPools сортирует сама, как
+	// настоящий репозиторий — occurred_at DESC).
+	events map[string][]domain.BoutEventRecord
 }
 
 // NewFakeBoutConductor создаёт пустой fake-кондуктор боёв.
@@ -107,6 +114,7 @@ func NewFakeBoutConductor() *FakeBoutConductor {
 		boutsByPool: make(map[string][]string),
 		poolOfBout:  make(map[string]string),
 		anyStarted:  make(map[string]bool),
+		events:      make(map[string][]domain.BoutEventRecord),
 	}
 }
 
@@ -364,4 +372,37 @@ func (f *FakeBoutConductor) AnyStartedInPools(_ context.Context, poolIDs []strin
 		}
 	}
 	return false, nil
+}
+
+// SeedEvent добавляет запись журнала боя в пул (спека 0033, T15) — тестовый
+// хелпер для сценариев журнала («бой 6 завершён, бой 7 начат»). В отличие от
+// SeedBout (текущая проекция боя), это отдельный event-sourced поток —
+// EventsForPools читает его как есть, не выводя из посеянных боёв.
+func (f *FakeBoutConductor) SeedEvent(poolID string, ev domain.BoutEventRecord) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events[poolID] = append(f.events[poolID], ev)
+}
+
+// EventsForPools возвращает журнал боёв перечисленных пулов (спека 0033,
+// FR-33): все посеянные через SeedEvent записи этих пулов, отсортированные
+// новыми вперёд (occurred_at DESC — как настоящий репозиторий, план
+// «repo/queries/bout.sql»), ограниченные limit. EventsForPoolsErr, если
+// задан.
+func (f *FakeBoutConductor) EventsForPools(_ context.Context, poolIDs []string, limit int) ([]domain.BoutEventRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.EventsForPoolsErr != nil {
+		return nil, f.EventsForPoolsErr
+	}
+	out := make([]domain.BoutEventRecord, 0)
+	for _, id := range poolIDs {
+		out = append(out, f.events[id]...)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].OccurredAt.After(out[j].OccurredAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }

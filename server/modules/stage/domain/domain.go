@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 )
 
 // Доменные ошибки. Слой api мапит их в connect.Code.
@@ -686,6 +687,9 @@ type BoutBoard struct {
 // BoutsByPool/PoolProgress/AnyStartedInPools — чтения для доски и
 // вычисляемого статуса пула (FR-10).
 //
+// EventsForPools — журнал боёв площадки (спека 0033, FR-33): чтение
+// event-sourced потока боя (0013, ADR 0011) по пулам, без свёртки.
+//
 // Ошибки: реализация мапит доменные ошибки bout в ErrInvalidTransition/
 // ErrConcurrency этого пакета (см. комментарий у этих сентинелов) либо в
 // ErrNotFound (boutID не существует).
@@ -721,6 +725,71 @@ type BoutConductor interface {
 	// бой со state ≠ not_started (гейт FR-13/спека 0017 FR-8, AC-12). Пустой
 	// список — валидный вход, no-op → false.
 	AnyStartedInPools(ctx context.Context, poolIDs []string) (bool, error)
+
+	// EventsForPools возвращает журнал боёв перечисленных пулов (спека 0033,
+	// FR-33): новыми вперёд, ограничен limit. Пустой список пулов — валидный
+	// вход, no-op → пустой срез (как AnyStartedInPools).
+	EventsForPools(ctx context.Context, poolIDs []string, limit int) ([]BoutEventRecord, error)
+}
+
+// ---------------------------------------------------------------------
+// Спека 0033: журнал боёв площадки (FR-33/FR-34/FR-36).
+// ---------------------------------------------------------------------
+
+// BoutEventKind — вид записи журнала боя для площадки (спека 0033,
+// FR-33/FR-34): read-model, собственный тип модуля (не импорт bout/domain,
+// ADR 0002). EventKind — строковый литерал по образцу BoutState.
+// `scheduled` намеренно отсутствует — формирование пар системное, без
+// автора-человека, в журнале площадки не показывается (FR-34/FR-36).
+type BoutEventKind string
+
+const (
+	BoutEventStarted  BoutEventKind = "started"
+	BoutEventScored   BoutEventKind = "scored"
+	BoutEventFinished BoutEventKind = "finished"
+	BoutEventReopened BoutEventKind = "reopened"
+	BoutEventReset    BoutEventKind = "reset"
+)
+
+// BoutEventRecord — одна запись журнала боя для площадки (спека 0033,
+// FR-33/FR-34): плоский read-model, полученный от BoutConductor.
+// EventsForPools — свёртки не требует, из журнала читается как есть.
+type BoutEventRecord struct {
+	BoutID         string
+	SequenceNumber int
+	FighterA       FighterRef
+	FighterB       FighterRef
+	Kind           BoutEventKind
+	ScoreA         int
+	ScoreB         int
+	ActorID        string
+	OccurredAt     time.Time
+}
+
+// JournalEntry — запись журнала боёв площадки для внешнего представления
+// (спека 0033, FR-33/FR-34): BoutEventRecord, обогащённый именем автора на
+// чтении (приём 0025, UserProvider.DisplayNames). ActorDisplayName пусто,
+// если ActorID пуст (события без автора в журнал не попадают, FR-34) или
+// пользователь не резолвится (удалён) — не ошибка.
+type JournalEntry struct {
+	BoutID           string
+	SequenceNumber   int
+	FighterA         FighterRef
+	FighterB         FighterRef
+	Kind             BoutEventKind
+	ScoreA           int
+	ScoreB           int
+	ActorID          string
+	OccurredAt       time.Time
+	ActorDisplayName string
+}
+
+// UserProvider — межмодульная зависимость: отображаемые имена авторов
+// событий журнала площадки (спека 0033, FR-34, приём 0025 —
+// application/domain.UserProvider). Отсутствие пользователя в результате —
+// не ошибка (событие без известного автора остаётся без имени).
+type UserProvider interface {
+	DisplayNames(ctx context.Context, ids []string) (map[string]string, error)
 }
 
 // ---------------------------------------------------------------------

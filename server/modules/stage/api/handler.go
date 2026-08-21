@@ -432,6 +432,20 @@ func (h *AdminHandler) GetBoutBoard(
 	return connect.NewResponse(&hemav1.GetBoutBoardResponse{Board: toProtoBoard(board)}), nil
 }
 
+// GetArenaJournal возвращает журнал боёв пула, стоящего на площадке (спека
+// 0033, FR-33/FR-35/FR-36): board-стиль — journal пуст, если на арене
+// никто не стоит (AC-20), не ошибка.
+func (h *AdminHandler) GetArenaJournal(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetArenaJournalRequest],
+) (*connect.Response[hemav1.GetArenaJournalResponse], error) {
+	entries, err := h.svc.GetArenaJournal(ctx, req.Msg.ArenaId, int(req.Msg.Limit))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetArenaJournalResponse{Entries: toProtoJournalEntries(entries)}), nil
+}
+
 // SetCurrentBout назначает текущим любой бой пула — циркуляция (спека
 // 0013, FR-8).
 func (h *AdminHandler) SetCurrentBout(
@@ -1354,6 +1368,52 @@ func toProtoBoutState(s domain.BoutState) hemav1.BoutState {
 		return hemav1.BoutState_BOUT_STATE_FINISHED
 	default:
 		return hemav1.BoutState_BOUT_STATE_UNSPECIFIED
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0033: журнал боёв площадки (GetArenaJournal, FR-33/FR-34).
+// ---------------------------------------------------------------------
+
+func toProtoJournalEntries(entries []domain.JournalEntry) []*hemav1.BoutJournalEntry {
+	out := make([]*hemav1.BoutJournalEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, toProtoJournalEntry(e))
+	}
+	return out
+}
+
+func toProtoJournalEntry(e domain.JournalEntry) *hemav1.BoutJournalEntry {
+	return &hemav1.BoutJournalEntry{
+		BoutId:           e.BoutID,
+		SequenceNumber:   int32(e.SequenceNumber),
+		FighterA:         toProtoFighterRef(e.FighterA),
+		FighterB:         toProtoFighterRef(e.FighterB),
+		Kind:             toProtoBoutEventKind(e.Kind),
+		ScoreA:           int32(e.ScoreA),
+		ScoreB:           int32(e.ScoreB),
+		OccurredAt:       timestamppb.New(e.OccurredAt),
+		ActorDisplayName: e.ActorDisplayName,
+	}
+}
+
+// toProtoBoutEventKind маппит вид записи журнала (спека 0033, FR-33).
+// `scheduled` в domain.BoutEventKind не встречается (см. T13) — default
+// покрывает только UNSPECIFIED.
+func toProtoBoutEventKind(k domain.BoutEventKind) hemav1.BoutEventKind {
+	switch k {
+	case domain.BoutEventStarted:
+		return hemav1.BoutEventKind_BOUT_EVENT_KIND_STARTED
+	case domain.BoutEventScored:
+		return hemav1.BoutEventKind_BOUT_EVENT_KIND_SCORED
+	case domain.BoutEventFinished:
+		return hemav1.BoutEventKind_BOUT_EVENT_KIND_FINISHED
+	case domain.BoutEventReopened:
+		return hemav1.BoutEventKind_BOUT_EVENT_KIND_REOPENED
+	case domain.BoutEventReset:
+		return hemav1.BoutEventKind_BOUT_EVENT_KIND_RESET
+	default:
+		return hemav1.BoutEventKind_BOUT_EVENT_KIND_UNSPECIFIED
 	}
 }
 

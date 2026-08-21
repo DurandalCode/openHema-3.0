@@ -85,10 +85,15 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	}
 	fighter.Register(mux, fighterDeps, baseOpts, adminOpts)
 
+	// displayNames — резолв отображаемых имён пользователей (модуль auth,
+	// ADR 0002): один объект, переиспользуемый application (спека 0025) и
+	// stage (спека 0033, журнал боёв площадки, приём 0025).
+	displayNames := auth.NewDisplayNameProvider(pool, tokens)
+
 	applicationDeps := application.Deps{
 		Pool:        pool,
 		Nominations: NewNominationInfoProvider(pool, activeTournaments),
-		Users:       auth.NewDisplayNameProvider(pool, tokens),
+		Users:       displayNames,
 		Fighters:    fighter.NewRegistrationSink(pool, fighterNominations),
 	}
 	application.Register(mux, applicationDeps, baseOpts, adminOpts)
@@ -109,6 +114,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		Arenas:      NewStageArenaProvider(pool, activeTournaments),
 		Nominations: NewStageNominationProvider(pool, activeTournaments),
 		LiveBus:     NewStageLiveBus(livebus.New()),
+		Users:       displayNames,
 	}
 	stagemodule.Register(mux, stageDeps, baseOpts, adminOpts)
 
