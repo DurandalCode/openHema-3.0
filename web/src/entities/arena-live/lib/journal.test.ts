@@ -5,8 +5,8 @@ function entry(partial: Partial<JournalEntryDto>): JournalEntryDto {
   return {
     boutId: "bout-1",
     sequenceNumber: 7,
-    fighterA: { id: "a", name: "Ильин", club: "" },
-    fighterB: { id: "b", name: "Дерюгин", club: "" },
+    fighterA: { fighterId: "a", name: "Ильин", club: "" },
+    fighterB: { fighterId: "b", name: "Дерюгин", club: "" },
     kind: "BOUT_EVENT_KIND_STARTED",
     scoreA: 0,
     scoreB: 0,

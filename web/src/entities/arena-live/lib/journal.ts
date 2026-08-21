@@ -24,8 +24,8 @@ export type JournalEntryKindDto =
 export type JournalEntryDto = {
   boutId: string;
   sequenceNumber: number;
-  fighterA: { id: string; name: string; club: string };
-  fighterB: { id: string; name: string; club: string };
+  fighterA: { fighterId: string; name: string; club: string };
+  fighterB: { fighterId: string; name: string; club: string };
   kind: JournalEntryKindDto;
   scoreA: number;
   scoreB: number;

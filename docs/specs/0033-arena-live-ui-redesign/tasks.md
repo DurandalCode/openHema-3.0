@@ -153,7 +153,7 @@
 
 ## Волна 3 · join — сборка консоли площадки
 
-- [ ] **T23 (red→green).** `app/api/arenas/[id]/journal/route.test.ts` +
+- [x] **T23 (red→green).** `app/api/arenas/[id]/journal/route.test.ts` +
       `route.e2e.test.ts` → `route.ts`: `GET`, Node runtime, admin-only по
       образцу соседнего `board/route.ts`. E2E — по правилу ADR 0010
       (`Timestamp` в ответе).
