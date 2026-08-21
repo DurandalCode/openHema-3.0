@@ -387,6 +387,52 @@ func (r *Repo) Load(ctx context.Context, boutID string) ([]domain.Event, error) 
 	return out, nil
 }
 
+// EventsForPools возвращает журнал боёв перечисленных пулов (спека 0033,
+// FR-33): join с проекцией (bout.bouts) за pool_id/sequence_number/именами
+// бойцов — эти поля не дублируются в payload события (только scheduled его
+// несёт, а scheduled сюда не попадает — исключён на уровне SQL, FR-34/
+// FR-36). ScoreA/ScoreB разбираются из payload через unmarshalPayload —
+// значимы только для scored/finished, у остальных типов будут нулями.
+// Пустой poolIDs — no-op (пустой срез), без обращения к БД.
+func (r *Repo) EventsForPools(ctx context.Context, poolIDs []string, limit int) ([]domain.EventRecord, error) {
+	if len(poolIDs) == 0 {
+		return nil, nil
+	}
+	ids, err := parsePoolIDs(poolIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.q.EventsForPools(ctx, sqlc.EventsForPoolsParams{
+		PoolIds:  ids,
+		RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("events for pools: %w", err)
+	}
+
+	out := make([]domain.EventRecord, 0, len(rows))
+	for _, row := range rows {
+		payload, err := unmarshalPayload(row.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal payload: %w", err)
+		}
+		out = append(out, domain.EventRecord{
+			BoutID:         row.BoutID.String(),
+			PoolID:         row.PoolID.String(),
+			SequenceNumber: int(row.SequenceNumber),
+			FighterA:       domain.FighterRef{ID: row.FighterAID.String(), Name: row.FighterAName, Club: row.FighterAClub},
+			FighterB:       domain.FighterRef{ID: row.FighterBID.String(), Name: row.FighterBName, Club: row.FighterBClub},
+			Type:           domain.EventType(row.EventType),
+			ScoreA:         payload.ScoreA,
+			ScoreB:         payload.ScoreB,
+			ActorID:        fromNullableUUID(row.ActorID),
+			OccurredAt:     row.OccurredAt,
+		})
+	}
+	return out, nil
+}
+
 // Append атомарно вставляет событие (version = expectedVersion+1) и
 // обновляет проекцию в одной транзакции (ADR 0011 п.3/п.4).
 func (r *Repo) Append(ctx context.Context, boutID string, expectedVersion int, ev domain.Event, view domain.BoutView) error {
