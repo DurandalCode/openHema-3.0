@@ -20,6 +20,12 @@ function makeLive(
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      // connection/lostSinceMs/reconnect (спека 0033, T21) — не под тестом
+      // здесь; заполнены нейтральными значениями только чтобы удовлетворить
+      // расширенный тип `UseArenaLiveResult`.
+      connection: "live",
+      lostSinceMs: null,
+      reconnect: () => {},
     },
     listeners,
   };

@@ -58,6 +58,12 @@ function mockLive(snapshot: ArenaLiveSnapshotDto | null) {
     snapshot,
     serverOffsetMs: 0,
     onCommand: () => () => {},
+    // connection/lostSinceMs/reconnect (спека 0033, T21) — не под тестом
+    // здесь; нейтральные значения только чтобы удовлетворить расширенный
+    // тип `UseArenaLiveResult`.
+    connection: "live",
+    lostSinceMs: null,
+    reconnect: () => {},
   });
 }
 
