@@ -45,24 +45,24 @@
 
 ## Волна 1 · трек A — server/bout (чтение журнала)
 
-- [ ] **T2. domain** — `modules/bout/domain/domain.go`: тип `EventRecord`
+- [x] **T2. domain** — `modules/bout/domain/domain.go`: тип `EventRecord`
       (read-model журнала: `BoutID`/`PoolID`/`SequenceNumber`/`FighterA`/
       `FighterB`/`Type`/`ScoreA`/`ScoreB`/`ActorID`/`OccurredAt`) + метод
       порта `Repository.EventsForPools(ctx, poolIDs, limit)`. Red — `service`
       и `testutil` перестают собираться без реализации.
-- [ ] **T3. service (red→green)** — `service/service_test.go`:
+- [x] **T3. service (red→green)** — `service/service_test.go`:
       клэмп лимита (`0 → 50`, `250 → 200`), пустой `poolIDs` → пустой срез
       **без обращения к репо**, `scheduled` в выдаче отсутствует → затем
       `service.ListEventsForPools`.
-- [ ] **T4. testutil** — `modules/bout/testutil/fake_repo.go`: `EventsForPools`
+- [x] **T4. testutil** — `modules/bout/testutil/fake_repo.go`: `EventsForPools`
       поверх уже хранимого фейком журнала (`var _ domain.Repository =
       (*FakeRepo)(nil)` держит компиляционный контракт).
-- [ ] **T5. repo** — `repo/queries/bout.sql`: `-- name: EventsForPools :many`
+- [x] **T5. repo** — `repo/queries/bout.sql`: `-- name: EventsForPools :many`
       (`bout_events` join `bouts`, `pool_id = ANY(...)`, `event_type <>
       'scheduled'`, `ORDER BY occurred_at DESC, version DESC`, `LIMIT`);
       `make sqlc`; `repo/repo.go` — реализация порта с разбором `payload`
       jsonb в `ScoreA`/`ScoreB`.
-- [ ] **T6. integration** — `modules/bout/integration/bout_integration_test.go`:
+- [x] **T6. integration** — `modules/bout/integration/bout_integration_test.go`:
       прогнать бой командами ЖЦ (start → score → finish → reopen) и
       проверить, что `EventsForPools` отдаёт события в ожидаемом порядке,
       без `scheduled`, со счётом из payload. **Единственное место, где
