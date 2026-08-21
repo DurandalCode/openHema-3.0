@@ -6,18 +6,11 @@ import { useArenaLive } from "@/features/arena-live/api/use-arena-live";
 import { useArenaTimer } from "@/features/arena-timer/api/use-arena-timer";
 import { TimerDisplay, type TimerAlertKind } from "@/features/arena-timer/ui/TimerDisplay";
 import type { TimerStatus } from "@/features/arena-timer/model/timer-authority";
-import { nextBout, boutNumber, outcomeOf } from "@/entities/arena-live/lib/types";
-import type { TimerStatusDto } from "@/entities/arena-live/lib/types";
+import { nextBout, boutNumber, outcomeOf, sideColorOfFighterA } from "@/entities/arena-live/lib/types";
+import type { Color, TimerStatusDto } from "@/entities/arena-live/lib/types";
 import { scoreboardPhase, type ScoreboardPhase } from "@/entities/arena-live/lib/scoreboard-phase";
 import type { BoutBoard as BoutBoardDto, FighterRef } from "@/entities/pool/lib/types";
 import { AppearanceToggle, useScoreboardAppearance } from "./appearance-toggle";
-
-type Color = "blue" | "red";
-
-/** colorOfFighterA — цвет бойца A по умолчанию красный, синий при swap (FR-6). */
-function colorOfFighterA(sidesSwapped: boolean): Color {
-  return sidesSwapped ? "blue" : "red";
-}
 
 // useArenaTimer отдаёт клиентский `TimerStatus` ("STOPPED"/"RUNNING"/...), а
 // `scoreboardPhase` (T9) принимает proto-зеркальный `TimerStatusDto`
@@ -191,9 +184,9 @@ export function ArenaScoreboard({
   const outcome = finished ? outcomeOf(displayedBout.scoreA, displayedBout.scoreB) : null;
   const outcomeColor: Color | null =
     outcome === "A"
-      ? colorOfFighterA(room.sidesSwapped)
+      ? sideColorOfFighterA(room.sidesSwapped)
       : outcome === "B"
-        ? colorOfFighterA(room.sidesSwapped) === "blue"
+        ? sideColorOfFighterA(room.sidesSwapped) === "blue"
           ? "red"
           : "blue"
         : null;

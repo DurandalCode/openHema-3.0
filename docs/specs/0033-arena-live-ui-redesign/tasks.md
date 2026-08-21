@@ -167,7 +167,7 @@
       Старт/Пауза/Сброс, `±1/2/3/5` c, смена сторон, дефолтная длительность
       **только на чтение**. `model/timer-authority.ts`,
       `model/timer-follower.ts`, `api/use-arena-timer.ts` не трогаются.
-- [ ] **T26 (red→green).** `widgets/arena-console/`:
+- [x] **T26 (red→green).** `widgets/arena-console/`:
       `arena-console.tsx` (один `useArenaLive` на страницу, чтение и смена
       `?mode`, `Esc`, авто-возврат после последнего боя пула),
       `mode-switch.tsx`, `connection-bar.tsx`, `management-view.tsx`,
@@ -176,12 +176,12 @@
       _Проверить тестом, что смена `?mode` не размонтирует поддерево
       (риск из `plan.md`); если размонтирует — перейти на запасной вариант
       `history.pushState` + `popstate`._
-- [ ] **T27 (red→green).** Сборка страницы: `app/(admin)/admin/arenas/[id]/
+- [x] **T27 (red→green).** Сборка страницы: `app/(admin)/admin/arenas/[id]/
       page.tsx` → `<ArenaConsole/>` с SSR-доской, `AdminHeader` →
       `PageHeader` внутри виджета. **Удалить** `features/bout-board/ui/
       bout-board.tsx` вместе с ручным вводом счёта и кнопкой «Задать»
       (FR-7); `features/bout-board/api/**` остаётся.
-- [ ] **T28.** Тост-обратная связь по правилу 0023 на снятие пула
+- [x] **T28.** Тост-обратная связь по правилу 0023 на снятие пула
       («Отменить», действие обратимо — AC-5) и на успешную досылку
       удержанного счёта (AC-13); отказы сервера — тост-ошибка **без**
       «Повторить» (мутация event-sourced боя не идемпотентна, ADR 0011 —

@@ -29,7 +29,6 @@ export function useLocalPreference<T extends string>(
     } catch {
       // localStorage недоступен — остаёмся на defaultValue.
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   function setPreference(next: T) {
