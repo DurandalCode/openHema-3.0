@@ -71,26 +71,26 @@
 
 ## Волна 1 · трек B — web/чистая логика
 
-- [ ] **T7 (red→green).** `entities/arena-live/lib/journal.test.ts` →
+- [x] **T7 (red→green).** `entities/arena-live/lib/journal.test.ts` →
       `journal.ts`: `JournalEntryDto`, `journalEntryText` для всех пяти
       видов («бой 7 начат», «бой 6 завершён · Ильин 2 : 5 Дерюгин», счёт,
       переоткрыт, сброшен), `journalEntryTime`.
-- [ ] **T8 (red→green).** `entities/arena-live/lib/connection.test.ts` →
+- [x] **T8 (red→green).** `entities/arena-live/lib/connection.test.ts` →
       `connection.ts`: `connectionLabel(lostForMs)` («Связь потеряна · 12
       секунд» / минуты), `isOffline`.
-- [ ] **T9 (red→green).** `entities/arena-live/lib/scoreboard-phase.test.ts`
+- [x] **T9 (red→green).** `entities/arena-live/lib/scoreboard-phase.test.ts`
       → `scoreboard-phase.ts`: шесть исходов `idle`/`waiting`/`running`/
       `endgame`/`expired`/`announced`, включая границу «концовка ↔ истекло»
       на 0 (AC-15) и удержание оглашения при уже продвинутом
       `currentBoutId` (AC-17).
-- [ ] **T10 (red→green).** `shared/hooks/use-local-preference.test.ts` →
+- [x] **T10 (red→green).** `shared/hooks/use-local-preference.test.ts` →
       `use-local-preference.ts`: SSR-безопасный дефолт (нет `window`),
       чтение существующего значения, запись, изоляция по ключу.
-- [ ] **T11 (red→green).** `features/bout-board/model/pending-score.test.ts`
+- [x] **T11 (red→green).** `features/bout-board/model/pending-score.test.ts`
       → `pending-score.ts`: три шага в офлайне схлопываются в **одно**
       абсолютное значение (AC-13), клэмп к нулю, сброс после успешной
       отправки.
-- [ ] **T12 (red→green).** `features/bout-board/model/score-undo.test.ts` →
+- [x] **T12 (red→green).** `features/bout-board/model/score-undo.test.ts` →
       `score-undo.ts`: метка «Отменить +1 красному» (AC-8), возврат к
       предыдущему абсолютному значению, недоступность без шагов, сброс при
       смене боя.
