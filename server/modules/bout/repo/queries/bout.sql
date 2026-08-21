@@ -99,3 +99,19 @@ SELECT bout_id, version, event_type, payload, actor_id, occurred_at
 FROM bout.bout_events
 WHERE bout_id = $1
 ORDER BY version;
+
+-- name: EventsForPools :many
+-- Журнал боёв перечисленных пулов для страницы площадки (спека 0033,
+-- FR-33): join с проекцией за pool_id/sequence_number/именами бойцов —
+-- эти поля не дублируются в payload события (только scheduled их несёт).
+-- scheduled исключён — у него нет человека-инициатора (FR-34/FR-36).
+SELECT
+    e.bout_id, b.pool_id, b.sequence_number,
+    b.fighter_a_id, b.fighter_a_name, b.fighter_a_club,
+    b.fighter_b_id, b.fighter_b_name, b.fighter_b_club,
+    e.event_type, e.payload, e.actor_id, e.occurred_at
+FROM bout.bout_events e
+JOIN bout.bouts b ON b.id = e.bout_id
+WHERE b.pool_id = ANY(sqlc.arg(pool_ids)::uuid[]) AND e.event_type <> 'scheduled'
+ORDER BY e.occurred_at DESC, e.version DESC
+LIMIT sqlc.arg(row_limit);

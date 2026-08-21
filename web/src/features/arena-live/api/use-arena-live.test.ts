@@ -117,22 +117,124 @@ describe("useArenaLive", () => {
     unsubscribe();
   });
 
-  it("falls back to polling /board after a series of onerror without a successful message", async () => {
+  it("starts with connection live and lostSinceMs null before any frame arrives", () => {
+    const { result } = renderHook(() => useArenaLive("a1", "scoreboard", null));
+    expect(result.current.connection).toBe("live");
+    expect(result.current.lostSinceMs).toBeNull();
+  });
+
+  it("falls back to polling /board after a series of onerror without a successful message, marking connection lost", async () => {
     vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
     const { result } = renderHook(() => useArenaLive("a1", "scoreboard", null));
     const es = FakeEventSource.instances[0];
 
-    es.emitError();
-    es.emitError();
-    es.emitError();
+    act(() => {
+      es.emitError();
+      es.emitError();
+      es.emitError();
+    });
 
     expect(es.close).toHaveBeenCalled();
+    expect(result.current.connection).toBe("lost");
+    expect(result.current.lostSinceMs).toBe(1_700_000_000_000);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(result.current.snapshot?.board).toEqual(initialBoard);
     expect(global.fetch).toHaveBeenCalledWith("/api/arenas/a1/board");
+  });
+
+  it("returns connection to live on the first successful frame after a fallback to polling", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useArenaLive("a1", "scoreboard", null));
+    const es = FakeEventSource.instances[0];
+
+    act(() => {
+      es.emitError();
+      es.emitError();
+      es.emitError();
+    });
+    expect(result.current.connection).toBe("lost");
+
+    // First successful poll tick (fetch resolves ok:true with a board) counts
+    // as the first successful frame after fallback — connection becomes live
+    // again even though the transport is still polling (T21 requirement).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(result.current.connection).toBe("live");
+    expect(result.current.lostSinceMs).toBeNull();
+  });
+
+  it("returns connection to live on a command frame received after fallback (not only snapshots)", async () => {
+    const { result } = renderHook(() => useArenaLive("a1", "panel", initialBoard));
+    const es = FakeEventSource.instances[0];
+
+    act(() => {
+      es.emitError();
+      es.emitError();
+      es.emitError();
+    });
+    expect(result.current.connection).toBe("lost");
+
+    // A reconnect (manual or automatic in a later wave) reopens the
+    // EventSource; a command frame on the new instance is also a
+    // "successful frame" that should clear the lost state.
+    result.current.reconnect();
+    const secondEs = FakeEventSource.instances[1];
+    secondEs.emitMessage({
+      type: "command",
+      command: { kind: "TIMER_COMMAND_KIND_PAUSE", amountSeconds: 0 },
+    });
+
+    await waitFor(() => expect(result.current.connection).toBe("live"));
+  });
+
+  it("reconnect() closes the current EventSource and opens a new one, resetting the error count", async () => {
+    const { result } = renderHook(() => useArenaLive("a1", "scoreboard", null));
+    const firstEs = FakeEventSource.instances[0];
+
+    act(() => {
+      result.current.reconnect();
+    });
+
+    expect(firstEs.close).toHaveBeenCalled();
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    const secondEs = FakeEventSource.instances[1];
+    expect(secondEs.url).toBe("/api/arenas/a1/live?role=scoreboard");
+
+    secondEs.emitMessage({ type: "snapshot", snapshot });
+    await waitFor(() => expect(result.current.snapshot).toEqual(snapshot));
+  });
+
+  it("reconnect() also tears down an active polling interval before reopening EventSource", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useArenaLive("a1", "scoreboard", null));
+    const firstEs = FakeEventSource.instances[0];
+
+    act(() => {
+      firstEs.emitError();
+      firstEs.emitError();
+      firstEs.emitError();
+    });
+    expect(result.current.connection).toBe("lost");
+
+    const fetchCallsBefore = vi.mocked(global.fetch).mock.calls.length;
+
+    act(() => {
+      result.current.reconnect();
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    // The old polling interval must not still be running after reconnect.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(vi.mocked(global.fetch).mock.calls.length).toBe(fetchCallsBefore);
   });
 
   it("cleans up (closes EventSource / clears poll interval) on unmount", async () => {

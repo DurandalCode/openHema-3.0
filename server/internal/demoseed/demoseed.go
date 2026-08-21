@@ -202,6 +202,7 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 			platform.NewStageArenaProvider(pool, activeTournaments),
 			platform.NewStageNominationProvider(pool, activeTournaments),
 			platform.NewStageLiveBus(livebus.New()),
+			auth.NewDisplayNameProvider(pool, tokens),
 		),
 	}
 }

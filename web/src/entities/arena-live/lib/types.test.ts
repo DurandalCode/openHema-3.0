@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextBout, boutNumber } from "./types";
+import { nextBout, boutNumber, sideColorOfFighterA } from "./types";
 import type { BoutBoard, BoardBout, Pool } from "@/entities/pool/lib/types";
 
 const pool: Pool = {
@@ -110,5 +110,15 @@ describe("boutNumber", () => {
       currentBoutId: "",
     };
     expect(boutNumber(board)).toBeNull();
+  });
+});
+
+describe("sideColorOfFighterA (спека 0015, FR-6)", () => {
+  it("is red when sides are not swapped", () => {
+    expect(sideColorOfFighterA(false)).toBe("red");
+  });
+
+  it("is blue when sides are swapped", () => {
+    expect(sideColorOfFighterA(true)).toBe("blue");
   });
 });

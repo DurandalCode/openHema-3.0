@@ -132,3 +132,18 @@ export function emptyTimerFrame(defaultCs: number): TimerFrameDto {
 export function emptyScoreboardRoom(): ScoreboardRoomDto {
   return { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 };
 }
+
+/**
+ * Color — сторона табло/панели: красный/синий (спека 0015, FR-6).
+ */
+export type Color = "blue" | "red";
+
+/**
+ * sideColorOfFighterA — цвет бойца A по умолчанию красный, синий при swap
+ * (спека 0015, FR-6). Общая для табло (`arena-scoreboard`) и панели
+ * секретаря (`bout-panel-view`, спека 0033, FR-15) — обе стороны красят
+ * бойцов по одному и тому же правилу, вторая копия не заводится.
+ */
+export function sideColorOfFighterA(sidesSwapped: boolean): Color {
+  return sidesSwapped ? "blue" : "red";
+}

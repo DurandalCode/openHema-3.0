@@ -460,3 +460,100 @@ func TestIntegration_Regenerate_CascadesEventDeletion(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for old bout's projection after regen, got %v", err)
 	}
 }
+
+// TestIntegration_EventsForPools_OrdersNewestFirstWithoutScheduled — T6
+// (spec 0033, FR-33): runs a bout through real domain commands (Start ->
+// Score -> Finish -> Reopen, via boutservice like a real secretary would)
+// on real PG, then checks EventsForPools for that bout's pool returns the
+// journal newest-first, without the scheduled event, with the actor and the
+// score snapshot on Finished matching the last Scored. This is the only
+// place that exercises the real SQL behind EventsForPools (join with the
+// bouts projection, exclusion of scheduled, ORDER BY occurred_at DESC,
+// version DESC).
+func TestIntegration_EventsForPools_OrdersNewestFirstWithoutScheduled(t *testing.T) {
+	_, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+	poolID := uuid.NewString()
+	boutID := generateSingleBout(t, svc, poolID)
+	actorID := uuid.NewString()
+
+	t0 := time.Unix(1000, 0)
+	t1 := time.Unix(1001, 0)
+	t2 := time.Unix(1002, 0)
+	t3 := time.Unix(1003, 0)
+
+	if _, err := svc.StartBout(context.Background(), boutID, actorID, t0); err != nil {
+		t.Fatalf("StartBout: %v", err)
+	}
+	if _, err := svc.ScoreBout(context.Background(), boutID, actorID, 5, 3, t1); err != nil {
+		t.Fatalf("ScoreBout: %v", err)
+	}
+	if _, err := svc.FinishBout(context.Background(), boutID, actorID, t2); err != nil {
+		t.Fatalf("FinishBout: %v", err)
+	}
+	if _, err := svc.ReopenBout(context.Background(), boutID, actorID, t3); err != nil {
+		t.Fatalf("ReopenBout: %v", err)
+	}
+
+	// GenerateRoundRobin sorts fighters by ID before pairing (domain/distribute.go),
+	// so which of the two random UUIDs lands in FighterA vs FighterB is not the
+	// input order — read the real projection to know the ground truth instead of
+	// assuming it.
+	wantBout, err := repo.GetBout(context.Background(), boutID)
+	if err != nil {
+		t.Fatalf("GetBout: %v", err)
+	}
+
+	entries, err := repo.EventsForPools(context.Background(), []string{poolID}, 50)
+	if err != nil {
+		t.Fatalf("EventsForPools: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 journal entries (started, scored, finished, reopened; scheduled excluded), got %d: %+v", len(entries), entries)
+	}
+
+	// Newest first: reopened, finished, scored, started.
+	wantOrder := []domain.EventType{domain.EventReopened, domain.EventFinished, domain.EventScored, domain.EventStarted}
+	for i, want := range wantOrder {
+		if entries[i].Type != want {
+			t.Fatalf("entries[%d].Type = %v, want %v (full order: %+v)", i, entries[i].Type, want, entries)
+		}
+	}
+
+	for _, e := range entries {
+		if e.Type == domain.EventScheduled {
+			t.Fatalf("scheduled event leaked into EventsForPools: %+v", e)
+		}
+		if e.BoutID != boutID {
+			t.Errorf("entry BoutID = %q, want %q", e.BoutID, boutID)
+		}
+		if e.PoolID != poolID {
+			t.Errorf("entry PoolID = %q, want %q", e.PoolID, poolID)
+		}
+		if e.ActorID != actorID {
+			t.Errorf("entry ActorID = %q, want %q", e.ActorID, actorID)
+		}
+		if e.FighterA != wantBout.FighterA || e.FighterB != wantBout.FighterB {
+			t.Errorf("fighters = %+v / %+v, want projection-sourced %+v / %+v", e.FighterA, e.FighterB, wantBout.FighterA, wantBout.FighterB)
+		}
+	}
+
+	// Finished carries a score snapshot that must match the last Scored.
+	finished := entries[1]
+	scored := entries[2]
+	if finished.ScoreA != scored.ScoreA || finished.ScoreB != scored.ScoreB {
+		t.Fatalf("finished score snapshot %d:%d does not match last scored %d:%d", finished.ScoreA, finished.ScoreB, scored.ScoreA, scored.ScoreB)
+	}
+	if scored.ScoreA != 5 || scored.ScoreB != 3 {
+		t.Fatalf("scored entry = %d:%d, want 5:3", scored.ScoreA, scored.ScoreB)
+	}
+
+	// A pool with no bouts at all is a valid no-op: empty, not an error.
+	empty, err := repo.EventsForPools(context.Background(), []string{uuid.NewString()}, 50)
+	if err != nil {
+		t.Fatalf("EventsForPools (unrelated pool): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty journal for an unrelated pool, got %d entries", len(empty))
+	}
+}

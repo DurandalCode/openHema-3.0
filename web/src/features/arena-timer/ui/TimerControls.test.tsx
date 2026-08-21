@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TimerControls } from "./TimerControls";
 import type { ArenaLiveSnapshotDto } from "@/entities/arena-live/lib/types";
+import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
 
 const controls = {
   start: vi.fn(),
@@ -20,8 +21,10 @@ const baseSnapshot: ArenaLiveSnapshotDto = {
   serverNowUnixMs: "0",
 };
 
-// Мутируемые по тестам заглушки: разные тесты выставляют разное board/status
-// перед рендером (доска влияет на handleStart, status — на disabled).
+// Мутируемая по тестам заглушка живого канала: разные тесты выставляют
+// разное board (влияет на handleStart) перед рендером. `live` теперь —
+// проп (спека 0033: `widgets/arena-console` — единственный владелец
+// useArenaLive), поэтому мокается не модуль хука, а его результат.
 let snapshot: ArenaLiveSnapshotDto = baseSnapshot;
 let displayStatus: "STOPPED" | "RUNNING" | "PAUSED" | "EXPIRED" = "STOPPED";
 
@@ -57,21 +60,27 @@ function boardWithCurrentBout(state: "BOUT_STATE_NOT_STARTED" | "BOUT_STATE_IN_P
   };
 }
 
-vi.mock("@/features/arena-live/api/use-arena-live", () => ({
-  useArenaLive: vi.fn(() => ({ snapshot, serverOffsetMs: 0, onCommand: () => () => {} })),
-}));
-vi.mock("@/features/arena-timer/api/use-arena-timer", () => ({
-  useArenaTimer: vi.fn(() => ({
-    display: { status: displayStatus, remainingCs: 9000 },
-    controls,
-  })),
-}));
+function makeLive(): UseArenaLiveResult {
+  return {
+    snapshot,
+    serverOffsetMs: 0,
+    onCommand: () => () => {},
+    connection: "live",
+    lostSinceMs: null,
+    reconnect: () => {},
+  };
+}
 
 function renderControls() {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <TimerControls arenaId="a1" />
+      <TimerControls
+        arenaId="a1"
+        live={makeLive()}
+        display={{ status: displayStatus, remainingCs: 9000 }}
+        controls={controls}
+      />
     </QueryClientProvider>,
   );
 }
@@ -156,10 +165,10 @@ describe("TimerControls", () => {
     expect(controls.adjust).toHaveBeenCalledWith(-2);
   });
 
-  it("does not render the default duration field (moved to arena edit dialog, spec 0027 FR-13)", () => {
+  it("shows the arena default duration read-only, without an editable field (спека 0033, FR-17; правка — модалка площадки, спека 0027 FR-13)", () => {
     renderControls();
 
-    expect(screen.queryByText(/Дефолт/)).not.toBeInTheDocument();
+    expect(screen.getByText("Длительность: 90с")).toBeInTheDocument();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Задать" })).not.toBeInTheDocument();
   });

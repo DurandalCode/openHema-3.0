@@ -35,9 +35,11 @@ import {
   StageSelectorKind,
   StageLayoutMethod,
   NominationResultsSchema,
+  BoutJournalEntrySchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
+  type BoutJournalEntry,
   type NominationLiveSnapshot,
   type ArenaLiveSnapshot,
   type TimerCommand,
@@ -130,6 +132,10 @@ import type {
   TimerCommandDto,
   TimerCommandKindDto,
 } from "@/entities/arena-live/lib/types";
+import type {
+  JournalEntryDto,
+  JournalEntryKindDto,
+} from "@/entities/arena-live/lib/journal";
 import type {
   NominationResultEntry as NominationResultEntryDto,
   NominationResultsSection as NominationResultsSectionDto,
@@ -797,6 +803,36 @@ export function boutBoardToJson(board: BoutBoard | undefined): BoutBoardDto | nu
     bouts: Array.isArray(raw.bouts) ? raw.bouts.map(boardBoutRawToDto) : [],
     currentBoutId: raw.currentBoutId ?? "",
   };
+}
+
+/**
+ * journalEntriesToJson превращает `BoutJournalEntry[]` в `JournalEntryDto[]`
+ * (спека 0033, FR-33/FR-34): порядок — как отдал сервер (новые первыми, BFF
+ * не пересортировывает). `fighterA`/`fighterB` — тот же `hema.v1.FighterRef`,
+ * что и в `Pool`/`BoardBout` — нормализуются существующим
+ * `poolFighterRefToJson`, вторая копия не заводится. `actorDisplayName` уже
+ * обогащено на сервере (`stage.Service.GetArenaJournal`, приём 0025) — здесь
+ * только normalize proto3-дефолтов, как `applicationHistoryToJson`.
+ */
+export function journalEntriesToJson(entries: BoutJournalEntry[] | undefined): JournalEntryDto[] {
+  if (!entries) return [];
+  return entries.map((e) => {
+    const raw = toJson(BoutJournalEntrySchema, e) as Partial<JournalEntryDto> & {
+      fighterA?: Partial<PoolFighterRefDto>;
+      fighterB?: Partial<PoolFighterRefDto>;
+    };
+    return {
+      boutId: raw.boutId ?? "",
+      sequenceNumber: raw.sequenceNumber ?? 0,
+      fighterA: poolFighterRefToJson(raw.fighterA),
+      fighterB: poolFighterRefToJson(raw.fighterB),
+      kind: (raw.kind as JournalEntryKindDto) ?? "BOUT_EVENT_KIND_UNSPECIFIED",
+      scoreA: raw.scoreA ?? 0,
+      scoreB: raw.scoreB ?? 0,
+      occurredAt: raw.occurredAt ?? "",
+      actorDisplayName: raw.actorDisplayName ?? "",
+    };
+  });
 }
 
 function bracketSlotRawToDto(raw: Partial<BracketSlotDto> | undefined): BracketSlotDto {

@@ -112,6 +112,14 @@ service StageAdminService {
   // стоящий на арене пул, его бои по порядку (0010) и текущий бой. board
   // не заполнен, если на арене никто не стоит.
   rpc GetBoutBoard(GetBoutBoardRequest) returns (GetBoutBoardResponse);
+  // GetArenaJournal возвращает журнал боёв пула, стоящего на площадке
+  // (спека 0033, FR-33): начат/введён счёт/завершён/переоткрыт/сброшен,
+  // новыми записями вперёд. Читает существующий event-sourced журнал боя
+  // (спека 0013, ADR 0011), который до этой спеки не отдавался наружу ни
+  // одним RPC. Пустой список, если на арене никто не стоит — не ошибка.
+  // scheduled (формирование пар, спека 0010) в выдаче отсутствует — у него
+  // нет человека-инициатора (FR-34/FR-36).
+  rpc GetArenaJournal(GetArenaJournalRequest) returns (GetArenaJournalResponse);
   // SetCurrentBout назначает текущим любой бой пула — циркуляция (спека
   // 0013, FR-8), включая уже завершённые бои.
   rpc SetCurrentBout(SetCurrentBoutRequest) returns (SetCurrentBoutResponse);
@@ -1058,6 +1066,46 @@ message GetBoutBoardRequest {
 
 message GetBoutBoardResponse {
   BoutBoard board = 1;
+}
+
+// BoutEventKind — вид записи журнала площадки (спека 0033, FR-33/FR-36).
+// scheduled сознательно не входит в enum — формирование пар системное, без
+// человека-автора, и в журнал площадки не попадает.
+enum BoutEventKind {
+  BOUT_EVENT_KIND_UNSPECIFIED = 0;
+  BOUT_EVENT_KIND_STARTED = 1;
+  BOUT_EVENT_KIND_SCORED = 2;
+  BOUT_EVENT_KIND_FINISHED = 3;
+  BOUT_EVENT_KIND_REOPENED = 4;
+  BOUT_EVENT_KIND_RESET = 5;
+}
+
+// BoutJournalEntry — одна запись журнала боёв площадки (спека 0033,
+// FR-33/FR-34). score_a/score_b значимы для SCORED и FINISHED (снапшот
+// итога у finished — как в payload события, спека 0013). actor_display_name
+// — обогащение на чтении (приём спеки 0025, UserProvider.DisplayNames);
+// пусто, если у события нет автора либо пользователь удалён.
+message BoutJournalEntry {
+  string bout_id = 1;
+  int32 sequence_number = 2;
+  FighterRef fighter_a = 3;
+  FighterRef fighter_b = 4;
+  BoutEventKind kind = 5;
+  int32 score_a = 6;
+  int32 score_b = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+  string actor_display_name = 9;
+}
+
+message GetArenaJournalRequest {
+  string arena_id = 1;
+  // limit — сколько последних записей вернуть; 0 = дефолт сервера (50).
+  int32 limit = 2;
+}
+
+message GetArenaJournalResponse {
+  // entries — новыми событиями вперёд (порядок задаёт сервер).
+  repeated BoutJournalEntry entries = 1;
 }
 
 // SetCurrentBoutRequest/Response и далее — каждое действие ведения боя имеет

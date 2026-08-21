@@ -137,6 +137,52 @@ func (g *StageBoutConductor) AnyStartedInPools(ctx context.Context, poolIDs []st
 	return ok, mapBoutErr(err)
 }
 
+// EventsForPools возвращает журнал боёв перечисленных пулов (спека 0033,
+// FR-33): перекладка bout/domain.EventRecord → stage/domain.BoutEventRecord
+// (модули не делят типы напрямую, ADR 0002).
+func (g *StageBoutConductor) EventsForPools(ctx context.Context, poolIDs []string, limit int) ([]stagedomain.BoutEventRecord, error) {
+	records, err := g.svc.ListEventsForPools(ctx, poolIDs, limit)
+	if err != nil {
+		return nil, mapBoutErr(err)
+	}
+	out := make([]stagedomain.BoutEventRecord, len(records))
+	for i, r := range records {
+		out[i] = stagedomain.BoutEventRecord{
+			BoutID:         r.BoutID,
+			SequenceNumber: r.SequenceNumber,
+			FighterA:       stagedomain.FighterRef{ID: r.FighterA.ID, Name: r.FighterA.Name, Club: r.FighterA.Club},
+			FighterB:       stagedomain.FighterRef{ID: r.FighterB.ID, Name: r.FighterB.Name, Club: r.FighterB.Club},
+			Kind:           mapBoutEventKind(r.Type),
+			ScoreA:         r.ScoreA,
+			ScoreB:         r.ScoreB,
+			ActorID:        r.ActorID,
+			OccurredAt:     r.OccurredAt,
+		}
+	}
+	return out, nil
+}
+
+// mapBoutEventKind переводит bout.domain.EventType в собственный тип stage
+// (модули не делят типы напрямую, ADR 0002). `scheduled` не встречается на
+// входе — bout/repo уже фильтрует его из EventsForPools (спека 0033, план
+// «Модуль bout»); default покрывает эту невозможную ветку пустым значением.
+func mapBoutEventKind(t boutdomain.EventType) stagedomain.BoutEventKind {
+	switch t {
+	case boutdomain.EventStarted:
+		return stagedomain.BoutEventStarted
+	case boutdomain.EventScored:
+		return stagedomain.BoutEventScored
+	case boutdomain.EventFinished:
+		return stagedomain.BoutEventFinished
+	case boutdomain.EventReopened:
+		return stagedomain.BoutEventReopened
+	case boutdomain.EventReset:
+		return stagedomain.BoutEventReset
+	default:
+		return ""
+	}
+}
+
 // mapBoutState переводит bout.domain.BoutState в собственный тип stage
 // (модули не делят типы напрямую, ADR 0002).
 func mapBoutState(s boutdomain.BoutState) stagedomain.BoutState {

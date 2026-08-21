@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hema/server/modules/stage/domain"
 	"github.com/hema/server/modules/stage/service"
@@ -18,7 +19,8 @@ func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeActiveFig
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	liveBus := testutil.NewFakeLiveBus()
-	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, liveBus
+	users := testutil.NewFakeUserProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus, users), repo, fighters, bouts, liveBus
 }
 
 // newServiceWithArenas — как newService, но также возвращает
@@ -30,7 +32,8 @@ func newServiceWithArenas() (*service.Service, *testutil.FakeRepo, *testutil.Fak
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	liveBus := testutil.NewFakeLiveBus()
-	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, arenas, liveBus
+	users := testutil.NewFakeUserProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus, users), repo, fighters, bouts, arenas, liveBus
 }
 
 // newServiceWithNominations — как newServiceWithArenas, но также возвращает
@@ -43,7 +46,22 @@ func newServiceWithNominations() (*service.Service, *testutil.FakeRepo, *testuti
 	arenas := testutil.NewFakeArenaProvider()
 	nominations := testutil.NewFakeNominationProvider()
 	liveBus := testutil.NewFakeLiveBus()
-	return service.New(repo, fighters, bouts, arenas, nominations, liveBus), repo, fighters, bouts, arenas, nominations, liveBus
+	users := testutil.NewFakeUserProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus, users), repo, fighters, bouts, arenas, nominations, liveBus
+}
+
+// newServiceWithUsers — как newService, но также возвращает
+// FakeBoutConductor и FakeUserProvider (спека 0033: тесты GetArenaJournal —
+// журнал боёв площадки, дедупликация и резолв имён авторов).
+func newServiceWithUsers() (*service.Service, *testutil.FakeRepo, *testutil.FakeBoutConductor, *testutil.FakeUserProvider) {
+	repo := testutil.NewFakeRepo()
+	fighters := testutil.NewFakeActiveFightersProvider()
+	bouts := testutil.NewFakeBoutConductor()
+	arenas := testutil.NewFakeArenaProvider()
+	nominations := testutil.NewFakeNominationProvider()
+	liveBus := testutil.NewFakeLiveBus()
+	users := testutil.NewFakeUserProvider()
+	return service.New(repo, fighters, bouts, arenas, nominations, liveBus, users), repo, bouts, users
 }
 
 // stageIDFor — тестовый хелпер (спека 0018, T17): резолвит id канонического
@@ -1824,6 +1842,110 @@ func TestConducting_NoBoutsReturnsErrNoCurrentBout(t *testing.T) {
 
 	if _, err := svc.StartCurrentBout(ctx, poolID, "admin-1"); !errors.Is(err, domain.ErrNoCurrentBout) {
 		t.Errorf("expected ErrNoCurrentBout, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0033: журнал боёв площадки (GetArenaJournal, FR-33/FR-34/FR-36).
+// ---------------------------------------------------------------------
+
+// AC-20: площадка без пула — пустой журнал без ошибки, тем же путём
+// резолва, что GetBoutBoard (репозиторный PoolsForArena found=false).
+func TestGetArenaJournal_EmptyWhenArenaFree(t *testing.T) {
+	svc, _, _, _ := newServiceWithUsers()
+	entries, err := svc.GetArenaJournal(context.Background(), "arena-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty journal, got %+v", entries)
+	}
+}
+
+// Батч имён дедуплицирует ActorID: два события одного автора должны
+// породить ровно один вызов DisplayNames с одним id.
+func TestGetArenaJournal_DedupesActorIDsInNameBatch(t *testing.T) {
+	svc, repo, bouts, users := newServiceWithUsers()
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	users.Set("admin-1", "Иванов")
+	now := time.Now()
+	bouts.SeedEvent(poolID, domain.BoutEventRecord{
+		BoutID: "b1", SequenceNumber: 1, Kind: domain.BoutEventStarted,
+		ActorID: "admin-1", OccurredAt: now,
+	})
+	bouts.SeedEvent(poolID, domain.BoutEventRecord{
+		BoutID: "b1", SequenceNumber: 1, Kind: domain.BoutEventFinished,
+		ActorID: "admin-1", ScoreA: 5, ScoreB: 2, OccurredAt: now.Add(time.Minute),
+	})
+
+	entries, err := svc.GetArenaJournal(context.Background(), "arena-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.ActorDisplayName != "Иванов" {
+			t.Errorf("ActorDisplayName = %q, want Иванов", e.ActorDisplayName)
+		}
+	}
+	calls := users.CallsWithIDs()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 DisplayNames call, got %d: %+v", len(calls), calls)
+	}
+	if len(calls[0]) != 1 || calls[0][0] != "admin-1" {
+		t.Fatalf("expected deduped batch [admin-1], got %+v", calls[0])
+	}
+}
+
+// Пустой ActorID (событие без автора) даёт пустое ActorDisplayName и не
+// уходит в батч DisplayNames.
+func TestGetArenaJournal_EmptyActorIDGivesEmptyNameWithoutProviderCall(t *testing.T) {
+	svc, repo, bouts, users := newServiceWithUsers()
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedEvent(poolID, domain.BoutEventRecord{
+		BoutID: "b1", SequenceNumber: 1, Kind: domain.BoutEventStarted,
+		ActorID: "", OccurredAt: time.Now(),
+	})
+
+	entries, err := svc.GetArenaJournal(context.Background(), "arena-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ActorDisplayName != "" {
+		t.Fatalf("expected 1 entry with empty ActorDisplayName, got %+v", entries)
+	}
+	if calls := users.CallsWithIDs(); len(calls) != 0 {
+		t.Fatalf("expected no DisplayNames call for empty ActorID, got %+v", calls)
+	}
+}
+
+// ActorID задан, но пользователь отсутствует в карте UserProvider (удалён)
+// — пустое ActorDisplayName, не ошибка.
+func TestGetArenaJournal_UnknownActorGivesEmptyName(t *testing.T) {
+	svc, repo, bouts, _ := newServiceWithUsers()
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedEvent(poolID, domain.BoutEventRecord{
+		BoutID: "b1", SequenceNumber: 1, Kind: domain.BoutEventStarted,
+		ActorID: "ghost-admin", OccurredAt: time.Now(),
+	})
+
+	entries, err := svc.GetArenaJournal(context.Background(), "arena-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ActorDisplayName != "" {
+		t.Fatalf("expected 1 entry with empty ActorDisplayName for unknown actor, got %+v", entries)
 	}
 }
 

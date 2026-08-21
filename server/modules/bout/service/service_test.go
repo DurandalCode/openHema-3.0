@@ -794,3 +794,114 @@ func TestConcurrency_ExhaustedThenAborted(t *testing.T) {
 		t.Fatalf("expected exactly 2 Append attempts (no unbounded retry loop), got %d", repo.calls)
 	}
 }
+
+// --- T3: ListEventsForPools (spec 0033, FR-33) ---
+
+// TestListEventsForPools_ClampsLimit_ZeroBecomesDefault: limit=0 reaches the
+// repo as 50 (plan.md "service/service.go").
+func TestListEventsForPools_ClampsLimit_ZeroBecomesDefault(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedInProgressBout(t, repo)
+	_ = boutID
+
+	if _, err := svc.ListEventsForPools(context.Background(), []string{poolIDConst}, 0); err != nil {
+		t.Fatalf("ListEventsForPools: %v", err)
+	}
+
+	calls := repo.EventsForPoolsCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 EventsForPools call, got %d", len(calls))
+	}
+	if calls[0].Limit != 50 {
+		t.Fatalf("Limit = %d, want 50 (default)", calls[0].Limit)
+	}
+}
+
+// TestListEventsForPools_ClampsLimit_AboveMaxIsCapped: limit=250 reaches the
+// repo as 200 (the maximum, plan.md "service/service.go").
+func TestListEventsForPools_ClampsLimit_AboveMaxIsCapped(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedInProgressBout(t, repo)
+	_ = boutID
+
+	if _, err := svc.ListEventsForPools(context.Background(), []string{poolIDConst}, 250); err != nil {
+		t.Fatalf("ListEventsForPools: %v", err)
+	}
+
+	calls := repo.EventsForPoolsCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 EventsForPools call, got %d", len(calls))
+	}
+	if calls[0].Limit != 200 {
+		t.Fatalf("Limit = %d, want 200 (max)", calls[0].Limit)
+	}
+}
+
+// TestListEventsForPools_ClampsLimit_WithinRangeIsUnchanged: an in-range
+// limit (30) reaches the repo unchanged.
+func TestListEventsForPools_ClampsLimit_WithinRangeIsUnchanged(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedInProgressBout(t, repo)
+	_ = boutID
+
+	if _, err := svc.ListEventsForPools(context.Background(), []string{poolIDConst}, 30); err != nil {
+		t.Fatalf("ListEventsForPools: %v", err)
+	}
+
+	calls := repo.EventsForPoolsCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 EventsForPools call, got %d", len(calls))
+	}
+	if calls[0].Limit != 30 {
+		t.Fatalf("Limit = %d, want 30 (unchanged)", calls[0].Limit)
+	}
+}
+
+// TestListEventsForPools_EmptyPoolIDs_NoOpWithoutRepoCall: an empty poolIDs
+// list returns an empty slice without ever calling the repo (spy check —
+// same style as AnyStartedInPools/ClearForPools no-op tests above).
+func TestListEventsForPools_EmptyPoolIDs_NoOpWithoutRepoCall(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	got, err := svc.ListEventsForPools(context.Background(), nil, 50)
+	if err != nil {
+		t.Fatalf("ListEventsForPools(empty): %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty slice, got %d records", len(got))
+	}
+	if len(repo.EventsForPoolsCalls()) != 0 {
+		t.Fatal("repo must not be called with an empty pool list")
+	}
+}
+
+// TestListEventsForPools_ExcludesScheduled: scheduled carries no
+// human actor (spec FR-34/FR-36) and must not appear in the journal. The
+// filtering itself lives in FakeRepo.EventsForPools (mirroring the real SQL
+// "event_type <> 'scheduled'" clause) — this test only asserts the service
+// passes the fake's result through unfiltered-but-already-scheduled-free.
+func TestListEventsForPools_ExcludesScheduled(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedInProgressBout(t, repo) // carries scheduled + started
+	if _, err := repo.Load(context.Background(), boutID); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	got, err := svc.ListEventsForPools(context.Background(), []string{poolIDConst}, 50)
+	if err != nil {
+		t.Fatalf("ListEventsForPools: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least the started event")
+	}
+	for _, rec := range got {
+		if rec.Type == domain.EventScheduled {
+			t.Fatalf("scheduled event leaked into the journal: %+v", rec)
+		}
+	}
+}
