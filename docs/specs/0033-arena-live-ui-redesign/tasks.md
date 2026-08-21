@@ -97,23 +97,23 @@
 
 ## Волна 2 · трек D — server/stage (RPC журнала)
 
-- [ ] **T13. domain** — `modules/stage/domain/domain.go`: `BoutEventRecord`
+- [x] **T13. domain** — `modules/stage/domain/domain.go`: `BoutEventRecord`
       (собственный тип модуля, не импорт `bout` — граница ADR 0002),
       `BoutConductor.EventsForPools`, новый порт `UserProvider.DisplayNames`
       (дословно приём 0025).
-- [ ] **T14. service (red→green)** — `service/service_test.go` с фейками:
+- [x] **T14. service (red→green)** — `service/service_test.go` с фейками:
       площадка без пула → пустой журнал **без ошибки** (AC-20), дедупликация
       `ActorID` в батче имён, пустой `ActorID` → пустое имя, отсутствие
       пользователя в карте → пустое имя → затем `Service.GetArenaJournal`
       + седьмой аргумент `users` в `New(...)` (правка всех существующих
       конструкций в тестах).
-- [ ] **T15. testutil** — `modules/stage/testutil/`: `EventsForPools` у
+- [x] **T15. testutil** — `modules/stage/testutil/`: `EventsForPools` у
       `FakeBoutConductor`, новый `FakeUserProvider` (копия приёма
       `modules/application/testutil/fake_user_provider.go`).
-- [ ] **T16. api (red→green)** — `api/handler_test.go` (httptest + Connect,
+- [x] **T16. api (red→green)** — `api/handler_test.go` (httptest + Connect,
       фейки): счастливый путь, маппинг `EventType` → `BoutEventKind`,
       `ErrNotFound` → `CodeNotFound` → затем `api/handler.go`.
-- [ ] **T17. wiring** — `internal/platform`: `EventsForPools` в адаптере
+- [x] **T17. wiring** — `internal/platform`: `EventsForPools` в адаптере
       `BoutConductor` (перекладка `bout/domain.EventRecord` →
       `stage/domain.BoutEventRecord`), прокидывание
       `auth.NewDisplayNameProvider(...)` в `stage.Service` — того же
