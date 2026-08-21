@@ -44,7 +44,7 @@
 > Источник истины API — `/proto`. Меняем только там, потом `make generate`.
 
 - Файл: `proto/hema/v1/stage.proto`
-- Сервис: `PoolAdminService` (существующий, admin-only) — новый RPC рядом с
+- Сервис: `StageAdminService` (существующий, admin-only) — новый RPC рядом с
   `GetBoutBoard`, потому что адресация журнала — **арена**, а связь
   «арена → пул» знает модуль `stage`, а не `bout`. Класть RPC в
   `BoutAdminService` значило бы заставить клиента делать два вызова и

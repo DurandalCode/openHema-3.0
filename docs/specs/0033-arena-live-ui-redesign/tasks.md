@@ -37,8 +37,8 @@
 
 ## Контракты
 
-- [ ] **T1.** `proto/hema/v1/stage.proto` — `GetArenaJournal` в
-      `PoolAdminService`, сообщения `GetArenaJournalRequest`/
+- [x] **T1.** `proto/hema/v1/stage.proto` — `GetArenaJournal` в
+      `StageAdminService`, сообщения `GetArenaJournalRequest`/
       `GetArenaJournalResponse`/`BoutJournalEntry`, enum `BoutEventKind`
       (без `scheduled` — spec FR-34/FR-36). `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
