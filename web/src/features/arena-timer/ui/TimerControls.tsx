@@ -19,22 +19,24 @@ async function postScoreboardSides(arenaId: string, swapped: boolean): Promise<v
 }
 
 /**
- * TimerControls — панель управления таймером (спека 0015, FR-7/FR-8/FR-6):
- * старт/пауза/сброс/±1·2·3·5с и swap синий/красный (эфемерно). Дефолтная
- * длительность боя — настройка площадки, задаётся в модалке правки площадки
- * на `/admin/arenas`, а не здесь (спека 0027, FR-13). Самодостаточна: держит
- * собственные
- * `useArenaLive(role="panel")` + `useArenaTimer` (панель — ведомый показ,
- * ADR 0013), поэтому встраивается одной строкой `<TimerControls arenaId />`.
- * Команды доступны панели независимо от того, открыто ли табло-источник
- * (сервер лишь реле — риск «нет табло» описан в plan.md).
+ * TimerControls — колонка таймера панели секретаря (спека 0033, FR-17,
+ * поверх спеки 0015 FR-7/FR-8/FR-6): значение с сотыми, старт/пауза/сброс,
+ * ±1·2·3·5с, смена сторон и дефолтная длительность площадки **только на
+ * чтение** — правится в модалке правки площадки на `/admin/arenas`, не
+ * здесь (спека 0027, FR-13; спека 0033 показывает значение рядом с
+ * действиями таймера, но не даёт его редактировать прямо с панели, чтобы не
+ * завести вторую точку правки той же настройки). Самодостаточна: держит
+ * собственные `useArenaLive(role="panel")` + `useArenaTimer` (панель —
+ * ведомый показ, ADR 0013), поэтому встраивается одной строкой
+ * `<TimerControls arenaId />`. Команды доступны панели независимо от того,
+ * открыто ли табло-источник (сервер лишь реле — риск «нет табло» описан в
+ * plan.md).
  *
  * «Старт» совмещает два независимых действия одной кнопкой (UX-решение,
  * не доменное): если текущий бой пула ещё не начат — сначала начинает его
  * (`useStartBout`, спека 0013, FR-4), затем в любом случае стартует таймер.
- * Отдельной кнопки «Начать бой» на панели больше нет (перенесена сюда из
- * `BoutBoard`). Пока таймер идёт — «Старт» заблокирован (повторный клик
- * бессмыслен, таймер уже отсчитывает).
+ * Пока таймер идёт — «Старт» заблокирован (повторный клик бессмыслен,
+ * таймер уже отсчитывает).
  */
 export function TimerControls({ arenaId }: { arenaId: string }) {
   const live = useArenaLive(arenaId, "panel", null);
@@ -44,6 +46,7 @@ export function TimerControls({ arenaId }: { arenaId: string }) {
   const board = live.snapshot?.board ?? null;
   const currentBout = board ? (board.bouts.find((b) => b.id === board.currentBoutId) ?? null) : null;
   const poolId = board?.pool?.id ?? null;
+  const defaultDurationSeconds = live.snapshot?.defaultDurationSeconds ?? null;
 
   function handleStart() {
     if (poolId && currentBout?.state === "BOUT_STATE_NOT_STARTED") {
@@ -104,7 +107,7 @@ export function TimerControls({ arenaId }: { arenaId: string }) {
         ))}
       </Row>
 
-      <Row gap={2} align="center">
+      <Row gap={2} align="center" className="flex-wrap">
         <Button
           type="button"
           size="sm"
@@ -114,6 +117,11 @@ export function TimerControls({ arenaId }: { arenaId: string }) {
         >
           {sidesSwapped ? "Вернуть стороны" : "Поменять стороны"}
         </Button>
+        {defaultDurationSeconds !== null && (
+          <span className="text-sm text-muted-foreground">
+            Длительность: {defaultDurationSeconds}с
+          </span>
+        )}
       </Row>
     </Col>
   );

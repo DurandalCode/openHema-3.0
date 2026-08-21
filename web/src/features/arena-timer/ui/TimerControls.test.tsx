@@ -156,10 +156,10 @@ describe("TimerControls", () => {
     expect(controls.adjust).toHaveBeenCalledWith(-2);
   });
 
-  it("does not render the default duration field (moved to arena edit dialog, spec 0027 FR-13)", () => {
+  it("shows the arena default duration read-only, without an editable field (спека 0033, FR-17; правка — модалка площадки, спека 0027 FR-13)", () => {
     renderControls();
 
-    expect(screen.queryByText(/Дефолт/)).not.toBeInTheDocument();
+    expect(screen.getByText("Длительность: 90с")).toBeInTheDocument();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Задать" })).not.toBeInTheDocument();
   });
