@@ -90,6 +90,44 @@ export function NominationsList({
                         </span>
                       </Row>
                     )}
+                    {participants && participants.fighterCapacity !== null && (
+                      <Col gap={1}>
+                        <div
+                          role="progressbar"
+                          aria-label={`Заполнение номинации «${n.title}»`}
+                          aria-valuenow={participants.appliedCount}
+                          aria-valuemin={0}
+                          aria-valuemax={participants.fighterCapacity}
+                          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                        >
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{
+                              width: `${
+                                participants.fighterCapacity > 0
+                                  ? Math.min(
+                                      100,
+                                      Math.round(
+                                        (participants.appliedCount /
+                                          participants.fighterCapacity) *
+                                          100,
+                                      ),
+                                    )
+                                  : 0
+                              }%`,
+                            }}
+                          />
+                        </div>
+                        <span className="text-xs">
+                          Осталось{" "}
+                          {Math.max(
+                            0,
+                            participants.fighterCapacity - participants.appliedCount,
+                          )}{" "}
+                          мест
+                        </span>
+                      </Col>
+                    )}
                     {n.metadata.rulesUrl && (
                       <Row align="center" gap={2}>
                         <FileText className="size-4" />

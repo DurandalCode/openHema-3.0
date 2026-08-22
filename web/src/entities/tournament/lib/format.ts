@@ -1,5 +1,27 @@
 import type { ContactType } from "./types";
 
+/**
+ * CONTACT_LABELS — человекочитаемые подписи типов контактов (спека 0034,
+ * T20). Единственное место в кодовой базе: `tournament-hero.tsx` (афиша «до
+ * старта») и `widgets/home/venue-contacts.tsx` (блок «Зрителю», FR-10/FR-22)
+ * читают её через `contactLabel`, а не дублируют словарь каждый у себя.
+ */
+const CONTACT_LABELS: Partial<Record<ContactType, string>> = {
+  CONTACT_TYPE_TELEGRAM: "Telegram",
+  CONTACT_TYPE_VK: "VK",
+  CONTACT_TYPE_FACEBOOK: "Facebook",
+  CONTACT_TYPE_WEBSITE: "Сайт",
+  CONTACT_TYPE_EMAIL: "Email",
+  CONTACT_TYPE_OTHER: "Контакт",
+};
+
+/** contactLabel — подпись типа контакта (RU), "Контакт" — фолбэк для
+ * неизвестного/неуказанного типа (тот же, что раньше был инлайн в
+ * `tournament-hero.tsx`). */
+export function contactLabel(type: ContactType): string {
+  return CONTACT_LABELS[type] ?? "Контакт";
+}
+
 /** formatEventRange формирует человекочитаемый диапазон дат проведения.
  * - только start: «1 декабря 2026 г., 10:00» (однодневный).
  * - start + end, разные дни: «1 декабря 2026 г., 10:00 — 3 декабря 2026 г., 18:00».
