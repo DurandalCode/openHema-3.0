@@ -56,11 +56,17 @@ func (r *Repo) UpdateActive(ctx context.Context, in domain.UpdateInput) (domain.
 
 	q := r.q.WithTx(tx)
 	row, err := q.UpdateActiveTournament(ctx, sqlc.UpdateActiveTournamentParams{
-		Title:          in.Title,
-		Description:    in.Description,
-		EventStartAt:  toPgTimestamptz(in.EventStartAt, in.HasEventStartAt),
-		EventEndAt:    toPgTimestamptz(in.EventEndAt, in.HasEventEndAt),
-		EmblemUrl:      in.EmblemURL,
+		Title:            in.Title,
+		Description:      in.Description,
+		EventStartAt:     toPgTimestamptz(in.EventStartAt, in.HasEventStartAt),
+		EventEndAt:       toPgTimestamptz(in.EventEndAt, in.HasEventEndAt),
+		EmblemUrl:        in.EmblemURL,
+		ChiefJudge:       in.ChiefJudge,
+		RegulationsUrl:   in.RegulationsURL,
+		VenueName:        in.VenueName,
+		VenueAddress:     in.VenueAddress,
+		EntryFeeMinor:    in.EntryFeeMinor,
+		EntryFeeCurrency: in.EntryFeeCurrency,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -98,6 +104,8 @@ func toDomainFromGet(row sqlc.GetActiveTournamentRow, contacts []sqlc.Tournament
 	return buildTournament(
 		row.ID.String(), row.Title, row.Description,
 		row.EventStartAt, row.EventEndAt, row.EmblemUrl,
+		row.ChiefJudge, row.RegulationsUrl, row.VenueName, row.VenueAddress,
+		row.EntryFeeMinor, row.EntryFeeCurrency,
 		row.IsActive, row.CreatedAt, row.UpdatedAt, contacts,
 	)
 }
@@ -107,6 +115,8 @@ func toDomainFromUpdate(row sqlc.UpdateActiveTournamentRow, contacts []sqlc.Tour
 	return buildTournament(
 		row.ID.String(), row.Title, row.Description,
 		row.EventStartAt, row.EventEndAt, row.EmblemUrl,
+		row.ChiefJudge, row.RegulationsUrl, row.VenueName, row.VenueAddress,
+		row.EntryFeeMinor, row.EntryFeeCurrency,
 		row.IsActive, row.CreatedAt, row.UpdatedAt, contacts,
 	)
 }
@@ -114,6 +124,8 @@ func toDomainFromUpdate(row sqlc.UpdateActiveTournamentRow, contacts []sqlc.Tour
 func buildTournament(
 	id, title, description string,
 	eventStartAt, eventEndAt pgtype.Timestamptz, emblemUrl string,
+	chiefJudge, regulationsURL, venueName, venueAddress string,
+	entryFeeMinor *int64, entryFeeCurrency string,
 	isActive bool, createdAt, updatedAt time.Time,
 	contacts []sqlc.TournamentContact,
 ) domain.Tournament {
@@ -126,6 +138,12 @@ func buildTournament(
 		EventEndAt:       eventEndAt.Time,
 		HasEventEndAt:    eventEndAt.Valid,
 		EmblemURL:        emblemUrl,
+		ChiefJudge:       chiefJudge,
+		RegulationsURL:   regulationsURL,
+		VenueName:        venueName,
+		VenueAddress:     venueAddress,
+		EntryFeeMinor:    entryFeeMinor,
+		EntryFeeCurrency: entryFeeCurrency,
 		IsActive:         isActive,
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
