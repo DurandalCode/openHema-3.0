@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bracketRoundOneFilledCount } from "./types";
-import type { Bracket, BracketPair, BracketSlot } from "./types";
+import { bracketFinalRounds, bracketRoundOneFilledCount } from "./types";
+import type { Bracket, BracketPair, BracketRound, BracketSlot } from "./types";
 import type { Pool } from "@/entities/pool/lib/types";
 
 function slot(overrides: Partial<BracketSlot>): BracketSlot {
@@ -87,5 +87,47 @@ describe("entities/bracket/lib/types bracketRoundOneFilledCount", () => {
       2,
     );
     expect(bracketRoundOneFilledCount(b)).toBe(0);
+  });
+});
+
+function round(number: number, thirdPlace: boolean, title = ""): BracketRound {
+  return {
+    number,
+    title,
+    thirdPlace,
+    halves: [{ half: 1, title: "", container: container(), pairs: [pair(slot({}), slot({}))], currentBoutId: "" }],
+  };
+}
+
+function bracketWithRounds(rounds: BracketRound[]): Bracket {
+  const b = bracket([pair(slot({}), slot({}))]);
+  return { ...b, rounds };
+}
+
+// Спека 0035 (T6, FR-18): финал и бой за 3-е место сетки — для выделения их
+// как отдельных блоков правого края (AC-13).
+describe("entities/bracket/lib/types bracketFinalRounds", () => {
+  it("finds the final (highest non-third-place round) and the third place round", () => {
+    const b = bracketWithRounds([
+      round(1, false, "1/4 финала"),
+      round(2, false, "Полуфинал"),
+      round(3, false, "Финал"),
+      round(4, true, "Бой за 3-е место"),
+    ]);
+    const { final, thirdPlace } = bracketFinalRounds(b);
+    expect(final?.number).toBe(3);
+    expect(thirdPlace?.number).toBe(4);
+  });
+
+  it("returns null third place when the bracket has no third-place bout", () => {
+    const b = bracketWithRounds([round(1, false), round(2, false, "Финал")]);
+    const { final, thirdPlace } = bracketFinalRounds(b);
+    expect(final?.number).toBe(2);
+    expect(thirdPlace).toBeNull();
+  });
+
+  it("returns nulls for a bracket with no rounds", () => {
+    const b = bracketWithRounds([]);
+    expect(bracketFinalRounds(b)).toEqual({ final: null, thirdPlace: null });
   });
 });

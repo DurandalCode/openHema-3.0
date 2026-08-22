@@ -130,3 +130,23 @@ export function bracketRoundOneFilledCount(bracket: Bracket): number {
   }
   return count;
 }
+
+/**
+ * bracketFinalRounds выделяет финал и бой за 3-е место сетки (спека 0035,
+ * FR-18): финал — круг с наибольшим `number` среди кругов с `thirdPlace ===
+ * false` (сам чемпионский бой); бой за 3-е место — единственный круг с
+ * `thirdPlace === true` (см. доккомментарий `BracketRound.thirdPlace`). На
+ * сетке без кругов оба значения — `null`.
+ */
+export function bracketFinalRounds(bracket: Bracket): {
+  final: BracketRound | null;
+  thirdPlace: BracketRound | null;
+} {
+  const thirdPlace = bracket.rounds.find((round) => round.thirdPlace) ?? null;
+  const finalCandidates = bracket.rounds.filter((round) => !round.thirdPlace);
+  const final = finalCandidates.reduce<BracketRound | null>((best, round) => {
+    if (!best || round.number > best.number) return round;
+    return best;
+  }, null);
+  return { final, thirdPlace };
+}
