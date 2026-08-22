@@ -47,17 +47,17 @@
 
 ## Волна 1 · трек A — экран подачи (14a)
 
-- [ ] T4. **форма (red→green)** —
+- [x] T4. **форма (red→green)** —
       `features/my-applications/ui/apply-application-form.test.tsx`: поля
       контролируемы, клуб подписан как необязательный; успех →
       `toastSuccess` + `router.push("/applications")`; отказ → `toastError`
       с текстом `applicationErrorMessage` и сохранёнными значениями полей
       (FR-3/FR-5/FR-6, AC-3/AC-6) → `apply-application-form.tsx`.
-- [ ] T5. **блок «Что дальше» (red→green)** —
+- [x] T5. **блок «Что дальше» (red→green)** —
       `widgets/application-apply/apply-what-next.test.tsx`: четыре шага
       воронки в порядке + правило отзыва до регистрации (FR-4) →
       `apply-what-next.tsx`.
-- [ ] T6. **экран + роут (red→green)** —
+- [x] T6. **экран + роут (red→green)** —
       `widgets/application-apply/apply-screen.test.tsx`: ветка формы, ветка
       «приём завершён» со ссылкой в номинацию, ветка «заявка уже подана» с
       состоянием и ссылкой на «Мои заявки», шапка со ссылкой «← <название>»
