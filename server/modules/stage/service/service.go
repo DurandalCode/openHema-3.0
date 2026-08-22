@@ -42,6 +42,19 @@ func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts d
 	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, users: users, rooms: newArenaRooms()}
 }
 
+// notifyNominationChanged — единая точка публикации сигнала «номинация
+// могла измениться» (спека 0014, ADR 0012): сводит все мутирующие пути
+// модуля (service.go/seeding.go/bracket.go/schema.go) к одному месту вместо
+// ~14 разбросанных вызовов s.liveBus.PublishNominationChanged. Спека 0034:
+// публичная сводка турнира целиком собирается из тех же пулов/боёв, что и
+// снапшот номинации, — поэтому любая мутация, задевающая номинацию, задевает
+// и сводку турнира: топик турнира сигналится тут же, одним местом на все
+// ~14 точек, вместо ещё одного разбросанного набора вызовов.
+func (s *Service) notifyNominationChanged(nominationID string) {
+	s.liveBus.PublishNominationChanged(nominationID)
+	s.liveBus.PublishTournamentChanged()
+}
+
 // GetLayout возвращает раскладку этапа (спека 0018, FR-18 — адресация
 // переехала с номинации на этап; реконсиляция с активным ростером fighter,
 // FR-12/FR-14/FR-15).
@@ -364,7 +377,7 @@ func (s *Service) SetStatus(ctx context.Context, stageID string, status domain.L
 	// mapError и комментарий выше метода (спека 0014, задача T5; спека 0021,
 	// FR-1 — фиксация/расфиксация меняет исполнительный статус этапа).
 	if transitioned {
-		s.liveBus.PublishNominationChanged(stage.NominationID)
+		s.notifyNominationChanged(stage.NominationID)
 		if err := s.syncNomination(ctx, stage.NominationID); err != nil {
 			return domain.Layout{}, err
 		}
@@ -431,7 +444,7 @@ func (s *Service) SeatPoolOnArena(ctx context.Context, poolID, arenaID string) (
 	if err := s.repo.SeatPool(ctx, poolID, arenaID); err != nil {
 		return domain.Layout{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(arenaID)
 	return s.loadLayout(ctx, pool.StageID)
 }
@@ -457,7 +470,7 @@ func (s *Service) UnseatPool(ctx context.Context, poolID string) (domain.Layout,
 	if err := s.repo.UnseatPool(ctx, poolID); err != nil {
 		return domain.Layout{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(arenaID)
 	return s.loadLayout(ctx, pool.StageID)
 }
@@ -583,7 +596,7 @@ func (s *Service) SetCurrentBout(ctx context.Context, poolID, boutID string) (do
 	if err := s.repo.SetCurrentBout(ctx, poolID, boutID); err != nil {
 		return domain.BoutBoard{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
@@ -604,7 +617,7 @@ func (s *Service) StartCurrentBout(ctx context.Context, poolID, actorID string) 
 	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
 		return domain.BoutBoard{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
@@ -627,7 +640,7 @@ func (s *Service) ScoreCurrentBout(ctx context.Context, poolID, actorID string, 
 	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
 		return domain.BoutBoard{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
@@ -674,7 +687,7 @@ func (s *Service) FinishCurrentBout(ctx context.Context, poolID, actorID string)
 	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
 		return domain.BoutBoard{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
@@ -713,7 +726,7 @@ func (s *Service) ReopenCurrentBout(ctx context.Context, poolID, actorID string)
 	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
 		return domain.BoutBoard{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }
@@ -751,7 +764,7 @@ func (s *Service) ResetCurrentBout(ctx context.Context, poolID, actorID string) 
 	if err := s.syncNomination(ctx, pool.NominationID); err != nil {
 		return domain.BoutBoard{}, err
 	}
-	s.liveBus.PublishNominationChanged(pool.NominationID)
+	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(pool.ArenaID)
 	return s.boardForPool(ctx, poolID)
 }

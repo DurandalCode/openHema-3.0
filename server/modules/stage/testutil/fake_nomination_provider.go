@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/hema/server/modules/stage/domain"
@@ -23,14 +24,22 @@ type FakeNominationProvider struct {
 	// SyncNominationState по каждой номинации (спека 0021). Ключ отсутствует,
 	// если для номинации ещё не вызывался.
 	execution map[string]domain.NominationExecution
+	// byTournament — номинации турнира для NominationsByTournament (спека
+	// 0034, FR-20): ключ — tournamentID.
+	byTournament map[string][]domain.NominationRef
+	// byTournamentCalls — зафиксированные аргументы вызовов
+	// NominationsByTournament (спека 0034, T9: тест «пустой tournamentID не
+	// обращается к провайдерам»).
+	byTournamentCalls []string
 }
 
 // NewFakeNominationProvider создаёт пустой fake-провайдер номинаций.
 func NewFakeNominationProvider() *FakeNominationProvider {
 	return &FakeNominationProvider{
-		nominations: make(map[string]domain.NominationRef),
-		synced:      make(map[string]bool),
-		execution:   make(map[string]domain.NominationExecution),
+		nominations:  make(map[string]domain.NominationRef),
+		synced:       make(map[string]bool),
+		execution:    make(map[string]domain.NominationExecution),
+		byTournament: make(map[string][]domain.NominationRef),
 	}
 }
 
@@ -87,4 +96,34 @@ func (p *FakeNominationProvider) LastExecution(nominationID string) (value domai
 	defer p.mu.Unlock()
 	value, called = p.execution[nominationID]
 	return value, called
+}
+
+// SeedByTournament задаёт (заменяя предыдущий набор) номинации турнира для
+// NominationsByTournament (спека 0034, FR-20).
+func (p *FakeNominationProvider) SeedByTournament(tournamentID string, refs ...domain.NominationRef) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.byTournament[tournamentID] = append([]domain.NominationRef{}, refs...)
+}
+
+// NominationsByTournament возвращает номинации, засеянные SeedByTournament
+// для tournamentID, отсортированные по Position — как ActiveArenas, фейку не
+// нужно валидировать tournamentID против «активного турнира» (реальный
+// адаптер — join-волна T13): пустой список для незасеянного id, без ошибки.
+func (p *FakeNominationProvider) NominationsByTournament(_ context.Context, tournamentID string) ([]domain.NominationRef, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.byTournamentCalls = append(p.byTournamentCalls, tournamentID)
+	out := append([]domain.NominationRef{}, p.byTournament[tournamentID]...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Position < out[j].Position })
+	return out, nil
+}
+
+// NominationsByTournamentCalls возвращает tournamentID всех вызовов
+// NominationsByTournament (спека 0034, T9) — тест «пустой tournamentID не
+// обращается к провайдерам».
+func (p *FakeNominationProvider) NominationsByTournamentCalls() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string{}, p.byTournamentCalls...)
 }

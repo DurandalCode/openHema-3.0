@@ -6,6 +6,11 @@ import (
 	"github.com/hema/server/modules/stage/domain"
 )
 
+// tournamentTopic — ключ топика турнира в той же карте subs, что и топики
+// номинаций (спека 0034): не пересекается с id номинаций (uuid), как того
+// требует план («не пересекающаяся с id номинаций константа»).
+const tournamentTopic = "tournament:*"
+
 // FakeLiveBus — in-memory реализация domain.LiveBus для тестов (спека 0014,
 // ADR 0012). В отличие от большинства fake-портов этого пакета, это не
 // просто спай: подписчики топика (nominationID) реально получают сигнал при
@@ -18,6 +23,10 @@ type FakeLiveBus struct {
 	nextID    int
 	subs      map[string]map[int]chan struct{}
 	published []string
+	// publishedTournament — сколько раз PublishTournamentChanged был вызван
+	// (спека 0034) — отдельный счётчик от published (у топика турнира нет
+	// nominationID-аргумента).
+	publishedTournament int
 }
 
 // NewFakeLiveBus создаёт пустую fake-шину.
@@ -101,4 +110,42 @@ func (b *FakeLiveBus) SubscriberCount(nominationID string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.subs[nominationID])
+}
+
+// PublishTournamentChanged — как PublishNominationChanged, но для топика
+// турнира целиком (спека 0034): считает вызовы (PublishedTournamentCount) и
+// сигнализирует подписчикам SubscribeTournament, тем же неблокирующим
+// коалесцирующим способом.
+func (b *FakeLiveBus) PublishTournamentChanged() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.publishedTournament++
+	for _, ch := range b.subs[tournamentTopic] {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// SubscribeTournament подписывается на топик турнира (спека 0034) — как
+// SubscribeNomination, но без аргумента (один топик на процесс).
+func (b *FakeLiveBus) SubscribeTournament() (<-chan struct{}, func()) {
+	return b.SubscribeNomination(tournamentTopic)
+}
+
+// PublishedTournamentCount — сколько раз PublishTournamentChanged был вызван
+// (спека 0034) — сервисные тесты: «после мутации, задевающей номинацию,
+// опубликовано и тому же турниру».
+func (b *FakeLiveBus) PublishedTournamentCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.publishedTournament
+}
+
+// SubscriberCountTournament — сколько активных подписчиков сейчас у топика
+// турнира (спека 0034) — как SubscriberCount, для WatchTournamentLive.
+func (b *FakeLiveBus) SubscriberCountTournament() int {
+	return b.SubscriberCount(tournamentTopic)
 }

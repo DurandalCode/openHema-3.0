@@ -165,7 +165,7 @@ func (s *Service) DeleteStage(ctx context.Context, stageID string) ([]domain.Sta
 	// сигналим живой снапшот, как остальные мутации, способные его menять.
 	// Удаление недоигранного «хвоста» схемы может завершить номинацию (спека
 	// 0021, FR-6, AC-5) — синхронизируем.
-	s.liveBus.PublishNominationChanged(stage.NominationID)
+	s.notifyNominationChanged(stage.NominationID)
 	if err := s.syncNomination(ctx, stage.NominationID); err != nil {
 		return nil, err
 	}

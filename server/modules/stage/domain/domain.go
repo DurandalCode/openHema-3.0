@@ -730,6 +730,24 @@ type BoutConductor interface {
 	// FR-33): новыми вперёд, ограничен limit. Пустой список пулов — валидный
 	// вход, no-op → пустой срез (как AnyStartedInPools).
 	EventsForPools(ctx context.Context, poolIDs []string, limit int) ([]BoutEventRecord, error)
+
+	// BoutTimesForPools возвращает фактическое время начала/завершения боёв
+	// перечисленных пулов (спека 0034, FR-16) — проекция того же событийного
+	// журнала боя, что EventsForPools, свёрнутая до последней отметки
+	// каждого вида на бой (переоткрытие/сброс делают более ранние отметки
+	// неактуальными, AC-14). Пустой список пулов — валидный вход, no-op →
+	// пустая карта (как AnyStartedInPools).
+	BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]BoutTimes, error)
+}
+
+// BoutTimes — фактическое время одного боя (спека 0034, FR-16): начало и
+// завершение, оба nil, если соответствующее событие ещё не произошло.
+// Собственный тип этого модуля — не импортируем modules/bout/domain.BoutTimes
+// (ADR 0002 запрещает межмодульный доступ к чужим доменным типам); адаптер в
+// internal/platform сконвертирует один в другой.
+type BoutTimes struct {
+	StartedAt  *time.Time
+	FinishedAt *time.Time
 }
 
 // ---------------------------------------------------------------------
@@ -802,6 +820,11 @@ type UserProvider interface {
 // перечитайте». Не событийная шина (нет типов событий/полезной нагрузки).
 type LiveNotifier interface {
 	PublishNominationChanged(nominationID string)
+	// PublishTournamentChanged — сигнал «публичная живая сводка турнира
+	// (спека 0034) могла измениться, перечитайте». Без аргумента: топик один
+	// на процесс — в MVP активный турнир один (GetActiveTournament/
+	// UpdateActiveTournament), как и у SubscribeTournament ниже.
+	PublishTournamentChanged()
 }
 
 // LiveSubscriber — subscribe-сторона порта живой шины (спека 0014, ADR
@@ -810,6 +833,11 @@ type LiveNotifier interface {
 // ресурсы шины).
 type LiveSubscriber interface {
 	SubscribeNomination(nominationID string) (<-chan struct{}, func())
+	// SubscribeTournament — один топик на процесс (спека 0034): MVP
+	// допускает единственный активный турнир, как и везде в этом модуле
+	// (GetActiveTournament/UpdateActiveTournament) — без параметра
+	// tournamentID.
+	SubscribeTournament() (<-chan struct{}, func())
 }
 
 // LiveBus — обе стороны порта живой шины вместе. Service — единственный
@@ -855,10 +883,15 @@ type NominationSnapshot struct {
 // ArenaRef — проекция площадки для постановки пула (спека 0011, план
 // «Обзор решения»): идентификатор, (резолвленное) имя, активна ли (архивная
 // арена постановку не принимает, FR-9).
+//
+// Position — порядок площадки, заданный admin (спека 0027; спека 0034,
+// FR-14): заполняется только у результата ActiveArenas — остальные пути
+// (ArenaByID/ArenasByIDs) её не резолвят и оставляют нулевой.
 type ArenaRef struct {
-	ID     string
-	Name   string
-	Active bool
+	ID       string
+	Name     string
+	Active   bool
+	Position int
 }
 
 // ArenaProvider — межмодульная зависимость: резолв площадок через API
@@ -880,15 +913,25 @@ type ArenaProvider interface {
 	// сама длительность таймера при этом недоменная и не хранится модулем
 	// pool (ADR 0013).
 	DefaultDurationSeconds(ctx context.Context, arenaID string) (int, error)
+	// ActiveArenas — неархивные площадки турнира в admin-порядке (спека
+	// 0034, FR-14). tournamentID обязателен и должен указывать на активный
+	// турнир — валидацию делает сама реализация (по аналогии с
+	// arena.Service.List/resolveTournament), этот порт её не дублирует.
+	ActiveArenas(ctx context.Context, tournamentID string) ([]ArenaRef, error)
 }
 
 // NominationRef — проекция номинации для обогащения пулов именем номинации
 // (по аналогии с ArenaRef, спека 0011, FR-9: список «готовых пулов для
 // постановки» собран из разных номинаций — без имени номинации на экране
 // арены пулы с одинаковым номером неотличимы).
+//
+// Position — порядок номинации, заданный admin (спека 0034, FR-20):
+// заполняется только у результата NominationsByTournament — NominationsByIDs
+// её не резолвит и оставляет нулевой.
 type NominationRef struct {
-	ID    string
-	Title string
+	ID       string
+	Title    string
+	Position int
 }
 
 // NominationProvider — межмодульная зависимость: резолв названий номинаций
@@ -908,6 +951,10 @@ type NominationProvider interface {
 	// способной изменить любую из осей — сервис сам решает, когда звать (по
 	// результирующему состоянию, не по имени RPC).
 	SyncNominationState(ctx context.Context, nominationID string, hasDistributedFighters bool, execution NominationExecution) error
+	// NominationsByTournament возвращает номинации турнира в admin-порядке
+	// (спека 0034, FR-20) — явная адресация, без дефолта на «активный
+	// турнир» (см. комментарий у ArenaProvider.ActiveArenas).
+	NominationsByTournament(ctx context.Context, tournamentID string) ([]NominationRef, error)
 }
 
 // ---------------------------------------------------------------------
@@ -994,4 +1041,105 @@ type ArenaLiveSnapshot struct {
 	Room                   ScoreboardRoom
 	DefaultDurationSeconds int32
 	ServerNowUnixMS        int64
+}
+
+// ---------------------------------------------------------------------
+// Спека 0034: публичная живая сводка турнира целиком для главной страницы
+// (FR-12..FR-20). В отличие от NominationSnapshot (одна номинация) — по всем
+// номинациям турнира разом, одной подпиской (NFR-2).
+// ---------------------------------------------------------------------
+
+// LiveArenaState — состояние площадки в публичной сводке турнира (спека
+// 0034, FR-14). Своя ось, отдельная от PoolStatus/BoutState — гость видит
+// только «идёт бой / готовится / свободна», не внутренние статусы
+// раскладки.
+type LiveArenaState string
+
+const (
+	LiveArenaFree           LiveArenaState = "free"
+	LiveArenaPreparing      LiveArenaState = "preparing"
+	LiveArenaBoutInProgress LiveArenaState = "bout_in_progress"
+)
+
+// NominationPhase — фаза номинации для сайдбара публичной сводки турнира
+// (спека 0034, FR-20). Собственный тип, не NominationStatus (модуля
+// nomination): та ось про приём заявок (open/closed), эта — про исполнение,
+// выведена из ExecutionStatus этапов номинации (спека 0021) — оси
+// независимы.
+type NominationPhase string
+
+const (
+	NominationPhaseUpcoming NominationPhase = "upcoming"
+	NominationPhaseRunning  NominationPhase = "running"
+	NominationPhaseFinished NominationPhase = "finished"
+)
+
+// FeedBout — одна строка ленты боёв турнира (спека 0034, FR-15/FR-16): бой
+// любой номинации турнира (группового этапа либо разрешённой пары сетки —
+// оба типа готового этапа обходятся сборкой сводки, см.
+// service.TournamentLive) с площадкой и фактическим временем.
+// StartedAt/FinishedAt — nil, если соответствующее событие ещё не
+// произошло (FR-16, AC-13): представление показывает прочерк, не эпоху.
+type FeedBout struct {
+	BoutID         string
+	NominationID   string
+	NominationName string
+	StageTitle     string
+	PoolName       string
+	ArenaID        string
+	ArenaName      string
+	SequenceNumber int
+	PoolBoutTotal  int
+	FighterA       FighterRef
+	FighterB       FighterRef
+	State          BoutState
+	ScoreA         int
+	ScoreB         int
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
+}
+
+// LiveArenaView — карточка площадки публичной сводки турнира (спека 0034,
+// FR-14). CurrentBout заполнен у Preparing (первая непроведённая пара пула)
+// и у BoutInProgress (идущий бой); у Free — nil, и Nomination/Pool/StageTitle
+// тоже пусты (в т.ч. когда пул на арене стоит, но все его бои уже
+// завершены, а UnseatPool ещё не вызван — сознательное сужение против
+// макета, см. service.TournamentLive).
+type LiveArenaView struct {
+	ArenaID          string
+	ArenaName        string
+	Position         int
+	State            LiveArenaState
+	NominationID     string
+	NominationName   string
+	PoolName         string
+	StageTitle       string
+	CurrentBout      *FeedBout
+	PoolBoutTotal    int
+	PoolBoutFinished int
+}
+
+// LiveNominationView — строка сайдбара «Номинации» публичной сводки турнира
+// (спека 0034, FR-20).
+type LiveNominationView struct {
+	NominationID      string
+	Title             string
+	Position          int
+	Phase             NominationPhase
+	CurrentStageTitle string
+	BoutTotal         int
+	BoutFinished      int
+	FighterCount      int
+}
+
+// TournamentSnapshot — живая сводка турнира целиком (спека 0034): карточки
+// площадок, лента боёв (без сортировки — порядок ленты, FR-17, представление,
+// считается на web) и сайдбар номинаций. ServerNowUnixMS — опора клиентской
+// метки «обновлено N сек назад» (тот же паттерн, что ArenaLiveSnapshot).
+type TournamentSnapshot struct {
+	TournamentID    string
+	Arenas          []LiveArenaView
+	Bouts           []FeedBout
+	Nominations     []LiveNominationView
+	ServerNowUnixMS int64
 }
