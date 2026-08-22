@@ -1325,6 +1325,25 @@ func TestGetTournamentLive_E2E_EmptyTournamentIDReturnsInvalidArgument(t *testin
 	}
 }
 
+// TestGetTournamentLive_E2E_PublicProceduresRegistered — в отличие от
+// остальных тестов этого блока (см. комментарий у setupTournamentLive),
+// идёт через setupFull, где connectutil.Auth смонтирован по-настоящему.
+// Это и есть join-проверка T13: GetTournamentLive/WatchTournamentLive
+// теперь внесены в карту publicProcedures
+// (pkg/connectutil/auth_interceptor.go) — без записи там этот вызов упал бы
+// с CodeUnauthenticated независимо от корректности самого хендлера
+// (plan.md 0034, риск «Второй потребитель publicProcedures»).
+func TestGetTournamentLive_E2E_PublicProceduresRegistered(t *testing.T) {
+	_, public, _, _, _, nominations, _, _ := setupFull(t)
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: n1, Title: "Длинный меч", Position: 1})
+
+	req := connect.NewRequest(&hemav1.GetTournamentLiveRequest{TournamentId: "t1"})
+	// Заголовок Authorization намеренно не выставляется — NFR-3.
+	if _, err := public.GetTournamentLive(context.Background(), req); err != nil {
+		t.Fatalf("GetTournamentLive without token: %v (want success — is the procedure in publicProcedures?)", err)
+	}
+}
+
 // waitForSubscriberCountTournament — как waitForSubscriberCount, но для
 // топика турнира (спека 0034).
 func waitForSubscriberCountTournament(t *testing.T, bus *testutil.FakeLiveBus, want int) {

@@ -162,6 +162,21 @@ func (g *StageBoutConductor) EventsForPools(ctx context.Context, poolIDs []strin
 	return out, nil
 }
 
+// BoutTimesForPools возвращает фактическое время начала/завершения боёв
+// перечисленных пулов (спека 0034, FR-16): перекладка bout/domain.BoutTimes
+// → stage/domain.BoutTimes (модули не делят типы напрямую, ADR 0002).
+func (g *StageBoutConductor) BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]stagedomain.BoutTimes, error) {
+	times, err := g.svc.TimesForPools(ctx, poolIDs)
+	if err != nil {
+		return nil, mapBoutErr(err)
+	}
+	out := make(map[string]stagedomain.BoutTimes, len(times))
+	for id, t := range times {
+		out[id] = stagedomain.BoutTimes{StartedAt: t.StartedAt, FinishedAt: t.FinishedAt}
+	}
+	return out, nil
+}
+
 // mapBoutEventKind переводит bout.domain.EventType в собственный тип stage
 // (модули не делят типы напрямую, ADR 0002). `scheduled` не встречается на
 // входе — bout/repo уже фильтрует его из EventsForPools (спека 0033, план
