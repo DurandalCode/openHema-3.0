@@ -747,6 +747,68 @@ func (h *PublicHandler) WatchNominationLive(
 	}
 }
 
+// ---------------------------------------------------------------------
+// Спека 0034: публичная живая сводка турнира целиком (главная страница).
+// ---------------------------------------------------------------------
+
+// GetTournamentLive возвращает живую сводку турнира целиком (спека 0034,
+// FR-12..FR-20): площадки, лента боёв по всем номинациям (группы и сетка) и
+// сайдбар номинаций. Публичный, без авторизации (NFR-3) — регистрация в
+// карте publicProcedures интерсептора Auth (pkg/connectutil) — отдельный
+// join-шаг (T13), не этот файл.
+func (h *PublicHandler) GetTournamentLive(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetTournamentLiveRequest],
+) (*connect.Response[hemav1.GetTournamentLiveResponse], error) {
+	snap, err := h.svc.TournamentLive(ctx, req.Msg.TournamentId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetTournamentLiveResponse{Snapshot: toProtoTournamentSnapshot(snap)}), nil
+}
+
+// WatchTournamentLive — server-streaming живой канал сводки турнира (спека
+// 0034, FR-19): первый кадр — текущий снапшот (как GetTournamentLive),
+// далее — по одному кадру на каждый сигнал топика турнира (зеркалит
+// WatchNominationLive, спека 0014). Завершается без ошибки по отмене
+// контекста клиентом.
+func (h *PublicHandler) WatchTournamentLive(
+	ctx context.Context,
+	req *connect.Request[hemav1.WatchTournamentLiveRequest],
+	stream *connect.ServerStream[hemav1.WatchTournamentLiveResponse],
+) error {
+	tournamentID := strings.TrimSpace(req.Msg.TournamentId)
+	if tournamentID == "" {
+		return mapError(domain.ErrInvalidInput)
+	}
+
+	snap, err := h.svc.TournamentLive(ctx, tournamentID)
+	if err != nil {
+		return mapError(err)
+	}
+	if err := stream.Send(&hemav1.WatchTournamentLiveResponse{Snapshot: toProtoTournamentSnapshot(snap)}); err != nil {
+		return err
+	}
+
+	ch, cancel := h.svc.SubscribeTournament()
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ch:
+			snap, err := h.svc.TournamentLive(ctx, tournamentID)
+			if err != nil {
+				return mapError(err)
+			}
+			if err := stream.Send(&hemav1.WatchTournamentLiveResponse{Snapshot: toProtoTournamentSnapshot(snap)}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // GetNominationResults возвращает итоговый протокол номинации (спека 0021,
 // FR-9..FR-15): секция на каждый терминальный этап, места — только у
 // доигранных (недоигранные приходят с finished=false и пустыми entries,
@@ -1631,4 +1693,123 @@ func toDomainScoreboardRole(r hemav1.ScoreboardRole) domain.ScoreboardRole {
 		return domain.ScoreboardRoleScoreboard
 	}
 	return domain.ScoreboardRolePanel
+}
+
+// ---------------------------------------------------------------------
+// Спека 0034: маппинг публичной живой сводки турнира (главная страница).
+// ---------------------------------------------------------------------
+
+// toProtoTournamentSnapshot маппит живую сводку турнира целиком (спека
+// 0034). Пустые срезы (не nil) — согласуется с остальными repeated-полями
+// этого файла.
+func toProtoTournamentSnapshot(s domain.TournamentSnapshot) *hemav1.TournamentLiveSnapshot {
+	out := &hemav1.TournamentLiveSnapshot{
+		TournamentId:    s.TournamentID,
+		Arenas:          make([]*hemav1.LiveArena, 0, len(s.Arenas)),
+		Bouts:           make([]*hemav1.LiveFeedBout, 0, len(s.Bouts)),
+		Nominations:     make([]*hemav1.LiveNomination, 0, len(s.Nominations)),
+		ServerNowUnixMs: s.ServerNowUnixMS,
+	}
+	for _, a := range s.Arenas {
+		out.Arenas = append(out.Arenas, toProtoLiveArena(a))
+	}
+	for _, b := range s.Bouts {
+		out.Bouts = append(out.Bouts, toProtoFeedBout(b))
+	}
+	for _, n := range s.Nominations {
+		out.Nominations = append(out.Nominations, toProtoLiveNomination(n))
+	}
+	return out
+}
+
+// toProtoLiveArena маппит карточку площадки (FR-14). CurrentBout — nil у
+// FREE (LiveArenaView.CurrentBout остаётся nil, см. service.toLiveArenaView).
+func toProtoLiveArena(a domain.LiveArenaView) *hemav1.LiveArena {
+	out := &hemav1.LiveArena{
+		ArenaId:          a.ArenaID,
+		ArenaName:        a.ArenaName,
+		Position:         int32(a.Position),
+		State:            toProtoLiveArenaState(a.State),
+		NominationId:     a.NominationID,
+		NominationName:   a.NominationName,
+		PoolName:         a.PoolName,
+		StageTitle:       a.StageTitle,
+		PoolBoutTotal:    int32(a.PoolBoutTotal),
+		PoolBoutFinished: int32(a.PoolBoutFinished),
+	}
+	if a.CurrentBout != nil {
+		out.CurrentBout = toProtoFeedBout(*a.CurrentBout)
+	}
+	return out
+}
+
+// toProtoFeedBout маппит строку ленты боёв (FR-15/FR-16). StartedAt/
+// FinishedAt не заполняются (nil), если соответствующее время не проставлено
+// (see service.feedBoutTimes) — представление показывает прочерк, не эпоху.
+func toProtoFeedBout(b domain.FeedBout) *hemav1.LiveFeedBout {
+	out := &hemav1.LiveFeedBout{
+		BoutId:         b.BoutID,
+		NominationId:   b.NominationID,
+		NominationName: b.NominationName,
+		StageTitle:     b.StageTitle,
+		PoolName:       b.PoolName,
+		ArenaId:        b.ArenaID,
+		ArenaName:      b.ArenaName,
+		SequenceNumber: int32(b.SequenceNumber),
+		PoolBoutTotal:  int32(b.PoolBoutTotal),
+		FighterA:       toProtoFighterRef(b.FighterA),
+		FighterB:       toProtoFighterRef(b.FighterB),
+		State:          toProtoBoutState(b.State),
+		ScoreA:         int32(b.ScoreA),
+		ScoreB:         int32(b.ScoreB),
+	}
+	if b.StartedAt != nil {
+		out.StartedAt = timestamppb.New(*b.StartedAt)
+	}
+	if b.FinishedAt != nil {
+		out.FinishedAt = timestamppb.New(*b.FinishedAt)
+	}
+	return out
+}
+
+// toProtoLiveNomination маппит строку сайдбара «Номинации» (FR-20).
+func toProtoLiveNomination(n domain.LiveNominationView) *hemav1.LiveNomination {
+	return &hemav1.LiveNomination{
+		NominationId:      n.NominationID,
+		Title:             n.Title,
+		Position:          int32(n.Position),
+		Phase:             toProtoLiveNominationPhase(n.Phase),
+		CurrentStageTitle: n.CurrentStageTitle,
+		BoutTotal:         int32(n.BoutTotal),
+		BoutFinished:      int32(n.BoutFinished),
+		FighterCount:      int32(n.FighterCount),
+	}
+}
+
+// toProtoLiveArenaState маппит состояние площадки публичной сводки (FR-14).
+func toProtoLiveArenaState(s domain.LiveArenaState) hemav1.LiveArenaState {
+	switch s {
+	case domain.LiveArenaFree:
+		return hemav1.LiveArenaState_LIVE_ARENA_STATE_FREE
+	case domain.LiveArenaPreparing:
+		return hemav1.LiveArenaState_LIVE_ARENA_STATE_PREPARING
+	case domain.LiveArenaBoutInProgress:
+		return hemav1.LiveArenaState_LIVE_ARENA_STATE_BOUT_IN_PROGRESS
+	default:
+		return hemav1.LiveArenaState_LIVE_ARENA_STATE_UNSPECIFIED
+	}
+}
+
+// toProtoLiveNominationPhase маппит фазу номинации сайдбара (FR-20).
+func toProtoLiveNominationPhase(p domain.NominationPhase) hemav1.LiveNominationPhase {
+	switch p {
+	case domain.NominationPhaseUpcoming:
+		return hemav1.LiveNominationPhase_LIVE_NOMINATION_PHASE_UPCOMING
+	case domain.NominationPhaseRunning:
+		return hemav1.LiveNominationPhase_LIVE_NOMINATION_PHASE_RUNNING
+	case domain.NominationPhaseFinished:
+		return hemav1.LiveNominationPhase_LIVE_NOMINATION_PHASE_FINISHED
+	default:
+		return hemav1.LiveNominationPhase_LIVE_NOMINATION_PHASE_UNSPECIFIED
+	}
 }

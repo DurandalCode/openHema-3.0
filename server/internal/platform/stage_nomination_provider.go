@@ -49,6 +49,23 @@ func (p *StageNominationProvider) NominationsByIDs(ctx context.Context, ids []st
 	return out, nil
 }
 
+// NominationsByTournament возвращает номинации турнира с их позицией
+// (спека 0034, FR-20) — для сайдбара публичной сводки турнира. tournamentID
+// обязателен и валидируется тем же nomination.Service.List
+// (resolveTournament: должен указывать на активный турнир, MVP) — порт
+// stage/domain не дублирует эту проверку (см. plan.md 0034, T6).
+func (p *StageNominationProvider) NominationsByTournament(ctx context.Context, tournamentID string) ([]stagedomain.NominationRef, error) {
+	noms, err := p.svc.List(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]stagedomain.NominationRef, len(noms))
+	for i, n := range noms {
+		out[i] = stagedomain.NominationRef{ID: n.ID, Title: n.Title, Position: int(n.Position)}
+	}
+	return out, nil
+}
+
 // SyncNominationState синхронизирует обе оси состояния номинации — приём
 // заявок (спека 0012, FR-10) и исполнительную (спека 0021, FR-4/FR-5) —
 // прямыми Go-вызовами nomination-сервиса, без сетевого RPC (монолит).

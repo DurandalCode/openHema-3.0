@@ -105,6 +105,17 @@ type FakeBoutConductor struct {
 	// записи, в порядке SeedEvent (EventsForPools сортирует сама, как
 	// настоящий репозиторий — occurred_at DESC).
 	events map[string][]domain.BoutEventRecord
+
+	// times — время боёв (спека 0034, FR-16): bout id -> BoutTimes, задаётся
+	// SeedBoutTimes.
+	times map[string]domain.BoutTimes
+	// BoutTimesForPoolsErr — если задана, BoutTimesForPools возвращает эту
+	// ошибку (вызов всё равно фиксируется).
+	BoutTimesForPoolsErr error
+	// BoutTimesForPoolsCalls — зафиксированные вызовы BoutTimesForPools (спека
+	// 0034, T9: тест проверяет, что вызван ровно один раз на все пулы сразу,
+	// не по одному на пул/тип этапа).
+	BoutTimesForPoolsCalls [][]string
 }
 
 // NewFakeBoutConductor создаёт пустой fake-кондуктор боёв.
@@ -115,6 +126,7 @@ func NewFakeBoutConductor() *FakeBoutConductor {
 		poolOfBout:  make(map[string]string),
 		anyStarted:  make(map[string]bool),
 		events:      make(map[string][]domain.BoutEventRecord),
+		times:       make(map[string]domain.BoutTimes),
 	}
 }
 
@@ -403,6 +415,40 @@ func (f *FakeBoutConductor) EventsForPools(_ context.Context, poolIDs []string, 
 	sort.SliceStable(out, func(i, j int) bool { return out[i].OccurredAt.After(out[j].OccurredAt) })
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
+	}
+	return out, nil
+}
+
+// SeedBoutTimes задаёт время боя для BoutTimesForPools (спека 0034, FR-16) —
+// не привязано к посеянному бою (SeedBout): тесты сборки сводки турнира
+// адресуют время напрямую по boutID, как настоящий адаптер читает его из
+// event-sourced журнала независимо от текущей проекции BoutRef.
+func (f *FakeBoutConductor) SeedBoutTimes(boutID string, t domain.BoutTimes) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.times[boutID] = t
+}
+
+// BoutTimesForPools фиксирует вызов (для BoutTimesForPoolsCalls — тест
+// проверяет, что вызван ровно один раз на все пулы сразу) и возвращает
+// времена боёв, посеянные SeedBoutTimes, по всем боям перечисленных пулов.
+// Пустой список пулов — валидный вход, no-op → пустая карта (как
+// AnyStartedInPools). Возвращает BoutTimesForPoolsErr, если задана.
+func (f *FakeBoutConductor) BoutTimesForPools(_ context.Context, poolIDs []string) (map[string]domain.BoutTimes, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.BoutTimesForPoolsCalls = append(f.BoutTimesForPoolsCalls, append([]string{}, poolIDs...))
+	if f.BoutTimesForPoolsErr != nil {
+		return nil, f.BoutTimesForPoolsErr
+	}
+	out := make(map[string]domain.BoutTimes)
+	for _, poolID := range poolIDs {
+		for _, boutID := range f.boutsByPool[poolID] {
+			if t, ok := f.times[boutID]; ok {
+				out[boutID] = t
+			}
+		}
 	}
 	return out, nil
 }

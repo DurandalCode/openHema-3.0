@@ -1,5 +1,27 @@
 import type { ContactType } from "./types";
 
+/**
+ * CONTACT_LABELS — человекочитаемые подписи типов контактов (спека 0034,
+ * T20). Единственное место в кодовой базе: `tournament-hero.tsx` (афиша «до
+ * старта») и `widgets/home/venue-contacts.tsx` (блок «Зрителю», FR-10/FR-22)
+ * читают её через `contactLabel`, а не дублируют словарь каждый у себя.
+ */
+const CONTACT_LABELS: Partial<Record<ContactType, string>> = {
+  CONTACT_TYPE_TELEGRAM: "Telegram",
+  CONTACT_TYPE_VK: "VK",
+  CONTACT_TYPE_FACEBOOK: "Facebook",
+  CONTACT_TYPE_WEBSITE: "Сайт",
+  CONTACT_TYPE_EMAIL: "Email",
+  CONTACT_TYPE_OTHER: "Контакт",
+};
+
+/** contactLabel — подпись типа контакта (RU), "Контакт" — фолбэк для
+ * неизвестного/неуказанного типа (тот же, что раньше был инлайн в
+ * `tournament-hero.tsx`). */
+export function contactLabel(type: ContactType): string {
+  return CONTACT_LABELS[type] ?? "Контакт";
+}
+
 /** formatEventRange формирует человекочитаемый диапазон дат проведения.
  * - только start: «1 декабря 2026 г., 10:00» (однодневный).
  * - start + end, разные дни: «1 декабря 2026 г., 10:00 — 3 декабря 2026 г., 18:00».
@@ -30,6 +52,32 @@ function formatDateTime(d: Date): string {
 
 function formatTime(d: Date): string {
   return d.toLocaleString("ru-RU", { timeStyle: "short" });
+}
+
+/**
+ * daysUntil — сколько дней до даты начала турнира (спека 0034, FR-4).
+ * `null` — дата не задана или невалидна. `0` — начинается сегодня
+ * («до старта: сегодня», не «0 дней» — форматирование этого текста уже
+ * забота компонента, не этой функции).
+ *
+ * Для даты в прошлом эта функция намеренно не возвращает `null` и не
+ * запрещает отрицательный результат: определять, что турнир уже идёт или
+ * прошёл — задача `tournamentPhase` (`entities/tournament-live/lib/phase.ts`),
+ * а не этой чистой функции подсчёта дней. Компонент афиши «до старта»
+ * вызывает `daysUntil` только когда уже знает (из `tournamentPhase`), что
+ * турнир ещё не начался — отрицательное значение сюда дойти не должно, но
+ * функция не обязана сама это гарантировать.
+ */
+export function daysUntil(startIso: string | null, now: Date): number | null {
+  if (!startIso) return null;
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+  return Math.round((startDay - nowDay) / MS_PER_DAY);
 }
 
 /** contactHref превращает пару (тип, значение) в URL ссылки. */

@@ -36,6 +36,7 @@ import {
   StageLayoutMethod,
   NominationResultsSchema,
   BoutJournalEntrySchema,
+  TournamentLiveSnapshotSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
@@ -51,6 +52,7 @@ import {
   type FormatStageSpec,
   type FormatPreset,
   type NominationResults,
+  type TournamentLiveSnapshot,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -96,6 +98,14 @@ import type {
   NominationLiveSnapshotDto,
   LivePoolDto,
 } from "@/entities/nomination-live/lib/types";
+import type {
+  TournamentLiveSnapshotDto,
+  LiveArenaDto,
+  LiveArenaState as LiveArenaStateDto,
+  LiveFeedBoutDto,
+  LiveNominationDto,
+  LiveNominationPhase as LiveNominationPhaseDto,
+} from "@/entities/tournament-live/lib/types";
 import type {
   Stage as StageDto,
   StageType as StageTypeDto,
@@ -1036,6 +1046,135 @@ export function arenaLiveToJson(snapshot: ArenaLiveSnapshot | undefined): ArenaL
     timer: timerFrameRawToDto(raw.timer, defaultDurationSeconds * 100),
     room: scoreboardRoomRawToDto(raw.room),
     defaultDurationSeconds,
+    serverNowUnixMs: raw.serverNowUnixMs ?? "0",
+  };
+}
+
+// LiveArenaState/LiveNominationPhase — proto enum значения сериализуются
+// toJson полным именем (`LIVE_ARENA_STATE_FREE`, ...), а
+// `entities/tournament-live/lib/types.ts` держит их короткими lowercase
+// литералами без UNSPECIFIED (`"free"`, `"upcoming"`, ...) — своя ось
+// представления, не зеркало proto-имени (в отличие от `BoutState`/
+// `PoolStatus`, которые DTO хранят как есть). UNSPECIFIED падает в тот же
+// нейтральный вариант, что и явный ноль состояния (`FREE`/`UPCOMING`).
+function liveArenaStateToDto(raw: string | undefined): LiveArenaStateDto {
+  switch (raw) {
+    case "LIVE_ARENA_STATE_PREPARING":
+      return "preparing";
+    case "LIVE_ARENA_STATE_BOUT_IN_PROGRESS":
+      return "bout_in_progress";
+    default:
+      return "free";
+  }
+}
+
+function liveNominationPhaseToDto(raw: string | undefined): LiveNominationPhaseDto {
+  switch (raw) {
+    case "LIVE_NOMINATION_PHASE_RUNNING":
+      return "running";
+    case "LIVE_NOMINATION_PHASE_FINISHED":
+      return "finished";
+    default:
+      return "upcoming";
+  }
+}
+
+function liveFeedBoutRawToDto(
+  raw:
+    | (Partial<LiveFeedBoutDto> & {
+        fighterA?: Partial<PoolFighterRefDto>;
+        fighterB?: Partial<PoolFighterRefDto>;
+      })
+    | undefined,
+): LiveFeedBoutDto {
+  return {
+    boutId: raw?.boutId ?? "",
+    nominationId: raw?.nominationId ?? "",
+    nominationName: raw?.nominationName ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    poolName: raw?.poolName ?? "",
+    arenaId: raw?.arenaId ?? "",
+    arenaName: raw?.arenaName ?? "",
+    sequenceNumber: raw?.sequenceNumber ?? 0,
+    poolBoutTotal: raw?.poolBoutTotal ?? 0,
+    fighterA: poolFighterRefToJson(raw?.fighterA),
+    fighterB: poolFighterRefToJson(raw?.fighterB),
+    state: (raw?.state as BoutStateDto) ?? "BOUT_STATE_UNSPECIFIED",
+    scoreA: raw?.scoreA ?? 0,
+    scoreB: raw?.scoreB ?? 0,
+    startedAt: raw?.startedAt ?? null,
+    finishedAt: raw?.finishedAt ?? null,
+  };
+}
+
+function liveArenaRawToDto(
+  raw:
+    | (Partial<LiveArenaDto> & {
+        state?: string;
+        currentBout?: Partial<LiveFeedBoutDto> & {
+          fighterA?: Partial<PoolFighterRefDto>;
+          fighterB?: Partial<PoolFighterRefDto>;
+        };
+      })
+    | undefined,
+): LiveArenaDto {
+  return {
+    arenaId: raw?.arenaId ?? "",
+    arenaName: raw?.arenaName ?? "",
+    position: raw?.position ?? 0,
+    state: liveArenaStateToDto(raw?.state),
+    nominationId: raw?.nominationId ?? "",
+    nominationName: raw?.nominationName ?? "",
+    poolName: raw?.poolName ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    currentBout: raw?.currentBout ? liveFeedBoutRawToDto(raw.currentBout) : null,
+    poolBoutTotal: raw?.poolBoutTotal ?? 0,
+    poolBoutFinished: raw?.poolBoutFinished ?? 0,
+  };
+}
+
+function liveNominationRawToDto(
+  raw: (Partial<LiveNominationDto> & { phase?: string }) | undefined,
+): LiveNominationDto {
+  return {
+    nominationId: raw?.nominationId ?? "",
+    title: raw?.title ?? "",
+    position: raw?.position ?? 0,
+    phase: liveNominationPhaseToDto(raw?.phase),
+    currentStageTitle: raw?.currentStageTitle ?? "",
+    boutTotal: raw?.boutTotal ?? 0,
+    boutFinished: raw?.boutFinished ?? 0,
+    fighterCount: raw?.fighterCount ?? 0,
+  };
+}
+
+/**
+ * tournamentLiveToJson превращает protobuf-сообщение TournamentLiveSnapshot
+ * в обычный JSON-объект (спека 0034): живая сводка турнира целиком —
+ * площадки, лента боёв и положение номинаций. По образцу
+ * `nominationLiveToJson`/`arenaLiveToJson`: `toJson` даёт plain JSON с
+ * proto-именами enum'ов и int64-строками, приватные `*RawToDto` хелперы
+ * нормализуют вложенные сообщения и сводят enum'ы к короткой оси DTO
+ * (`liveArenaStateToDto`/`liveNominationPhaseToDto`). Порядок ленты (FR-17)
+ * и её фильтрация (FR-18) — не забота этой функции, считаются на клиенте
+ * (`entities/tournament-live/lib/feed.ts`).
+ */
+export function tournamentLiveToJson(
+  snapshot: TournamentLiveSnapshot | undefined,
+): TournamentLiveSnapshotDto | null {
+  if (!snapshot) return null;
+  const raw = toJson(TournamentLiveSnapshotSchema, snapshot) as Partial<TournamentLiveSnapshotDto> & {
+    arenas?: unknown[];
+    bouts?: unknown[];
+    nominations?: unknown[];
+  };
+  return {
+    tournamentId: raw.tournamentId ?? "",
+    arenas: Array.isArray(raw.arenas) ? raw.arenas.map((a) => liveArenaRawToDto(a as never)) : [],
+    bouts: Array.isArray(raw.bouts) ? raw.bouts.map((b) => liveFeedBoutRawToDto(b as never)) : [],
+    nominations: Array.isArray(raw.nominations)
+      ? raw.nominations.map((n) => liveNominationRawToDto(n as never))
+      : [],
     serverNowUnixMs: raw.serverNowUnixMs ?? "0",
   };
 }

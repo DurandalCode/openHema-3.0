@@ -78,7 +78,7 @@ func (s *Service) UpdateStage(ctx context.Context, stageID, title string, bracke
 	if !found {
 		return domain.Stage{}, domain.ErrNotFound
 	}
-	s.liveBus.PublishNominationChanged(updated.NominationID)
+	s.notifyNominationChanged(updated.NominationID)
 	if err := s.syncNomination(ctx, updated.NominationID); err != nil {
 		return domain.Stage{}, err
 	}
@@ -211,7 +211,7 @@ func (s *Service) ApplyFormat(ctx context.Context, nominationID, presetID, sourc
 	if err := s.syncBracketRegistration(ctx, nominationID); err != nil {
 		return nil, err
 	}
-	s.liveBus.PublishNominationChanged(nominationID)
+	s.notifyNominationChanged(nominationID)
 
 	return s.repo.StagesByNomination(ctx, nominationID)
 }

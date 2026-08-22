@@ -221,6 +221,20 @@ service StagePublicService {
   // FR-9..FR-15). Отдельно от GetNominationLive — для экранов, которым нужны
   // только итоги (админский экран схемы, FR-19).
   rpc GetNominationResults(GetNominationResultsRequest) returns (GetNominationResultsResponse);
+  // GetTournamentLive возвращает живую сводку турнира целиком для публичной
+  // главной (спека 0034, FR-12..FR-22): площадки с их текущим состоянием,
+  // ленту боёв всех номинаций и список номинаций с исполнительной фазой.
+  // Одна сводка вместо N подписок по номинациям (браузерный лимит
+  // соединений, FR-19/NFR-2) и единственный публичный источник состояния
+  // площадок (ArenaAdminService — admin-only). Используется для SSR-инициала
+  // и polling-fallback, как GetNominationLive.
+  rpc GetTournamentLive(GetTournamentLiveRequest) returns (GetTournamentLiveResponse);
+  // WatchTournamentLive — server-streaming живой канал сводки турнира (спека
+  // 0034, FR-19): первый кадр — текущий снапшот (как GetTournamentLive),
+  // далее по одному кадру на изменение любой номинации турнира.
+  // Односторонний, read-only; поток завершается по отмене контекста
+  // клиентом.
+  rpc WatchTournamentLive(WatchTournamentLiveRequest) returns (stream WatchTournamentLiveResponse);
 }
 
 // PoolLayoutStatus — статус раскладки номинации целиком (спека 0009).
@@ -1058,6 +1072,117 @@ message GetNominationResultsRequest {
 
 message GetNominationResultsResponse {
   NominationResults results = 1;
+}
+
+// ---------------------------------------------------------------------
+// Спека 0034: публичная живая сводка турнира для главной страницы.
+// ---------------------------------------------------------------------
+
+// LiveArenaState — состояние площадки в публичной сводке турнира (спека
+// 0034, FR-14). Проекция площадки для публики: своя ось, отдельная от
+// PoolStatus/BoutState — гость видит только «идёт бой / готовится / нет
+// пула», не внутренние статусы раскладки.
+enum LiveArenaState {
+  LIVE_ARENA_STATE_UNSPECIFIED = 0;
+  LIVE_ARENA_STATE_FREE = 1;
+  LIVE_ARENA_STATE_PREPARING = 2;
+  LIVE_ARENA_STATE_BOUT_IN_PROGRESS = 3;
+}
+
+// LiveNominationPhase — фаза номинации для сайдбара публичной сводки
+// (спека 0034, FR-20). Собственный enum, не NominationStatus: та ось про
+// приём заявок (open/closed), эта — про исполнение (выведена из
+// Stage.execution_status этапов, спека 0021), и они независимы.
+enum LiveNominationPhase {
+  LIVE_NOMINATION_PHASE_UNSPECIFIED = 0;
+  LIVE_NOMINATION_PHASE_UPCOMING = 1;
+  LIVE_NOMINATION_PHASE_RUNNING = 2;
+  LIVE_NOMINATION_PHASE_FINISHED = 3;
+}
+
+// LiveFeedBout — одна строка ленты боёв дня (спека 0034, FR-15/FR-16):
+// бой любой номинации турнира с площадкой и фактическим временем.
+// started_at/finished_at не заполнены, если соответствующее событие ещё не
+// произошло (FR-16, AC-13) — клиент показывает прочерк, не 0/эпоху.
+message LiveFeedBout {
+  string bout_id = 1;
+  string nomination_id = 2;
+  string nomination_name = 3;
+  string stage_title = 4;
+  string pool_name = 5;
+  string arena_id = 6;
+  string arena_name = 7;
+  int32 sequence_number = 8;
+  int32 pool_bout_total = 9;
+  FighterRef fighter_a = 10;
+  FighterRef fighter_b = 11;
+  BoutState state = 12;
+  int32 score_a = 13;
+  int32 score_b = 14;
+  google.protobuf.Timestamp started_at = 15;
+  google.protobuf.Timestamp finished_at = 16;
+}
+
+// LiveArena — карточка площадки публичной сводки (спека 0034, FR-14).
+// current_bout заполнен у PREPARING (первая непроведённая пара пула) и у
+// BOUT_IN_PROGRESS (идущий бой); не заполнен у FREE.
+message LiveArena {
+  string arena_id = 1;
+  string arena_name = 2;
+  int32 position = 3;
+  LiveArenaState state = 4;
+  string nomination_id = 5;
+  string nomination_name = 6;
+  string pool_name = 7;
+  string stage_title = 8;
+  LiveFeedBout current_bout = 9;
+  int32 pool_bout_total = 10;
+  int32 pool_bout_finished = 11;
+}
+
+// LiveNomination — строка сайдбара «Номинации» публичной сводки (спека
+// 0034, FR-20).
+message LiveNomination {
+  string nomination_id = 1;
+  string title = 2;
+  int32 position = 3;
+  LiveNominationPhase phase = 4;
+  string current_stage_title = 5;
+  int32 bout_total = 6;
+  int32 bout_finished = 7;
+  int32 fighter_count = 8;
+}
+
+// TournamentLiveSnapshot — живая сводка турнира целиком (спека 0034):
+// общий payload unary- и streaming-ответа. Порядок ленты (FR-17) и её
+// фильтрация по номинации (FR-18) — представление, вычисляется на клиенте
+// из bouts как есть (план, «Обзор решения»).
+message TournamentLiveSnapshot {
+  string tournament_id = 1;
+  repeated LiveArena arenas = 2;
+  repeated LiveFeedBout bouts = 3;
+  repeated LiveNomination nominations = 4;
+  int64 server_now_unix_ms = 5;
+}
+
+// GetTournamentLiveRequest — tournament_id обязателен и должен указывать на
+// активный турнир (MVP), как ListNominationsRequest/ArenaAdminService.List:
+// клиент резолвит id заранее через TournamentService.GetActiveTournament,
+// сервер здесь его не подставляет по умолчанию.
+message GetTournamentLiveRequest {
+  string tournament_id = 1;
+}
+
+message GetTournamentLiveResponse {
+  TournamentLiveSnapshot snapshot = 1;
+}
+
+message WatchTournamentLiveRequest {
+  string tournament_id = 1;
+}
+
+message WatchTournamentLiveResponse {
+  TournamentLiveSnapshot snapshot = 1;
 }
 
 message GetBoutBoardRequest {

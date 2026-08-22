@@ -41,6 +41,10 @@ type FakeRepo struct {
 	// (спека 0033, FR-33) — для проверки клэмпа лимита и no-op на пустом
 	// poolIDs в тестах service.
 	eventsForPoolsCalls []EventsForPoolsCall
+	// boutTimesForPoolsCalls — spy: аргументы каждого вызова
+	// BoutTimesForPools (спека 0034, FR-16) — для проверки no-op на пустом
+	// poolIDs в тестах service (TimesForPools не должен ходить в репо).
+	boutTimesForPoolsCalls [][]string
 }
 
 // EventsForPoolsCall — зафиксированный вызов EventsForPools.
@@ -491,6 +495,97 @@ func (r *FakeRepo) EventsForPoolsCalls() []EventsForPoolsCall {
 	out := make([]EventsForPoolsCall, len(r.eventsForPoolsCalls))
 	for i, c := range r.eventsForPoolsCalls {
 		out[i] = EventsForPoolsCall{PoolIDs: append([]string{}, c.PoolIDs...), Limit: c.Limit}
+	}
+	return out
+}
+
+// BoutTimesForPools возвращает фактическое время начала/завершения каждого
+// боя перечисленных пулов (спека 0034, FR-16) — зеркалит семантику SQL
+// BoutTimesForPools (repo/queries/bout.sql): время берётся не из первого
+// попавшегося события своего вида, а из последнего события started/
+// finished, случившегося после последнего restart-маркера потока (reset —
+// для started; reopened или reset — для finished), см. boutTimesFromEvents.
+// Пустой poolIDs — no-op: пустая карта без сканирования хранилища.
+func (r *FakeRepo) BoutTimesForPools(_ context.Context, poolIDs []string) (map[string]domain.BoutTimes, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.boutTimesForPoolsCalls = append(r.boutTimesForPoolsCalls, append([]string{}, poolIDs...))
+
+	if len(poolIDs) == 0 {
+		return map[string]domain.BoutTimes{}, nil
+	}
+
+	poolSet := make(map[string]struct{}, len(poolIDs))
+	for _, id := range poolIDs {
+		poolSet[id] = struct{}{}
+	}
+
+	out := make(map[string]domain.BoutTimes)
+	for boutID, view := range r.views {
+		if _, ok := poolSet[view.PoolID]; !ok {
+			continue
+		}
+		out[boutID] = boutTimesFromEvents(r.events[boutID])
+	}
+	return out, nil
+}
+
+// boutTimesFromEvents — общая логика BoutTimesForPools для потока одного
+// боя (см. doc-комментарий выше и SQL-запрос для доменного обоснования):
+// started_at — момент последнего события started, случившегося после
+// последнего reset; finished_at — момент последнего события finished,
+// случившегося после последнего reopened/reset. Оба nil, если такого
+// события нет вовсе (спека 0034, FR-16).
+func boutTimesFromEvents(events []domain.Event) domain.BoutTimes {
+	var lastReset, lastReopenOrReset int
+	for _, ev := range events {
+		switch ev.Type {
+		case domain.EventReset:
+			if ev.Sequence > lastReset {
+				lastReset = ev.Sequence
+			}
+			if ev.Sequence > lastReopenOrReset {
+				lastReopenOrReset = ev.Sequence
+			}
+		case domain.EventReopened:
+			if ev.Sequence > lastReopenOrReset {
+				lastReopenOrReset = ev.Sequence
+			}
+		}
+	}
+
+	var times domain.BoutTimes
+	bestStartedSeq, bestFinishedSeq := 0, 0
+	for _, ev := range events {
+		switch ev.Type {
+		case domain.EventStarted:
+			if ev.Sequence > lastReset && ev.Sequence > bestStartedSeq {
+				t := ev.OccurredAt
+				times.StartedAt = &t
+				bestStartedSeq = ev.Sequence
+			}
+		case domain.EventFinished:
+			if ev.Sequence > lastReopenOrReset && ev.Sequence > bestFinishedSeq {
+				t := ev.OccurredAt
+				times.FinishedAt = &t
+				bestFinishedSeq = ev.Sequence
+			}
+		}
+	}
+	return times
+}
+
+// BoutTimesForPoolsCalls возвращает зафиксированные вызовы
+// BoutTimesForPools (для проверки no-op на пустом poolIDs в тестах
+// service, спека 0034, FR-16).
+func (r *FakeRepo) BoutTimesForPoolsCalls() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([][]string, len(r.boutTimesForPoolsCalls))
+	for i, c := range r.boutTimesForPoolsCalls {
+		out[i] = append([]string{}, c...)
 	}
 	return out
 }

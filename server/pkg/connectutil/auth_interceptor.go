@@ -23,7 +23,7 @@ var publicProcedures = map[string]struct{}{
 	"/hema.v1.FighterPublicService/ListNominationRoster":           {},
 	// Спека 0011: публичный экран номинации (пулы готовой раскладки + их
 	// бои) — read-only, доступен без авторизации (FR-11/FR-13, AC-15).
-	"/hema.v1.StagePublicService/ListPublicPools":             {},
+	"/hema.v1.StagePublicService/ListPublicPools":            {},
 	"/hema.v1.BoutPublicService/ListPublicBoutsByNomination": {},
 	// Спека 0014: живой снапшот номинации (bout state/score/outcome +
 	// исполнительный статус пула) — публичный экран, без авторизации.
@@ -34,6 +34,10 @@ var publicProcedures = map[string]struct{}{
 	"/hema.v1.StagePublicService/WatchNominationLive": {},
 	// Спека 0021: итоговый протокол номинации — публичный, без авторизации.
 	"/hema.v1.StagePublicService/GetNominationResults": {},
+	// Спека 0034: живая сводка турнира целиком (площадки + лента боёв всех
+	// номинаций + фазы номинаций) — публичная главная, без авторизации.
+	"/hema.v1.StagePublicService/GetTournamentLive":   {},
+	"/hema.v1.StagePublicService/WatchTournamentLive": {},
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт

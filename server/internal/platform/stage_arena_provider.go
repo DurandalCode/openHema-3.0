@@ -77,3 +77,26 @@ func toPoolArenaRef(a arenadomain.Arena) stagedomain.ArenaRef {
 		Active: a.Status == arenadomain.StatusActive,
 	}
 }
+
+// ActiveArenas возвращает неархивные площадки турнира в admin-порядке
+// (спека 0034, FR-14) — для карточек публичной сводки турнира.
+// tournamentID обязателен и валидируется тем же arena.Service.List
+// (resolveTournament: должен указывать на активный турнир, MVP), как и
+// остальные tournament-scoped чтения этого модуля — порт stage/domain не
+// дублирует эту проверку (см. plan.md 0034, T6).
+func (p *StageArenaProvider) ActiveArenas(ctx context.Context, tournamentID string) ([]stagedomain.ArenaRef, error) {
+	arenas, err := p.svc.List(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]stagedomain.ArenaRef, 0, len(arenas))
+	for _, a := range arenas {
+		if a.Status != arenadomain.StatusActive {
+			continue
+		}
+		ref := toPoolArenaRef(a)
+		ref.Position = int(a.Position)
+		out = append(out, ref)
+	}
+	return out, nil
+}
