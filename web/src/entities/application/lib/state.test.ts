@@ -4,6 +4,7 @@ import {
   allowedSecretaryActions,
   applicationFunnel,
   eventLabel,
+  findActiveApplication,
   isTerminal,
   nextExpectedStep,
   stateCaption,
@@ -11,6 +12,7 @@ import {
   stateTone,
 } from "@/entities/application/lib/state";
 import type {
+  Application,
   ApplicationEventType,
   ApplicationState,
 } from "@/entities/application/lib/types";
@@ -207,6 +209,60 @@ describe("applicationFunnel", () => {
     expect(funnel.some((s) => s.label === stateLabel("APPLICATION_STATE_WITHDRAWN"))).toBe(
       false,
     );
+  });
+});
+
+function fixtureApplication(overrides: Partial<Application>): Application {
+  return {
+    id: "a1",
+    nominationId: "n1",
+    tournamentId: "t1",
+    applicantUserId: "u1",
+    applicantDisplayName: "Тест",
+    state: "APPLICATION_STATE_SUBMITTED",
+    club: "",
+    needsEquipment: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("findActiveApplication", () => {
+  it("finds the applicant's non-terminal application in the given nomination", () => {
+    const target = fixtureApplication({
+      id: "target",
+      nominationId: "n1",
+      state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION",
+    });
+    const other = fixtureApplication({ id: "other", nominationId: "n2" });
+
+    expect(findActiveApplication([other, target], "n1")).toBe(target);
+  });
+
+  it("ignores terminal applications in the same nomination (registered or withdrawn)", () => {
+    const registered = fixtureApplication({
+      id: "registered",
+      nominationId: "n1",
+      state: "APPLICATION_STATE_REGISTERED",
+    });
+    const withdrawn = fixtureApplication({
+      id: "withdrawn",
+      nominationId: "n1",
+      state: "APPLICATION_STATE_WITHDRAWN",
+    });
+
+    expect(findActiveApplication([registered, withdrawn], "n1")).toBeUndefined();
+  });
+
+  it("returns undefined when there is no application in the nomination at all", () => {
+    const elsewhere = fixtureApplication({ id: "elsewhere", nominationId: "n2" });
+
+    expect(findActiveApplication([elsewhere], "n1")).toBeUndefined();
+  });
+
+  it("returns undefined for an empty applications list", () => {
+    expect(findActiveApplication([], "n1")).toBeUndefined();
   });
 });
 

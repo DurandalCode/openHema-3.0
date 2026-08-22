@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/shared/ui/button";
 import { Row } from "@/shared/ui/stack";
-import { isTerminal, stateLabel } from "@/entities/application/lib/state";
+import { findActiveApplication, stateLabel } from "@/entities/application/lib/state";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { useMyApplications } from "@/features/my-applications/api/use-my-applications";
 
@@ -22,6 +22,11 @@ import { useMyApplications } from "@/features/my-applications/api/use-my-applica
  *
  * Пока список заявок ещё грузится, ничего не показываем — кнопка/состояние
  * появятся сразу с верным вариантом после загрузки, без мигания.
+ *
+ * Запрос списка заявок гейтится `enabled: isAuthenticated` — без гейта
+ * гость получал бы гарантированный 401 на каждый визит публичной страницы
+ * номинации (хук всё равно вызывается на каждый рендер, как того требуют
+ * правила хуков, но саму сетевую заявку TanStack Query не отправляет).
  */
 export function NominationApplyCta({
   nomination,
@@ -30,7 +35,7 @@ export function NominationApplyCta({
   nomination: Nomination;
   isAuthenticated: boolean;
 }) {
-  const { data: applications, isLoading } = useMyApplications();
+  const { data: applications, isLoading } = useMyApplications({ enabled: isAuthenticated });
 
   if (!isAuthenticated) return null;
 
@@ -40,9 +45,7 @@ export function NominationApplyCta({
 
   if (isLoading || !applications) return null;
 
-  const active = applications.find(
-    (application) => application.nominationId === nomination.id && !isTerminal(application.state),
-  );
+  const active = findActiveApplication(applications, nomination.id);
 
   if (active) {
     return (

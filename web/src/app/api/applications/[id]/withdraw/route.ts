@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { applicationClient } from "@/lib/grpc/client";
-import { errorResponse } from "@/lib/grpc/errors";
 import { applicationToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
+import { applicationActionErrorResponse } from "../action-error";
 
 export const runtime = "nodejs";
 
@@ -23,6 +23,6 @@ export async function POST(_req: NextRequest, ctx: RouteContext): Promise<NextRe
     );
     return NextResponse.json({ application: applicationToJson(res.application) });
   } catch (err) {
-    return errorResponse(err);
+    return applicationActionErrorResponse(err, "withdraw");
   }
 }

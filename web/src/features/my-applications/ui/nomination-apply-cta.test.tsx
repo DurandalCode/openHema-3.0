@@ -8,7 +8,7 @@ import type { Application } from "@/entities/application/lib/types";
 const useMyApplicationsMock = vi.fn();
 
 vi.mock("@/features/my-applications/api/use-my-applications", () => ({
-  useMyApplications: () => useMyApplicationsMock(),
+  useMyApplications: (...args: unknown[]) => useMyApplicationsMock(...args),
 }));
 
 afterEach(() => {
@@ -55,6 +55,18 @@ describe("NominationApplyCta (spec 0036, FR-10..FR-12/FR-14)", () => {
       <NominationApplyCta nomination={nomination()} isAuthenticated={false} />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("гость: не отправляет запрос списка заявок (enabled: false — гарантированный 401 иначе)", () => {
+    useMyApplicationsMock.mockReturnValue({ data: [], isLoading: false });
+    render(<NominationApplyCta nomination={nomination()} isAuthenticated={false} />);
+    expect(useMyApplicationsMock).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("вошедший: запрашивает список заявок (enabled: true)", () => {
+    useMyApplicationsMock.mockReturnValue({ data: [], isLoading: false });
+    render(<NominationApplyCta nomination={nomination()} isAuthenticated={true} />);
+    expect(useMyApplicationsMock).toHaveBeenCalledWith({ enabled: true });
   });
 
   it("закрытый приём: подпись «Приём заявок завершён» (FR-12)", () => {

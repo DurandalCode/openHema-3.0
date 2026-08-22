@@ -45,13 +45,27 @@ describe("app/api/applications/[id]/withdraw route", () => {
     expect(data.application.state).toBe("APPLICATION_STATE_WITHDRAWN");
   });
 
-  it("maps CodeFailedPrecondition (already terminal) to 409", async () => {
+  it("maps CodeFailedPrecondition (already terminal) to 409 with a Russian message (spec 0036, FR-6)", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("tok");
     vi.mocked(applicationClient.withdrawApplication).mockRejectedValue(
-      new ConnectError("invalid transition", Code.FailedPrecondition),
+      new ConnectError("application: invalid transition", Code.FailedPrecondition),
     );
 
     const res = await POST(new NextRequest("http://localhost", { method: "POST" }), ctx("a1"));
     expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe("Заявку нельзя отозвать в текущем состоянии");
+  });
+
+  it("maps CodeAborted (concurrent update) to 409 with a Russian retry message", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("tok");
+    vi.mocked(applicationClient.withdrawApplication).mockRejectedValue(
+      new ConnectError("version conflict", Code.Aborted),
+    );
+
+    const res = await POST(new NextRequest("http://localhost", { method: "POST" }), ctx("a1"));
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe("Заявка уже изменилась — обновите страницу и попробуйте снова");
   });
 });

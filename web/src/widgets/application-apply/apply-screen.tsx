@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "@/shared/ui/button";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Nomination } from "@/entities/nomination/lib/types";
-import { isTerminal, stateLabel } from "@/entities/application/lib/state";
+import { findActiveApplication, stateLabel } from "@/entities/application/lib/state";
 import { useMyApplications } from "@/features/my-applications/api/use-my-applications";
 import { ApplyApplicationForm } from "@/features/my-applications/ui/apply-application-form";
 import { ApplyWhatNext } from "./apply-what-next";
@@ -34,9 +34,7 @@ export function ApplyScreen({
   tournamentName?: string | null;
 }) {
   const myApplications = useMyApplications();
-  const activeApplication = (myApplications.data ?? []).find(
-    (application) => application.nominationId === nomination.id && !isTerminal(application.state),
-  );
+  const activeApplication = findActiveApplication(myApplications.data ?? [], nomination.id);
 
   const isOpen = nomination.status === "NOMINATION_STATUS_OPEN";
   const caption = tournamentName ? `${tournamentName} · ${nomination.title}` : nomination.title;

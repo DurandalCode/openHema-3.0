@@ -1,5 +1,6 @@
 import type { BadgeTone } from "@/shared/ui/badge";
 import type {
+  Application,
   ApplicationEventType,
   ApplicationState,
 } from "@/entities/application/lib/types";
@@ -131,6 +132,22 @@ export function isTerminal(state: ApplicationState): boolean {
   return (
     state === "APPLICATION_STATE_REGISTERED" ||
     state === "APPLICATION_STATE_WITHDRAWN"
+  );
+}
+
+/**
+ * findActiveApplication — заявка пользователя в данной номинации, если она
+ * ещё нетерминальна (спека 0036, FR-8/FR-11): и экран подачи (уже подана —
+ * форму не показывать), и CTA на странице номинации (вторую заявку не
+ * предлагать) ищут ровно это — общее место, чтобы правило «что считать
+ * активной заявкой» не разъезжалось между двумя точками входа.
+ */
+export function findActiveApplication(
+  applications: Application[],
+  nominationId: string,
+): Application | undefined {
+  return applications.find(
+    (application) => application.nominationId === nominationId && !isTerminal(application.state),
   );
 }
 
