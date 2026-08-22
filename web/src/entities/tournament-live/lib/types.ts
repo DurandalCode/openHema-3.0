@@ -93,3 +93,19 @@ export type TournamentLiveSnapshotDto = {
   nominations: LiveNominationDto[];
   serverNowUnixMs: string;
 };
+
+/**
+ * emptyTournamentLiveSnapshot — снапшот-заглушка (нет активного турнира,
+ * либо gRPC упал при SSR) — по образцу `emptyNominationLiveSnapshot`
+ * (`entities/nomination-live/lib/types.ts`). `tournamentPhase([])` на таком
+ * снапшоте даёт `"before"` — безопасный дефолт для главной без турнира.
+ */
+export function emptyTournamentLiveSnapshot(tournamentId: string): TournamentLiveSnapshotDto {
+  return {
+    tournamentId,
+    arenas: [],
+    bouts: [],
+    nominations: [],
+    serverNowUnixMs: "0",
+  };
+}
