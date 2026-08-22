@@ -167,5 +167,65 @@ describe("app/api/tournament route", () => {
       const res = await PUT(putReq({ title: "Cup" }));
       expect(res.status).toBe(400);
     });
+
+    // spec 0037, FR-22: UpdateActiveTournament заменяет профиль целиком —
+    // если BFF не форвардит новые поля, сохранение любой другой правки молча
+    // обнуляет судью/регламент/место/взнос на сервере.
+    it("forwards profile-extras fields (chiefJudge/regulationsUrl/venue/entryFee)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(
+        putReq({
+          title: "Cup",
+          chiefJudge: "Мазурова Е.",
+          regulationsUrl: "https://cdn/regs.pdf",
+          venueName: "Северный манеж",
+          venueAddress: "Вологда, ул. Мира 14",
+          entryFeeMinor: 150000,
+          entryFeeCurrency: "RUB",
+        }),
+      );
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.chiefJudge).toBe("Мазурова Е.");
+      expect(reqMsg.regulationsUrl).toBe("https://cdn/regs.pdf");
+      expect(reqMsg.venueName).toBe("Северный манеж");
+      expect(reqMsg.venueAddress).toBe("Вологда, ул. Мира 14");
+      expect(reqMsg.entryFeeMinor).toBe(150000n);
+      expect(reqMsg.entryFeeCurrency).toBe("RUB");
+    });
+
+    it("omits entryFeeMinor when null (not-set differs from zero, FR-21)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(putReq({ title: "Cup", entryFeeMinor: null }));
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.entryFeeMinor).toBeUndefined();
+    });
+
+    it("forwards entryFeeMinor = 0 (free entry, distinct from not-set)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(putReq({ title: "Cup", entryFeeMinor: 0, entryFeeCurrency: "RUB" }));
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.entryFeeMinor).toBe(0n);
+    });
   });
 });

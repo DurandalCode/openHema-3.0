@@ -19,6 +19,16 @@ type UpdateBody = {
   eventStartAt?: string | null;
   eventEndAt?: string | null;
   contacts?: ContactInputBody[];
+  // Профиль турнира — новые поля (spec 0037, FR-18). UpdateActiveTournament
+  // заменяет профиль целиком (FR-22) — не форвардить их здесь означало бы
+  // обнулять их на сервере при каждом сохранении любого другого поля.
+  chiefJudge?: string;
+  regulationsUrl?: string;
+  venueName?: string;
+  venueAddress?: string;
+  // entryFeeMinor — null означает «не задан» (FR-21, отличимо от 0).
+  entryFeeMinor?: number | null;
+  entryFeeCurrency?: string;
 };
 
 // UI хранит enum строкой с proto-именем ("CONTACT_TYPE_TELEGRAM"); proto-поле
@@ -82,6 +92,10 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
     typeof body.eventEndAt === "string" && body.eventEndAt.length > 0
       ? timestampFromDate(new Date(body.eventEndAt))
       : undefined;
+  // entryFeeMinor: proto — proto3_optional int64 (bigint в TS). undefined —
+  // «не задан» (FR-21); typeof number, включая 0, форвардится как есть.
+  const entryFeeMinor =
+    typeof body.entryFeeMinor === "number" ? BigInt(body.entryFeeMinor) : undefined;
 
   try {
     const res = await tournamentAdminClient.updateActiveTournament(
@@ -92,6 +106,12 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
         eventStartAt,
         eventEndAt,
         contacts,
+        chiefJudge: body.chiefJudge ?? "",
+        regulationsUrl: body.regulationsUrl ?? "",
+        venueName: body.venueName ?? "",
+        venueAddress: body.venueAddress ?? "",
+        entryFeeMinor,
+        entryFeeCurrency: body.entryFeeCurrency ?? "",
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
