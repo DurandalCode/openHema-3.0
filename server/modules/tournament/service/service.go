@@ -3,10 +3,15 @@ package service
 
 import (
 	"context"
+	"net/url"
 	"strings"
 
 	"github.com/hema/server/modules/tournament/domain"
 )
+
+// defaultEntryFeeCurrency — валюта по умолчанию, если взнос задан, а валюта
+// клиентом не прислана (см. plan.md, модуль tournament).
+const defaultEntryFeeCurrency = "RUB"
 
 // Service реализует юзкейсы турнира. Зависит от порта, не от pg/proto.
 type Service struct {
@@ -38,6 +43,34 @@ func (s *Service) UpdateActive(ctx context.Context, in domain.UpdateInput) (doma
 	}
 	in.Description = strings.TrimSpace(in.Description)
 	in.EmblemURL = strings.TrimSpace(in.EmblemURL)
+	in.ChiefJudge = strings.TrimSpace(in.ChiefJudge)
+	in.VenueName = strings.TrimSpace(in.VenueName)
+	in.VenueAddress = strings.TrimSpace(in.VenueAddress)
+
+	// regulations_url: пусто — «не задан»; непусто — только http/https
+	// (FR-20, AC-15).
+	in.RegulationsURL = strings.TrimSpace(in.RegulationsURL)
+	if in.RegulationsURL != "" {
+		u, err := url.Parse(in.RegulationsURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return domain.Tournament{}, domain.ErrInvalidInput
+		}
+	}
+
+	// entry_fee_minor: не задан ⇒ валюта затирается в пустую строку;
+	// задан ⇒ должен быть неотрицательным, валюта по умолчанию — RUB, если
+	// клиент прислал сумму без валюты (FR-21).
+	if in.EntryFeeMinor == nil {
+		in.EntryFeeCurrency = ""
+	} else {
+		if *in.EntryFeeMinor < 0 {
+			return domain.Tournament{}, domain.ErrInvalidInput
+		}
+		in.EntryFeeCurrency = strings.TrimSpace(in.EntryFeeCurrency)
+		if in.EntryFeeCurrency == "" {
+			in.EntryFeeCurrency = defaultEntryFeeCurrency
+		}
+	}
 
 	// Валидация диапазона дат проведения.
 	if in.HasEventEndAt && !in.HasEventStartAt {

@@ -64,6 +64,12 @@ func (r *FakeRepo) UpdateActive(_ context.Context, in domain.UpdateInput) (domai
 	t.EventEndAt = in.EventEndAt
 	t.HasEventEndAt = in.HasEventEndAt
 	t.EmblemURL = in.EmblemURL
+	t.ChiefJudge = in.ChiefJudge
+	t.RegulationsURL = in.RegulationsURL
+	t.VenueName = in.VenueName
+	t.VenueAddress = in.VenueAddress
+	t.EntryFeeMinor = in.EntryFeeMinor
+	t.EntryFeeCurrency = in.EntryFeeCurrency
 	t.UpdatedAt = now
 
 	contacts := make([]domain.Contact, 0, len(in.Contacts))
