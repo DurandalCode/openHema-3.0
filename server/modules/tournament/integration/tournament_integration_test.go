@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	hemav1 "github.com/hema/server/gen/hema/v1"
@@ -34,7 +35,7 @@ const (
 // собирает composition root (auth + tournament модули с реальным пулом БД),
 // оборачивает в httptest.Server и возвращает Connect-клиенты. t.Cleanup
 // освобождает ресурсы (контейнер + пул + сервер).
-func setup(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1connect.TournamentAdminServiceClient) {
+func setup(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1connect.TournamentAdminServiceClient, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.Postgres(t)
 
@@ -61,7 +62,7 @@ func setup(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1connect.T
 	client := server.Client()
 	pub := hemav1connect.NewTournamentServiceClient(client, server.URL)
 	admin := hemav1connect.NewTournamentAdminServiceClient(client, server.URL)
-	return pub, admin
+	return pub, admin, pool
 }
 
 func adminBearer(t *testing.T) string {
@@ -83,7 +84,7 @@ func TestIntegration_MigrationsApplied(t *testing.T) {
 }
 
 func TestIntegration_GetActiveTournament_SeedEmpty(t *testing.T) {
-	pub, _ := setup(t)
+	pub, _, _ := setup(t)
 
 	res, err := pub.GetActiveTournament(context.Background(),
 		connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
@@ -113,7 +114,7 @@ func TestIntegration_GetActiveTournament_SeedEmpty(t *testing.T) {
 }
 
 func TestIntegration_GetActiveTournament_NoTokenAllowed(t *testing.T) {
-	pub, _ := setup(t)
+	pub, _, _ := setup(t)
 
 	_, err := pub.GetActiveTournament(context.Background(),
 		connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
@@ -123,7 +124,7 @@ func TestIntegration_GetActiveTournament_NoTokenAllowed(t *testing.T) {
 }
 
 func TestIntegration_UpdateActiveTournament_HappyPathAndPersisted(t *testing.T) {
-	pub, admin := setup(t)
+	pub, admin, _ := setup(t)
 
 	start := timestamppb.New(time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC))
 	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
@@ -174,7 +175,7 @@ func TestIntegration_UpdateActiveTournament_HappyPathAndPersisted(t *testing.T) 
 }
 
 func TestIntegration_UpdateActiveTournament_MultiDay(t *testing.T) {
-	pub, admin := setup(t)
+	pub, admin, _ := setup(t)
 	_ = pub
 
 	start := timestamppb.New(time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC))
@@ -200,7 +201,7 @@ func TestIntegration_UpdateActiveTournament_MultiDay(t *testing.T) {
 }
 
 func TestIntegration_UpdateActiveTournament_EventEndBeforeStart(t *testing.T) {
-	_, admin := setup(t)
+	_, admin, _ := setup(t)
 
 	start := timestamppb.New(time.Date(2026, 12, 3, 18, 0, 0, 0, time.UTC))
 	end := timestamppb.New(time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC))
@@ -218,7 +219,7 @@ func TestIntegration_UpdateActiveTournament_EventEndBeforeStart(t *testing.T) {
 }
 
 func TestIntegration_UpdateActiveTournament_EventEndWithoutStart(t *testing.T) {
-	_, admin := setup(t)
+	_, admin, _ := setup(t)
 
 	end := timestamppb.Now()
 	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
@@ -237,11 +238,168 @@ func TestIntegration_UpdateActiveTournament_EventEndWithoutStart(t *testing.T) {
 // authentication: admin-RPC без токена должен отказать, а не падать в
 // незащищённый path или segfault.
 func TestIntegration_UpdateActiveTournament_NoToken(t *testing.T) {
-	_, admin := setup(t)
+	_, admin, _ := setup(t)
 
 	_, err := admin.UpdateActiveTournament(context.Background(),
 		connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{Title: "T"}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated without token, got %v", connect.CodeOf(err))
+	}
+}
+// TestIntegration_UpdateActiveTournament_ProfileExtras_RoundTrip — спека
+// 0037 (T22): судья/регламент/место/взнос сохраняются через реальный
+// Connect-путь и переживают повторное чтение из БД, включая presence
+// entry_fee_minor (не задан ⇒ "not set", отличимо от 0, FR-21).
+func TestIntegration_UpdateActiveTournament_ProfileExtras_RoundTrip(t *testing.T) {
+	pub, admin, _ := setup(t)
+
+	fee := int64(150000)
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title:            "Profile Extras Cup",
+		ChiefJudge:       "Мазурова Е.",
+		RegulationsUrl:   "https://cdn.example.com/regs.pdf",
+		VenueName:        "Северный манеж",
+		VenueAddress:     "Вологда, ул. Мира 14",
+		EntryFeeMinor:    &fee,
+		EntryFeeCurrency: "RUB",
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := admin.UpdateActiveTournament(context.Background(), req)
+	if err != nil {
+		t.Fatalf("UpdateActiveTournament: %v", err)
+	}
+	got := res.Msg.Tournament
+	if got.ChiefJudge != "Мазурова Е." {
+		t.Errorf("chief_judge = %q", got.ChiefJudge)
+	}
+	if got.RegulationsUrl != "https://cdn.example.com/regs.pdf" {
+		t.Errorf("regulations_url = %q", got.RegulationsUrl)
+	}
+	if got.VenueName != "Северный манеж" || got.VenueAddress != "Вологда, ул. Мира 14" {
+		t.Errorf("venue = %q / %q", got.VenueName, got.VenueAddress)
+	}
+	if got.EntryFeeMinor == nil || *got.EntryFeeMinor != fee {
+		t.Errorf("entry_fee_minor = %v, want %d", got.EntryFeeMinor, fee)
+	}
+	if got.EntryFeeCurrency != "RUB" {
+		t.Errorf("entry_fee_currency = %q", got.EntryFeeCurrency)
+	}
+
+	// Повторный Get — подтверждает, что значения сохранены в БД, а не
+	// только эхом в ответе UpdateActiveTournament.
+	got2, err := pub.GetActiveTournament(context.Background(),
+		connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
+	if err != nil {
+		t.Fatalf("GetActiveTournament after update: %v", err)
+	}
+	tr := got2.Msg.Tournament
+	if tr.ChiefJudge != "Мазурова Е." || tr.RegulationsUrl != "https://cdn.example.com/regs.pdf" {
+		t.Errorf("persisted judge/regs = %q / %q", tr.ChiefJudge, tr.RegulationsUrl)
+	}
+	if tr.EntryFeeMinor == nil || *tr.EntryFeeMinor != fee || tr.EntryFeeCurrency != "RUB" {
+		t.Errorf("persisted entry fee = %v %q", tr.EntryFeeMinor, tr.EntryFeeCurrency)
+	}
+}
+
+// TestIntegration_UpdateActiveTournament_EntryFeeNotSet_DiffersFromZero —
+// спека 0037, AC-16: взнос не задан (EntryFeeMinor == nil) отличим от явного
+// нулевого взноса на уровне персистентности, не только в proto-presence
+// внутри одного ответа.
+func TestIntegration_UpdateActiveTournament_EntryFeeNotSet_DiffersFromZero(t *testing.T) {
+	pub, admin, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title: "No Fee Cup",
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.UpdateActiveTournament(context.Background(), req); err != nil {
+		t.Fatalf("UpdateActiveTournament: %v", err)
+	}
+
+	got, err := pub.GetActiveTournament(context.Background(),
+		connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
+	if err != nil {
+		t.Fatalf("GetActiveTournament: %v", err)
+	}
+	if got.Msg.Tournament.EntryFeeMinor != nil {
+		t.Errorf("entry_fee_minor = %v, want nil (not set)", got.Msg.Tournament.EntryFeeMinor)
+	}
+	if got.Msg.Tournament.EntryFeeCurrency != "" {
+		t.Errorf("entry_fee_currency = %q, want empty when fee not set", got.Msg.Tournament.EntryFeeCurrency)
+	}
+}
+
+// TestIntegration_UpdateActiveTournament_InvalidRegulationsUrl — спека 0037,
+// AC-15: неверная схема ссылки на регламент отклоняется через реальный
+// Connect-путь, ни одно поле профиля не меняется.
+func TestIntegration_UpdateActiveTournament_InvalidRegulationsUrl(t *testing.T) {
+	_, admin, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title:          "Bad Regs",
+		RegulationsUrl: "not-a-url",
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.UpdateActiveTournament(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument for invalid regulations_url, got %v", connect.CodeOf(err))
+	}
+}
+
+// TestIntegration_EntryFeeConstraint — спека 0037 (T22, plan.md): CHECK
+// chk_entry_fee должен реально блокировать рассинхрон на уровне PG, не
+// только в Go-валидации сервиса (та же гарантия, что и chk_nominations_*
+// в модуле nomination). Пишет напрямую в таблицу, минуя service-слой.
+func TestIntegration_EntryFeeConstraint(t *testing.T) {
+	_, _, pool := setup(t)
+	ctx := context.Background()
+
+	var tournamentID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM tournament.tournaments WHERE is_active = TRUE`,
+	).Scan(&tournamentID); err != nil {
+		t.Fatalf("select seed tournament id: %v", err)
+	}
+
+	// Отрицательный взнос — нарушение.
+	_, err := pool.Exec(ctx,
+		`UPDATE tournament.tournaments SET entry_fee_minor = -100, entry_fee_currency = 'RUB' WHERE id = $1`,
+		tournamentID)
+	if err == nil {
+		t.Error("expected constraint violation: negative entry_fee_minor")
+	}
+
+	// Взнос без валюты — нарушение.
+	_, err = pool.Exec(ctx,
+		`UPDATE tournament.tournaments SET entry_fee_minor = 1000, entry_fee_currency = '' WHERE id = $1`,
+		tournamentID)
+	if err == nil {
+		t.Error("expected constraint violation: entry_fee_minor set without currency")
+	}
+
+	// Валюта без взноса — нарушение (симметрично).
+	_, err = pool.Exec(ctx,
+		`UPDATE tournament.tournaments SET entry_fee_minor = NULL, entry_fee_currency = 'RUB' WHERE id = $1`,
+		tournamentID)
+	if err == nil {
+		t.Error("expected constraint violation: entry_fee_currency set without entry_fee_minor")
+	}
+
+	// Согласованная пара — проходит.
+	_, err = pool.Exec(ctx,
+		`UPDATE tournament.tournaments SET entry_fee_minor = 1000, entry_fee_currency = 'RUB' WHERE id = $1`,
+		tournamentID)
+	if err != nil {
+		t.Errorf("consistent (fee, currency) pair should be accepted: %v", err)
+	}
+
+	// Оба пустых — тоже проходит («не задан»).
+	_, err = pool.Exec(ctx,
+		`UPDATE tournament.tournaments SET entry_fee_minor = NULL, entry_fee_currency = '' WHERE id = $1`,
+		tournamentID)
+	if err != nil {
+		t.Errorf("both-empty (not set) pair should be accepted: %v", err)
 	}
 }

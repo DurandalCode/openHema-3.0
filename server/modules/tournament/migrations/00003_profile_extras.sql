@@ -11,10 +11,14 @@ ALTER TABLE tournament.tournaments
     ADD COLUMN entry_fee_minor    BIGINT NULL,
     ADD COLUMN entry_fee_currency TEXT   NOT NULL DEFAULT '';
 
+-- Симметрично в обе стороны: NULL >= 0 в SQL — unknown, не false, поэтому
+-- «валюта без суммы» без явного IS NOT NULL молча проходило бы CHECK
+-- (three-valued logic: OR с NULL даёт NULL, а не false — констрейнт
+-- пропускает). entry_fee_minor IS NOT NULL делает обе стороны явными.
 ALTER TABLE tournament.tournaments
     ADD CONSTRAINT chk_entry_fee CHECK (
         (entry_fee_minor IS NULL AND entry_fee_currency = '')
-        OR (entry_fee_minor >= 0 AND entry_fee_currency <> '')
+        OR (entry_fee_minor IS NOT NULL AND entry_fee_minor >= 0 AND entry_fee_currency <> '')
     );
 -- +goose StatementEnd
 
