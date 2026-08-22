@@ -89,18 +89,18 @@
 
 ## Волна 1 · трек C — точки входа
 
-- [ ] T10. **CTA (red→green)** —
+- [x] T10. **CTA (red→green)** —
       `features/my-applications/ui/nomination-apply-cta.test.tsx`: закрытый
       приём → подпись «Приём заявок завершён»; открытый без активной заявки
       → кнопка-ссылка на `/nominations/[id]/apply`; с активной заявкой →
       состояние + ссылка «Мои заявки» (FR-10..FR-12, AC-5) →
       `nomination-apply-cta.tsx`.
-- [ ] T11. **страница номинации (red→green)** —
+- [x] T11. **страница номинации (red→green)** —
       `widgets/nomination-public/nomination-public-screen.test.tsx`: при
       `isAuthenticated=false` блок подачи не рендерится, при `true` —
       рендерится (FR-14, AC-2) → проп `isAuthenticated` в экране + проброс
       из `app/nominations/[id]/page.tsx` (`getCurrentUser`).
-- [ ] T12. **карточка главной** — в
+- [x] T12. **карточка главной** — в
       `widgets/nominations-list/nominations-list.tsx` инлайн-форма
       заменяется кнопкой-ссылкой на экран подачи; удалить
       `features/my-applications/ui/submit-application-button.tsx` (FR-13).
