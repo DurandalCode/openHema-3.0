@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { BracketView } from "./bracket-view";
-import type { Bracket, BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
+import type { Bracket, BracketHalf, BracketSlot } from "@/entities/bracket/lib/types";
 import type { Pool } from "@/entities/pool/lib/types";
 
 const emptyFighter = { fighterId: "", name: "", club: "" };
@@ -287,5 +287,83 @@ describe("BracketView", () => {
   it("wraps rounds in a horizontally scrollable container (NFR-2)", () => {
     const { container } = render(<BracketView bracket={bracket} />);
     expect(container.querySelector(".overflow-x-auto")).not.toBeNull();
+  });
+
+  // Спека 0035, FR-17/AC-12: пара текущего боя подписана площадкой половины
+  // рядом с самой парой, а не только на уровне половины (существующий FR-19).
+  it("shows the arena caption tied to the currently-live pair (FR-17/AC-12)", () => {
+    render(<BracketView bracket={bracket} />);
+    // Половина-уровневая подпись остаётся (FR-19/спека 0033), плюс подпись
+    // на самой текущей паре — итого две подписи с этим названием площадки.
+    expect(screen.getAllByText(/Ристалище 1/).length).toBe(2);
+  });
+
+  it("adds the pair-level arena caption only to the currently-live pair, not to other pairs", () => {
+    render(<BracketView bracket={bracket} />);
+    // Во всей сетке площадка назначена только одной половине («Ристалище
+    // 1»), и текущий бой в ней — ровно один: подпись «Площадка: …» должна
+    // появиться ровно один раз, а не у каждой материализованной пары.
+    expect(screen.getAllByText(/^Площадка:/).length).toBe(1);
+  });
+
+  // Спека 0035, FR-13: счёт материализованной, но ещё не начатой пары —
+  // прочерк, а не 0:0 (тот же `boutScoreLabel`, что и у карточки группы).
+  it("shows a dash score for a materialized pair whose bout hasn't started (FR-13)", () => {
+    const notStartedBracket: Bracket = {
+      ...bracket,
+      rounds: [
+        {
+          number: 1,
+          title: "1/4 финала",
+          thirdPlace: false,
+          halves: [
+            {
+              half: 1,
+              title: "",
+              container: pool({ id: "pool-ns", name: "1/4 финала, не начата" }),
+              currentBoutId: "",
+              pairs: [
+                {
+                  index: 1,
+                  slotA: filledSlot(1, "Игорь Смирнов"),
+                  slotB: filledSlot(2, "Дмитрий Волков"),
+                  bout: {
+                    id: "bout-ns",
+                    roundNumber: 1,
+                    sequenceNumber: 1,
+                    fighterA: { fighterId: "f1", name: "Игорь Смирнов", club: "" },
+                    fighterB: { fighterId: "f2", name: "Дмитрий Волков", club: "" },
+                    state: "BOUT_STATE_NOT_STARTED",
+                    scoreA: 0,
+                    scoreB: 0,
+                  },
+                  resolved: false,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    render(<BracketView bracket={notStartedBracket} />);
+    expect(screen.getByText("—:—")).toBeInTheDocument();
+    expect(screen.queryByText("0:0")).not.toBeInTheDocument();
+  });
+
+  // Спека 0035, FR-18/AC-13: финал и бой за 3-е место выделены как отдельные
+  // визуально акцентированные блоки правого края сетки.
+  it("visually distinguishes the final and third-place round blocks (FR-18/AC-13)", () => {
+    const { container } = render(<BracketView bracket={bracket} />);
+    const finalBlock = container.querySelector('[data-emphasis="final"]');
+    const thirdPlaceBlock = container.querySelector('[data-emphasis="third-place"]');
+    expect(finalBlock).not.toBeNull();
+    expect(thirdPlaceBlock).not.toBeNull();
+    expect(finalBlock).not.toBe(thirdPlaceBlock);
+  });
+
+  it("does not mark a non-final, non-third-place round with an emphasis attribute", () => {
+    render(<BracketView bracket={bracket} />);
+    const quarterfinalHeading = screen.getByText("1/4 финала").closest("[data-emphasis]");
+    expect(quarterfinalHeading).toBeNull();
   });
 });
