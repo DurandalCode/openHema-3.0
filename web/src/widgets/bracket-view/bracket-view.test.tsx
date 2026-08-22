@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { BracketView } from "./bracket-view";
-import type { Bracket, BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
+import type { Bracket, BracketHalf, BracketSlot } from "@/entities/bracket/lib/types";
 import type { Pool } from "@/entities/pool/lib/types";
 
 const emptyFighter = { fighterId: "", name: "", club: "" };
@@ -362,7 +362,7 @@ describe("BracketView", () => {
   });
 
   it("does not mark a non-final, non-third-place round with an emphasis attribute", () => {
-    const { container } = render(<BracketView bracket={bracket} />);
+    render(<BracketView bracket={bracket} />);
     const quarterfinalHeading = screen.getByText("1/4 финала").closest("[data-emphasis]");
     expect(quarterfinalHeading).toBeNull();
   });

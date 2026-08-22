@@ -45,7 +45,7 @@ function stageState(stage: Stage): SchemaChainStageState {
  * списке `stages`, что получен целиком (тот же приём, что приватный
  * `sourceStageTitle` в `widgets/nomination-schema/nomination-schema.tsx`).
  */
-function waitingHint(stage: Stage, stages: Stage[]): string {
+export function waitingHint(stage: Stage, stages: Stage[]): string {
   if (stageState(stage) !== "pending") return "";
   if (!stage.rule || stage.rule.sourceKind !== "STAGE_SOURCE_KIND_STAGE") return "";
   const source = stages.find((s) => s.id === stage.rule?.sourceStageId);
