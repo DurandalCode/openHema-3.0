@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactHref, formatEventRange } from "./format";
+import { contactHref, daysUntil, formatEventRange } from "./format";
 
 describe("entities/tournament/lib/format contactHref", () => {
   it("passes through http(s) URLs as-is", () => {
@@ -88,5 +88,34 @@ describe("entities/tournament/lib/format formatEventRange", () => {
 
   it("returns null on invalid date", () => {
     expect(formatEventRange("not-a-date", "")).toBeNull();
+  });
+});
+
+describe("entities/tournament/lib/format daysUntil", () => {
+  it("returns a positive number of days for a future date", () => {
+    const now = new Date("2026-08-22T12:00:00Z");
+    expect(daysUntil("2026-08-25T09:00:00Z", now)).toBe(3);
+  });
+
+  it("returns 0 when the start date is today (AC-2 'сегодня')", () => {
+    // Полдень UTC — безопасное значение, не пересекающее полночь по
+    // местному времени в разумном диапазоне часовых поясов теста.
+    const now = new Date("2026-08-22T12:00:00Z");
+    expect(daysUntil("2026-08-22T12:00:00Z", now)).toBe(0);
+  });
+
+  it("returns null when startIso is empty", () => {
+    expect(daysUntil("", new Date("2026-08-22T12:00:00Z"))).toBeNull();
+  });
+
+  it("returns null when startIso is not a valid date", () => {
+    expect(daysUntil("not-a-date", new Date("2026-08-22T12:00:00Z"))).toBeNull();
+  });
+
+  it("returns a negative number for a past date (tournament already started/over)", () => {
+    // Решение: daysUntil не решает, идёт ли турнир — это задача
+    // tournamentPhase. Честный отрицательный результат, без null.
+    const now = new Date("2026-08-22T12:00:00Z");
+    expect(daysUntil("2026-08-20T09:00:00Z", now)).toBe(-2);
   });
 });
