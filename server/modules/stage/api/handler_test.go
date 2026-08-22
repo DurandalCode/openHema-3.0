@@ -1215,6 +1215,211 @@ func TestWatchNominationLive_E2E_EmptyNominationIDReturnsInvalidArgument(t *test
 }
 
 // ---------------------------------------------------------------------
+// Спека 0034: публичная живая сводка турнира целиком (главная страница) —
+// GetTournamentLive (unary) и WatchTournamentLive (server-streaming).
+//
+// setupTournamentLive монтирует StagePublicService БЕЗ connectutil.Auth (в
+// отличие от setupFull) — это осознанное отступление от образца
+// TestGetNominationLive_E2E_*/TestWatchNominationLive_E2E_*, а не небрежность:
+// GetTournamentLive/WatchTournamentLive ещё не внесены в карту
+// publicProcedures интерсептора Auth (pkg/connectutil/auth_interceptor.go) —
+// это отдельный join-шаг T13 (внесение туда — не в этом файле и не в этом
+// пакете). Если бы эти тесты, как TestGetNominationLive_E2E_*, шли через
+// setupFull (Auth смонтирован глобально), они бы падали с Unauthenticated до
+// T13 — не из-за бага хендлера, а из-за отсутствия записи в чужом пакете.
+// Тесты здесь проверяют то, что действительно принадлежит этому треку:
+// маппинг domain → proto и поведение стрима (первый кадр/сигнал шины/отмена
+// контекста) — ровно то же самое, что делает Auth-обёрнутый setupFull для
+// уже зарегистрированных публичных RPC.
+func setupTournamentLive(t *testing.T) (
+	hemav1connect.StagePublicServiceClient,
+	*testutil.FakeRepo,
+	*testutil.FakeActiveFightersProvider,
+	*testutil.FakeArenaProvider,
+	*testutil.FakeNominationProvider,
+	*testutil.FakeBoutConductor,
+	*testutil.FakeLiveBus,
+) {
+	t.Helper()
+
+	repo := testutil.NewFakeRepo()
+	fighters := testutil.NewFakeActiveFightersProvider()
+	bouts := testutil.NewFakeBoutConductor()
+	arenas := testutil.NewFakeArenaProvider()
+	nominations := testutil.NewFakeNominationProvider()
+	liveBus := testutil.NewFakeLiveBus()
+	users := testutil.NewFakeUserProvider()
+	svc := service.New(repo, fighters, bouts, arenas, nominations, liveBus, users)
+	publicHandler := NewPublicHandler(svc)
+
+	publicPath, publicH := hemav1connect.NewStagePublicServiceHandler(publicHandler)
+
+	mux := http.NewServeMux()
+	mux.Handle(publicPath, publicH)
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := server.Client()
+	publicClient := hemav1connect.NewStagePublicServiceClient(client, server.URL)
+	return publicClient, repo, fighters, arenas, nominations, bouts, liveBus
+}
+
+// GetTournamentLive отвечает успешно на прямой вызов публичного клиента без
+// заголовка Authorization (см. комментарий у setupTournamentLive — регистрация
+// в publicProcedures остаётся за T13).
+func TestGetTournamentLive_E2E_RespondsWithoutAuthorizationHeader(t *testing.T) {
+	public, repo, fighters, arenas, nominations, bouts, _ := setupTournamentLive(t)
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: n1, Title: "Длинный меч", Position: 1})
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool(n1, 1, "f1", "f2")
+	repo.SeedStatus(n1, domain.LayoutReady)
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateInProgress, ScoreA: 4, ScoreB: 2,
+	})
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "Ристалище 1", Active: true, Position: 1})
+
+	req := connect.NewRequest(&hemav1.GetTournamentLiveRequest{TournamentId: "t1"})
+	// Заголовок Authorization намеренно не выставляется — NFR-3.
+	res, err := public.GetTournamentLive(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetTournamentLive: %v", err)
+	}
+	snap := res.Msg.Snapshot
+	if snap.TournamentId != "t1" {
+		t.Fatalf("TournamentId = %q, want t1", snap.TournamentId)
+	}
+	if len(snap.Arenas) != 1 {
+		t.Fatalf("expected 1 arena, got %d: %+v", len(snap.Arenas), snap.Arenas)
+	}
+	arena := snap.Arenas[0]
+	if arena.State != hemav1.LiveArenaState_LIVE_ARENA_STATE_BOUT_IN_PROGRESS {
+		t.Fatalf("State = %v, want BOUT_IN_PROGRESS", arena.State)
+	}
+	if arena.CurrentBout == nil || arena.CurrentBout.BoutId != "b1" {
+		t.Fatalf("unexpected CurrentBout: %+v", arena.CurrentBout)
+	}
+	if arena.CurrentBout.ScoreA != 4 || arena.CurrentBout.ScoreB != 2 {
+		t.Fatalf("unexpected score: %+v", arena.CurrentBout)
+	}
+	if len(snap.Bouts) != 1 || snap.Bouts[0].BoutId != "b1" {
+		t.Fatalf("expected the bout in the feed, got %+v", snap.Bouts)
+	}
+	if len(snap.Nominations) != 1 || snap.Nominations[0].NominationId != n1 {
+		t.Fatalf("expected 1 nomination in the sidebar, got %+v", snap.Nominations)
+	}
+}
+
+func TestGetTournamentLive_E2E_EmptyTournamentIDReturnsInvalidArgument(t *testing.T) {
+	public, _, _, _, _, _, _ := setupTournamentLive(t)
+
+	req := connect.NewRequest(&hemav1.GetTournamentLiveRequest{TournamentId: ""})
+	_, err := public.GetTournamentLive(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+// waitForSubscriberCountTournament — как waitForSubscriberCount, но для
+// топика турнира (спека 0034).
+func waitForSubscriberCountTournament(t *testing.T, bus *testutil.FakeLiveBus, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if bus.SubscriberCountTournament() == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for SubscriberCountTournament == %d, got %d", want, bus.SubscriberCountTournament())
+}
+
+// WatchTournamentLive: первый кадр — текущий снапшот; после сигнала
+// PublishTournamentChanged (эмулирует конкурентную мутацию поверх открытого
+// стрима) — второй кадр с обновлённым снапшотом; после отмены контекста
+// клиентом стрим завершается штатно и подписчик отписывается (зеркалит
+// TestWatchNominationLive_E2E_StreamsSnapshotOnChange, спека 0014).
+func TestWatchTournamentLive_E2E_StreamsSnapshotOnChange(t *testing.T) {
+	public, repo, fighters, arenas, nominations, bouts, liveBus := setupTournamentLive(t)
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: n1, Title: "Длинный меч", Position: 1})
+	fighters.Set(n1, domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool(n1, 1, "f1", "f2")
+	repo.SeedStatus(n1, domain.LayoutReady)
+	if err := repo.SeatPool(context.Background(), poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "Ристалище 1", Active: true, Position: 1})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := connect.NewRequest(&hemav1.WatchTournamentLiveRequest{TournamentId: "t1"})
+	stream, err := public.WatchTournamentLive(ctx, req)
+	if err != nil {
+		t.Fatalf("WatchTournamentLive: %v", err)
+	}
+
+	if !stream.Receive() {
+		t.Fatalf("expected first frame, got err: %v", stream.Err())
+	}
+	first := stream.Msg().Snapshot
+	if len(first.Arenas) != 1 || first.Arenas[0].State != hemav1.LiveArenaState_LIVE_ARENA_STATE_PREPARING {
+		t.Fatalf("unexpected first frame: %+v", first.Arenas)
+	}
+
+	waitForSubscriberCountTournament(t, liveBus, 1)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateInProgress,
+	})
+	liveBus.PublishTournamentChanged()
+
+	if !stream.Receive() {
+		t.Fatalf("expected second frame, got err: %v", stream.Err())
+	}
+	second := stream.Msg().Snapshot
+	if len(second.Arenas) != 1 || second.Arenas[0].State != hemav1.LiveArenaState_LIVE_ARENA_STATE_BOUT_IN_PROGRESS {
+		t.Fatalf("unexpected second frame (expected updated arena state): %+v", second.Arenas)
+	}
+
+	cancel()
+	for stream.Receive() {
+		// drain until the stream ends (client-side cancellation).
+	}
+	if err := stream.Err(); err != nil && connect.CodeOf(err) != connect.CodeCanceled {
+		t.Fatalf("unexpected terminal error after cancel: %v", err)
+	}
+	waitForSubscriberCountTournament(t, liveBus, 0)
+}
+
+func TestWatchTournamentLive_E2E_EmptyTournamentIDReturnsInvalidArgument(t *testing.T) {
+	public, _, _, _, _, _, _ := setupTournamentLive(t)
+
+	req := connect.NewRequest(&hemav1.WatchTournamentLiveRequest{TournamentId: ""})
+	stream, err := public.WatchTournamentLive(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WatchTournamentLive: %v", err)
+	}
+	if stream.Receive() {
+		t.Fatalf("expected no frames, got: %+v", stream.Msg())
+	}
+	if connect.CodeOf(stream.Err()) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(stream.Err()))
+	}
+}
+
+// ---------------------------------------------------------------------
 // Спека 0015: живой канал табло арены (недоменный таймер, ADR 0013 — сервер
 // как реле). Синхронизация со стримом сервера идёт через первый кадр
 // (snapshot): handler делает JoinArenaBoard синхронно ДО первого Send, так

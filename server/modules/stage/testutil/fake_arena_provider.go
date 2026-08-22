@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/hema/server/modules/stage/domain"
@@ -14,11 +15,20 @@ type FakeArenaProvider struct {
 	mu       sync.Mutex
 	arenas   map[string]domain.ArenaRef
 	defaults map[string]int
+	// active — площадки турнира для ActiveArenas (спека 0034, FR-14): ключ —
+	// tournamentID. Отдельно от arenas (Set/ArenaByID/ArenasByIDs) — та карта
+	// адресуется по arenaID, эта по tournamentID, площадка может быть в
+	// нескольких турнирах в тестовых данных.
+	active map[string][]domain.ArenaRef
 }
 
 // NewFakeArenaProvider создаёт пустой fake-провайдер площадок.
 func NewFakeArenaProvider() *FakeArenaProvider {
-	return &FakeArenaProvider{arenas: make(map[string]domain.ArenaRef), defaults: make(map[string]int)}
+	return &FakeArenaProvider{
+		arenas:   make(map[string]domain.ArenaRef),
+		defaults: make(map[string]int),
+		active:   make(map[string][]domain.ArenaRef),
+	}
 }
 
 var _ domain.ArenaProvider = (*FakeArenaProvider)(nil)
@@ -79,4 +89,27 @@ func (p *FakeArenaProvider) DefaultDurationSeconds(_ context.Context, arenaID st
 		return v, nil
 	}
 	return 90, nil
+}
+
+// SeedActiveArenas задаёт (заменяя предыдущий набор) площадки турнира для
+// ActiveArenas (спека 0034, FR-14). Тест сам решает порядок аргументов —
+// ActiveArenas всё равно отсортирует по Position на чтении, как это делает
+// реальный адаптер (спека 0027, admin-порядок).
+func (p *FakeArenaProvider) SeedActiveArenas(tournamentID string, arenas ...domain.ArenaRef) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.active[tournamentID] = append([]domain.ArenaRef{}, arenas...)
+}
+
+// ActiveArenas возвращает площадки, засеянные SeedActiveArenas для
+// tournamentID, отсортированные по Position — фейку не нужно валидировать
+// tournamentID против «активного турнира» (это делает реальный адаптер в
+// internal/platform, join-волна T13): пустой список для незасеянного id, без
+// ошибки.
+func (p *FakeArenaProvider) ActiveArenas(_ context.Context, tournamentID string) ([]domain.ArenaRef, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := append([]domain.ArenaRef{}, p.active[tournamentID]...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Position < out[j].Position })
+	return out, nil
 }

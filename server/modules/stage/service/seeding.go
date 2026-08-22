@@ -438,7 +438,7 @@ func (s *Service) BuildStage(ctx context.Context, stageID string, ties []domain.
 		if err := s.syncBracketRegistration(ctx, stage.NominationID); err != nil {
 			return domain.Layout{}, domain.Bracket{}, err
 		}
-		s.liveBus.PublishNominationChanged(stage.NominationID)
+		s.notifyNominationChanged(stage.NominationID)
 		bracket, err := s.buildBracket(ctx, stage, true)
 		return domain.Layout{}, bracket, err
 	}
@@ -447,6 +447,6 @@ func (s *Service) BuildStage(ctx context.Context, stageID string, ties []domain.
 	if err != nil {
 		return domain.Layout{}, domain.Bracket{}, err
 	}
-	s.liveBus.PublishNominationChanged(stage.NominationID)
+	s.notifyNominationChanged(stage.NominationID)
 	return layout, domain.Bracket{}, nil
 }
