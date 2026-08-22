@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -19,9 +20,11 @@ type DisplayNameProvider struct {
 }
 
 // NewDisplayNameProvider создаёт провайдер поверх пула соединений.
+// Провайдер использует только DisplayNames, поэтому почтовые/reset-параметры
+// сервиса ему не нужны (nil-мейлер, нулевой TTL).
 func NewDisplayNameProvider(pool *pgxpool.Pool, tokens *jwt.Manager) *DisplayNameProvider {
 	r := repo.New(pool)
-	return &DisplayNameProvider{svc: service.New(r, tokens)}
+	return &DisplayNameProvider{svc: service.New(r, tokens, nil, "", 0, time.Now)}
 }
 
 // DisplayNames возвращает батч отображаемых имён по набору id.
