@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: in progress
+- Статус: done
 - Дата: 2026-08-22
 - План: `./plan.md`
 
@@ -136,28 +136,28 @@ join-волнах (wiring платформы и композиция стран�
 
 ## Web — трек E (презентационные компоненты)
 
-- [ ] T18. **афиша (red→green)** — рестайл
+- [x] T18. **афиша (red→green)** — рестайл
       `entities/tournament/ui/tournament-hero.tsx` под FR-3/FR-4
       (обратный отсчёт, скрытие пустых полей); компонент остаётся
       презентационным без хуков — его рендерит превью редактора 0029.
-- [ ] T19. **карточки номинаций (red→green)** — рестайл
+- [x] T19. **карточки номинаций (red→green)** — рестайл
       `widgets/nominations-list/nominations-list.tsx` под FR-6..FR-8:
       полоса заполнения, «осталось K мест», «приём завершён» вместо кнопки
       (AC-3/AC-4/AC-5).
-- [ ] T20. **блоки «до старта» (red→green)** — `widgets/home/`:
+- [x] T20. **блоки «до старта» (red→green)** — `widgets/home/`:
       `applications-summary.tsx` (FR-5), `join-steps.tsx` (FR-9),
       `venue-contacts.tsx` (FR-10/FR-22).
-- [ ] T21. **блоки «идёт» (red→green)** — `widgets/home/`:
+- [x] T21. **блоки «идёт» (red→green)** — `widgets/home/`:
       `tournament-strip.tsx` (FR-12/FR-13 + подпись «завершён», AC-18),
       `arenas-now.tsx` + `arena-card.tsx` (AC-7..AC-9),
       `bout-feed.tsx` + `bout-feed-row.tsx` (FR-15..FR-18),
       `nominations-rail.tsx` (FR-20), `registration-closed.tsx` (FR-21).
-- [ ] T22. **скелетон и пустые состояния** — `widgets/home/home-skeleton.tsx`
+- [x] T22. **скелетон и пустые состояния** — `widgets/home/home-skeleton.tsx`
       в форме будущего контента (NFR-5, правила 0022/0023).
 
 ## Web — волна 4 (join)
 
-- [ ] T23. **композиция (red→green)** — `widgets/home/home-screen.tsx`
+- [x] T23. **композиция (red→green)** — `widgets/home/home-screen.tsx`
       (единственный `useTournamentLive`, выбор блоков по фазе) +
       `entities/tournament-live/model/get-tournament-live.ts` (SSR) +
       `app/page.tsx`, сведённый к server-обёртке. Тесты: заглушка без
@@ -167,13 +167,13 @@ join-волнах (wiring платформы и композиция стран�
 
 ## Проверка
 
-- [ ] T24. `make test-all` зелёный.
-- [ ] T25. `pnpm exec tsc --noEmit`.
-- [ ] T26. `go build ./...` + `pnpm build`.
-- [ ] T27. **Регресс живого превью редактора турнира** (0029, FR-3) после
+- [x] T24. `make test-all` зелёный.
+- [x] T25. `pnpm exec tsc --noEmit`.
+- [x] T26. `go build ./...` + `pnpm build`.
+- [x] T27. **Регресс живого превью редактора турнира** (0029, FR-3) после
       рестайла `tournament-hero.tsx` — превью и главная показывают одно и
       то же; проверить руками на `/admin/tournament`.
-- [ ] T28. Обновить статусы `spec.md`/`plan.md`/`tasks.md` и строку в
+- [x] T28. Обновить статусы `spec.md`/`plan.md`/`tasks.md` и строку в
       `docs/specs/README.md`. Строка «Публичная главная v2» в
       `docs/design-sync.md` уже исправлена при написании спеки (там стояло
       «новый API нужен? — нет»); при реализации сверить её с фактом —
