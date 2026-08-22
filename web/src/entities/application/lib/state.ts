@@ -1,3 +1,4 @@
+import type { BadgeTone } from "@/shared/ui/badge";
 import type {
   ApplicationEventType,
   ApplicationState,
@@ -131,4 +132,42 @@ export function isTerminal(state: ApplicationState): boolean {
     state === "APPLICATION_STATE_REGISTERED" ||
     state === "APPLICATION_STATE_WITHDRAWN"
   );
+}
+
+/**
+ * stateTone — тональность плашки состояния заявки для публичного экрана
+ * «Мои заявки» (спека 0036, FR-16): зарегистрирована — утвердительная,
+ * ожидает подтверждения оплаты — предупреждающая, оплачена — нейтрально-
+ * информационная (шаг между «ожидает» и «зарегистрирована»), подана и
+ * отозвана — нейтральная (отозванная приглушается опасити карточки, не
+ * тоном плашки — см. `isTerminal`).
+ */
+export function stateTone(state: ApplicationState): BadgeTone {
+  switch (state) {
+    case "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION":
+      return "warn";
+    case "APPLICATION_STATE_PAID":
+      return "info";
+    case "APPLICATION_STATE_REGISTERED":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+/**
+ * applicationFunnel — упорядоченная воронка состояний happy path заявки для
+ * блока «Что дальше» экрана подачи (спека 0036, FR-4). Подписи переиспользуют
+ * `stateLabel`, чтобы не разъезжаться со списком «Мои заявки». «Отозвана» не
+ * входит — это выход из воронки, а не шаг на пути.
+ */
+export function applicationFunnel(): { label: string }[] {
+  return (
+    [
+      "APPLICATION_STATE_SUBMITTED",
+      "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION",
+      "APPLICATION_STATE_PAID",
+      "APPLICATION_STATE_REGISTERED",
+    ] as const
+  ).map((state) => ({ label: stateLabel(state) }));
 }

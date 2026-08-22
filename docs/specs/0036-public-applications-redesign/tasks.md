@@ -29,17 +29,17 @@
 
 ## Волна 0 — фундамент
 
-- [ ] T1. **entities (red→green)** — `entities/application/lib/state.test.ts`:
+- [x] T1. **entities (red→green)** — `entities/application/lib/state.test.ts`:
       `stateTone` на все пять состояний + `UNSPECIFIED`; `applicationFunnel`
       — четыре шага в порядке воронки, подписи совпадают со `stateLabel`
       (FR-4/FR-16) → затем `state.ts`.
-- [ ] T2. **транспорт + отказы (red→green)** —
+- [x] T2. **транспорт + отказы (red→green)** —
       `features/my-applications/api/errors.test.ts` на
       `applicationErrorMessage(error, status)` (409 — текст BFF как есть,
       401/403, 404, сеть/прочее) → `api/errors.ts`; в `api/requests.ts`
       добавить `status` в ветку отказа (аддитивно, существующий
       `requests.test.ts` остаётся зелёным) — FR-6.
-- [ ] T3. **BFF (red→green)** — `app/api/applications/route.test.ts`: POST
+- [x] T3. **BFF (red→green)** — `app/api/applications/route.test.ts`: POST
       при `ConnectError` c `AlreadyExists` → 409 «Вы уже подали заявку в эту
       номинацию», `FailedPrecondition` → 409 «Приём заявок в эту номинацию
       завершён», `NotFound` → 404 «Номинация не найдена» → затем разбор

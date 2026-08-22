@@ -1,3 +1,4 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { NextResponse, type NextRequest } from "next/server";
 import { applicationClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
@@ -59,6 +60,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
     return NextResponse.json({ application: applicationToJson(res.application) });
   } catch (err) {
-    return errorResponse(err);
+    return submitErrorResponse(err);
   }
+}
+
+/**
+ * submitErrorResponse — отказ подачи заявки в человеческом виде (спека
+ * 0036, FR-6). `errorResponse` схлопывает `AlreadyExists` (активный дубль,
+ * 0005) и `FailedPrecondition` (приём закрыт, 0012) в один 409 с волатильным
+ * текстом Go-домена; здесь оба различаются по `connect.Code` и получают
+ * свой русский текст — это наш BFF-код, не доменная строка, поэтому его
+ * можно писать прямо тут (приём 0027).
+ */
+function submitErrorResponse(err: unknown): NextResponse {
+  if (err instanceof ConnectError) {
+    if (err.code === Code.AlreadyExists) {
+      return NextResponse.json(
+        { error: "Вы уже подали заявку в эту номинацию" },
+        { status: 409 },
+      );
+    }
+    if (err.code === Code.FailedPrecondition) {
+      return NextResponse.json(
+        { error: "Приём заявок в эту номинацию завершён" },
+        { status: 409 },
+      );
+    }
+    if (err.code === Code.NotFound) {
+      return NextResponse.json({ error: "Номинация не найдена" }, { status: 404 });
+    }
+  }
+  return errorResponse(err);
 }

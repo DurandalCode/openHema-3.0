@@ -2,11 +2,11 @@ import type { Application } from "@/entities/application/lib/types";
 
 export type ApplicationResult =
   | { ok: true; application: Application }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export type ApplicationListResult =
   | { ok: true; applications: Application[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 /** listMyApplicationsRequest — GET /api/applications («мои заявки»). */
 export async function listMyApplicationsRequest(): Promise<ApplicationListResult> {
@@ -14,7 +14,7 @@ export async function listMyApplicationsRequest(): Promise<ApplicationListResult
     const res = await fetch("/api/applications", { method: "GET" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { applications?: Application[] };
     return { ok: true, applications: data.applications ?? [] };
@@ -64,7 +64,7 @@ async function post(url: string, body?: unknown): Promise<ApplicationResult> {
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { application?: Application };
     return { ok: true, application: data.application as Application };

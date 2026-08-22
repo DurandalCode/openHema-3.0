@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   allowedApplicantActions,
   allowedSecretaryActions,
+  applicationFunnel,
   eventLabel,
   isTerminal,
   nextExpectedStep,
   stateCaption,
   stateLabel,
+  stateTone,
 } from "@/entities/application/lib/state";
 import type {
   ApplicationEventType,
@@ -172,6 +174,39 @@ describe("isTerminal", () => {
     for (const state of nonTerminal) {
       expect(isTerminal(state)).toBe(false);
     }
+  });
+});
+
+describe("stateTone", () => {
+  it("maps every concrete state to the design system's badge tone (FR-16)", () => {
+    expect(stateTone("APPLICATION_STATE_SUBMITTED")).toBe("neutral");
+    expect(stateTone("APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION")).toBe("warn");
+    expect(stateTone("APPLICATION_STATE_PAID")).toBe("info");
+    expect(stateTone("APPLICATION_STATE_REGISTERED")).toBe("success");
+    expect(stateTone("APPLICATION_STATE_WITHDRAWN")).toBe("neutral");
+  });
+
+  it("falls back to neutral for unspecified", () => {
+    expect(stateTone("APPLICATION_STATE_UNSPECIFIED")).toBe("neutral");
+  });
+});
+
+describe("applicationFunnel", () => {
+  it("lists the four states in submission order, sharing labels with stateLabel (FR-4)", () => {
+    const funnel = applicationFunnel();
+    expect(funnel.map((s) => s.label)).toEqual([
+      stateLabel("APPLICATION_STATE_SUBMITTED"),
+      stateLabel("APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION"),
+      stateLabel("APPLICATION_STATE_PAID"),
+      stateLabel("APPLICATION_STATE_REGISTERED"),
+    ]);
+  });
+
+  it("does not include the withdrawn state — it is not a step on the happy path", () => {
+    const funnel = applicationFunnel();
+    expect(funnel.some((s) => s.label === stateLabel("APPLICATION_STATE_WITHDRAWN"))).toBe(
+      false,
+    );
   });
 });
 
