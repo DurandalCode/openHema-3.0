@@ -76,11 +76,16 @@ join-волнах (wiring платформы и композиция стран�
       портов (площадки с позициями, номинации турнира, времена боёв,
       топик турнира в fake-шине).
 - [ ] T9. **service (red→green)** — `service/tournament_live_test.go`:
+      пустой `tournamentID` → `ErrInvalidInput` (без похода в провайдеры);
       площадка с идущим боем / с готовящимся пулом / свободная
       (AC-7..AC-9); черновая раскладка не попадает ни в ленту, ни в список
-      номинаций (AC-10); фаза номинации из `execution_status` этапов;
+      номинаций (AC-10); **бой готового bracket-этапа (разрешённая пара
+      круга) попадает в ленту и в карточку его площадки наравне с боем
+      группового этапа** — иначе плейофф-стадии турнира выпадают из
+      публичной сводки вовсе; фаза номинации из `execution_status` этапов;
       времена проставлены по состоянию боя (AC-11..AC-14);
-      `BoutTimesForPools` вызван один раз на все пулы → затем
+      `BoutTimesForPools` вызван один раз на все пулы (групповые
+      контейнеры и половины круга вместе) → затем
       `service/tournament_live.go` (+ passthrough `SubscribeTournament`).
 - [ ] T10. **api (red→green)** — `api/handler_test.go` (httptest + Connect,
       fake-репо): `GetTournamentLive` отвечает без токена (NFR-3);
@@ -107,16 +112,21 @@ join-волнах (wiring платформы и композиция стран�
       (фильтр неархивных + позиция), `stage_nomination_provider.NominationsByTournament`,
       `stage_bout_conductor.BoutTimesForPools`, топик турнира в
       `stage_live_bus.go`; регистрация `GetTournamentLive`/
-      `WatchTournamentLive` в `publicProcedures` интерсептора Auth
-      (`platform.go`).
+      `WatchTournamentLive` в карте `publicProcedures`
+      (`pkg/connectutil/auth_interceptor.go`, не `platform.go`).
 - [ ] T14. `make test` и `go build ./...` зелёные после слияния треков A и B.
 
 ## Web — трек D (BFF + живой хук)
 
 - [ ] T15. **BFF (red→green)** — `app/api/tournament/live-snapshot/route.ts`
-      + тест: маппинг `connect.Code` → HTTP, форма ответа.
+      + тест: резолвит активный турнир сам (`getActiveTournament`, как
+      `app/api/tournament/route.ts`) и только с его id зовёт
+      `GetTournamentLive` — маршрут без `[id]` в пути, `GetTournamentLiveRequest.tournament_id`
+      клиент не подставляет по умолчанию (см. `plan.md`, «Контракты»); нет
+      активного турнира → 404; маппинг `connect.Code` → HTTP.
 - [ ] T16. **BFF (red→green)** — `app/api/tournament/live/route.ts` + тест:
-      SSE-кадр, закрытие потока по обрыву клиента.
+      тот же резолв активного турнира перед SSE-мостом к
+      `WatchTournamentLive`; SSE-кадр, закрытие потока по обрыву клиента.
 - [ ] T17. **features/tournament-live (red→green)** —
       `api/use-tournament-live.ts` + тест: переход на polling после серии
       ошибок SSE (AC-17); подписка не открывается в фазах `before` и

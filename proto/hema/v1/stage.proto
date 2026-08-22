@@ -1165,8 +1165,10 @@ message TournamentLiveSnapshot {
   int64 server_now_unix_ms = 5;
 }
 
-// GetTournamentLiveRequest — tournament_id пуст ⇒ активный турнир (как
-// остальные tournament-scoped публичные чтения).
+// GetTournamentLiveRequest — tournament_id обязателен и должен указывать на
+// активный турнир (MVP), как ListNominationsRequest/ArenaAdminService.List:
+// клиент резолвит id заранее через TournamentService.GetActiveTournament,
+// сервер здесь его не подставляет по умолчанию.
 message GetTournamentLiveRequest {
   string tournament_id = 1;
 }

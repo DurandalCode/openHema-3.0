@@ -96,11 +96,19 @@ tournament-scoped чтениях).
     `BoutState`), `FeedBout`, `LiveArenaView`, `LiveNominationView`,
     `TournamentSnapshot`.
   - `BoutTimes{ StartedAt, FinishedAt *time.Time }`.
-  - `ArenaProvider` += `ActiveArenas(ctx) ([]ArenaRef, error)` — неархивные
-    площадки турнира в admin-порядке (0027). `ArenaRef` += `Position int`
-    (аддитивно, существующие вызовы не ломаются).
+  - `ArenaProvider` += `ActiveArenas(ctx, tournamentID string) ([]ArenaRef,
+    error)` — неархивные площадки турнира в admin-порядке (0027).
+    `tournamentID` обязателен и валидируется на стороне адаптера тем же
+    `resolveTournament`, что уже использует `arena.Service.List` — не
+    «пусто ⇒ активный», а явный id, который резолвит вызывающий (см. правку
+    ниже: изначально спека ошибочно предполагала конвенцию «пусто ⇒
+    активный турнир» — в кодовой базе её нет, `ListNominations`/
+    `ArenaAdminService.List` всегда получают явный id от клиента).
+    `ArenaRef` += `Position int` (аддитивно, существующие вызовы не
+    ломаются).
   - `NominationProvider` += `NominationsByTournament(ctx, tournamentID)
-    ([]NominationRef, error)`. `NominationRef` += `Position int`.
+    ([]NominationRef, error)` — та же явная адресация, без дефолта.
+    `NominationRef` += `Position int`.
   - `BoutConductor` += `BoutTimesForPools(ctx, poolIDs []string)
     (map[string]BoutTimes, error)` — пустой список пулов валиден, no-op →
     пустая карта (правило `AnyStartedInPools`/`EventsForPools`).
@@ -111,14 +119,29 @@ tournament-scoped чтениях).
 - `service/tournament_live.go` (новый файл, чтобы не раздувать
   `service.go`):
   - `TournamentLive(ctx, tournamentID) (domain.TournamentSnapshot, error)`:
+    0. `tournamentID` пуст → `ErrInvalidInput` (тот же паттерн, что
+       `NominationLive` на пустом `nominationID`). Непустой, но не
+       совпадающий с активным турниром — сервис не валидирует это сам:
+       `ActiveArenas`/`NominationsByTournament` уже резолвят и проверяют
+       tournamentID против активного турнира (`arena.resolveTournament`/
+       `nomination.resolveTournament`) и возвращают ошибку — она
+       прокидывается как есть, отдельного домена ошибок здесь не заводим;
     1. `NominationsByTournament` → список номинаций с позициями;
-    2. для каждой — уже существующий путь чтения (`stagesForRead`,
-       загрузка пулов зафиксированных этапов, `BoutsByPool`,
-       `enrichPools`); черновые раскладки отфильтрованы тем же гейтом, что
-       в `NominationLive` (FR-24 = 0014 FR-12, поведение не дублируется, а
-       переиспользуется);
-    3. `BoutTimesForPools` по всем собранным пулам разом (один вызов, не
-       на пул);
+    2. для каждой — уже существующий путь чтения (`stagesForRead`), но
+       **оба** типа готового (`ready`) этапа, не только `GROUPS`:
+       `groupLivePools` для групповых контейнеров и обход
+       `buildBracket(..., false).Rounds[].Halves[]` для сетки — контейнер
+       половины круга (`Halves[i].Container`) это тот же `Pool`, что и у
+       группы (proto-комментарий `Pool`: «у этапа-сетки — половина
+       круга»), а бой пары — `Pairs[j].Bout` (`*BoutRef`, `nil` пока пара
+       не разрешена). Без этого бои плейофф-сетки не попадут ни в ленту,
+       ни в карточки площадок — макет прямо показывает такой бой
+       («Длинный меч · 1/4»). Черновые раскладки отфильтрованы тем же
+       гейтом, что в `NominationLive` (FR-24 = 0014 FR-12, поведение не
+       дублируется, а переиспользуется);
+    3. `BoutTimesForPools` по всем собранным пулам разом — групповым
+       контейнерам и половинам круга вместе (один вызов, не на пул и не на
+       тип этапа);
     4. `ActiveArenas` → карточки площадок: сопоставление по `Pool.ArenaID`,
        состояние `BOUT_IN_PROGRESS` (есть бой в `in_progress`) /
        `PREPARING` (пул стоит, начатых боёв нет) / `FREE` (пула нет);
@@ -181,8 +204,10 @@ tournament-scoped чтениях).
   `bus.Publish(topicTournament)`, `SubscribeTournament()` →
   `bus.Subscribe(topicTournament)`, где `topicTournament` — константа
   пакета, не пересекающаяся с id номинаций (например `"tournament:*"`).
-- `platform.go` — регистрация новых публичных процедур в списке
-  `publicProcedures` интерсептора Auth.
+- `pkg/connectutil/auth_interceptor.go` — регистрация двух новых процедур в
+  карте `publicProcedures` (не `platform.go` — интерсептор Auth и его карта
+  публичных процедур живут в `pkg/connectutil`, `platform.go` только
+  подключает интерсептор).
 
 ## Web (FSD + BFF)
 
@@ -190,10 +215,20 @@ tournament-scoped чтениях).
 
 ### BFF (Route Handlers, Node runtime)
 
-- `app/api/tournament/live/route.ts` — SSE-мост к `WatchTournamentLive`
-  (копия паттерна `app/api/nominations/[id]/live/route.ts`).
-- `app/api/tournament/live-snapshot/route.ts` — unary
-  `GetTournamentLive` для polling-fallback и SSR.
+`GetTournamentLiveRequest.tournament_id` обязателен (см. «Контракты» —
+клиент резолвит его, дефолта на сервере нет). У BFF два singleton-роута без
+`[id]` в пути — как у существующего `app/api/tournament/route.ts` (GET без
+параметров, «активный турнир и так один»), а не параметризованных, как
+`app/api/nominations/[id]/live/route.ts`: сам роут-хендлер сначала зовёт
+`tournamentClient.getActiveTournament({})`, берёт `tournament.id`, и только
+с ним — `GetTournamentLive`/`WatchTournamentLive`. Нет активного турнира →
+`404`, страница уже обрабатывает это (FR-2/AC-19) без похода в сводку.
+
+- `app/api/tournament/live/route.ts` — резолв активного турнира +
+  SSE-мост к `WatchTournamentLive` (структура потока — как
+  `app/api/nominations/[id]/live/route.ts`).
+- `app/api/tournament/live-snapshot/route.ts` — резолв активного турнира +
+  unary `GetTournamentLive` для polling-fallback и SSR.
 
 ### Слои
 
