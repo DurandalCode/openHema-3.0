@@ -14,9 +14,16 @@ vi.mock("@/features/nomination-live/api/use-nomination-live", () => ({
     useNominationLiveMock(id, initialSnapshot),
 }));
 
+const useMyApplicationsMock = vi.fn(() => ({ data: [], isLoading: false }));
+
+vi.mock("@/features/my-applications/api/use-my-applications", () => ({
+  useMyApplications: () => useMyApplicationsMock(),
+}));
+
 afterEach(() => {
   cleanup();
   useNominationLiveMock.mockClear();
+  useMyApplicationsMock.mockClear();
 });
 
 const nomination: Nomination = {
@@ -75,7 +82,14 @@ const finishedResults: NominationResults = {
 
 describe("NominationPublicScreen", () => {
   it("подписывается на живой снапшот ровно один раз (NFR-2)", () => {
-    render(<NominationPublicScreen nominationId="n1" nomination={nomination} initialSnapshot={makeSnapshot()} />);
+    render(
+      <NominationPublicScreen
+        nominationId="n1"
+        nomination={nomination}
+        initialSnapshot={makeSnapshot()}
+        isAuthenticated={false}
+      />,
+    );
     expect(useNominationLiveMock).toHaveBeenCalledTimes(1);
   });
 
@@ -103,7 +117,14 @@ describe("NominationPublicScreen", () => {
       ],
       results: finishedResults,
     });
-    render(<NominationPublicScreen nominationId="n1" nomination={nomination} initialSnapshot={snapshot} />);
+    render(
+      <NominationPublicScreen
+        nominationId="n1"
+        nomination={nomination}
+        initialSnapshot={snapshot}
+        isAuthenticated={false}
+      />,
+    );
 
     const order = [
       screen.getByText("Щит-меч, открытая"),
@@ -117,7 +138,14 @@ describe("NominationPublicScreen", () => {
 
   it("черновая раскладка (AC-6): пустое состояние, шапка и схема остаются", () => {
     const snapshot = makeSnapshot({ stages: [groupsStage], pools: [], brackets: [] });
-    render(<NominationPublicScreen nominationId="n1" nomination={nomination} initialSnapshot={snapshot} />);
+    render(
+      <NominationPublicScreen
+        nominationId="n1"
+        nomination={nomination}
+        initialSnapshot={snapshot}
+        isAuthenticated={false}
+      />,
+    );
     expect(screen.getByText("Щит-меч, открытая")).toBeInTheDocument();
     expect(screen.getByText(/раскладка ещё формируется/i)).toBeInTheDocument();
     expect(screen.queryByText("Пул A")).not.toBeInTheDocument();
@@ -125,8 +153,39 @@ describe("NominationPublicScreen", () => {
 
   it("нет этапов вовсе (AC-5): цепочки схемы нет, пустое состояние показано", () => {
     const snapshot = makeSnapshot();
-    render(<NominationPublicScreen nominationId="n1" nomination={nomination} initialSnapshot={snapshot} />);
+    render(
+      <NominationPublicScreen
+        nominationId="n1"
+        nomination={nomination}
+        initialSnapshot={snapshot}
+        isAuthenticated={false}
+      />,
+    );
     expect(screen.queryByTestId("schema-chain")).not.toBeInTheDocument();
     expect(screen.getByText(/раскладка ещё формируется/i)).toBeInTheDocument();
+  });
+
+  it("гость (isAuthenticated=false): блок подачи не рендерится (FR-14)", () => {
+    render(
+      <NominationPublicScreen
+        nominationId="n1"
+        nomination={nomination}
+        initialSnapshot={makeSnapshot()}
+        isAuthenticated={false}
+      />,
+    );
+    expect(screen.queryByText("Приём заявок завершён")).not.toBeInTheDocument();
+  });
+
+  it("аутентифицированный пользователь: блок подачи рендерится (FR-14, AC-2)", () => {
+    render(
+      <NominationPublicScreen
+        nominationId="n1"
+        nomination={nomination}
+        initialSnapshot={makeSnapshot()}
+        isAuthenticated={true}
+      />,
+    );
+    expect(screen.getByText("Приём заявок завершён")).toBeInTheDocument();
   });
 });

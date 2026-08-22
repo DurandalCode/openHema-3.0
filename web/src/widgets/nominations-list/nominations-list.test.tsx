@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
-import type { ReactNode } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
 import { NominationsList } from "./nominations-list";
 import type { Nomination } from "@/entities/nomination/lib/types";
@@ -31,14 +29,6 @@ function participants(overrides: Partial<NominationParticipants> = {}): Nominati
     fighterCapacity: null,
     ...overrides,
   };
-}
-
-function renderWithQuery(ui: React.ReactElement) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
-  }
-  return render(ui, { wrapper: Wrapper });
 }
 
 describe("widgets/nominations-list NominationsList (spec 0034, FR-6..FR-8)", () => {
@@ -114,15 +104,17 @@ describe("widgets/nominations-list NominationsList (spec 0034, FR-6..FR-8)", () 
     expect(screen.queryByRole("button", { name: /Подать заявку/ })).not.toBeInTheDocument();
   });
 
-  it("shows the submit action for an authenticated user on an open nomination", () => {
-    renderWithQuery(
+  it("shows a link to the apply screen for an authenticated user on an open nomination", () => {
+    render(
       <NominationsList
         nominations={[nomination({ status: "NOMINATION_STATUS_OPEN" })]}
         participantsByNomination={{ n1: participants() }}
         isAuthenticated={true}
       />,
     );
-    expect(screen.getByPlaceholderText("Клуб (необязательно)")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Подать заявку/ });
+    expect(link).toHaveAttribute("href", "/nominations/n1/apply");
+    expect(screen.queryByPlaceholderText("Клуб (необязательно)")).not.toBeInTheDocument();
   });
 
   it("shows a link to the nomination's public page (FR-8)", () => {
