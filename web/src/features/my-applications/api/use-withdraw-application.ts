@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { withdrawApplicationRequest } from "./requests";
 import { myApplicationsKeys } from "./keys";
+import { ApplicationRequestError } from "./mutation-error";
 
 /** useWithdrawApplication — мутация отзыва собственной заявки. */
 export function useWithdrawApplication() {
@@ -10,7 +11,7 @@ export function useWithdrawApplication() {
   return useMutation({
     mutationFn: async (applicationId: string) => {
       const res = await withdrawApplicationRequest(applicationId);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new ApplicationRequestError(res.error, res.status);
       return res.application;
     },
     onSuccess: () => {

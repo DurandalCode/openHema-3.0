@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { declarePaymentRequest } from "./requests";
 import { myApplicationsKeys } from "./keys";
+import { ApplicationRequestError } from "./mutation-error";
 
 /** useDeclarePayment — мутация отметки оплаты собственной заявки. */
 export function useDeclarePayment() {
@@ -10,7 +11,7 @@ export function useDeclarePayment() {
   return useMutation({
     mutationFn: async (applicationId: string) => {
       const res = await declarePaymentRequest(applicationId);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new ApplicationRequestError(res.error, res.status);
       return res.application;
     },
     onSuccess: () => {
