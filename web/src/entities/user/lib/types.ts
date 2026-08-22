@@ -14,4 +14,8 @@ export type CurrentUser = {
   displayName: string;
   role: Role;
   createdAt: string;
+  // club — клуб пользователя (данные учётки, не бойца: спеки 0007/0026
+  // связь учётка↔боец не восстанавливают). Опционально, "" — «не указан»
+  // (spec 0037, FR-13/FR-15).
+  club: string;
 };
