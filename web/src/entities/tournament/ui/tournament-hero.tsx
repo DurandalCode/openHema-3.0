@@ -3,17 +3,24 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
-import type { ContactType, Tournament } from "../lib/types";
-import { contactHref, formatEventRange } from "../lib/format";
+import type { Tournament } from "../lib/types";
+import { contactHref, contactLabel, daysUntil, formatEventRange } from "../lib/format";
 
-const CONTACT_LABELS: Partial<Record<ContactType, string>> = {
-  CONTACT_TYPE_TELEGRAM: "Telegram",
-  CONTACT_TYPE_VK: "VK",
-  CONTACT_TYPE_FACEBOOK: "Facebook",
-  CONTACT_TYPE_WEBSITE: "Сайт",
-  CONTACT_TYPE_EMAIL: "Email",
-  CONTACT_TYPE_OTHER: "Контакт",
-};
+/**
+ * countdownLabel — текст обратного отсчёта афиши (спека 0034, FR-4).
+ * `null` — дата начала не задана/невалидна, либо уже наступила/прошла
+ * (`daysUntil` < 0): афиша «до старта» не показывает отсчёт задним числом,
+ * это уже не её фаза (`tournamentPhase` решает, что турнир идёт/завершён).
+ * Точная формулировка границ (N=0/N=1) не задана спекой жёстко — решение
+ * этого файла: «сегодня»/«завтра» читаются как факт, а не как «через 0/1
+ * дней».
+ */
+function countdownLabel(days: number | null): string | null {
+  if (days === null || days < 0) return null;
+  if (days === 0) return "до старта: сегодня";
+  if (days === 1) return "до старта: завтра";
+  return `до старта: ${days} дней`;
+}
 
 /** TournamentHero — секция главной с профилем активного турнира.
  * Пустые поля скрываются (FR-6/AC-4): пустой турник или вовсе отсутствие
@@ -26,8 +33,25 @@ const CONTACT_LABELS: Partial<Record<ContactType, string>> = {
  * общий компонент на уровне `entities`. Разметка и классы — без изменений.
  *
  * Презентационный: без хуков и server-only импортов — рендерится и на
- * сервере (главная), и на клиенте (превью). */
-export function TournamentHero({ tournament }: { tournament: Tournament | null }) {
+ * сервере (главная), и на клиенте (превью).
+ *
+ * `now` (спека 0034, FR-4/AC-1/AC-2) — опора для обратного отсчёта «до
+ * старта N дней». Опционален и по умолчанию берётся как `new Date()` в теле
+ * функции (вычисляется при каждом вызове, а не один раз при загрузке
+ * модуля) — это сознательный компромисс: оба существующих вызывающих места
+ * (`app/page.tsx`, `TournamentPreview` живого превью 0029) не обязаны знать
+ * о новом пропе и продолжают работать без изменений, а тесты этого файла
+ * передают `now` явно для детерминированности. Будущая композиция
+ * `widgets/home/home-screen.tsx` (T23) сможет передавать `now` осознанно
+ * (например, синхронизированным с `serverNowUnixMs` живой сводки).
+ */
+export function TournamentHero({
+  tournament,
+  now = new Date(),
+}: {
+  tournament: Tournament | null;
+  now?: Date;
+}) {
   // Турнира нет — спокойная заглушка (см. FR-6).
   if (!tournament || !tournament.title) {
     return (
@@ -49,6 +73,7 @@ export function TournamentHero({ tournament }: { tournament: Tournament | null }
   }
 
   const eventRange = formatEventRange(tournament.eventStartAt, tournament.eventEndAt);
+  const countdown = countdownLabel(daysUntil(tournament.eventStartAt || null, now));
   const contacts = tournament.contacts.filter((c) => c.value);
 
   return (
@@ -77,6 +102,11 @@ export function TournamentHero({ tournament }: { tournament: Tournament | null }
           {eventRange && (
             <p className="text-muted-foreground text-lg">{eventRange}</p>
           )}
+          {countdown && (
+            <Badge tone="info" className="text-xs font-normal normal-case tracking-normal">
+              {countdown}
+            </Badge>
+          )}
         </Col>
 
         {tournament.description && (
@@ -94,7 +124,7 @@ export function TournamentHero({ tournament }: { tournament: Tournament | null }
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {CONTACT_LABELS[c.type] ?? "Контакт"}: {c.value}
+                  {contactLabel(c.type)}: {c.value}
                 </a>
               </Button>
             ))}
