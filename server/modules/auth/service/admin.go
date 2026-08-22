@@ -5,31 +5,18 @@ import (
 	"fmt"
 
 	"github.com/hema/server/modules/auth/domain"
-	"github.com/hema/server/pkg/crypto"
 )
 
 // CreateAdmin создаёт пользователя с ролью admin. Вызывается только админом
 // (доступ ограничен интерсептором RequireAdmin). Токены не выдаёт — новый
-// админ логинится самостоятельно через AuthService.Login.
+// админ логинится самостоятельно через AuthService.Login. Пароль подчиняется
+// той же единой политике длины, что и остальные сценарии (FR-11).
 func (s *Service) CreateAdmin(ctx context.Context, email, password, displayName string) (domain.User, error) {
 	email = normalizeEmail(email)
 	if email == "" || password == "" {
 		return domain.User{}, domain.ErrInvalidCredentials
 	}
-	hash, err := crypto.HashPassword(password)
-	if err != nil {
-		return domain.User{}, fmt.Errorf("hash password: %w", err)
-	}
-	user, err := s.repo.CreateUser(ctx, domain.NewUser{
-		Email:        email,
-		PasswordHash: hash,
-		DisplayName:  displayName,
-		Role:         domain.RoleAdmin,
-	})
-	if err != nil {
-		return domain.User{}, err
-	}
-	return user, nil
+	return s.createUser(ctx, email, password, displayName, domain.RoleAdmin)
 }
 
 // ListAdmins возвращает всех администраторов.
@@ -68,6 +55,8 @@ func (s *Service) DemoteUser(ctx context.Context, userID, callerID string) (doma
 // BootstrapAdmin создаёт первого админа из env-кредов при старте сервера,
 // если в системе ещё нет ни одного админа. Идемпотентен: при наличии админов
 // или при конфликте email (админ с таким email уже существует) ничего не делает.
+// Пароль подчиняется единой политике длины (FR-11) — конфигурация со слишком
+// коротким bootstrap-паролем возвращает ошибку, а не создаёт слабый аккаунт.
 // Возвращает created=true, если пользователь был создан в этом вызове.
 func (s *Service) BootstrapAdmin(ctx context.Context, email, password, displayName string) (bool, error) {
 	email = normalizeEmail(email)
@@ -83,16 +72,7 @@ func (s *Service) BootstrapAdmin(ctx context.Context, email, password, displayNa
 		return false, nil
 	}
 
-	hash, err := crypto.HashPassword(password)
-	if err != nil {
-		return false, fmt.Errorf("hash password: %w", err)
-	}
-	_, err = s.repo.CreateUser(ctx, domain.NewUser{
-		Email:        email,
-		PasswordHash: hash,
-		DisplayName:  displayName,
-		Role:         domain.RoleAdmin,
-	})
+	_, err = s.createUser(ctx, email, password, displayName, domain.RoleAdmin)
 	if err != nil {
 		// Админ с таким email уже существует — считаем бутстрап выполненным.
 		if err == domain.ErrUserExists {

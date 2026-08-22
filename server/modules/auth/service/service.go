@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hema/server/modules/auth/domain"
 	"github.com/hema/server/pkg/crypto"
@@ -15,11 +16,27 @@ import (
 type Service struct {
 	repo   domain.Repository
 	tokens *jwt.Manager
+	mailer domain.Mailer
+	// publicAppURL — базовый URL публичного веб-приложения, используется для
+	// сборки ссылки восстановления пароля (publicAppURL + "/reset-password?token=...").
+	publicAppURL string
+	// resetTTL — срок жизни токена восстановления пароля (спека 0037, FR-4).
+	resetTTL time.Duration
+	// now — источник текущего времени; параметризован ради детерминизма
+	// тестов на TTL/троттлинг сброса пароля.
+	now func() time.Time
 }
 
 // New создаёт сервис auth.
-func New(repo domain.Repository, tokens *jwt.Manager) *Service {
-	return &Service{repo: repo, tokens: tokens}
+func New(repo domain.Repository, tokens *jwt.Manager, mailer domain.Mailer, publicAppURL string, resetTTL time.Duration, now func() time.Time) *Service {
+	return &Service{
+		repo:         repo,
+		tokens:       tokens,
+		mailer:       mailer,
+		publicAppURL: publicAppURL,
+		resetTTL:     resetTTL,
+		now:          now,
+	}
 }
 
 // Register создаёт пользователя (роль user), хеширует пароль и выпускает токены.
@@ -65,6 +82,8 @@ func (s *Service) Login(ctx context.Context, email, password string) (domain.Use
 
 // Refresh обменивает валидный refresh-токен на новую пару токенов.
 // Роль берётся из БД (а не из refresh-клейма), чтобы учесть её изменение.
+// Токен, выданный до последней смены/сброса пароля, отклоняется (FR-12,
+// спека 0037): продлить старую сессию нельзя, требуется вход заново.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (jwt.Pair, error) {
 	claims, err := s.tokens.ParseRefresh(refreshToken)
 	if err != nil {
@@ -72,6 +91,13 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (jwt.Pair, e
 	}
 	user, err := s.repo.GetUserByID(ctx, claims.UserID)
 	if err != nil {
+		return jwt.Pair{}, domain.ErrInvalidCredentials
+	}
+	// iat в JWT хранится в целых секундах — усекаем PasswordChangedAt до
+	// секунды тоже, иначе токен, выданный Login сразу после сброса в ту же
+	// секунду, отклонялся бы сам собой. Равенство считается валидным,
+	// отклоняется только строго более раннее issued_at.
+	if claims.IssuedAt != nil && claims.IssuedAt.Time.Before(user.PasswordChangedAt.Truncate(time.Second)) {
 		return jwt.Pair{}, domain.ErrInvalidCredentials
 	}
 	pair, err := s.tokens.Issue(user.ID, string(user.Role))
@@ -109,8 +135,14 @@ func (s *Service) DisplayNames(ctx context.Context, ids []string) (map[string]st
 	return out, nil
 }
 
-// createUser хеширует пароль и делегирует вставку репозиторию.
+// createUser проверяет политику пароля (FR-11), хеширует его и делегирует
+// вставку репозиторию. Общая точка для Register, CreateAdmin и bootstrap —
+// единая политика пароля действует одинаково во всех сценариях создания
+// пользователя.
 func (s *Service) createUser(ctx context.Context, email, password, displayName string, role domain.Role) (domain.User, error) {
+	if err := validatePassword(password); err != nil {
+		return domain.User{}, err
+	}
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
 		return domain.User{}, fmt.Errorf("hash password: %w", err)

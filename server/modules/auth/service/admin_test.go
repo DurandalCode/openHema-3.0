@@ -11,7 +11,7 @@ import (
 func TestCreateAdmin_HappyPath(t *testing.T) {
 	svc, repo := testService()
 
-	user, err := svc.CreateAdmin(context.Background(), "admin@hema.test", "pass", "Admin")
+	user, err := svc.CreateAdmin(context.Background(), "admin@hema.test", "password1", "Admin")
 	if err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
@@ -32,11 +32,11 @@ func TestCreateAdmin_HappyPath(t *testing.T) {
 func TestCreateAdmin_DuplicateEmail(t *testing.T) {
 	svc, _ := testService()
 
-	if _, err := svc.CreateAdmin(context.Background(), "dup@hema.test", "pass", "First"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "dup@hema.test", "password1", "First"); err != nil {
 		t.Fatalf("first CreateAdmin: %v", err)
 	}
 
-	_, err := svc.CreateAdmin(context.Background(), "dup@hema.test", "pass", "Second")
+	_, err := svc.CreateAdmin(context.Background(), "dup@hema.test", "password1", "Second")
 	if !errors.Is(err, domain.ErrUserExists) {
 		t.Errorf("expected ErrUserExists, got %v", err)
 	}
@@ -50,7 +50,7 @@ func TestCreateAdmin_EmptyFields(t *testing.T) {
 		email    string
 		password string
 	}{
-		{"empty email", "", "pass"},
+		{"empty email", "", "password1"},
 		{"empty password", "a@b.test", ""},
 	}
 	for _, tc := range cases {
@@ -66,10 +66,10 @@ func TestCreateAdmin_EmptyFields(t *testing.T) {
 func TestListAdmins(t *testing.T) {
 	svc, _ := testService()
 
-	if _, err := svc.CreateAdmin(context.Background(), "a1@hema.test", "pass", "A1"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "a1@hema.test", "password1", "A1"); err != nil {
 		t.Fatalf("CreateAdmin a1: %v", err)
 	}
-	if _, err := svc.CreateAdmin(context.Background(), "a2@hema.test", "pass", "A2"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "a2@hema.test", "password1", "A2"); err != nil {
 		t.Fatalf("CreateAdmin a2: %v", err)
 	}
 
@@ -90,10 +90,10 @@ func TestListAdmins(t *testing.T) {
 func TestListUsers(t *testing.T) {
 	svc, _ := testService()
 
-	if _, _, err := svc.Register(context.Background(), "u1@hema.test", "pass", "U1"); err != nil {
+	if _, _, err := svc.Register(context.Background(), "u1@hema.test", "password1", "U1"); err != nil {
 		t.Fatalf("Register u1: %v", err)
 	}
-	if _, err := svc.CreateAdmin(context.Background(), "a1@hema.test", "pass", "A1"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "a1@hema.test", "password1", "A1"); err != nil {
 		t.Fatalf("CreateAdmin a1: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestListUsers(t *testing.T) {
 func TestPromoteUser(t *testing.T) {
 	svc, repo := testService()
 
-	user, _, err := svc.Register(context.Background(), "promote@hema.test", "pass", "User")
+	user, _, err := svc.Register(context.Background(), "promote@hema.test", "password1", "User")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -143,11 +143,11 @@ func TestPromoteUser_NonexistentUser(t *testing.T) {
 func TestDemoteUser_HappyPath(t *testing.T) {
 	svc, _ := testService()
 
-	caller, err := svc.CreateAdmin(context.Background(), "caller@hema.test", "pass", "Caller")
+	caller, err := svc.CreateAdmin(context.Background(), "caller@hema.test", "password1", "Caller")
 	if err != nil {
 		t.Fatalf("CreateAdmin caller: %v", err)
 	}
-	target, err := svc.CreateAdmin(context.Background(), "target@hema.test", "pass", "Target")
+	target, err := svc.CreateAdmin(context.Background(), "target@hema.test", "password1", "Target")
 	if err != nil {
 		t.Fatalf("CreateAdmin target: %v", err)
 	}
@@ -164,12 +164,12 @@ func TestDemoteUser_HappyPath(t *testing.T) {
 func TestDemoteUser_SelfReturnsForbidden(t *testing.T) {
 	svc, _ := testService()
 
-	caller, err := svc.CreateAdmin(context.Background(), "self@hema.test", "pass", "Self")
+	caller, err := svc.CreateAdmin(context.Background(), "self@hema.test", "password1", "Self")
 	if err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
 	// Второй админ, чтобы guard последнего админа не сработал раньше self-guard.
-	target, err := svc.CreateAdmin(context.Background(), "other@hema.test", "pass", "Other")
+	target, err := svc.CreateAdmin(context.Background(), "other@hema.test", "password1", "Other")
 	if err != nil {
 		t.Fatalf("CreateAdmin other: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestDemoteUser_SelfReturnsForbidden(t *testing.T) {
 func TestDemoteUser_LastAdminReturnsForbidden(t *testing.T) {
 	svc, _ := testService()
 
-	caller, err := svc.CreateAdmin(context.Background(), "only@hema.test", "pass", "Only")
+	caller, err := svc.CreateAdmin(context.Background(), "only@hema.test", "password1", "Only")
 	if err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestDemoteUser_LastAdminReturnsForbidden(t *testing.T) {
 func TestBootstrapAdmin_CreatesFirstAdmin(t *testing.T) {
 	svc, repo := testService()
 
-	created, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "pass", "Boot")
+	created, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "password1", "Boot")
 	if err != nil {
 		t.Fatalf("BootstrapAdmin: %v", err)
 	}
@@ -219,11 +219,11 @@ func TestBootstrapAdmin_CreatesFirstAdmin(t *testing.T) {
 func TestBootstrapAdmin_SkipsWhenAdminsExist(t *testing.T) {
 	svc, _ := testService()
 
-	if _, err := svc.CreateAdmin(context.Background(), "existing@hema.test", "pass", "Existing"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "existing@hema.test", "password1", "Existing"); err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
 
-	created, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "pass", "Boot")
+	created, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "password1", "Boot")
 	if err != nil {
 		t.Fatalf("BootstrapAdmin: %v", err)
 	}
@@ -247,11 +247,11 @@ func TestBootstrapAdmin_SkipsWhenNoCredentials(t *testing.T) {
 func TestBootstrapAdmin_IdempotentOnSameEmail(t *testing.T) {
 	svc, _ := testService()
 
-	if _, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "pass", "Boot"); err != nil {
+	if _, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "password1", "Boot"); err != nil {
 		t.Fatalf("first BootstrapAdmin: %v", err)
 	}
 	// Второй вызов с тем же email — админ уже есть, skip.
-	created, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "pass", "Boot")
+	created, err := svc.BootstrapAdmin(context.Background(), "boot@hema.test", "password1", "Boot")
 	if err != nil {
 		t.Fatalf("second BootstrapAdmin: %v", err)
 	}
@@ -263,11 +263,11 @@ func TestBootstrapAdmin_IdempotentOnSameEmail(t *testing.T) {
 func TestLogin_ReturnsRole(t *testing.T) {
 	svc, _ := testService()
 
-	if _, err := svc.CreateAdmin(context.Background(), "login@hema.test", "pass", "Admin"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "login@hema.test", "password1", "Admin"); err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
 
-	user, _, err := svc.Login(context.Background(), "login@hema.test", "pass")
+	user, _, err := svc.Login(context.Background(), "login@hema.test", "password1")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestLogin_ReturnsRole(t *testing.T) {
 func TestMe_ReturnsRole(t *testing.T) {
 	svc, _ := testService()
 
-	if _, err := svc.CreateAdmin(context.Background(), "me@hema.test", "pass", "Admin"); err != nil {
+	if _, err := svc.CreateAdmin(context.Background(), "me@hema.test", "password1", "Admin"); err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
 	// Создаём токен вручную (CreateAdmin не выдаёт токены).
