@@ -120,16 +120,16 @@ join-волнах (wiring платформы и композиция стран�
 
 ## Web — трек D (BFF + живой хук)
 
-- [ ] T15. **BFF (red→green)** — `app/api/tournament/live-snapshot/route.ts`
+- [x] T15. **BFF (red→green)** — `app/api/tournament/live-snapshot/route.ts`
       + тест: резолвит активный турнир сам (`getActiveTournament`, как
       `app/api/tournament/route.ts`) и только с его id зовёт
       `GetTournamentLive` — маршрут без `[id]` в пути, `GetTournamentLiveRequest.tournament_id`
       клиент не подставляет по умолчанию (см. `plan.md`, «Контракты»); нет
       активного турнира → 404; маппинг `connect.Code` → HTTP.
-- [ ] T16. **BFF (red→green)** — `app/api/tournament/live/route.ts` + тест:
+- [x] T16. **BFF (red→green)** — `app/api/tournament/live/route.ts` + тест:
       тот же резолв активного турнира перед SSE-мостом к
       `WatchTournamentLive`; SSE-кадр, закрытие потока по обрыву клиента.
-- [ ] T17. **features/tournament-live (red→green)** —
+- [x] T17. **features/tournament-live (red→green)** —
       `api/use-tournament-live.ts` + тест: переход на polling после серии
       ошибок SSE (AC-17); подписка не открывается в фазах `before` и
       `finished` (FR-23).

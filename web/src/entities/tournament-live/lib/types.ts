@@ -81,12 +81,15 @@ export type LiveNominationDto = {
 
 /**
  * TournamentLiveSnapshotDto — сводка турнира целиком. `serverNowUnixMs` —
- * опора для «обновлено N сек назад» (как `ArenaLiveSnapshot`, спека 0033).
+ * опора для «обновлено N сек назад» (как `ArenaLiveSnapshot`, спека 0033);
+ * `int64` в proto → `toJson` сериализует строкой (см. `ArenaLiveSnapshotDto`
+ * в `entities/arena-live/lib/types.ts` — тот же приём), поэтому здесь тоже
+ * `string`, а не `number`.
  */
 export type TournamentLiveSnapshotDto = {
   tournamentId: string;
   arenas: LiveArenaDto[];
   bouts: LiveFeedBoutDto[];
   nominations: LiveNominationDto[];
-  serverNowUnixMs: number;
+  serverNowUnixMs: string;
 };
