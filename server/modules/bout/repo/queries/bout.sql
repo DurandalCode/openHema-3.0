@@ -115,3 +115,66 @@ JOIN bout.bouts b ON b.id = e.bout_id
 WHERE b.pool_id = ANY(sqlc.arg(pool_ids)::uuid[]) AND e.event_type <> 'scheduled'
 ORDER BY e.occurred_at DESC, e.version DESC
 LIMIT sqlc.arg(row_limit);
+
+
+-- name: BoutTimesForPools :many
+-- Фактическое время боя для публичной ленты турнира (спека 0034, FR-16):
+-- StartedAt/FinishedAt читаются из событийного журнала, не прогнозируются.
+--
+-- Наивный MAX(occurred_at) FILTER (WHERE event_type = ...) по всему потоку
+-- не годится: журнал append-only (ADR 0011), старые started/finished
+-- события никуда не деваются после reopened/reset (спека 0013), поэтому
+-- такой MAX продолжал бы отдавать устаревшую отметку — именно это ломает
+-- AC-14 (переоткрытый бой не должен показывать прежнее время завершения).
+--
+-- Доменное решение: считать started_at/finished_at только по событиям
+-- "текущего эпизода" боя — тем, что произошли после последнего
+-- restart-маркера в потоке:
+--   - reset (допустим только из in_progress, см. domain.Bout.Reset) —
+--     обнуляет весь эпизод: started-событие годится, только если после
+--     него не было reset;
+--   - reopened переводит завершённый бой обратно в in_progress, но не
+--     меняет исходное время начала (started_at не считается устаревшим
+--     при reopened, в отличие от finished_at) — finished-событие годится,
+--     только если после него не было ни reopened, ни reset.
+-- Если бой переоткрывали/сбрасывали несколько раз — отсечка по самому
+-- свежему такому событию (NOT EXISTS ловит именно "нет более позднего").
+--
+-- Реализация нарочно избегает агрегатов (MAX/DISTINCT ON/LATERAL) в
+-- JOIN-е: sqlc (статический анализ, без живого подключения к PG — этот
+-- проект не задаёт database: в sqlc.yaml) верно распознаёт nullability
+-- (pgtype.Timestamptz) только для LEFT JOIN на реальную таблицу с
+-- условием отбора прямо в ON; любая обёртка в подзапрос/CTE/LATERAL или
+-- агрегатная функция в SELECT-списке ломает эту nullability-типизацию
+-- (проверено перебором вариантов на генерации) — поэтому "последнее
+-- событие своего вида после cutoff" выражено через двойной NOT EXISTS
+-- прямо на bout.bout_events, а не через MAX/ORDER BY+LIMIT.
+SELECT
+    b.id AS bout_id,
+    s.occurred_at AS started_at,
+    f.occurred_at AS finished_at
+FROM bout.bouts b
+LEFT JOIN bout.bout_events s ON s.bout_id = b.id AND s.event_type = 'started'
+    -- s — самое позднее событие started...
+    AND NOT EXISTS (
+        SELECT 1 FROM bout.bout_events x
+        WHERE x.bout_id = s.bout_id AND x.event_type = 'started' AND x.version > s.version
+    )
+    -- ...и после него не было reset (иначе бой уже сброшен в not_started).
+    AND NOT EXISTS (
+        SELECT 1 FROM bout.bout_events x
+        WHERE x.bout_id = s.bout_id AND x.event_type = 'reset' AND x.version > s.version
+    )
+LEFT JOIN bout.bout_events f ON f.bout_id = b.id AND f.event_type = 'finished'
+    -- f — самое позднее событие finished...
+    AND NOT EXISTS (
+        SELECT 1 FROM bout.bout_events x
+        WHERE x.bout_id = f.bout_id AND x.event_type = 'finished' AND x.version > f.version
+    )
+    -- ...и после него не было reopened/reset (AC-14: переоткрытие снимает
+    -- прежнюю отметку завершения).
+    AND NOT EXISTS (
+        SELECT 1 FROM bout.bout_events x
+        WHERE x.bout_id = f.bout_id AND x.event_type IN ('reopened', 'reset') AND x.version > f.version
+    )
+WHERE b.pool_id = ANY(sqlc.arg(pool_ids)::uuid[]);

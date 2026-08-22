@@ -433,6 +433,37 @@ func (r *Repo) EventsForPools(ctx context.Context, poolIDs []string, limit int) 
 	return out, nil
 }
 
+// BoutTimesForPools возвращает фактическое время начала/завершения каждого
+// боя перечисленных пулов (спека 0034, FR-16) — см. doc-комментарий SQL
+// (repo/queries/bout.sql, BoutTimesForPools) на предмет того, почему это не
+// просто MAX(occurred_at) по типу события: reopened/reset (спека 0013)
+// делают старые отметки устаревшими, и запрос отсекает по последнему
+// restart-маркеру потока. Пустой poolIDs — no-op: пустая карта без
+// обращения к БД (как EventsForPools/AnyStartedInPools).
+func (r *Repo) BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]domain.BoutTimes, error) {
+	if len(poolIDs) == 0 {
+		return map[string]domain.BoutTimes{}, nil
+	}
+	ids, err := parsePoolIDs(poolIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.q.BoutTimesForPools(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("bout times for pools: %w", err)
+	}
+
+	out := make(map[string]domain.BoutTimes, len(rows))
+	for _, row := range rows {
+		out[row.BoutID.String()] = domain.BoutTimes{
+			StartedAt:  fromNullableTimestamp(row.StartedAt),
+			FinishedAt: fromNullableTimestamp(row.FinishedAt),
+		}
+	}
+	return out, nil
+}
+
 // Append атомарно вставляет событие (version = expectedVersion+1) и
 // обновляет проекцию в одной транзакции (ADR 0011 п.3/п.4).
 func (r *Repo) Append(ctx context.Context, boutID string, expectedVersion int, ev domain.Event, view domain.BoutView) error {
@@ -576,6 +607,17 @@ func fromNullableUUID(id pgtype.UUID) string {
 		return ""
 	}
 	return uuid.UUID(id.Bytes).String()
+}
+
+// fromNullableTimestamp конвертирует nullable timestamptz (агрегат
+// BoutTimesForPools — событие ещё не произошло → NULL) в *time.Time для
+// domain.BoutTimes (спека 0034, FR-16).
+func fromNullableTimestamp(ts pgtype.Timestamptz) *time.Time {
+	if !ts.Valid {
+		return nil
+	}
+	t := ts.Time
+	return &t
 }
 
 // isUniqueViolation определяет, что ошибка PG — нарушение конкретного

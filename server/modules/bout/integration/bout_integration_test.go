@@ -557,3 +557,134 @@ func TestIntegration_EventsForPools_OrdersNewestFirstWithoutScheduled(t *testing
 		t.Fatalf("expected empty journal for an unrelated pool, got %d entries", len(empty))
 	}
 }
+
+// TestIntegration_BoutTimesForPools_ReflectsRealEventJournal — T5 (spec
+// 0034, FR-16/AC-11..AC-14): runs a bout through the real domain commands
+// (Start -> Finish -> Reopen -> Reset, via boutservice like a real
+// secretary would) against a real PG event journal, and checks
+// BoutTimesForPools at every step. This is the only place that exercises
+// the real SQL behind BoutTimesForPools (repo/queries/bout.sql) — the
+// service/fake-repo tests only check the gating (empty poolIDs no-op) and
+// passthrough, not the SQL's reopened/reset cutoff logic.
+//
+// Domain decisions this test locks in (see doc-comment on the SQL query
+// for the full reasoning):
+//   - not started: StartedAt/FinishedAt both nil (AC-13).
+//   - started, not finished: StartedAt set, FinishedAt nil (AC-11).
+//   - finished: StartedAt set, FinishedAt set (AC-12).
+//   - finished, then reopened (spec 0013): StartedAt UNCHANGED (reopening
+//     does not invalidate the original start time), FinishedAt reverts to
+//     nil — the stale finished mark from before the reopen must not leak
+//     through a naive MAX(occurred_at) over the whole append-only journal
+//     (AC-14).
+//   - reopened, then reset (spec 0013, only legal from in_progress): both
+//     StartedAt and FinishedAt go back to nil — the bout is fully back to
+//     not_started, so neither the pre-reset start nor the earlier finish
+//     (already cleared by the reopen) should show through.
+func TestIntegration_BoutTimesForPools_ReflectsRealEventJournal(t *testing.T) {
+	_, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+	poolID := uuid.NewString()
+	boutID := generateSingleBout(t, svc, poolID)
+	actorID := uuid.NewString()
+
+	times := func() domain.BoutTimes {
+		t.Helper()
+		got, err := repo.BoutTimesForPools(context.Background(), []string{poolID})
+		if err != nil {
+			t.Fatalf("BoutTimesForPools: %v", err)
+		}
+		bt, ok := got[boutID]
+		if !ok {
+			t.Fatalf("expected an entry for bout %q, got %+v", boutID, got)
+		}
+		return bt
+	}
+
+	// AC-13: scheduled but not started — both nil, no forecast.
+	bt := times()
+	if bt.StartedAt != nil {
+		t.Fatalf("not-started bout: StartedAt = %v, want nil", *bt.StartedAt)
+	}
+	if bt.FinishedAt != nil {
+		t.Fatalf("not-started bout: FinishedAt = %v, want nil", *bt.FinishedAt)
+	}
+
+	t0 := time.Unix(1000, 0).UTC()
+	if _, err := svc.StartBout(context.Background(), boutID, actorID, t0); err != nil {
+		t.Fatalf("StartBout: %v", err)
+	}
+
+	// AC-11: started, in progress — StartedAt set, FinishedAt nil.
+	bt = times()
+	if bt.StartedAt == nil || !bt.StartedAt.Equal(t0) {
+		t.Fatalf("in-progress bout: StartedAt = %v, want %v", bt.StartedAt, t0)
+	}
+	if bt.FinishedAt != nil {
+		t.Fatalf("in-progress bout: FinishedAt = %v, want nil", *bt.FinishedAt)
+	}
+
+	t1 := time.Unix(1001, 0).UTC()
+	if _, err := svc.FinishBout(context.Background(), boutID, actorID, t1); err != nil {
+		t.Fatalf("FinishBout: %v", err)
+	}
+
+	// AC-12: finished — both StartedAt and FinishedAt set.
+	bt = times()
+	if bt.StartedAt == nil || !bt.StartedAt.Equal(t0) {
+		t.Fatalf("finished bout: StartedAt = %v, want %v", bt.StartedAt, t0)
+	}
+	if bt.FinishedAt == nil || !bt.FinishedAt.Equal(t1) {
+		t.Fatalf("finished bout: FinishedAt = %v, want %v", bt.FinishedAt, t1)
+	}
+
+	t2 := time.Unix(1002, 0).UTC()
+	if _, err := svc.ReopenBout(context.Background(), boutID, actorID, t2); err != nil {
+		t.Fatalf("ReopenBout: %v", err)
+	}
+
+	// AC-14: reopened after finish — StartedAt is UNCHANGED (still t0, not
+	// the reopen time), FinishedAt must revert to nil (the stale finished
+	// mark from before the reopen must not leak through).
+	bt = times()
+	if bt.StartedAt == nil || !bt.StartedAt.Equal(t0) {
+		t.Fatalf("reopened bout: StartedAt = %v, want unchanged %v (reopen must not touch it)", bt.StartedAt, t0)
+	}
+	if bt.FinishedAt != nil {
+		t.Fatalf("reopened bout: FinishedAt = %v, want nil (stale pre-reopen finish must not leak through a naive MAX)", *bt.FinishedAt)
+	}
+
+	t3 := time.Unix(1003, 0).UTC()
+	if _, err := svc.ResetBout(context.Background(), boutID, actorID, t3); err != nil {
+		t.Fatalf("ResetBout: %v", err)
+	}
+
+	// Reset (only legal from in_progress, which Reopen put us back into):
+	// the bout is fully back to not_started — both times go back to nil.
+	bt = times()
+	if bt.StartedAt != nil {
+		t.Fatalf("reset bout: StartedAt = %v, want nil (reset clears the prior episode)", *bt.StartedAt)
+	}
+	if bt.FinishedAt != nil {
+		t.Fatalf("reset bout: FinishedAt = %v, want nil", *bt.FinishedAt)
+	}
+
+	// Empty poolIDs is a valid no-op: empty map, not an error (mirrors
+	// EventsForPools/AnyStartedInPools).
+	empty, err := repo.BoutTimesForPools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BoutTimesForPools(empty): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty map for empty poolIDs, got %d entries", len(empty))
+	}
+
+	// A pool with no bouts at all is also a valid no-op.
+	unrelated, err := repo.BoutTimesForPools(context.Background(), []string{uuid.NewString()})
+	if err != nil {
+		t.Fatalf("BoutTimesForPools (unrelated pool): %v", err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("expected empty map for an unrelated pool, got %d entries", len(unrelated))
+	}
+}

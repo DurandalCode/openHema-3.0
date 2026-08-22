@@ -905,3 +905,56 @@ func TestListEventsForPools_ExcludesScheduled(t *testing.T) {
 		}
 	}
 }
+
+// --- T4 (spec 0034, FR-16): TimesForPools ---
+
+// TestTimesForPools_EmptyPoolIDs_NoOpWithoutRepoCall: an empty poolIDs list
+// returns an empty map without ever calling the repo (same no-op contract
+// as ListEventsForPools/AnyStartedInPools/ClearForPools above) — a pool-less
+// arena (AC-20) must not trigger a storage round-trip.
+func TestTimesForPools_EmptyPoolIDs_NoOpWithoutRepoCall(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	got, err := svc.TimesForPools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("TimesForPools(empty): %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(got))
+	}
+	if len(repo.BoutTimesForPoolsCalls()) != 0 {
+		t.Fatal("repo must not be called with an empty pool list")
+	}
+}
+
+// TestTimesForPools_ReturnsRepoResult: a non-empty poolIDs list is passed
+// through to the repo unchanged, and the repo's result is returned as-is —
+// the SQL-level domain decision about reopened/reset cutoffs is exercised
+// by the real query in the integration test, not re-derived here.
+func TestTimesForPools_ReturnsRepoResult(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedInProgressBout(t, repo) // carries scheduled + started
+
+	got, err := svc.TimesForPools(context.Background(), []string{poolIDConst})
+	if err != nil {
+		t.Fatalf("TimesForPools: %v", err)
+	}
+
+	calls := repo.BoutTimesForPoolsCalls()
+	if len(calls) != 1 || len(calls[0]) != 1 || calls[0][0] != poolIDConst {
+		t.Fatalf("expected exactly 1 call with [%q], got %+v", poolIDConst, calls)
+	}
+
+	bt, ok := got[boutID]
+	if !ok {
+		t.Fatalf("expected an entry for bout %q, got %+v", boutID, got)
+	}
+	if bt.StartedAt == nil {
+		t.Fatal("expected StartedAt to be set for a started bout")
+	}
+	if bt.FinishedAt != nil {
+		t.Fatalf("expected FinishedAt nil for a bout that hasn't finished, got %v", *bt.FinishedAt)
+	}
+}

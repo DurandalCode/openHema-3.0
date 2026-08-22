@@ -230,6 +230,17 @@ func (s *Service) ListEventsForPools(ctx context.Context, poolIDs []string, limi
 	return s.repo.EventsForPools(ctx, poolIDs, limit)
 }
 
+// TimesForPools возвращает фактическое время начала/завершения каждого боя
+// перечисленных пулов (спека 0034, FR-16) — источник для публичной ленты
+// турнира модуля stage. Гейтит пустой список пулов так же, как
+// ListEventsForPools/AnyStartedInPools: без обращения к репозиторию.
+func (s *Service) TimesForPools(ctx context.Context, poolIDs []string) (map[string]domain.BoutTimes, error) {
+	if len(poolIDs) == 0 {
+		return map[string]domain.BoutTimes{}, nil
+	}
+	return s.repo.BoutTimesForPools(ctx, poolIDs)
+}
+
 // act реализует общий цикл load → rebuild → decide → append (ADR 0011) для
 // лайфсайкл-команд боя. Конфликт версии — один прозрачный повтор
 // (reload → redecide → reappend), затем ErrConcurrency наружу (не слепой

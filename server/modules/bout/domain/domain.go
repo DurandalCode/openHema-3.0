@@ -116,6 +116,18 @@ type Bout struct {
 	Version int
 }
 
+// BoutTimes — фактическое время начала/завершения боя, выведенное из
+// событийного журнала (ADR 0011). Оба поля nil, если соответствующее
+// событие ещё не произошло (спека 0034, FR-16): боя ещё нет в очереди —
+// StartedAt nil; идёт — StartedAt задан, FinishedAt nil; завершён — оба
+// заданы. Переоткрытие после завершения (спека 0013) обнуляет прежнее
+// FinishedAt заново обновлённым чтением — репозиторий берёт последнее по
+// времени событие каждого вида, не первое.
+type BoutTimes struct {
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
 // EventRecord — плоская запись журнала для чтения наружу (спека 0033,
 // FR-33): read-model, не агрегат — свёртки не требует. Fighter/pool/
 // sequence берутся из проекции (bout.bouts), а не из payload события —
@@ -363,4 +375,14 @@ type Repository interface {
 	// (occurred_at DESC, затем версия события DESC), ограничено limit.
 	// Пустой poolIDs — валидный no-op: пустой срез, без ошибки.
 	EventsForPools(ctx context.Context, poolIDs []string, limit int) ([]EventRecord, error)
+	// BoutTimesForPools возвращает фактическое время начала/завершения
+	// каждого боя перечисленных пулов (спека 0034, FR-16) — источник для
+	// публичной ленты турнира: время не прогнозируется, а читается из
+	// событийного журнала (ADR 0011). Переоткрытие/сброс боя (спека 0013)
+	// не должны показывать устаревшую отметку — реализация учитывает
+	// последний restart-маркер потока (reopened/reset), а не просто
+	// последнее событие своего вида без учёта порядка (см. doc-комментарий
+	// SQL-запроса BoutTimesForPools). Пустой poolIDs — валидный no-op:
+	// пустая карта без ошибки (как EventsForPools/AnyStartedInPools).
+	BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]BoutTimes, error)
 }
