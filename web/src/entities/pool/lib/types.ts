@@ -196,6 +196,19 @@ export type BoardBout = {
 };
 
 /**
+ * boutScoreLabel — счёт боя для публичного отображения (спека 0035, FR-13):
+ * не начатый бой показывает прочерк (`—:—`), а не `0:0`, чтобы не путать его
+ * с идущим боем при реальных нулях; идущий и завершённый бой — фактический
+ * счёт `A:B`.
+ */
+export function boutScoreLabel(bout: Pick<BoardBout, "state" | "scoreA" | "scoreB">): string {
+  if (bout.state === "BOUT_STATE_NOT_STARTED" || bout.state === "BOUT_STATE_UNSPECIFIED") {
+    return "—:—";
+  }
+  return `${bout.scoreA}:${bout.scoreB}`;
+}
+
+/**
  * BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
  * на ней пул (`null`, если арена свободна), его бои по порядку проведения
  * (0010) и текущий бой. `currentBoutId` пуст, если у пула нет боёв.

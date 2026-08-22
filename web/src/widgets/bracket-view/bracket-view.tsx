@@ -4,8 +4,9 @@ import { MapPin, Medal, Trophy } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
-import { boutStateLabel, poolStatusLabel, type BoutState, type PoolStatus } from "@/entities/pool/lib/types";
+import { boutScoreLabel, boutStateLabel, poolStatusLabel, type BoutState, type PoolStatus } from "@/entities/pool/lib/types";
 import { slotDisplayName } from "@/entities/bracket/lib/labels";
+import { bracketFinalRounds } from "@/entities/bracket/lib/types";
 import type { Bracket, BracketHalf, BracketPair, BracketRound, BracketSlot } from "@/entities/bracket/lib/types";
 
 /** boutStateTone — статусный тон боя пары (дизайн-система 0022). */
@@ -58,11 +59,22 @@ function SlotRow({ slot, pairResolved }: { slot: BracketSlot; pairResolved: bool
 }
 
 /**
- * PairCard — пара круга: два слота, а если пара материализована — счёт и
- * состояние её боя (FR-13/FR-19). Подсвечивается, если это текущий бой
- * половины круга.
+ * PairCard — пара круга: два слота, а если пара материализована — счёт
+ * (`boutScoreLabel`, спека 0035 FR-13: прочерк у неначатого боя вместо
+ * `0:0`) и состояние её боя (FR-19). Подсвечивается, если это текущий бой
+ * половины круга; для текущей пары дополнительно показывается площадка
+ * половины (спека 0035, FR-17/AC-12) — рядом с самой парой, а не только
+ * один раз на уровне половины (`HalfBlock`, FR-19a/спека 0033).
  */
-function PairCard({ pair, isCurrent }: { pair: BracketPair; isCurrent: boolean }) {
+function PairCard({
+  pair,
+  isCurrent,
+  arenaName,
+}: {
+  pair: BracketPair;
+  isCurrent: boolean;
+  arenaName?: string;
+}) {
   const { bout } = pair;
   return (
     <Col
@@ -77,10 +89,14 @@ function PairCard({ pair, isCurrent }: { pair: BracketPair; isCurrent: boolean }
       <SlotRow slot={pair.slotB} pairResolved={pair.resolved} />
       {bout && (
         <Row align="center" justify="between" gap={2} className="border-t pt-1">
-          <span className="text-sm font-medium tabular-nums">
-            {bout.scoreA}:{bout.scoreB}
-          </span>
+          <span className="text-sm font-medium tabular-nums">{boutScoreLabel(bout)}</span>
           <Badge tone={boutStateTone(bout.state)}>{boutStateLabel(bout.state)}</Badge>
+        </Row>
+      )}
+      {isCurrent && arenaName && (
+        <Row align="center" gap={1} className="text-xs text-muted-foreground">
+          <MapPin className="size-3" />
+          <span>Площадка: {arenaName}</span>
         </Row>
       )}
     </Col>
@@ -111,23 +127,59 @@ function HalfBlock({ half }: { half: BracketHalf }) {
         )}
       </Col>
       <Col gap={2}>
-        {half.pairs.map((pair) => (
-          <PairCard
-            key={pair.index}
-            pair={pair}
-            isCurrent={half.currentBoutId !== "" && pair.bout?.id === half.currentBoutId}
-          />
-        ))}
+        {half.pairs.map((pair) => {
+          const isCurrent = half.currentBoutId !== "" && pair.bout?.id === half.currentBoutId;
+          return (
+            <PairCard
+              key={pair.index}
+              pair={pair}
+              isCurrent={isCurrent}
+              arenaName={isCurrent ? container.arenaName : undefined}
+            />
+          );
+        })}
       </Col>
     </Col>
   );
 }
 
-/** RoundColumn — один круг сетки: заголовок и его половины друг под другом. */
-function RoundColumn({ round }: { round: BracketRound }) {
+/** RoundEmphasis — визуальное выделение финала/боя за 3-е место (FR-18). */
+type RoundEmphasis = "final" | "third-place";
+
+/**
+ * RoundColumn — один круг сетки: заголовок и его половины друг под другом.
+ * Финал и бой за 3-е место (`emphasis`, спека 0035, FR-18/AC-13) выделяются
+ * акцентным блоком правого края сетки вместо обычной колонки — золотой тон
+ * для финала (тот же приём, что и у бейджа чемпиона выше), приглушённый
+ * акцент для боя за 3-е место — они остаются раздельными колонками, не
+ * сливаясь друг с другом.
+ */
+function RoundColumn({ round, emphasis }: { round: BracketRound; emphasis?: RoundEmphasis }) {
   return (
-    <Col gap={3} className="w-[240px] shrink-0">
-      <h3 className="text-center text-sm font-semibold text-foreground">{round.title}</h3>
+    <Col
+      gap={3}
+      className={cn(
+        "w-[240px] shrink-0",
+        emphasis === "final" && "rounded-lg border-2 border-gold/60 bg-gold/5 p-2",
+        emphasis === "third-place" && "rounded-lg border-2 border-muted-foreground/30 bg-muted/40 p-2",
+      )}
+      data-emphasis={emphasis}
+    >
+      <Row align="center" justify="center" gap={1} className="flex-wrap">
+        <h3 className="text-center text-sm font-semibold text-foreground">{round.title}</h3>
+        {emphasis === "final" && (
+          <Badge variant="gold" className="gap-1 text-[10px]">
+            <Trophy className="size-3" />
+            Финал
+          </Badge>
+        )}
+        {emphasis === "third-place" && (
+          <Badge variant="secondary" className="gap-1 text-[10px]">
+            <Medal className="size-3" />
+            3-е место
+          </Badge>
+        )}
+      </Row>
       <Col gap={4}>
         {round.halves.map((half) => (
           <HalfBlock key={half.half} half={half} />
@@ -145,6 +197,7 @@ function RoundColumn({ round }: { round: BracketRound }) {
  * «простынёй» и остаётся читаемой на телефоне (NFR-2).
  */
 export function BracketView({ bracket }: { bracket: Bracket }) {
+  const { final, thirdPlace } = bracketFinalRounds(bracket);
   return (
     <Col gap={4}>
       {(bracket.champion || bracket.thirdPlaceWinner) && (
@@ -166,7 +219,11 @@ export function BracketView({ bracket }: { bracket: Bracket }) {
       <div className="overflow-x-auto">
         <Row gap={4} align="start" className="w-max pb-2">
           {bracket.rounds.map((round) => (
-            <RoundColumn key={round.number} round={round} />
+            <RoundColumn
+              key={round.number}
+              round={round}
+              emphasis={round === final ? "final" : round === thirdPlace ? "third-place" : undefined}
+            />
           ))}
         </Row>
       </div>

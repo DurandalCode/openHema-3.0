@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { outcomeOf, poolCountWord, poolLayoutCounts } from "./types";
-import type { FighterRef, Pool, PoolLayout } from "./types";
+import { boutScoreLabel, outcomeOf, poolCountWord, poolLayoutCounts } from "./types";
+import type { BoardBout, FighterRef, Pool, PoolLayout } from "./types";
 
 function fighter(id: string): FighterRef {
   return { fighterId: id, name: `Боец ${id}`, club: "" };
@@ -107,5 +107,41 @@ describe("entities/pool/lib/types poolCountWord", () => {
     expect(poolCountWord(12)).toBe("пулов");
     expect(poolCountWord(14)).toBe("пулов");
     expect(poolCountWord(20)).toBe("пулов");
+  });
+});
+
+function boutStub(overrides: Partial<BoardBout>): Pick<BoardBout, "state" | "scoreA" | "scoreB"> {
+  return {
+    state: "BOUT_STATE_NOT_STARTED",
+    scoreA: 0,
+    scoreB: 0,
+    ...overrides,
+  };
+}
+
+// Спека 0035 (T5, FR-13/AC-9): счёт не начатого боя — прочерк, а не 0:0;
+// счёт идущего и завершённого боя — фактический.
+describe("entities/pool/lib/types boutScoreLabel", () => {
+  it("shows a dash for a not-started bout (AC-9)", () => {
+    expect(boutScoreLabel(boutStub({ state: "BOUT_STATE_NOT_STARTED" }))).toBe("—:—");
+  });
+
+  it("shows a dash for an unspecified bout state", () => {
+    expect(boutScoreLabel(boutStub({ state: "BOUT_STATE_UNSPECIFIED" }))).toBe("—:—");
+  });
+
+  it("shows the actual score for an in-progress bout (AC-10)", () => {
+    expect(
+      boutScoreLabel(boutStub({ state: "BOUT_STATE_IN_PROGRESS", scoreA: 3, scoreB: 1 })),
+    ).toBe("3:1");
+  });
+
+  it("shows the actual score for a finished bout, including 0:0 (AC-11)", () => {
+    expect(
+      boutScoreLabel(boutStub({ state: "BOUT_STATE_FINISHED", scoreA: 5, scoreB: 2 })),
+    ).toBe("5:2");
+    expect(
+      boutScoreLabel(boutStub({ state: "BOUT_STATE_FINISHED", scoreA: 0, scoreB: 0 })),
+    ).toBe("0:0");
   });
 });
