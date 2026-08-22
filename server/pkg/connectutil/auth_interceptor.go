@@ -16,6 +16,10 @@ var publicProcedures = map[string]struct{}{
 	"/hema.v1.AuthService/Register":                                {},
 	"/hema.v1.AuthService/Login":                                   {},
 	"/hema.v1.AuthService/Refresh":                                 {},
+	// Спека 0037: сброс пароля — гость по определению не аутентифицирован
+	// (FR-1/FR-7).
+	"/hema.v1.AuthService/RequestPasswordReset": {},
+	"/hema.v1.AuthService/ResetPassword":        {},
 	"/hema.v1.TournamentService/GetActiveTournament":               {},
 	"/hema.v1.NominationService/ListNominations":                   {},
 	"/hema.v1.NominationService/GetNomination":                     {},

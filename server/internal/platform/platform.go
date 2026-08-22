@@ -13,6 +13,7 @@ import (
 	"github.com/hema/server/modules/application"
 	"github.com/hema/server/modules/arena"
 	"github.com/hema/server/modules/auth"
+	"github.com/hema/server/modules/auth/mailer"
 	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
@@ -22,6 +23,7 @@ import (
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
 	"github.com/hema/server/pkg/livebus"
+	"github.com/hema/server/pkg/mail"
 	"github.com/hema/server/pkg/pgxutil"
 )
 
@@ -64,7 +66,25 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	})
 
 	// ── Регистрация модулей монолита ─────────────────────────────
-	deps := auth.Deps{Pool: pool, Tokens: tokens}
+
+	// Почта восстановления пароля (спека 0037, решение 3): SMTP при
+	// настроенном хосте, иначе лог-адаптер (NFR-3) — dev/тесты работают без
+	// внешнего почтового сервера.
+	var sender mail.Sender
+	if cfg.SMTPHost != "" {
+		sender = mail.NewSMTP(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
+	} else {
+		sender = mail.NewLogger(log)
+		log.Warn("SMTP_HOST not set: password reset emails are logged, not delivered")
+	}
+
+	deps := auth.Deps{
+		Pool:             pool,
+		Tokens:           tokens,
+		Mailer:           mailer.New(sender, cfg.PasswordResetTTL),
+		PublicAppURL:     cfg.PublicAppURL,
+		PasswordResetTTL: cfg.PasswordResetTTL,
+	}
 	auth.Register(mux, deps, baseOpts, adminOpts)
 
 	tournamentDeps := tournament.Deps{Pool: pool}
