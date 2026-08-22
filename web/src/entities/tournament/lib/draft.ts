@@ -15,6 +15,19 @@ export type TournamentDraft = {
   eventStartAt: string | null;
   eventEndAt: string | null;
   contacts: ContactDraft[];
+  // Профиль турнира — новые поля (spec 0037, FR-18): судья, регламент,
+  // место проведения, взнос.
+  chiefJudge: string;
+  regulationsUrl: string;
+  venueName: string;
+  venueAddress: string;
+  // entryFeeAmount — сумма взноса в ОСНОВНЫХ единицах валюты (рубли, не
+  // копейки) строкой ввода: "" — взнос не задан, иначе десятичная строка
+  // ("1500" / "1500.50"). Конвертация в/из `entryFeeMinor` — на границе
+  // (`entryFeeAmountToMinor`/`entryFeeMinorToAmount`), сам Tournament DTO
+  // остаётся в минорных единицах (FR-21).
+  entryFeeAmount: string;
+  entryFeeCurrency: string;
 };
 
 function contactWord(n: number): string {
@@ -33,6 +46,25 @@ function normalizeContacts(contacts: ContactDraft[]): ContactDraft[] {
   return contacts
     .map((c) => ({ type: c.type, value: c.value.trim() }))
     .filter((c) => c.value !== "");
+}
+
+/**
+ * entryFeeMinorToAmount / entryFeeAmountToMinor — конвертация взноса между
+ * минорными единицами (Tournament DTO, копейки) и основными (поле ввода
+ * формы, рубли). Округление до копейки (`Math.round(value * 100)`) —
+ * значения из формы бывают с плавающей точкой (`1500.5`).
+ */
+export function entryFeeMinorToAmount(minor: number | null): string {
+  if (minor === null) return "";
+  return (minor / 100).toString();
+}
+
+export function entryFeeAmountToMinor(amount: string): number | null {
+  const trimmed = amount.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed.replace(",", "."));
+  if (!Number.isFinite(value)) return null;
+  return Math.round(value * 100);
 }
 
 /** Число позиционно различающихся контактов между двумя (уже нормализованными
@@ -70,6 +102,17 @@ export function tournamentDraftChanges(
     changes.push("дата окончания");
   }
   if (draft.emblemUrl !== saved.emblemUrl) changes.push("эмблема");
+  if (draft.chiefJudge !== saved.chiefJudge) changes.push("главный судья");
+  if (draft.regulationsUrl !== saved.regulationsUrl) changes.push("регламент");
+  if (draft.venueName !== saved.venueName || draft.venueAddress !== saved.venueAddress) {
+    changes.push("место проведения");
+  }
+  if (
+    entryFeeAmountToMinor(draft.entryFeeAmount) !== saved.entryFeeMinor ||
+    draft.entryFeeCurrency !== saved.entryFeeCurrency
+  ) {
+    changes.push("взнос");
+  }
 
   const savedContacts = normalizeContacts(
     saved.contacts.map((c) => ({ type: c.type, value: c.value })),
@@ -122,6 +165,7 @@ export function draftToTournament(
   saved: Tournament,
   draft: TournamentDraft,
 ): Tournament {
+  const entryFeeMinor = entryFeeAmountToMinor(draft.entryFeeAmount);
   return {
     id: saved.id,
     title: draft.title,
@@ -133,5 +177,13 @@ export function draftToTournament(
     contacts: normalizeContacts(draft.contacts),
     createdAt: saved.createdAt,
     updatedAt: saved.updatedAt,
+    chiefJudge: draft.chiefJudge,
+    regulationsUrl: draft.regulationsUrl,
+    venueName: draft.venueName,
+    venueAddress: draft.venueAddress,
+    entryFeeMinor,
+    // «не задан» затирает валюту (FR-21): взнос без суммы не должен нести
+    // валюту, которая на публичной странице читалась бы как «взнос есть».
+    entryFeeCurrency: entryFeeMinor === null ? "" : draft.entryFeeCurrency,
   };
 }

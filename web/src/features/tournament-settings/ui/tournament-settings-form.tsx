@@ -145,6 +145,80 @@ export function TournamentSettingsForm({
       </Col>
 
       <Col gap={2}>
+        <Label htmlFor="chiefJudge">Главный судья</Label>
+        <Input
+          id="chiefJudge"
+          value={value.chiefJudge}
+          onChange={(e) => set("chiefJudge", e.target.value)}
+        />
+      </Col>
+
+      <Col gap={2}>
+        <Label htmlFor="regulationsUrl">Ссылка на регламент</Label>
+        <Input
+          id="regulationsUrl"
+          type="url"
+          placeholder="https://cdn.example.com/rules.pdf"
+          value={value.regulationsUrl}
+          onChange={(e) => set("regulationsUrl", e.target.value)}
+        />
+      </Col>
+
+      <Col gap={2}>
+        <Label>Место проведения</Label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Col gap={2}>
+            <Label htmlFor="venueName">Название площадки</Label>
+            <Input
+              id="venueName"
+              value={value.venueName}
+              onChange={(e) => set("venueName", e.target.value)}
+            />
+          </Col>
+          <Col gap={2}>
+            <Label htmlFor="venueAddress">Адрес площадки</Label>
+            <Input
+              id="venueAddress"
+              value={value.venueAddress}
+              onChange={(e) => set("venueAddress", e.target.value)}
+            />
+          </Col>
+        </div>
+      </Col>
+
+      <Col gap={2}>
+        <Label>Взнос за номинацию</Label>
+        <Row gap={3}>
+          <Col gap={2} className="flex-1">
+            <Label htmlFor="entryFeeAmount">Сумма взноса</Label>
+            <Input
+              id="entryFeeAmount"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="0"
+              value={value.entryFeeAmount}
+              onChange={(e) => set("entryFeeAmount", e.target.value)}
+            />
+          </Col>
+          <Col gap={2}>
+            <Label htmlFor="entryFeeCurrency">Валюта</Label>
+            <Input
+              id="entryFeeCurrency"
+              placeholder="RUB"
+              className="w-24"
+              value={value.entryFeeCurrency}
+              onChange={(e) => set("entryFeeCurrency", e.target.value)}
+            />
+          </Col>
+        </Row>
+        <p className="text-xs text-muted-foreground">
+          Пустая сумма — взнос не задан (не то же самое, что бесплатное
+          участие).
+        </p>
+      </Col>
+
+      <Col gap={2}>
         <Row align="center" justify="between">
           <Label>Контакты</Label>
           <Button type="button" variant="outline" size="sm" onClick={addContact}>

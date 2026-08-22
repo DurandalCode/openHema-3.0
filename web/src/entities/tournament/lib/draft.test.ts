@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   draftToTournament,
+  entryFeeMinorToAmount,
   tournamentDraftChanges,
   validateTournamentDraft,
   type TournamentDraft,
@@ -22,6 +23,12 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     ],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    chiefJudge: "Иванов И.И.",
+    regulationsUrl: "https://cdn.example.com/rules.pdf",
+    venueName: "Спорткомплекс «Заря»",
+    venueAddress: "г. Москва, ул. Спортивная, 1",
+    entryFeeMinor: 150000,
+    entryFeeCurrency: "RUB",
     ...overrides,
   };
 }
@@ -34,6 +41,12 @@ function draftFrom(saved: Tournament): TournamentDraft {
     eventStartAt: saved.eventStartAt || null,
     eventEndAt: saved.eventEndAt || null,
     contacts: saved.contacts.map((c) => ({ type: c.type, value: c.value })),
+    chiefJudge: saved.chiefJudge,
+    regulationsUrl: saved.regulationsUrl,
+    venueName: saved.venueName,
+    venueAddress: saved.venueAddress,
+    entryFeeAmount: entryFeeMinorToAmount(saved.entryFeeMinor),
+    entryFeeCurrency: saved.entryFeeCurrency,
   };
 }
 
@@ -184,5 +197,79 @@ describe("entities/tournament/lib/draft draftToTournament (spec 0029, FR-3/FR-5/
     const preview = draftToTournament(saved, draft);
     expect(preview.eventStartAt).toBe("");
     expect(preview.eventEndAt).toBe("");
+  });
+
+  // spec 0037 (T17): 6 новых полей должны доехать до превью так же, как
+  // остальные — иначе сохранение (полная замена, FR-22) молча обнулило бы их.
+  it("carries the 6 new profile fields through to the preview (spec 0037, FR-18/FR-22)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.chiefJudge = "Петров П.П.";
+    draft.regulationsUrl = "https://cdn.example.com/new-rules.pdf";
+    draft.venueName = "Дворец спорта";
+    draft.venueAddress = "г. Санкт-Петербург, пр. Спортивный, 5";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.chiefJudge).toBe("Петров П.П.");
+    expect(preview.regulationsUrl).toBe("https://cdn.example.com/new-rules.pdf");
+    expect(preview.venueName).toBe("Дворец спорта");
+    expect(preview.venueAddress).toBe("г. Санкт-Петербург, пр. Спортивный, 5");
+  });
+
+  it("converts entryFeeAmount (major units) into entryFeeMinor (minor units)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.entryFeeAmount = "1500.5";
+    draft.entryFeeCurrency = "RUB";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.entryFeeMinor).toBe(150050);
+    expect(preview.entryFeeCurrency).toBe("RUB");
+  });
+
+  it("clears the currency when the entry fee amount is unset (FR-21: unset != zero)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.entryFeeAmount = "";
+    draft.entryFeeCurrency = "RUB";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.entryFeeMinor).toBeNull();
+    expect(preview.entryFeeCurrency).toBe("");
+  });
+
+  it("keeps an explicit zero entry fee distinct from unset (FR-21)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.entryFeeAmount = "0";
+    draft.entryFeeCurrency = "RUB";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.entryFeeMinor).toBe(0);
+    expect(preview.entryFeeCurrency).toBe("RUB");
+  });
+});
+
+describe("entities/tournament/lib/draft tournamentDraftChanges — new profile fields (spec 0037)", () => {
+  it("reports each new field changed by name", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.chiefJudge = "Новый судья";
+    draft.regulationsUrl = "https://cdn.example.com/other-rules.pdf";
+    draft.venueName = "Другой зал";
+    draft.entryFeeAmount = "2000";
+
+    expect(tournamentDraftChanges(saved, draft)).toEqual([
+      "главный судья",
+      "регламент",
+      "место проведения",
+      "взнос",
+    ]);
+  });
+
+  it("returns no changes when the new fields are untouched", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    expect(tournamentDraftChanges(saved, draft)).toEqual([]);
   });
 });

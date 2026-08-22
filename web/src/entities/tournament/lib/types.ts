@@ -37,4 +37,19 @@ export type Tournament = {
   contacts: ContactJson[];
   createdAt: string;
   updatedAt: string;
+  // chiefJudge — главный судья турнира (ФИО свободной строкой). "" — не указан.
+  chiefJudge: string;
+  // regulationsUrl — веб-адрес регламента (http/https). "" — не задан.
+  regulationsUrl: string;
+  // venueName / venueAddress — место проведения: название площадки и адрес.
+  // Опциональны независимо друг от друга, "" — не заполнено.
+  venueName: string;
+  venueAddress: string;
+  // entryFeeMinor — взнос за участие в одной номинации, в минорных единицах
+  // валюты (копейки). `null` — «не задан», отличимо от явного 0 (spec 0037,
+  // FR-21). Приходит из JSON int64 строкой — normalizeToJson приводит к
+  // числу (см. tournamentToJson).
+  entryFeeMinor: number | null;
+  // entryFeeCurrency — код валюты ISO-4217 ("RUB"). "" при entryFeeMinor === null.
+  entryFeeCurrency: string;
 };

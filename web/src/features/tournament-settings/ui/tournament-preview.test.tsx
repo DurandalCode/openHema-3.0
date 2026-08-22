@@ -2,7 +2,11 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TournamentPreview } from "./tournament-preview";
-import { draftToTournament, type TournamentDraft } from "@/entities/tournament/lib/draft";
+import {
+  draftToTournament,
+  entryFeeMinorToAmount,
+  type TournamentDraft,
+} from "@/entities/tournament/lib/draft";
 import type { Tournament } from "@/entities/tournament/lib/types";
 
 function saved(overrides: Partial<Tournament> = {}): Tournament {
@@ -17,6 +21,12 @@ function saved(overrides: Partial<Tournament> = {}): Tournament {
     contacts: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    chiefJudge: "",
+    regulationsUrl: "",
+    venueName: "",
+    venueAddress: "",
+    entryFeeMinor: null,
+    entryFeeCurrency: "",
     ...overrides,
   };
 }
@@ -29,6 +39,12 @@ function draftFrom(t: Tournament): TournamentDraft {
     eventStartAt: t.eventStartAt || null,
     eventEndAt: t.eventEndAt || null,
     contacts: t.contacts.map((c) => ({ type: c.type, value: c.value })),
+    chiefJudge: t.chiefJudge,
+    regulationsUrl: t.regulationsUrl,
+    venueName: t.venueName,
+    venueAddress: t.venueAddress,
+    entryFeeAmount: entryFeeMinorToAmount(t.entryFeeMinor),
+    entryFeeCurrency: t.entryFeeCurrency,
   };
 }
 

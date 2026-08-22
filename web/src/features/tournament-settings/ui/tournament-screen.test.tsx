@@ -27,6 +27,12 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     contacts: [{ id: "c1", type: "CONTACT_TYPE_TELEGRAM", value: "@org" }],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: new Date().toISOString(),
+    chiefJudge: "",
+    regulationsUrl: "",
+    venueName: "",
+    venueAddress: "",
+    entryFeeMinor: null,
+    entryFeeCurrency: "",
     ...overrides,
   };
 }
@@ -162,5 +168,37 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(message).toBe("Проверьте название и даты");
     expect(options?.retry).toBeUndefined();
     expect(screen.getByLabelText("Название *")).toHaveValue("Новое название");
+  });
+
+  // spec 0037 (T17, FR-22): UpdateActiveTournament заменяет профиль целиком.
+  // Регрессия, которую боится плейбук задачи: сохранение НЕсвязанного поля
+  // (описания) не должно обнулять уже заполненные новые поля профиля.
+  it("saving an unrelated field does not null out already-set new profile fields (spec 0037, FR-22)", () => {
+    render(
+      <TournamentScreen
+        tournament={tournament({
+          chiefJudge: "Иванов И.И.",
+          regulationsUrl: "https://cdn.example.com/rules.pdf",
+          venueName: "Дворец спорта",
+          venueAddress: "г. Москва, ул. Спортивная, 1",
+          entryFeeMinor: 150000,
+          entryFeeCurrency: "RUB",
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Описание"), {
+      target: { value: "Новое описание" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const input = updateMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(input.chiefJudge).toBe("Иванов И.И.");
+    expect(input.regulationsUrl).toBe("https://cdn.example.com/rules.pdf");
+    expect(input.venueName).toBe("Дворец спорта");
+    expect(input.venueAddress).toBe("г. Москва, ул. Спортивная, 1");
+    expect(input.entryFeeMinor).toBe(150000);
+    expect(input.entryFeeCurrency).toBe("RUB");
   });
 });

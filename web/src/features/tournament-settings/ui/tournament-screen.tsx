@@ -8,6 +8,8 @@ import { formatRelativeTime } from "@/shared/lib/datetime";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import {
   draftToTournament,
+  entryFeeAmountToMinor,
+  entryFeeMinorToAmount,
   tournamentDraftChanges,
   validateTournamentDraft,
   type TournamentDraft,
@@ -26,10 +28,17 @@ function draftFromTournament(t: Tournament): TournamentDraft {
     eventStartAt: t.eventStartAt || null,
     eventEndAt: t.eventEndAt || null,
     contacts: t.contacts.map((c) => ({ type: c.type, value: c.value })),
+    chiefJudge: t.chiefJudge,
+    regulationsUrl: t.regulationsUrl,
+    venueName: t.venueName,
+    venueAddress: t.venueAddress,
+    entryFeeAmount: entryFeeMinorToAmount(t.entryFeeMinor),
+    entryFeeCurrency: t.entryFeeCurrency,
   };
 }
 
 function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
+  const entryFeeMinor = entryFeeAmountToMinor(draft.entryFeeAmount);
   return {
     title: draft.title,
     description: draft.description,
@@ -37,6 +46,15 @@ function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
     eventStartAt: draft.eventStartAt,
     eventEndAt: draft.eventEndAt,
     contacts: draft.contacts.filter((c) => c.value.trim() !== ""),
+    chiefJudge: draft.chiefJudge,
+    regulationsUrl: draft.regulationsUrl,
+    venueName: draft.venueName,
+    venueAddress: draft.venueAddress,
+    entryFeeMinor,
+    // «не задан» затирает валюту (FR-21), тот же приём, что в
+    // `draftToTournament` (превью) — иначе можно уйти на сервер с суммой
+    // null, но не пустой валютой.
+    entryFeeCurrency: entryFeeMinor === null ? "" : draft.entryFeeCurrency,
   };
 }
 

@@ -60,6 +60,7 @@ type UserJson = {
   displayName: string;
   role: string;
   createdAt: string;
+  club: string;
 };
 
 type TournamentJson = {
@@ -73,6 +74,12 @@ type TournamentJson = {
   contacts: { id: string; type: string; value: string; position: number }[];
   createdAt: string;
   updatedAt: string;
+  chiefJudge: string;
+  regulationsUrl: string;
+  venueName: string;
+  venueAddress: string;
+  entryFeeMinor: number | null;
+  entryFeeCurrency: string;
 };
 
 describe("userToJson", () => {
@@ -97,6 +104,37 @@ describe("userToJson", () => {
 
   it("returns null for undefined", () => {
     expect(userToJson(undefined)).toBeNull();
+  });
+
+  // Регрессия (spec 0037, T16): `club` — новое поле User (данные учётки, не
+  // бойца). proto3 опускает пустую строку в toJson, как уже случалось с
+  // title/description турнира — normalizeTournamentJson это не потеряло, и
+  // userToJson тоже не должен.
+  it("keeps a non-empty club (spec 0037, FR-13)", () => {
+    const user = fromJson(UserSchema, {
+      id: "user-123",
+      email: "knight@hema.test",
+      displayName: "Sir Test",
+      role: "ROLE_USER",
+      club: "Северный клинок",
+    });
+
+    const json = userToJson(user) as UserJson;
+
+    expect(json.club).toBe("Северный клинок");
+  });
+
+  it("normalizes an unset club (proto3 default) to an empty string, not undefined", () => {
+    const user = fromJson(UserSchema, {
+      id: "user-123",
+      email: "knight@hema.test",
+      displayName: "Sir Test",
+      role: "ROLE_USER",
+    });
+
+    const json = userToJson(user) as UserJson;
+
+    expect(json.club).toBe("");
   });
 });
 
@@ -186,6 +224,76 @@ describe("tournamentToJson", () => {
     expect(json.title).toBe("Cup");
     expect(json.description).toBe("");
     expect(json.emblemUrl).toBe("");
+  });
+
+  // spec 0037 (T16): 6 новых полей профиля турнира — судья, регламент, место
+  // проведения, взнос.
+  it("carries the 6 new profile fields through (spec 0037, FR-18)", () => {
+    const t = fromJson(TournamentSchema, {
+      id: "t1",
+      title: "HEMA Cup",
+      chiefJudge: "Иванов И.И.",
+      regulationsUrl: "https://cdn/rules.pdf",
+      venueName: "Спорткомплекс «Заря»",
+      venueAddress: "г. Москва, ул. Спортивная, 1",
+      entryFeeMinor: "150000",
+      entryFeeCurrency: "RUB",
+    });
+
+    const json = tournamentToJson(t) as TournamentJson;
+
+    expect(json.chiefJudge).toBe("Иванов И.И.");
+    expect(json.regulationsUrl).toBe("https://cdn/rules.pdf");
+    expect(json.venueName).toBe("Спорткомплекс «Заря»");
+    expect(json.venueAddress).toBe("г. Москва, ул. Спортивная, 1");
+    expect(json.entryFeeCurrency).toBe("RUB");
+  });
+
+  // Регрессия (риск из plan.md «`optional int64` в JSON»): connect-es
+  // сериализует int64 в JSON как СТРОКУ ("150000"), не число. Без явного
+  // приведения BFF отдал бы `entryFeeMinor: "150000"` (string) потребителям,
+  // ожидающим `number | null` — тихий баг, который легко пропустить.
+  it("normalizes entryFeeMinor from a JSON int64 string to a number", () => {
+    const t = fromJson(TournamentSchema, {
+      id: "t1",
+      entryFeeMinor: "150000",
+      entryFeeCurrency: "RUB",
+    });
+
+    const json = tournamentToJson(t) as TournamentJson;
+
+    expect(json.entryFeeMinor).toBe(150000);
+    expect(typeof json.entryFeeMinor).toBe("number");
+  });
+
+  // FR-21: «не задан» (presence отсутствует) отличим от «ноль» — оба должны
+  // пройти через tournamentToJson без искажения.
+  it("normalizes an unset entry fee to null, distinct from a zero fee (FR-21)", () => {
+    const unset = fromJson(TournamentSchema, { id: "t1" });
+    const zero = fromJson(TournamentSchema, {
+      id: "t2",
+      entryFeeMinor: "0",
+      entryFeeCurrency: "RUB",
+    });
+
+    expect((tournamentToJson(unset) as TournamentJson).entryFeeMinor).toBeNull();
+    expect((tournamentToJson(zero) as TournamentJson).entryFeeMinor).toBe(0);
+  });
+
+  it("normalizes proto3 defaults for the 6 new fields on a seed tournament", () => {
+    const t = fromJson(TournamentSchema, {
+      id: "00000000-0000-0000-0000-000000000001",
+      isActive: true,
+    });
+
+    const json = tournamentToJson(t) as TournamentJson;
+
+    expect(json.chiefJudge).toBe("");
+    expect(json.regulationsUrl).toBe("");
+    expect(json.venueName).toBe("");
+    expect(json.venueAddress).toBe("");
+    expect(json.entryFeeMinor).toBeNull();
+    expect(json.entryFeeCurrency).toBe("");
   });
 });
 

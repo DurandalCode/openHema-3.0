@@ -112,5 +112,47 @@ describe("features/tournament-settings/api/requests", () => {
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна", status: 0 });
     });
+
+    // spec 0037 (T17): новые поля профиля турнира должны уходить в теле
+    // запроса — иначе форма, добавляющая поля в UI, но не в fetcher, молча
+    // теряет их при сохранении (UpdateActiveTournament — полная замена, FR-22).
+    it("forwards the 6 new profile fields in the request body (spec 0037, FR-18/FR-22)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ tournament: { id: "t1", title: "Cup" } }),
+      });
+
+      await updateTournamentRequest({
+        title: "Cup",
+        chiefJudge: "Иванов И.И.",
+        regulationsUrl: "https://cdn/rules.pdf",
+        venueName: "Дворец спорта",
+        venueAddress: "г. Москва, ул. Спортивная, 1",
+        entryFeeMinor: 150000,
+        entryFeeCurrency: "RUB",
+      });
+
+      const call = fetchMock.mock.calls[0];
+      const body = JSON.parse(call[1].body as string);
+      expect(body.chiefJudge).toBe("Иванов И.И.");
+      expect(body.regulationsUrl).toBe("https://cdn/rules.pdf");
+      expect(body.venueName).toBe("Дворец спорта");
+      expect(body.venueAddress).toBe("г. Москва, ул. Спортивная, 1");
+      expect(body.entryFeeMinor).toBe(150000);
+      expect(body.entryFeeCurrency).toBe("RUB");
+    });
+
+    it("forwards entryFeeMinor: null as-is (unset fee distinct from zero, FR-21)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ tournament: { id: "t1", title: "Cup" } }),
+      });
+
+      await updateTournamentRequest({ title: "Cup", entryFeeMinor: null, entryFeeCurrency: "" });
+
+      const call = fetchMock.mock.calls[0];
+      const body = JSON.parse(call[1].body as string);
+      expect(body.entryFeeMinor).toBeNull();
+    });
   });
 });

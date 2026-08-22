@@ -27,6 +27,12 @@ function draft(overrides: Partial<TournamentDraft> = {}): TournamentDraft {
     eventStartAt: "2026-08-12T00:00:00.000Z",
     eventEndAt: null,
     contacts: [],
+    chiefJudge: "",
+    regulationsUrl: "",
+    venueName: "",
+    venueAddress: "",
+    entryFeeAmount: "",
+    entryFeeCurrency: "",
     ...overrides,
   };
 }
@@ -90,5 +96,155 @@ describe("TournamentSettingsForm (spec 0029, controlled form)", () => {
     render(<TournamentSettingsForm value={draft()} onChange={vi.fn()} errors={{}} />);
     expect(screen.getByText(/пустые контакты не сохраняются/i)).toBeInTheDocument();
     expect(screen.getByText(/@handle/)).toBeInTheDocument();
+  });
+
+  // spec 0037 (T17): новые поля профиля турнира — судья, регламент, место,
+  // взнос. Форма контролируемая: рендер + onChange, без своего сабмита.
+  describe("new profile fields (spec 0037, FR-18)", () => {
+    it("renders the chief judge field with its saved value", () => {
+      render(
+        <TournamentSettingsForm
+          value={draft({ chiefJudge: "Иванов И.И." })}
+          onChange={vi.fn()}
+          errors={{}}
+        />,
+      );
+      expect(screen.getByLabelText("Главный судья")).toHaveValue("Иванов И.И.");
+    });
+
+    it("calls onChange with chiefJudge on edit, preserving the rest of the draft", () => {
+      const onChange = vi.fn();
+      render(
+        <TournamentSettingsForm
+          value={draft({ regulationsUrl: "https://cdn/rules.pdf" })}
+          onChange={onChange}
+          errors={{}}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText("Главный судья"), {
+        target: { value: "Петров П.П." },
+      });
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chiefJudge: "Петров П.П.",
+          regulationsUrl: "https://cdn/rules.pdf",
+        }),
+      );
+    });
+
+    it("renders the regulations URL field and reports edits", () => {
+      const onChange = vi.fn();
+      render(<TournamentSettingsForm value={draft()} onChange={onChange} errors={{}} />);
+
+      const input = screen.getByLabelText("Ссылка на регламент");
+      expect(input).toHaveAttribute("type", "url");
+      fireEvent.change(input, { target: { value: "https://cdn.example.com/rules.pdf" } });
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ regulationsUrl: "https://cdn.example.com/rules.pdf" }),
+      );
+    });
+
+    it("renders venue name and address fields and reports edits independently", () => {
+      const onChange = vi.fn();
+      render(
+        <TournamentSettingsForm
+          value={draft({ venueAddress: "г. Москва, ул. Спортивная, 1" })}
+          onChange={onChange}
+          errors={{}}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText("Название площадки"), {
+        target: { value: "Дворец спорта" },
+      });
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          venueName: "Дворец спорта",
+          venueAddress: "г. Москва, ул. Спортивная, 1",
+        }),
+      );
+    });
+
+    it("renders the entry fee amount and currency fields and reports edits", () => {
+      const onChange = vi.fn();
+      render(
+        <TournamentSettingsForm
+          value={draft({ entryFeeCurrency: "RUB" })}
+          onChange={onChange}
+          errors={{}}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText("Сумма взноса"), {
+        target: { value: "1500" },
+      });
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ entryFeeAmount: "1500", entryFeeCurrency: "RUB" }),
+      );
+    });
+
+    it("edits to the entry fee currency preserve the amount", () => {
+      const onChange = vi.fn();
+      render(
+        <TournamentSettingsForm
+          value={draft({ entryFeeAmount: "1500" })}
+          onChange={onChange}
+          errors={{}}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText("Валюта"), {
+        target: { value: "EUR" },
+      });
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ entryFeeAmount: "1500", entryFeeCurrency: "EUR" }),
+      );
+    });
+
+    // Регрессия, которую боится задача T17: сохранение из-за правки НЕсвязанного
+    // поля (название) не должно терять уже введённые новые поля — форма
+    // контролируемая, `onChange` всегда получает ПОЛНЫЙ черновик.
+    it("does not drop already-filled new fields when an unrelated field changes (FR-22)", () => {
+      const onChange = vi.fn();
+      render(
+        <TournamentSettingsForm
+          value={draft({
+            chiefJudge: "Иванов И.И.",
+            regulationsUrl: "https://cdn/rules.pdf",
+            venueName: "Дворец спорта",
+            venueAddress: "г. Москва, ул. Спортивная, 1",
+            entryFeeAmount: "1500",
+            entryFeeCurrency: "RUB",
+          })}
+          onChange={onChange}
+          errors={{}}
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText("Название *"), {
+        target: { value: "Новое название" },
+      });
+
+      expect(onChange).toHaveBeenCalledWith({
+        title: "Новое название",
+        description: "",
+        emblemUrl: "",
+        eventStartAt: "2026-08-12T00:00:00.000Z",
+        eventEndAt: null,
+        contacts: [],
+        chiefJudge: "Иванов И.И.",
+        regulationsUrl: "https://cdn/rules.pdf",
+        venueName: "Дворец спорта",
+        venueAddress: "г. Москва, ул. Спортивная, 1",
+        entryFeeAmount: "1500",
+        entryFeeCurrency: "RUB",
+      });
+    });
   });
 });
