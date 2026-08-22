@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: in progress
 - Дата: 2026-08-22
 - План: `./plan.md`
 
@@ -34,7 +34,7 @@ join-волнах (wiring платформы и композиция стран�
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/stage.proto` — `GetTournamentLive` и
+- [x] T1. `proto/hema/v1/stage.proto` — `GetTournamentLive` и
       `WatchTournamentLive` в `StagePublicService`; сообщения
       `TournamentLiveSnapshot`, `LiveArena`, `LiveFeedBout`,
       `LiveNomination`, пары Request/Response; enum `LiveArenaState`,
@@ -43,39 +43,39 @@ join-волнах (wiring платформы и композиция стран�
 
 ## Server — трек A (модуль `bout`: времена боёв)
 
-- [ ] T2. **domain** — `modules/bout/domain/domain.go`: тип
+- [x] T2. **domain** — `modules/bout/domain/domain.go`: тип
       `BoutTimes{ StartedAt, FinishedAt *time.Time }` (собственный тип
       модуля, ADR 0002).
-- [ ] T3. **repo** — `repo/queries/bout.sql`: `-- name: BoutTimesForPools :many`
+- [x] T3. **repo** — `repo/queries/bout.sql`: `-- name: BoutTimesForPools :many`
       (агрегат `MAX(occurred_at) FILTER` по `started`/`finished` с join на
       `bout.bouts` по `pool_id = ANY(...)`); `make sqlc`; реализация метода
       порта в `repo/repo.go`. Миграций нет.
-- [ ] T4. **service (red→green)** — `service/service_test.go`:
+- [x] T4. **service (red→green)** — `service/service_test.go`:
       `TimesForPools` на пустом списке пулов не ходит в репо и возвращает
       пустую карту → затем `service/service.go`.
-- [ ] T5. **интеграционный с БД (red→green)** — `modules/bout/integration`:
+- [x] T5. **интеграционный с БД (red→green)** — `modules/bout/integration`:
       реальный журнал — бой начат; завершён; завершён и переоткрыт
       (побеждает последняя отметка, AC-14); сброшен.
 
 ## Server — трек B (модуль `stage`: сборка сводки)
 
-- [ ] T6. **domain** — `modules/stage/domain/domain.go`: типы
+- [x] T6. **domain** — `modules/stage/domain/domain.go`: типы
       `LiveArenaState`, `NominationPhase`, `FeedBout`, `LiveArenaView`,
       `LiveNominationView`, `TournamentSnapshot`; аддитивные методы портов
       `ArenaProvider.ActiveArenas`, `NominationProvider.NominationsByTournament`,
       `BoutConductor.BoutTimesForPools`, `LiveNotifier.PublishTournamentChanged`,
       `LiveSubscriber.SubscribeTournament`; поля `ArenaRef.Position`,
       `NominationRef.Position`.
-- [ ] T7. **рефактор публикации (при зелёных тестах)** — свести ~14 вызовов
+- [x] T7. **рефактор публикации (при зелёных тестах)** — свести ~14 вызовов
       `s.liveBus.PublishNominationChanged(...)` в `service.go`/`seeding.go`/
       `bracket.go`/`schema.go` к одному хелперу
       `s.notifyNominationChanged(id)`; поведение не меняется, тесты зелёные
       до и после. **Только после этого** добавить внутрь хелпера парный
       `PublishTournamentChanged()`.
-- [ ] T8. **testutil** — `modules/stage/testutil/*`: фейки новых методов
+- [x] T8. **testutil** — `modules/stage/testutil/*`: фейки новых методов
       портов (площадки с позициями, номинации турнира, времена боёв,
       топик турнира в fake-шине).
-- [ ] T9. **service (red→green)** — `service/tournament_live_test.go`:
+- [x] T9. **service (red→green)** — `service/tournament_live_test.go`:
       пустой `tournamentID` → `ErrInvalidInput` (без похода в провайдеры);
       площадка с идущим боем / с готовящимся пулом / свободная (AC-7..AC-9);
       **площадка с пулом, все бои которого завершены (не снят UnseatPool),
@@ -89,7 +89,7 @@ join-волнах (wiring платформы и композиция стран�
       `BoutTimesForPools` вызван один раз на все пулы (групповые
       контейнеры и половины круга вместе) → затем
       `service/tournament_live.go` (+ passthrough `SubscribeTournament`).
-- [ ] T10. **api (red→green)** — `api/handler_test.go` (httptest + Connect,
+- [x] T10. **api (red→green)** — `api/handler_test.go` (httptest + Connect,
       fake-репо): `GetTournamentLive` отвечает без токена (NFR-3);
       `WatchTournamentLive` отдаёт первый кадр сразу и следующий по сигналу
       шины; поток закрывается по отмене контекста → затем `api/handler.go`
@@ -97,26 +97,26 @@ join-волнах (wiring платформы и композиция стран�
 
 ## Web — трек C (чистые функции, без разметки)
 
-- [ ] T11. **entities/tournament-live/lib (red→green)** — тесты на
+- [x] T11. **entities/tournament-live/lib (red→green)** — тесты на
       `phase.ts` (три фазы, AC-1/AC-6/AC-18), `feed.ts` (порядок FR-17,
       фильтр AC-15, подписи времени AC-11..AC-14, итог боя FR-15),
       `arena.ts` (подписи состояний), `counters.ts` (боёв проведено,
       площадок занято, номер дня турнира) → затем сами модули + `types.ts`
       (DTO снапшота).
-- [ ] T12. **entities/{tournament,application}/lib (red→green)** — тесты на
+- [x] T12. **entities/{tournament,application}/lib (red→green)** — тесты на
       `daysUntil` (AC-2, «сегодня» в день старта) и
       `applicationsSummary` (AC-3/AC-4, номинация без вместимости) →
       затем реализация.
 
 ## Server — волна 2 (join)
 
-- [ ] T13. **wiring** — `internal/platform`: `stage_arena_provider.ActiveArenas`
+- [x] T13. **wiring** — `internal/platform`: `stage_arena_provider.ActiveArenas`
       (фильтр неархивных + позиция), `stage_nomination_provider.NominationsByTournament`,
       `stage_bout_conductor.BoutTimesForPools`, топик турнира в
       `stage_live_bus.go`; регистрация `GetTournamentLive`/
       `WatchTournamentLive` в карте `publicProcedures`
       (`pkg/connectutil/auth_interceptor.go`, не `platform.go`).
-- [ ] T14. `make test` и `go build ./...` зелёные после слияния треков A и B.
+- [x] T14. `make test` и `go build ./...` зелёные после слияния треков A и B.
 
 ## Web — трек D (BFF + живой хук)
 
