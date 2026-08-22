@@ -100,3 +100,4 @@ function Badge({
 }
 
 export { Badge, badgeVariants }
+export type { BadgeTone }

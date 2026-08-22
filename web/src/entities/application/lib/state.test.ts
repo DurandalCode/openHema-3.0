@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   allowedApplicantActions,
   allowedSecretaryActions,
+  applicationFunnel,
   eventLabel,
+  findActiveApplication,
   isTerminal,
   nextExpectedStep,
   stateCaption,
   stateLabel,
+  stateTone,
 } from "@/entities/application/lib/state";
 import type {
+  Application,
   ApplicationEventType,
   ApplicationState,
 } from "@/entities/application/lib/types";
@@ -172,6 +176,93 @@ describe("isTerminal", () => {
     for (const state of nonTerminal) {
       expect(isTerminal(state)).toBe(false);
     }
+  });
+});
+
+describe("stateTone", () => {
+  it("maps every concrete state to the design system's badge tone (FR-16)", () => {
+    expect(stateTone("APPLICATION_STATE_SUBMITTED")).toBe("neutral");
+    expect(stateTone("APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION")).toBe("warn");
+    expect(stateTone("APPLICATION_STATE_PAID")).toBe("info");
+    expect(stateTone("APPLICATION_STATE_REGISTERED")).toBe("success");
+    expect(stateTone("APPLICATION_STATE_WITHDRAWN")).toBe("neutral");
+  });
+
+  it("falls back to neutral for unspecified", () => {
+    expect(stateTone("APPLICATION_STATE_UNSPECIFIED")).toBe("neutral");
+  });
+});
+
+describe("applicationFunnel", () => {
+  it("lists the four states in submission order, sharing labels with stateLabel (FR-4)", () => {
+    const funnel = applicationFunnel();
+    expect(funnel.map((s) => s.label)).toEqual([
+      stateLabel("APPLICATION_STATE_SUBMITTED"),
+      stateLabel("APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION"),
+      stateLabel("APPLICATION_STATE_PAID"),
+      stateLabel("APPLICATION_STATE_REGISTERED"),
+    ]);
+  });
+
+  it("does not include the withdrawn state — it is not a step on the happy path", () => {
+    const funnel = applicationFunnel();
+    expect(funnel.some((s) => s.label === stateLabel("APPLICATION_STATE_WITHDRAWN"))).toBe(
+      false,
+    );
+  });
+});
+
+function fixtureApplication(overrides: Partial<Application>): Application {
+  return {
+    id: "a1",
+    nominationId: "n1",
+    tournamentId: "t1",
+    applicantUserId: "u1",
+    applicantDisplayName: "Тест",
+    state: "APPLICATION_STATE_SUBMITTED",
+    club: "",
+    needsEquipment: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("findActiveApplication", () => {
+  it("finds the applicant's non-terminal application in the given nomination", () => {
+    const target = fixtureApplication({
+      id: "target",
+      nominationId: "n1",
+      state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION",
+    });
+    const other = fixtureApplication({ id: "other", nominationId: "n2" });
+
+    expect(findActiveApplication([other, target], "n1")).toBe(target);
+  });
+
+  it("ignores terminal applications in the same nomination (registered or withdrawn)", () => {
+    const registered = fixtureApplication({
+      id: "registered",
+      nominationId: "n1",
+      state: "APPLICATION_STATE_REGISTERED",
+    });
+    const withdrawn = fixtureApplication({
+      id: "withdrawn",
+      nominationId: "n1",
+      state: "APPLICATION_STATE_WITHDRAWN",
+    });
+
+    expect(findActiveApplication([registered, withdrawn], "n1")).toBeUndefined();
+  });
+
+  it("returns undefined when there is no application in the nomination at all", () => {
+    const elsewhere = fixtureApplication({ id: "elsewhere", nominationId: "n2" });
+
+    expect(findActiveApplication([elsewhere], "n1")).toBeUndefined();
+  });
+
+  it("returns undefined for an empty applications list", () => {
+    expect(findActiveApplication([], "n1")).toBeUndefined();
   });
 });
 

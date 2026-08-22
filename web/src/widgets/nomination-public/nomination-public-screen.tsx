@@ -6,6 +6,7 @@ import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/t
 import { nominationPosition } from "@/entities/nomination-live/lib/position";
 import { schemaChain } from "@/entities/stage/lib/schema-chain";
 import { useNominationLive } from "@/features/nomination-live/api/use-nomination-live";
+import { NominationApplyCta } from "@/features/my-applications/ui/nomination-apply-cta";
 import { NominationHeader } from "@/widgets/nomination-public/nomination-header";
 import { SchemaChain } from "@/widgets/nomination-public/schema-chain";
 import { StageSection } from "@/widgets/nomination-public/stage-section";
@@ -22,15 +23,21 @@ import { NominationResults } from "@/widgets/nomination-results/nomination-resul
  * состоянием — шапка и цепочка схемы остаются на месте. Единственная точка
  * входа в живой канал (`useNominationLive`) на весь экран — засеяна
  * SSR-снапшотом, обновляется без перезагрузки страницы (FR-24).
+ *
+ * Под шапкой — точка входа в подачу заявки (`NominationApplyCta`, спека
+ * 0036, FR-10..FR-12): сама решает, что показать (кнопка/статус активной
+ * заявки/«приём завершён») и не рендерится вовсе для гостя (FR-14, AC-2).
  */
 export function NominationPublicScreen({
   nominationId,
   nomination,
   initialSnapshot,
+  isAuthenticated,
 }: {
   nominationId: string;
   nomination: Nomination;
   initialSnapshot: NominationLiveSnapshotDto;
+  isAuthenticated: boolean;
 }) {
   const snapshot = useNominationLive(nominationId, initialSnapshot);
   const { stages, pools, brackets, results } = snapshot;
@@ -45,6 +52,7 @@ export function NominationPublicScreen({
   return (
     <Col gap={8}>
       <NominationHeader nomination={nomination} position={position} />
+      <NominationApplyCta nomination={nomination} isAuthenticated={isAuthenticated} />
       <NominationResults results={results} />
       <SchemaChain chain={chain} />
       {draft ? (

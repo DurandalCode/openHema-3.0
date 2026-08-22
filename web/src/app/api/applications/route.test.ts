@@ -89,14 +89,28 @@ describe("app/api/applications route", () => {
       );
     });
 
-    it("maps CodeAlreadyExists (duplicate active) to 409", async () => {
+    it("maps CodeAlreadyExists (duplicate active) to 409 with a Russian duplicate message (spec 0036, FR-6)", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("tok");
       vi.mocked(applicationClient.submitApplication).mockRejectedValue(
-        new ConnectError("duplicate", Code.AlreadyExists),
+        new ConnectError("application: duplicate active application", Code.AlreadyExists),
       );
 
       const res = await POST(postReq({ nominationId: "n1" }));
       expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toBe("Вы уже подали заявку в эту номинацию");
+    });
+
+    it("maps CodeFailedPrecondition (registration closed) to 409 with a distinct Russian message (spec 0036, FR-6)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(applicationClient.submitApplication).mockRejectedValue(
+        new ConnectError("application: registration is closed", Code.FailedPrecondition),
+      );
+
+      const res = await POST(postReq({ nominationId: "n1" }));
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toBe("Приём заявок в эту номинацию завершён");
     });
 
     it("submits application with club and needsEquipment", async () => {
@@ -113,7 +127,7 @@ describe("app/api/applications route", () => {
       );
     });
 
-    it("maps CodeNotFound (nomination not found) to 404", async () => {
+    it("maps CodeNotFound (nomination not found) to 404 with a Russian message (spec 0036, FR-6)", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("tok");
       vi.mocked(applicationClient.submitApplication).mockRejectedValue(
         new ConnectError("no nomination", Code.NotFound),
@@ -121,6 +135,8 @@ describe("app/api/applications route", () => {
 
       const res = await POST(postReq({ nominationId: "missing" }));
       expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toBe("Номинация не найдена");
     });
   });
 });

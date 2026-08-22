@@ -40,6 +40,18 @@ describe("features/my-applications/api/requests", () => {
       expect(result).toEqual({ ok: false, error: "unauthenticated" });
     });
 
+    it("carries the HTTP status through so callers can pick a message (spec 0036, FR-6)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: "unauthenticated" }),
+      });
+
+      const result = await listMyApplicationsRequest();
+
+      expect(result).toEqual({ ok: false, error: "unauthenticated", status: 401 });
+    });
+
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
 
@@ -85,6 +97,22 @@ describe("features/my-applications/api/requests", () => {
       const result = await submitApplicationRequest("n1");
 
       expect(result).toEqual({ ok: false, error: "duplicate" });
+    });
+
+    it("carries the HTTP status through on 409 (spec 0036, FR-6)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "Вы уже подали заявку в эту номинацию" }),
+      });
+
+      const result = await submitApplicationRequest("n1");
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Вы уже подали заявку в эту номинацию",
+        status: 409,
+      });
     });
   });
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2, FileText, Swords, Users } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
 import {
   Card,
   CardContent,
@@ -13,7 +14,6 @@ import type { Nomination } from "@/entities/nomination/lib/types";
 import { nominationStatusLabel } from "@/entities/nomination/lib/types";
 import type { NominationParticipants } from "@/entities/application/lib/types";
 import type { RosterEntry } from "@/entities/fighter/lib/types";
-import { SubmitApplicationButton } from "@/features/my-applications/ui/submit-application-button";
 import { NominationRoster } from "@/widgets/nomination-roster/nomination-roster";
 
 /** NominationsList — секция публичной страницы турнира со списком номинаций.
@@ -22,7 +22,8 @@ import { NominationRoster } from "@/widgets/nomination-roster/nomination-roster"
  *
  * Стартовый лист (имена заявленных/подтверждённых) и счётчик
  * «заявлено · подтверждено / лимит» — публичны (FR-15/FR-16). Кнопка «Подать
- * заявку» видна только аутентифицированному пользователю (FR-1/FR-11).
+ * заявку» — ссылка на отдельный экран подачи (спека 0036, FR-13), видна
+ * только аутентифицированному пользователю (FR-1/FR-11).
  *
  * Статус приёма заявок (спека 0012, FR-8/AC-14): бейдж рядом с заголовком
  * карточки при `status !== OPEN`; аутентифицированному пользователю вместо
@@ -173,7 +174,9 @@ export function NominationsList({
                     </Link>
                     {isAuthenticated &&
                       (n.status === "NOMINATION_STATUS_OPEN" ? (
-                        <SubmitApplicationButton nominationId={n.id} />
+                        <Button asChild size="sm" className="w-fit">
+                          <Link href={`/nominations/${n.id}/apply`}>Подать заявку</Link>
+                        </Button>
                       ) : (
                         <p className="text-sm text-muted-foreground">Приём заявок завершён</p>
                       ))}
