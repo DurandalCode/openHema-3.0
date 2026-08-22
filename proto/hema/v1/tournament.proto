@@ -50,6 +50,22 @@ message Tournament {
   // event_end_at — дата и время окончания (многодневные турниры). Опционально;
   // если задано, то event_start_at обязательно и end >= start.
   google.protobuf.Timestamp event_end_at = 10;
+  // chief_judge — главный судья турнира (ФИО свободной строкой). Опционально.
+  string chief_judge = 11;
+  // regulations_url — веб-адрес регламента (обычно PDF). Только http/https.
+  // Опционально.
+  string regulations_url = 12;
+  // venue_name / venue_address — место проведения: название площадки и
+  // почтовый адрес. Опциональны независимо друг от друга.
+  string venue_name = 13;
+  string venue_address = 14;
+  // entry_fee_minor — взнос за участие в ОДНОЙ номинации, в минорных
+  // единицах валюты (копейки). Presence различает «не задан» (поле не
+  // установлено) и «ноль» (бесплатное участие). Задан ⇒
+  // entry_fee_currency непустой.
+  optional int64 entry_fee_minor = 15;
+  // entry_fee_currency — код валюты ISO-4217 (например "RUB").
+  string entry_fee_currency = 16;
 }
 
 // Contact — один канал связи: тип + значение, с позицией в списке.
@@ -78,6 +94,18 @@ message UpdateActiveTournamentRequest {
   // event_end_at — null/нуль означает «однодневный/без даты окончания».
   // Если задано, event_start_at обязательно и end >= start.
   google.protobuf.Timestamp event_end_at = 6;
+  // chief_judge — главный судья турнира. Пустая строка — «не указан».
+  string chief_judge = 7;
+  // regulations_url — веб-адрес регламента. Пустая строка — «не задан»;
+  // непустая проверяется на схему http/https.
+  string regulations_url = 8;
+  string venue_name = 9;
+  string venue_address = 10;
+  // entry_fee_minor — null означает «взнос не задан» (публично не
+  // показывается); 0 — участие бесплатное. Задан ⇒ entry_fee_currency
+  // обязателен.
+  optional int64 entry_fee_minor = 11;
+  string entry_fee_currency = 12;
 }
 
 // ContactInput — контакт при вводе (без id и без position; позиция
