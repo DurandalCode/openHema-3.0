@@ -12,6 +12,17 @@ export type UpdateTournamentInput = {
   // Если задано, eventStartAt обязательно и end >= start (валидируется на сервере).
   eventEndAt?: string | null;
   contacts?: ContactInput[];
+  // Профиль турнира — новые поля (spec 0037, FR-18). UpdateActiveTournament
+  // заменяет профиль целиком (FR-22) — не передать поле здесь означает
+  // обнулить его на сервере при следующем сохранении.
+  chiefJudge?: string;
+  regulationsUrl?: string;
+  venueName?: string;
+  venueAddress?: string;
+  // entryFeeMinor — взнос в минорных единицах (копейки); null — не задан
+  // (FR-21, отличимо от явного 0).
+  entryFeeMinor?: number | null;
+  entryFeeCurrency?: string;
 };
 
 export type TournamentResult =
