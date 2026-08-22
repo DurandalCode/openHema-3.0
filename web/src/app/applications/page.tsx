@@ -1,13 +1,20 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
-import { MyApplicationsList } from "@/features/my-applications/ui/my-applications-list";
+import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
+import { getNominations } from "@/entities/nomination/model/get-nominations";
+import { MyApplicationsScreen } from "@/widgets/my-applications/my-applications-screen";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Мои заявки — отдельная защищённая страница (вынесена из кабинета,
- * доступна из навбара). Доступна только аутентифицированным пользователям.
+ * Мои заявки — защищённая страница (вынесена из кабинета, доступна из
+ * навбара), только для аутентифицированных пользователей. Сужена до
+ * серверной обёртки (спека 0036, NFR-2): сессия → карта названий номинаций
+ * активного турнира → композиция в `MyApplicationsScreen` (правило 0032).
+ * Название номинации join'ится тут же, а не хранится в заявке (спека 0036,
+ * «Принятые решения», п.4) — тем же приёмом, что на админском экране заявок
+ * (0025).
  */
 export default async function ApplicationsPage() {
   const user = await getCurrentUser();
@@ -15,15 +22,9 @@ export default async function ApplicationsPage() {
     redirect("/login");
   }
 
-  return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Мои заявки</h1>
-      <p className="mt-2 text-muted-foreground">
-        Статус и история ваших заявок на участие в турнире.
-      </p>
-      <div className="mt-8">
-        <MyApplicationsList />
-      </div>
-    </div>
-  );
+  const tournament = await getActiveTournament();
+  const nominations = await getNominations(tournament?.id ?? "");
+  const nominationTitleById = Object.fromEntries(nominations.map((n) => [n.id, n.title]));
+
+  return <MyApplicationsScreen nominationTitleById={nominationTitleById} />;
 }

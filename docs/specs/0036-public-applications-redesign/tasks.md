@@ -68,7 +68,7 @@
 
 ## Волна 1 · трек B — «Мои заявки» (15a)
 
-- [ ] T7. **карточка (red→green)** —
+- [x] T7. **карточка (red→green)** —
       `features/my-applications/ui/application-card.test.tsx`: название
       номинации первым, тон плашки по `stateTone`, приглушение терминальной,
       `nextExpectedStep` только у нетерминальной, клуб/тег экипировки только
@@ -76,13 +76,13 @@
       только после `ConfirmDialog` с последствиями, «Я оплатил» — без
       диалога, тосты на успех/отказ (FR-15..FR-23, AC-8/AC-9/AC-10/AC-11)
       → `application-card.tsx`.
-- [ ] T8. **экран (red→green)** —
+- [x] T8. **экран (red→green)** —
       `widgets/my-applications/my-applications-screen.test.tsx`: скелетон
       при загрузке, ошибка загрузки с повтором, пустое состояние со ссылкой
       на номинации, названия из карты, карточка без названия при промахе
       (FR-24..FR-26, AC-7/AC-12/AC-13) → `my-applications-screen.tsx` +
       `my-applications-skeleton.tsx`.
-- [ ] T9. **роут** — `app/applications/page.tsx` сужается до серверной
+- [x] T9. **роут** — `app/applications/page.tsx` сужается до серверной
       обёртки (сессия, `getActiveTournament` + `getNominations` → карта
       названий, рендер экрана); удалить
       `features/my-applications/ui/my-applications-list.tsx` (NFR-2).
