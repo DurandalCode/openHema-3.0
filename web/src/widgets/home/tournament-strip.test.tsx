@@ -27,7 +27,7 @@ function snapshot(overrides: Partial<TournamentLiveSnapshotDto> = {}): Tournamen
     arenas: [],
     bouts: [],
     nominations: [],
-    serverNowUnixMs: 0,
+    serverNowUnixMs: "0",
     ...overrides,
   };
 }
