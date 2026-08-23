@@ -141,6 +141,42 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
+  // Регресс-тест: раньше handleSave проверял только errors.title/eventEndAt
+  // явным перечислением — ошибка нового поля (regulationsUrl/entryFeeAmount,
+  // spec 0037) показывалась под инпутом, но не блокировала отправку, и
+  // форма всё равно уходила на сервер с заведомо невалидными данными.
+  it("an invalid regulations URL blocks saving with an inline error and no request (spec 0037, FR-20)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Ссылка на регламент"), {
+      target: { value: "not-a-url" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(
+      screen.getByText("Укажите полную ссылку (http:// или https://)"),
+    ).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("a negative entry fee blocks saving with an inline error and no request (spec 0037, FR-21)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    // type="number" в jsdom (как и в реальных браузерах) отбрасывает
+    // нечисловой ввод молча — "-100" реалистично достижимо через это поле
+    // (min=0 не мешает набрать отрицательное число, это лишь constraint-
+    // validation hint), в отличие от произвольного текста.
+    fireEvent.change(screen.getByLabelText("Сумма взноса"), {
+      target: { value: "-100" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(
+      screen.getByText("Сумма взноса не может быть отрицательной"),
+    ).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
   it("an end date before the start date blocks saving with an inline error (AC-8)", () => {
     // Исходно start=1 дек, end=3 дек (валидно). Двигаем start на 20 дек —
     // end остаётся раньше начала.

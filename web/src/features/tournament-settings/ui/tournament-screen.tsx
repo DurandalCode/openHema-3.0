@@ -13,6 +13,7 @@ import {
   tournamentDraftChanges,
   validateTournamentDraft,
   type TournamentDraft,
+  type TournamentDraftErrors,
 } from "@/entities/tournament/lib/draft";
 import type { UpdateTournamentInput } from "../api/requests";
 import { useUpdateTournament } from "../api/use-update-tournament";
@@ -70,7 +71,7 @@ function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
 export function TournamentScreen({ tournament }: { tournament: Tournament }) {
   const [saved, setSaved] = useState(tournament);
   const [draft, setDraft] = useState<TournamentDraft>(() => draftFromTournament(tournament));
-  const [errors, setErrors] = useState<{ title?: string; eventEndAt?: string }>({});
+  const [errors, setErrors] = useState<TournamentDraftErrors>({});
 
   const update = useUpdateTournament();
 
@@ -85,7 +86,12 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
   function handleSave() {
     const validationErrors = validateTournamentDraft(draft);
     setErrors(validationErrors);
-    if (validationErrors.title || validationErrors.eventEndAt) return;
+    // Object.keys, а не перечисление конкретных полей — иначе поле,
+    // добавленное в validateTournamentDraft (напр. regulationsUrl/
+    // entryFeeAmount, spec 0037), показывало бы ошибку под инпутом, но не
+    // блокировало сохранение: форма ушла бы на сервер с заведомо invalid
+    // данными несмотря на видимую ошибку.
+    if (Object.keys(validationErrors).length > 0) return;
 
     update.mutate(draftToUpdateInput(draft), {
       onSuccess: (nextTournament) => {

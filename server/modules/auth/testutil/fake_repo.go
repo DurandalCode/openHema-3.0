@@ -23,6 +23,12 @@ type FakeRepo struct {
 	// детерминизм TTL/троттлинга) подменяют через SetNow тем же now, что
 	// передан в service.New, — иначе fake-репо и сервис расходятся во времени.
 	now func() time.Time
+	// getActiveResetTokenErr — если задана, GetActiveResetToken возвращает
+	// эту ошибку вместо обычного поиска. Нужно тестам, проверяющим, что
+	// реальный сбой хранилища не маскируется под ErrInvalidResetToken
+	// (спека 0037): в реальном Repo (repo.go) через эту точку проходят
+	// любые ошибки БД, не только «не найдено».
+	getActiveResetTokenErr error
 }
 
 type storedUser struct {
@@ -45,6 +51,15 @@ func (r *FakeRepo) SetNow(now func() time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.now = now
+}
+
+// SetGetActiveResetTokenErr заставляет следующий(-е) вызов(ы)
+// GetActiveResetToken вернуть заданную ошибку вместо обычного поиска —
+// имитация сбоя хранилища (не «токен не найден»).
+func (r *FakeRepo) SetGetActiveResetTokenErr(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.getActiveResetTokenErr = err
 }
 
 var _ domain.Repository = (*FakeRepo)(nil)
@@ -184,15 +199,20 @@ func (r *FakeRepo) SetUserRole(_ context.Context, id string, role domain.Role) (
 	return domain.User{}, domain.ErrUserNotFound
 }
 
-// UpdatePassword заменяет хеш пароля и двигает PasswordChangedAt на текущий момент.
-func (r *FakeRepo) UpdatePassword(_ context.Context, userID, passwordHash string) error {
+// UpdatePassword заменяет хеш пароля и ставит PasswordChangedAt в
+// переданное значение — намеренно НЕ r.now() (эта fake-реализация не
+// должна сама придумывать время: интерфейс требует передавать changedAt
+// явно, ровно как реальный Repo, чтобы регрессия «сервис забыл передать
+// свои часы» ловилась тестами, а не полагалась на то, что фейковые часы
+// репозитория случайно совпадают с часами сервиса).
+func (r *FakeRepo) UpdatePassword(_ context.Context, userID, passwordHash string, changedAt time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for key, su := range r.users {
 		if su.user.ID == userID {
 			su.passwordHash = passwordHash
-			su.user.PasswordChangedAt = r.now().UTC()
+			su.user.PasswordChangedAt = changedAt.UTC()
 			r.users[key] = su
 			return nil
 		}
@@ -267,6 +287,10 @@ func (r *FakeRepo) InvalidateActiveResetTokens(_ context.Context, userID string)
 func (r *FakeRepo) GetActiveResetToken(_ context.Context, tokenHash string) (domain.ResetToken, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.getActiveResetTokenErr != nil {
+		return domain.ResetToken{}, r.getActiveResetTokenErr
+	}
 
 	for _, t := range r.resetTokens {
 		if t.TokenHash != tokenHash {

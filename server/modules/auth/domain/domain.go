@@ -22,6 +22,9 @@ var (
 	ErrWeakPassword = errors.New("auth: password too weak")
 	// ErrInvalidProfile — недопустимые данные профиля (напр. пустое имя, FR-14).
 	ErrInvalidProfile = errors.New("auth: invalid profile")
+	// ErrInvalidEmail — email не проходит валидацию формата (в т.ч. CR/LF —
+	// вектор SMTP header injection через письмо восстановления пароля).
+	ErrInvalidEmail = errors.New("auth: invalid email")
 )
 
 // Role — роль пользователя. Хранится в БД как TEXT с CHECK-ограничением.
@@ -103,9 +106,15 @@ type Repository interface {
 	ListUsers(ctx context.Context, p ListParams) ([]User, error)
 	SetUserRole(ctx context.Context, id string, role Role) (User, error)
 
-	// UpdatePassword заменяет хеш пароля пользователя и двигает
-	// PasswordChangedAt (используется Refresh для обрыва старых сессий, FR-12).
-	UpdatePassword(ctx context.Context, userID, passwordHash string) error
+	// UpdatePassword заменяет хеш пароля пользователя и ставит
+	// PasswordChangedAt в переданное значение (используется Refresh для
+	// обрыва старых сессий, FR-12). changedAt приходит от вызывающего
+	// сервиса (его источник времени, `Service.now`) — а не вычисляется
+	// в хранилище (`now()` на стороне PG): iat токена и PasswordChangedAt
+	// иначе сравнивались бы по часам двух разных хостов (app vs DB),
+	// и малейший рассинхрон отклонял бы свежевыданный токен на первом
+	// же Refresh.
+	UpdatePassword(ctx context.Context, userID, passwordHash string, changedAt time.Time) error
 	// UpdateProfile правит отображаемое имя и клуб пользователя.
 	UpdateProfile(ctx context.Context, userID, displayName, club string) (User, error)
 

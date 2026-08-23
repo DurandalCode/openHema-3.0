@@ -227,5 +227,18 @@ describe("app/api/tournament route", () => {
         .mock.calls[0][0];
       expect(reqMsg.entryFeeMinor).toBe(0n);
     });
+
+    // BigInt() бросает RangeError на нецелом числе; без явной проверки эта
+    // ошибка вылетает необработанной за пределы try/catch маршрута —
+    // 500 вместо аккуратного {error,status}, в отличие от всех остальных
+    // проверок ввода в этом файле.
+    it("returns 400 (not a thrown 500) when entryFeeMinor is not an integer", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+
+      const res = await PUT(putReq({ title: "Cup", entryFeeMinor: 1500.5 }));
+
+      expect(res.status).toBe(400);
+      expect(tournamentAdminClient.updateActiveTournament).not.toHaveBeenCalled();
+    });
   });
 });

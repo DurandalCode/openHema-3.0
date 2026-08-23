@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   draftToTournament,
+  entryFeeAmountToMinor,
   entryFeeMinorToAmount,
   tournamentDraftChanges,
   validateTournamentDraft,
@@ -151,6 +152,102 @@ describe("entities/tournament/lib/draft validateTournamentDraft (spec 0029, AC-7
     draft.eventStartAt = null;
     draft.eventEndAt = null;
     expect(validateTournamentDraft(draft)).toEqual({});
+  });
+
+  // spec 0037, FR-20/AC-15: сервер отклоняет regulationsUrl без http/https
+  // схемы. Без клиентской пре-проверки такой ввод проходит эти три правила
+  // молча, доходит до сервера и там получает generic 400, который
+  // `tournamentErrorMessage` раньше списывал на «название и даты».
+  it("rejects a regulationsUrl without an http/https scheme", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "not-a-url";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeTruthy();
+  });
+
+  it("rejects a regulationsUrl with a non-http(s) scheme", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "ftp://example.com/rules.pdf";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeTruthy();
+  });
+
+  it("accepts an empty regulationsUrl (not set)", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeUndefined();
+  });
+
+  it("accepts a valid https regulationsUrl", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "https://cdn.example.com/rules.pdf";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeUndefined();
+  });
+
+  // spec 0037, FR-21/AC-16: сервер отклоняет отрицательный взнос; клиент
+  // конвертирует форму (entryFeeAmount) в entryFeeMinor через
+  // entryFeeAmountToMinor, которая на неоднозначном вводе (несколько
+  // разделителей) возвращает null — без пре-проверки это молча
+  // отправлялось бы как «взнос не задан», а не как ошибка ввода.
+  it("rejects a negative entry fee amount", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "-100";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeTruthy();
+  });
+
+  it("rejects an unparseable entry fee amount", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "1,234.56";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeTruthy();
+  });
+
+  it("accepts an empty entry fee amount (not set)", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeUndefined();
+  });
+
+  it("accepts a valid entry fee amount", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "1500.50";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeUndefined();
+  });
+});
+
+describe("entities/tournament/lib/draft entryFeeAmountToMinor", () => {
+  it("parses a plain integer amount", () => {
+    expect(entryFeeAmountToMinor("1500")).toBe(150000);
+  });
+
+  it("parses a period-decimal amount", () => {
+    expect(entryFeeAmountToMinor("1500.5")).toBe(150050);
+  });
+
+  // Единственный легитимный случай запятой — RU-раскладка нумпада
+  // (десятичный разделитель), ровно одна запятая, без точки.
+  it("parses a single comma as a decimal separator (RU numpad)", () => {
+    expect(entryFeeAmountToMinor("1500,5")).toBe(150050);
+  });
+
+  // Раньше `.replace(",", ".")` заменял только первую запятую, и
+  // "1,234.56"/"1.500,50" превращались в строки с двумя разделителями
+  // (Number() → NaN → null) — то есть неоднозначный ввод и правда не
+  // парсился, но результат (null = «взнос не задан») без ошибки
+  // выглядел как тихий успех. Явная проверка "> 1 разделителя" делает
+  // это осознанным отказом, а не побочным эффектом.
+  it("refuses input mixing a comma and a period (ambiguous thousands/decimal)", () => {
+    expect(entryFeeAmountToMinor("1,234.56")).toBeNull();
+    expect(entryFeeAmountToMinor("1.500,50")).toBeNull();
+  });
+
+  it("refuses input with more than one comma", () => {
+    expect(entryFeeAmountToMinor("1,234,56")).toBeNull();
+  });
+
+  it("returns null for an empty string", () => {
+    expect(entryFeeAmountToMinor("")).toBeNull();
+  });
+
+  it("returns null for garbage text", () => {
+    expect(entryFeeAmountToMinor("not a number")).toBeNull();
   });
 });
 

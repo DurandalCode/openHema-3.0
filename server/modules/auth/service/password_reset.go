@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -81,14 +82,22 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, newPassword strin
 
 	token, err := s.repo.GetActiveResetToken(ctx, hashResetToken(rawToken))
 	if err != nil {
-		return domain.ErrInvalidResetToken
+		// Repo (repo.go) уже различает «не найден/просрочен/погашен»
+		// (ErrInvalidResetToken, FR-8) от реальных сбоёв хранилища —
+		// маскировать под ErrInvalidResetToken нужно только первое,
+		// иначе сбой БД выглядел бы для гостя как «ссылка недействительна»
+		// (400) вместо внутренней ошибки (500), пропадая из мониторинга 5xx.
+		if errors.Is(err, domain.ErrInvalidResetToken) {
+			return domain.ErrInvalidResetToken
+		}
+		return fmt.Errorf("get active reset token: %w", err)
 	}
 
 	hash, err := crypto.HashPassword(newPassword)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
-	if err := s.repo.UpdatePassword(ctx, token.UserID, hash); err != nil {
+	if err := s.repo.UpdatePassword(ctx, token.UserID, hash, s.now()); err != nil {
 		return fmt.Errorf("update password: %w", err)
 	}
 	if err := s.repo.MarkResetTokenUsed(ctx, token.ID); err != nil {

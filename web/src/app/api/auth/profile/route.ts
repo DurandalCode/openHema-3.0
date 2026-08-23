@@ -6,12 +6,20 @@ import { userToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
 
+// MAX_PROFILE_FIELD_LEN зеркалит
+// server/modules/auth/service/profile_policy.go (MaxProfileFieldLen) — обе
+// колонки unbounded TEXT, лимит только в валидации. Проверяется здесь ДО
+// вызова RPC: без пре-проверки ошибка дошла бы до пользователя как сырой
+// текст Go-домена ("auth: invalid profile") через generic errorResponse.
+const MAX_PROFILE_FIELD_LEN = 100;
+
 /**
  * PATCH /api/auth/profile — правка отображаемого имени и клуба (spec 0037,
- * FR-13/FR-15). Пустое имя отклоняется на границе BFF (тот же приём, что
- * `PUT /api/tournament` для пустого названия) — быстрый отказ без RPC;
- * сервер (FR-14) — вторая линия защиты, её ошибка тоже маппится в 400.
- * Клуб опционален: пустая строка — легальное значение («клуб не указан»).
+ * FR-13/FR-15). Пустое или слишком длинное имя, слишком длинный клуб —
+ * отклоняются на границе BFF (тот же приём, что `PUT /api/tournament` для
+ * пустого названия) — быстрый отказ без RPC; сервер (FR-14) — вторая линия
+ * защиты, её ошибка тоже маппится в 400. Клуб опционален: пустая строка —
+ * легальное значение («клуб не указан»).
  */
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   const accessToken = await getAccessToken();
@@ -29,6 +37,18 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
   if (!displayName || !displayName.trim()) {
     return NextResponse.json({ error: "display name is required" }, { status: 400 });
+  }
+  if ([...displayName].length > MAX_PROFILE_FIELD_LEN) {
+    return NextResponse.json(
+      { error: `display name must be at most ${MAX_PROFILE_FIELD_LEN} characters` },
+      { status: 400 },
+    );
+  }
+  if (club && [...club].length > MAX_PROFILE_FIELD_LEN) {
+    return NextResponse.json(
+      { error: `club must be at most ${MAX_PROFILE_FIELD_LEN} characters` },
+      { status: 400 },
+    );
   }
 
   try {

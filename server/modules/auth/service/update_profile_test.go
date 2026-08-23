@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/hema/server/modules/auth/domain"
@@ -97,6 +98,75 @@ func TestUpdateProfile_InvalidAccessToken(t *testing.T) {
 	_, err := svc.UpdateProfile(context.Background(), "garbage", "Name", "Club")
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
+	}
+}
+
+// TestUpdateProfile_OversizedNameRejected — displayName/club не ограничены
+// по длине, а пишутся в unbounded TEXT-колонку: без явного лимита клиент
+// может отправить сколь угодно длинную строку и она примется без ошибки.
+func TestUpdateProfile_OversizedNameRejected(t *testing.T) {
+	svc, repo := testService()
+	ctx := context.Background()
+
+	user, tokens, err := svc.Register(ctx, "ivan@example.com", "password1", "Иван")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	tooLong := strings.Repeat("a", MaxProfileFieldLen+1)
+	_, err = svc.UpdateProfile(ctx, tokens.Access, tooLong, "Клуб")
+	if !errors.Is(err, domain.ErrInvalidProfile) {
+		t.Errorf("expected ErrInvalidProfile for oversized name, got %v", err)
+	}
+
+	stored, err := repo.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if stored.DisplayName != "Иван" {
+		t.Errorf("DisplayName should be unchanged, got %q", stored.DisplayName)
+	}
+}
+
+// TestUpdateProfile_OversizedClubRejected — тот же лимит для клуба.
+func TestUpdateProfile_OversizedClubRejected(t *testing.T) {
+	svc, repo := testService()
+	ctx := context.Background()
+
+	user, tokens, err := svc.Register(ctx, "ivan@example.com", "password1", "Иван")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	tooLong := strings.Repeat("a", MaxProfileFieldLen+1)
+	_, err = svc.UpdateProfile(ctx, tokens.Access, "Иван", tooLong)
+	if !errors.Is(err, domain.ErrInvalidProfile) {
+		t.Errorf("expected ErrInvalidProfile for oversized club, got %v", err)
+	}
+
+	stored, err := repo.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if stored.Club != "" {
+		t.Errorf("Club should be unchanged (empty), got %q", stored.Club)
+	}
+}
+
+// TestUpdateProfile_NameAtMaxLenAccepted — граница: ровно MaxProfileFieldLen
+// символов — валидно (не off-by-one).
+func TestUpdateProfile_NameAtMaxLenAccepted(t *testing.T) {
+	svc, _ := testService()
+	ctx := context.Background()
+
+	_, tokens, err := svc.Register(ctx, "ivan@example.com", "password1", "Иван")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	exact := strings.Repeat("a", MaxProfileFieldLen)
+	if _, err := svc.UpdateProfile(ctx, tokens.Access, exact, "Клуб"); err != nil {
+		t.Errorf("name at exactly MaxProfileFieldLen should be accepted, got %v", err)
 	}
 }
 

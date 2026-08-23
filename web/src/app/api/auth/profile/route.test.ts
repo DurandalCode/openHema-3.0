@@ -87,6 +87,38 @@ describe("app/api/auth/profile route", () => {
     expect(authClient.updateProfile).not.toHaveBeenCalled();
   });
 
+  // Зеркалит server/modules/auth/service/profile_policy.go (MaxProfileFieldLen):
+  // и displayName, и club пишутся в unbounded TEXT-колонку — без пре-проверки
+  // здесь ошибка дошла бы до пользователя как сырой текст Go-домена
+  // ("auth: invalid profile") через generic errorResponse-фолбэк.
+  it("rejects an oversized display name with 400 without calling the RPC", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
+
+    const res = await PATCH(req({ displayName: "a".repeat(101), club: "" }));
+
+    expect(res.status).toBe(400);
+    expect(authClient.updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized club with 400 without calling the RPC", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
+
+    const res = await PATCH(req({ displayName: "Иван", club: "a".repeat(101) }));
+
+    expect(res.status).toBe(400);
+    expect(authClient.updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("accepts a display name at exactly the length limit (100 chars)", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
+    vi.mocked(authClient.updateProfile).mockResolvedValue({ user: {} } as never);
+
+    const res = await PATCH(req({ displayName: "a".repeat(100), club: "" }));
+
+    expect(res.status).toBe(200);
+    expect(authClient.updateProfile).toHaveBeenCalled();
+  });
+
   it("maps a ConnectError from the RPC (e.g. InvalidArgument) to 400 as a safety net", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
     vi.mocked(authClient.updateProfile).mockRejectedValue(

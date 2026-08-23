@@ -3,9 +3,12 @@ package mail
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
+	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLoggerSend_WritesAddressSubjectBody проверяет, что лог-адаптер (дефолт
@@ -82,5 +85,87 @@ func TestNewSMTP_NoAuthWhenUsernameEmpty(t *testing.T) {
 	s := NewSMTP("localhost", "1025", "", "", "noreply@hema.test")
 	if s == nil {
 		t.Fatal("NewSMTP returned nil")
+	}
+}
+
+// TestSmtpSend_RejectsHeaderInjectionInTo проверяет защиту от SMTP header
+// injection: CR/LF в получателе позволили бы вписать произвольные
+// заголовки (Bcc и т.п.) в сырое сообщение (buildMessage пишет To
+// напрямую в заголовок). Send должен отклонить такой адрес ДО попытки
+// сетевого соединения — используем заведомо недостижимый адрес, чтобы
+// убедиться, что ошибка приходит от валидации, а не от таймаута дозвона.
+func TestSmtpSend_RejectsHeaderInjectionInTo(t *testing.T) {
+	s := NewSMTP("127.0.0.1", "1", "", "", "noreply@hema.test")
+
+	err := s.Send(context.Background(), Message{
+		To:      "evil@x.com\r\nBcc: victim@evil.com",
+		Subject: "x",
+		Text:    "y",
+	})
+	if !errors.Is(err, ErrInvalidRecipient) {
+		t.Fatalf("Send with CRLF in To: err = %v, want ErrInvalidRecipient", err)
+	}
+}
+
+func TestSmtpSend_RejectsBareLFInTo(t *testing.T) {
+	s := NewSMTP("127.0.0.1", "1", "", "", "noreply@hema.test")
+
+	err := s.Send(context.Background(), Message{
+		To:      "evil@x.com\nBcc: victim@evil.com",
+		Subject: "x",
+		Text:    "y",
+	})
+	if !errors.Is(err, ErrInvalidRecipient) {
+		t.Fatalf("Send with bare LF in To: err = %v, want ErrInvalidRecipient", err)
+	}
+}
+
+// TestSmtpSend_RespectsContextDeadline проверяет, что зависший relay не
+// блокирует Send бесконечно: сервер принимает TCP-соединение и никогда не
+// шлёт приветствие "220 ...", клиент должен вернуть ошибку по дедлайну
+// context, а не висеть до ОС-таймаута (которого у голого net/smtp.SendMail
+// нет вовсе — соединение живое, чтение блокируется навсегда).
+func TestSmtpSend_RespectsContextDeadline(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	connCh := make(chan net.Conn, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		connCh <- conn
+		// Намеренно ничего не пишет и не закрывает — имитация зависшего
+		// relay на этапе SMTP-приветствия.
+	}()
+
+	host, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("split host/port: %v", err)
+	}
+	s := NewSMTP(host, port, "", "", "noreply@hema.test")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	sendErr := s.Send(ctx, Message{To: "ivan@example.com", Subject: "x", Text: "y"})
+	elapsed := time.Since(start)
+
+	select {
+	case conn := <-connCh:
+		_ = conn.Close()
+	default:
+	}
+
+	if sendErr == nil {
+		t.Fatal("Send against an unresponsive server: err = nil, want a timeout error")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("Send took %v, want bounded by the context deadline (~200ms), not hanging", elapsed)
 	}
 }

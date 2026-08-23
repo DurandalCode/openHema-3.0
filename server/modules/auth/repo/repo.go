@@ -151,15 +151,17 @@ func (r *Repo) SetUserRole(ctx context.Context, id string, role domain.Role) (do
 	return toDomain(row), nil
 }
 
-// UpdatePassword заменяет хеш пароля и двигает password_changed_at (FR-12).
-func (r *Repo) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+// UpdatePassword заменяет хеш пароля и ставит password_changed_at в
+// переданное значение (не now() на стороне PG — см. domain.Repository).
+func (r *Repo) UpdatePassword(ctx context.Context, userID, passwordHash string, changedAt time.Time) error {
 	uid, err := uuid.Parse(userID)
 	if err != nil {
 		return domain.ErrUserNotFound
 	}
 	return r.q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
-		ID:           uid,
-		PasswordHash: passwordHash,
+		ID:                uid,
+		PasswordHash:      passwordHash,
+		PasswordChangedAt: changedAt,
 	})
 }
 

@@ -94,6 +94,15 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
       : undefined;
   // entryFeeMinor: proto — proto3_optional int64 (bigint в TS). undefined —
   // «не задан» (FR-21); typeof number, включая 0, форвардится как есть.
+  // Number.isInteger — обязательная проверка ДО BigInt(): на нецелом числе
+  // BigInt() бросает RangeError синхронно, вне try/catch ниже — без неё
+  // запрос падает необработанным 500 вместо аккуратного 400.
+  if (typeof body.entryFeeMinor === "number" && !Number.isInteger(body.entryFeeMinor)) {
+    return NextResponse.json(
+      { error: "entryFeeMinor must be an integer" },
+      { status: 400 },
+    );
+  }
   const entryFeeMinor =
     typeof body.entryFeeMinor === "number" ? BigInt(body.entryFeeMinor) : undefined;
 

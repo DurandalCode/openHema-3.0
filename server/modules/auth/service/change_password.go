@@ -39,7 +39,7 @@ func (s *Service) ChangePassword(ctx context.Context, accessToken, currentPasswo
 	if err != nil {
 		return jwt.Pair{}, fmt.Errorf("hash password: %w", err)
 	}
-	if err := s.repo.UpdatePassword(ctx, user.ID, newHash); err != nil {
+	if err := s.repo.UpdatePassword(ctx, user.ID, newHash, s.now()); err != nil {
 		return jwt.Pair{}, fmt.Errorf("update password: %w", err)
 	}
 

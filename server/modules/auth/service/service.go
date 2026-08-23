@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -135,12 +136,22 @@ func (s *Service) DisplayNames(ctx context.Context, ids []string) (map[string]st
 	return out, nil
 }
 
-// createUser проверяет политику пароля (FR-11), хеширует его и делегирует
-// вставку репозиторию. Общая точка для Register, CreateAdmin и bootstrap —
-// единая политика пароля действует одинаково во всех сценариях создания
-// пользователя.
+// createUser проверяет формат email и политику пароля (FR-11), хеширует
+// пароль и делегирует вставку репозиторию. Общая точка для Register,
+// CreateAdmin и bootstrap — единая валидация действует одинаково во всех
+// сценариях создания пользователя. Валидация email здесь (а не только на
+// входе Register) закрывает SMTP header injection у корня: письмо
+// восстановления позже уходит на user.Email, прочитанный из БД, а не на
+// сырой ввод запроса (см. RequestPasswordReset) — значит единственный
+// надёжный момент отбраковать вредоносный адрес — здесь, перед вставкой.
 func (s *Service) createUser(ctx context.Context, email, password, displayName string, role domain.Role) (domain.User, error) {
+	if err := validateEmail(email); err != nil {
+		return domain.User{}, err
+	}
 	if err := validatePassword(password); err != nil {
+		return domain.User{}, err
+	}
+	if err := validateProfileField(displayName); err != nil {
 		return domain.User{}, err
 	}
 	hash, err := crypto.HashPassword(password)
@@ -161,4 +172,16 @@ func (s *Service) createUser(ctx context.Context, email, password, displayName s
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// validateEmail отклоняет CR/LF (SMTP header injection, см. createUser) и
+// адреса, не проходящие базовый RFC 5322-разбор (net/mail.ParseAddress).
+func validateEmail(email string) error {
+	if strings.ContainsAny(email, "\r\n") {
+		return domain.ErrInvalidEmail
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return domain.ErrInvalidEmail
+	}
+	return nil
 }

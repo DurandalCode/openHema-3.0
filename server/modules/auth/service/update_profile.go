@@ -21,6 +21,12 @@ func (s *Service) UpdateProfile(ctx context.Context, accessToken, displayName, c
 	if displayName == "" {
 		return domain.User{}, domain.ErrInvalidProfile
 	}
+	if err := validateProfileField(displayName); err != nil {
+		return domain.User{}, err
+	}
+	if err := validateProfileField(club); err != nil {
+		return domain.User{}, err
+	}
 
 	return s.repo.UpdateProfile(ctx, claims.UserID, displayName, club)
 }

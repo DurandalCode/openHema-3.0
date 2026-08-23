@@ -30,6 +30,8 @@ const CONTACT_TYPES: { value: ContactType; label: string }[] = [
 export type TournamentSettingsFormErrors = {
   title?: string;
   eventEndAt?: string;
+  regulationsUrl?: string;
+  entryFeeAmount?: string;
 };
 
 export type TournamentSettingsFormProps = {
@@ -161,7 +163,11 @@ export function TournamentSettingsForm({
           placeholder="https://cdn.example.com/rules.pdf"
           value={value.regulationsUrl}
           onChange={(e) => set("regulationsUrl", e.target.value)}
+          aria-invalid={errors.regulationsUrl ? true : undefined}
         />
+        {errors.regulationsUrl && (
+          <p className="text-xs text-destructive">{errors.regulationsUrl}</p>
+        )}
       </Col>
 
       <Col gap={2}>
@@ -199,7 +205,11 @@ export function TournamentSettingsForm({
               placeholder="0"
               value={value.entryFeeAmount}
               onChange={(e) => set("entryFeeAmount", e.target.value)}
+              aria-invalid={errors.entryFeeAmount ? true : undefined}
             />
+            {errors.entryFeeAmount && (
+              <p className="text-xs text-destructive">{errors.entryFeeAmount}</p>
+            )}
           </Col>
           <Col gap={2}>
             <Label htmlFor="entryFeeCurrency">Валюта</Label>

@@ -5,6 +5,15 @@ import { errorResponse } from "@/lib/grpc/errors";
 
 export const runtime = "nodejs";
 
+// MIN_PASSWORD_LEN зеркалит server/modules/auth/service/password_policy.go
+// (MinPasswordLen, FR-11) — единая политика длины пароля. Проверяется здесь
+// ДО вызова RPC: сервер возвращает один и тот же Code.InvalidArgument и для
+// битого токена (ErrInvalidResetToken, FR-8 — причины внутри токена
+// намеренно не различаются), и для слабого пароля (ErrWeakPassword) — без
+// этой пре-проверки гость с валидной ссылкой и коротким паролем получил бы
+// сообщение «ссылка недействительна» вместо подсказки про длину пароля.
+const MIN_PASSWORD_LEN = 8;
+
 /**
  * POST /api/auth/password-reset/confirm — установка нового пароля по
  * одноразовой ссылке восстановления (spec 0037, FR-7/FR-8). В отличие от
@@ -21,6 +30,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ({ token, password } = await req.json());
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+
+  if (typeof password !== "string" || password.length < MIN_PASSWORD_LEN) {
+    return NextResponse.json(
+      { error: `Пароль должен быть не короче ${MIN_PASSWORD_LEN} символов` },
+      { status: 400 },
+    );
   }
 
   try {

@@ -118,3 +118,34 @@ func TestRefresh_RejectsTokenIssuedBeforePasswordChange(t *testing.T) {
 		t.Errorf("new refresh token should still work, got %v", err)
 	}
 }
+
+// TestChangePassword_PasswordChangedAtUsesServiceClock — регресс-тест на
+// рассинхрон часов app/DB хостов: PasswordChangedAt должен приходить с
+// часов сервиса (s.now), переданных явно в UpdatePassword, а не с
+// независимого источника (напр. now() на стороне хранилища). Время
+// намеренно искусственное (2020 год) — если бы реализация вместо
+// переданного значения использовала какой-то независимый источник
+// времени, эта проверка бы не прошла.
+func TestChangePassword_PasswordChangedAtUsesServiceClock(t *testing.T) {
+	fixed := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	c := &clock{t: fixed}
+	svc, repo, _ := testServiceWithClock(c)
+	ctx := context.Background()
+
+	user, tokens, err := svc.Register(ctx, "ivan@example.com", "old-password", "Ivan")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	if _, err := svc.ChangePassword(ctx, tokens.Access, "old-password", "new-password"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	got, err := repo.GetUserByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if !got.PasswordChangedAt.Equal(fixed) {
+		t.Errorf("PasswordChangedAt = %v, want exactly %v (service clock)", got.PasswordChangedAt, fixed)
+	}
+}

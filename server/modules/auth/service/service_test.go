@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,43 @@ func TestRegister_EmptyFields(t *testing.T) {
 				t.Errorf("expected ErrInvalidCredentials, got %v", err)
 			}
 		})
+	}
+}
+
+// TestRegister_RejectsMalformedEmail — защита от SMTP header injection:
+// RequestPasswordReset позже шлёт письмо на user.Email, прочитанный из БД
+// (не на сырой ввод запроса), поэтому единственная точка защиты — не дать
+// такому email вообще попасть в базу при создании аккаунта.
+func TestRegister_RejectsMalformedEmail(t *testing.T) {
+	svc, _ := testService()
+
+	cases := []string{
+		"evil@x.com\r\nBcc: victim@evil.com",
+		"evil@x.com\nBcc: victim@evil.com",
+		"not-an-email",
+		"@missing-local-part.com",
+	}
+	for _, email := range cases {
+		t.Run(email, func(t *testing.T) {
+			_, _, err := svc.Register(context.Background(), email, "password1", "Name")
+			if !errors.Is(err, domain.ErrInvalidEmail) {
+				t.Errorf("Register(%q): err = %v, want ErrInvalidEmail", email, err)
+			}
+		})
+	}
+}
+
+// TestRegister_RejectsOversizedDisplayName — тот же лимит длины, что и
+// UpdateProfile (MaxProfileFieldLen), действует и здесь: createUser — общая
+// точка для Register/CreateAdmin/bootstrap, лимит без него применялся бы
+// только к правке профиля, а не к его первоначальному вводу.
+func TestRegister_RejectsOversizedDisplayName(t *testing.T) {
+	svc, _ := testService()
+
+	tooLong := strings.Repeat("a", MaxProfileFieldLen+1)
+	_, _, err := svc.Register(context.Background(), "ivan@example.com", "password1", tooLong)
+	if !errors.Is(err, domain.ErrInvalidProfile) {
+		t.Errorf("Register with oversized display name: err = %v, want ErrInvalidProfile", err)
 	}
 }
 

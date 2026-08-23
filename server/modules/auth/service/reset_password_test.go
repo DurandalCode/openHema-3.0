@@ -139,3 +139,23 @@ func TestResetPassword_UnknownTokenRejected(t *testing.T) {
 		t.Errorf("expected ErrInvalidResetToken, got %v", err)
 	}
 }
+
+// TestResetPassword_RepoFailure_NotMaskedAsInvalidToken — сбой хранилища
+// (не «токен не найден») не должен маскироваться под ErrInvalidResetToken:
+// это скрывало бы инфраструктурную ошибку (пропала связь с БД) под 400
+// «ссылка недействительна», делая её невидимой для мониторинга 5xx.
+func TestResetPassword_RepoFailure_NotMaskedAsInvalidToken(t *testing.T) {
+	c := &clock{t: time.Now()}
+	svc, repo, _ := testServiceWithClock(c)
+
+	dbErr := errors.New("connection refused")
+	repo.SetGetActiveResetTokenErr(dbErr)
+
+	err := svc.ResetPassword(context.Background(), "any-token", "new-password")
+	if errors.Is(err, domain.ErrInvalidResetToken) {
+		t.Fatalf("real repo failure should not be reported as ErrInvalidResetToken, got %v", err)
+	}
+	if !errors.Is(err, dbErr) {
+		t.Errorf("expected the underlying repo error to be wrapped, got %v", err)
+	}
+}

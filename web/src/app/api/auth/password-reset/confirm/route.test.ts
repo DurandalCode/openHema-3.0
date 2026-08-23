@@ -58,6 +58,20 @@ describe("app/api/auth/password-reset/confirm route", () => {
     expect(res.status).toBe(500);
   });
 
+  // Сервер маппит и ErrInvalidResetToken, и ErrWeakPassword в один и тот же
+  // Code.InvalidArgument (FR-8 запрещает различать причины именно внутри
+  // токена, но не путает это с паролем) — без пре-проверки здесь гость с
+  // валидной ссылкой и коротким паролем получил бы "ссылка недействительна"
+  // вместо подсказки про длину пароля.
+  it("rejects a short password before calling the RPC, with a distinct message", async () => {
+    const res = await POST(req({ token: "valid-token", password: "short" }));
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).not.toBe("ссылка недействительна или устарела");
+    expect(authClient.resetPassword).not.toHaveBeenCalled();
+  });
+
   it("returns 400 on invalid json", async () => {
     const badReq = new NextRequest("http://localhost/api/auth/password-reset/confirm", {
       method: "POST",

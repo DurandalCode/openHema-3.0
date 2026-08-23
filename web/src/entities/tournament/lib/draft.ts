@@ -62,9 +62,33 @@ export function entryFeeMinorToAmount(minor: number | null): string {
 export function entryFeeAmountToMinor(amount: string): number | null {
   const trimmed = amount.trim();
   if (trimmed === "") return null;
+  // Запятая как десятичный разделитель поддержана только в одном
+  // однозначном случае — ровно одна запятая, без точки (нумпад/RU-
+  // раскладка). Больше одной запятой или смесь запятой с точкой —
+  // неоднозначный формат (какая часть тут дробная?), не пытаемся угадать.
+  const commaCount = (trimmed.match(/,/g) ?? []).length;
+  if (commaCount > 1 || (commaCount === 1 && trimmed.includes("."))) {
+    return null;
+  }
   const value = Number(trimmed.replace(",", "."));
   if (!Number.isFinite(value)) return null;
   return Math.round(value * 100);
+}
+
+/**
+ * isValidRegulationsUrl — то же правило, что и сервер (Service.UpdateActive,
+ * FR-20/AC-15): пусто — легально («не задан»); непусто — только абсолютный
+ * http/https адрес с непустым host.
+ */
+function isValidRegulationsUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === "") return true;
+  try {
+    const u = new URL(trimmed);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname !== "";
+  } catch {
+    return false;
+  }
 }
 
 /** Число позиционно различающихся контактов между двумя (уже нормализованными
@@ -126,16 +150,25 @@ export function tournamentDraftChanges(
   return changes;
 }
 
+export type TournamentDraftErrors = {
+  title?: string;
+  eventEndAt?: string;
+  regulationsUrl?: string;
+  entryFeeAmount?: string;
+};
+
 /**
- * validateTournamentDraft — ровно те три правила, что уже проверяет сервер
- * (`Service.UpdateActive`): пустое название и некорректный диапазон дат
- * (окончание раньше начала, окончание без начала). Сообщения по-русски
- * (spec FR-11/FR-12, AC-7/AC-8).
+ * validateTournamentDraft — правила, что уже проверяет сервер
+ * (`Service.UpdateActive`): пустое название, некорректный диапазон дат
+ * (окончание раньше начала, окончание без начала), ссылка на регламент без
+ * http/https схемы (FR-20/AC-15) и отрицательный/неразбираемый взнос
+ * (FR-21/AC-16). Без пре-проверки последних двух полей их 400 с сервера
+ * молча всплывал бы как «взнос не задан» (см. `entryFeeAmountToMinor`) или
+ * попадал под generic-сообщение `tournamentErrorMessage`, не указывающее на
+ * настоящую причину. Сообщения по-русски (spec FR-11/FR-12, AC-7/AC-8).
  */
-export function validateTournamentDraft(
-  draft: TournamentDraft,
-): { title?: string; eventEndAt?: string } {
-  const errors: { title?: string; eventEndAt?: string } = {};
+export function validateTournamentDraft(draft: TournamentDraft): TournamentDraftErrors {
+  const errors: TournamentDraftErrors = {};
 
   if (!draft.title.trim()) {
     errors.title = "Введите название турнира";
@@ -148,6 +181,20 @@ export function validateTournamentDraft(
       new Date(draft.eventEndAt).getTime() < new Date(draft.eventStartAt).getTime()
     ) {
       errors.eventEndAt = "Дата окончания не может быть раньше даты начала";
+    }
+  }
+
+  if (!isValidRegulationsUrl(draft.regulationsUrl)) {
+    errors.regulationsUrl = "Укажите полную ссылку (http:// или https://)";
+  }
+
+  const trimmedFee = draft.entryFeeAmount.trim();
+  if (trimmedFee !== "") {
+    const minor = entryFeeAmountToMinor(trimmedFee);
+    if (minor === null) {
+      errors.entryFeeAmount = "Введите сумму числом (например, 1500 или 1500.50)";
+    } else if (minor < 0) {
+      errors.entryFeeAmount = "Сумма взноса не может быть отрицательной";
     }
   }
 

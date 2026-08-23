@@ -40,12 +40,13 @@ WHERE id = $1
 RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at;
 
 -- name: UpdateUserPassword :exec
--- Заменяет хеш пароля и двигает password_changed_at на текущий момент —
--- Refresh сверяет с ним iat токена, чтобы оборвать продление старых сессий
--- после смены/сброса пароля (спека 0037, FR-12).
+-- Заменяет хеш пароля и ставит password_changed_at в переданное значение
+-- (не now() на стороне PG — см. domain.Repository.UpdatePassword: значение
+-- приходит с часов приложения, тех же, что штампуют iat токена, чтобы
+-- Refresh не зависел от рассинхрона часов app/DB хостов, спека 0037, FR-12).
 UPDATE auth.users
 SET password_hash = $2,
-    password_changed_at = now()
+    password_changed_at = $3
 WHERE id = $1;
 
 -- name: UpdateUserProfile :one
