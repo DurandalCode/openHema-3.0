@@ -99,6 +99,45 @@ describe("makeQueryClient", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("recovers silently again on a LATER, unrelated 401 for the same query key (regression: access tokens expire every ~15min and refetch-on-focus can re-trigger this many times over a session)", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+      const client = makeQueryClient();
+
+      let calls = 0;
+      const { result } = renderHook(
+        () =>
+          useQuery({
+            queryKey: ["repeat-expiry-probe"],
+            queryFn: () => {
+              calls += 1;
+              // Эпизод 1: падение (call 1), успешный рефетч (call 2).
+              // Эпизод 2 (независимое истечение позже): падение (call 3),
+              // успешный рефетч (call 4).
+              if (calls === 1 || calls === 3) throw new UnauthorizedError();
+              return `data-${calls}`;
+            },
+            retry: false,
+          }),
+        { wrapper: wrapperFor(client) },
+      );
+
+      // Эпизод 1 — тихо восстановилось.
+      await waitFor(() => expect(result.current.data).toBe("data-2"));
+      expect(useSessionExpiredStore.getState().isOpen).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Эпизод 2, позже и никак не связан с первым — например, естественное
+      // повторное истечение access-токена + рефетч по возврату фокуса на
+      // вкладку. Должен получить полноценную попытку тихого продления, а не
+      // сразу диалог из-за «протухшей» записи в attemptedFor.
+      await client.refetchQueries({ queryKey: ["repeat-expiry-probe"], exact: true });
+
+      await waitFor(() => expect(result.current.data).toBe("data-4"));
+      expect(useSessionExpiredStore.getState().isOpen).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it("shares a single in-flight refresh across queries that 401 at the same time", async () => {
       let resolveRefresh: (ok: boolean) => void = () => {};
       const fetchMock = vi.fn(
