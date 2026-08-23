@@ -8,14 +8,13 @@ import { Label } from "@/shared/ui/label";
 import { Col } from "@/shared/ui/stack";
 import { useLogin } from "../api/use-login";
 import { useRegister } from "../api/use-register";
-import type { AuthMode } from "../api/requests";
 
 /** AuthForm — форма входа/регистрации на shadcn-примитивах + useMutation. */
 export function AuthForm({
   mode,
   onSuccess,
 }: {
-  mode: AuthMode;
+  mode: "login" | "register";
   onSuccess: () => void;
 }) {
   const [email, setEmail] = useState("");
