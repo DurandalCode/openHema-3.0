@@ -114,21 +114,30 @@ D (диалоги профиля живут в его же треке) — join-
 
 ## Сессия (трек E, после B)
 
-- [ ] T15. **решение о продлении (red→green)** —
+- [x] T15. **решение о продлении (red→green)** —
       `shared/lib/session-refresh.test.ts` (`refreshDecision`: есть access →
       `skip`, нет обоих → `guest`, только refresh → `refresh`) → затем
       `session-refresh.ts` и `web/src/middleware.ts` (перенос `set-cookie`,
       удаление `hema_refresh` и метка `hema_session_expired` при неудаче).
-- [ ] T16. **перехват 401 (red→green)** — `shared/api/unauthorized.test.ts`
+- [x] T16. **перехват 401 (red→green)** — `shared/api/unauthorized.test.ts`
       (`ensureAuthorized` бросает `UnauthorizedError` на 401) → затем
       `unauthorized.ts`, `shared/lib/session-expired-store.ts` и подключение
-      `QueryCache.onError` в `shared/lib/query-provider.tsx`.
-- [ ] T17. **диалог (red→green)** —
+      `QueryCache.onError`. Реализовано в `shared/lib/query-client.ts`
+      (`makeQueryClient`), а не в `query-provider.tsx` — там строится сам
+      `QueryClient`/`QueryCache`, `query-provider.tsx` только потребляет
+      фабрику и правок не потребовал (см. `docs/specs/.../plan.md`,
+      актуализировано по месту).
+- [x] T17. **диалог (red→green)** —
       `widgets/session-expired/session-expired-dialog.test.tsx`: поднимается по
       cookie-метке и по `UnauthorizedError`; на публичной странице —
       «Продолжить как гость», на защищённой — «На главную»; «Войти снова»
       открывает вход и запоминает `returnTo`; упоминание черновика только когда
-      он есть → затем компонент + монтирование в `app/layout.tsx`.
+      он есть → затем компонент + монтирование в `app/layout.tsx`. Заодно
+      подключено фактическое потребление `returnTo` в
+      `features/auth/ui/auth-dialog.tsx` (`onSuccess` → `router.push`) —
+      поле было заведено треком B специально под это (плейсхолдер-комментарий
+      «сам возврат ещё не подключён»), без него FR-16 не выполнялось бы для
+      случая «сначала «На главную», потом вход».
 
 ## Кабинет (join-волна)
 

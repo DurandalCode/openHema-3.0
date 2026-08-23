@@ -26,9 +26,21 @@ beforeAll(() => {
   Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture || (() => {});
 });
 
+const routerPush = vi.fn();
+const routerRefresh = vi.fn();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ refresh: routerRefresh, push: routerPush, replace: vi.fn() }),
+  usePathname: () => "/nominations/n1/apply",
 }));
+
+vi.mock("../api/requests", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/requests")>();
+  return {
+    ...actual,
+    loginRequest: vi.fn(async () => ({ ok: true }) as const),
+  };
+});
 
 vi.mock("./reset-request-form", () => ({
   ResetRequestForm: ({ setMode }: { setMode: (m: string) => void }) => (
@@ -47,6 +59,8 @@ describe("features/auth/ui/AuthDialog", () => {
 
   afterEach(() => {
     cleanup();
+    routerPush.mockClear();
+    routerRefresh.mockClear();
   });
 
   it("shows two tabs, Вход и Регистрация, in login/register modes (FR-2)", () => {
@@ -97,5 +111,45 @@ describe("features/auth/ui/AuthDialog", () => {
     expect(
       screen.getByRole("heading", { name: /восстановление пароля/i }),
     ).toBeInTheDocument();
+  });
+
+  it("navigates to returnTo after a successful login opened with it (FR-16)", async () => {
+    useAuthDialogStore.setState({
+      isOpen: true,
+      mode: "login",
+      returnTo: "/dashboard",
+    });
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "ivan@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Пароль"), {
+      target: { value: "password123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+
+    await vi.waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith("/dashboard");
+    });
+    expect(useAuthDialogStore.getState().isOpen).toBe(false);
+  });
+
+  it("does not navigate on a plain login without returnTo (FR-1: stays where it was)", async () => {
+    useAuthDialogStore.setState({ isOpen: true, mode: "login", returnTo: undefined });
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "ivan@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Пароль"), {
+      target: { value: "password123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+
+    await vi.waitFor(() => {
+      expect(routerRefresh).toHaveBeenCalled();
+    });
+    expect(routerPush).not.toHaveBeenCalled();
   });
 });

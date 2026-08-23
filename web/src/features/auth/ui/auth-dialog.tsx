@@ -37,12 +37,19 @@ export function AuthDialog() {
   const router = useRouter();
   const isOpen = useAuthDialogStore((s) => s.isOpen);
   const mode = useAuthDialogStore((s) => s.mode);
+  const returnTo = useAuthDialogStore((s) => s.returnTo);
   const setOpen = useAuthDialogStore((s) => s.open);
   const close = useAuthDialogStore((s) => s.close);
   const setMode = useAuthDialogStore((s) => s.setMode);
 
+  // FR-16: обычный вход (без returnTo) оставляет пользователя там, где он
+  // был (`router.refresh()` перерисовывает server components с новой
+  // сессией). `returnTo` заводит `widgets/session-expired` (спека 0038) —
+  // туда возвращаемся явно, раз пользователь мог успеть уйти со страницы,
+  // где его выбило (кнопка «На главную»), прежде чем открыть вход заново.
   function onSuccess() {
     close();
+    if (returnTo) router.push(returnTo);
     router.refresh();
   }
 
