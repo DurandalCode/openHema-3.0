@@ -70,19 +70,19 @@ D (диалоги профиля живут в его же треке) — join-
 
 ## Вход, сброс пароля (трек B)
 
-- [ ] T8. **чистая функция (red→green)** — `entities/user/lib/password.test.ts`
+- [x] T8. **чистая функция (red→green)** — `entities/user/lib/password.test.ts`
       → `password.ts`: `MIN_PASSWORD_LEN`, `passwordHint` (уровни, `ok`, текст).
-- [ ] T9. **запросы и мутации (red→green)** — `features/auth/api/requests.test.ts`
+- [x] T9. **запросы и мутации (red→green)** — `features/auth/api/requests.test.ts`
       (+`requestPasswordReset`, `resetPassword`) → `requests.ts`,
       `use-request-password-reset.ts`, `use-reset-password.ts`;
       `model/auth-dialog-store.ts` — режим `reset` + `returnTo` (тест стора).
-- [ ] T10. **модалка (red→green)** — RTL-тесты `auth-dialog`/`auth-form`:
+- [x] T10. **модалка (red→green)** — RTL-тесты `auth-dialog`/`auth-form`:
       переключение табов и режима «Забыли пароль?» ↔ «Вернуться ко входу»,
       состояние отправки, отказ с сохранением введённого email, блокировка
       отправки регистрации при коротком пароле → затем рестайл
       `auth-dialog.tsx`/`auth-form.tsx`, новые `password-hint.tsx`,
       `reset-request-form.tsx`.
-- [ ] T11. **страница по ссылке (red→green)** —
+- [x] T11. **страница по ссылке (red→green)** —
       `widgets/reset-password/reset-password-screen.test.tsx`: успех (без
       сессии, предложение войти), битый/использованный токен (единый отказ),
       пустой токен (форма не показывается), несовпадение подтверждения →
