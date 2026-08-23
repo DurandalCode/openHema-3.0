@@ -45,26 +45,26 @@ D (диалоги профиля живут в его же треке) — join-
 
 ## Server (трек A)
 
-- [ ] T3. **service (red→green)** — `modules/fighter/service/my_fighter_test.go`:
+- [x] T3. **service (red→green)** — `modules/fighter/service/my_fighter_test.go`:
       пустой `userID` → `ErrInvalidInput`; пустой `tournamentID` → резолв через
       fake `ActiveTournamentProvider`; найденный боец с участиями; `ErrNotFound`
       при отсутствии; падение провайдера → `ErrNotFound` → затем
       `service/my_fighter.go`.
-- [ ] T4. **api (red→green)** — `modules/fighter/api/me_handler_test.go`
+- [x] T4. **api (red→green)** — `modules/fighter/api/me_handler_test.go`
       (httptest + Connect, fake-репо): с токеном и бойцом → заполненный
       `Fighter`; с токеном без бойца → успех с пустым `fighter` (FR-41); без
       токена → `CodeUnauthenticated`; чужой `tournament_id` не отдаёт чужого
       бойца → затем `api/me_handler.go`.
-- [ ] T5. **wiring** — `modules/fighter/module.go`: регистрация
+- [x] T5. **wiring** — `modules/fighter/module.go`: регистрация
       `NewFighterServiceHandler` с `baseOpts`; в `publicProcedures`
       (`server/pkg/connectutil/auth_interceptor.go`) RPC **не** добавляется —
       только комментарий рядом, почему (default-deny).
-- [ ] T6. **BFF (red→green)** — `web/src/app/api/fighters/me/route.test.ts`
+- [x] T6. **BFF (red→green)** — `web/src/app/api/fighters/me/route.test.ts`
       (mock gRPC): 401 без cookie, `{fighter: null}` при пустом ответе, маппинг
       ошибок → затем `route.ts`; `lib/grpc/client.ts` (+`fighterClient`),
       `lib/grpc/serialize.ts` (переиспользовать существующую сериализацию
       `Fighter`, не дублировать).
-- [ ] T7. **entity** — `entities/fighter/lib/types.ts` (`MyFighter`) +
+- [x] T7. **entity** — `entities/fighter/lib/types.ts` (`MyFighter`) +
       `entities/fighter/model/get-my-fighter.ts` (server-only, по образцу
       `get-current-user.ts`) + тест на `null` при отсутствии токена/ошибке.
 

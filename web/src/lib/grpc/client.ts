@@ -9,7 +9,7 @@ import {
 import { ArenaAdminService } from "@/gen/hema/v1/arena_pb";
 import { AuthService } from "@/gen/hema/v1/auth_pb";
 import { BoutAdminService, BoutPublicService } from "@/gen/hema/v1/bout_pb";
-import { FighterAdminService, FighterPublicService } from "@/gen/hema/v1/fighter_pb";
+import { FighterAdminService, FighterPublicService, FighterService } from "@/gen/hema/v1/fighter_pb";
 import { NominationAdminService, NominationService } from "@/gen/hema/v1/nomination_pb";
 import { StageAdminService, StagePublicService } from "@/gen/hema/v1/stage_pb";
 import { TournamentAdminService, TournamentService } from "@/gen/hema/v1/tournament_pb";
@@ -121,6 +121,17 @@ export const fighterAdminClient: Client<typeof FighterAdminService> = createClie
  */
 export const fighterPublicClient: Client<typeof FighterPublicService> = createClient(
   FighterPublicService,
+  transport,
+);
+
+/**
+ * fighterClient — клиент FighterService (спека 0038, ADR 0016): чтение
+ * своего бойца текущим пользователем. RPC требует access-токен — BFF
+ * прокидывает его из httpOnly-cookie в заголовке Authorization. Только на
+ * сервере (Node runtime).
+ */
+export const fighterClient: Client<typeof FighterService> = createClient(
+  FighterService,
   transport,
 );
 
