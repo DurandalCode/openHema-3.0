@@ -91,11 +91,11 @@ D (диалоги профиля живут в его же треке) — join-
 
 ## О турнире (трек C)
 
-- [ ] T12. **формат (red→green)** — `entities/tournament/lib/format.test.ts`:
+- [x] T12. **формат (red→green)** — `entities/tournament/lib/format.test.ts`:
       `formatEntryFee` (`null` → `null`, `0` → «бесплатно», сумма с валютой) →
       затем `format.ts` (конвертацию минорных единиц переиспользовать из
       `lib/draft.ts`, не копировать).
-- [ ] T13. **экран (red→green)** —
+- [x] T13. **экран (red→green)** —
       `widgets/tournament-about/tournament-about-screen.test.tsx`: полный
       профиль (место, взнос, регламент, судья, контакты), незаполненные поля не
       рендерятся, нулевой взнос, отсутствие активного турнира (текст о
