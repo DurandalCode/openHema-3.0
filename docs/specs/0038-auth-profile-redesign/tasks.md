@@ -33,11 +33,11 @@ D (диалоги профиля живут в его же треке) — join-
 
 ## Контракты и решения
 
-- [ ] T1. `proto/hema/v1/fighter.proto` — `service FighterService` +
+- [x] T1. `proto/hema/v1/fighter.proto` — `service FighterService` +
       `GetMyFighterRequest`/`GetMyFighterResponse` (см. `plan.md`,
       «Контракты»); `make generate`.
       _(контракты — не TDD-шаг, но идут первыми: от них зависят типы.)_
-- [ ] T2. `docs/adr/0016-account-fighter-self-link.md` — ADR о развороте
+- [x] T2. `docs/adr/0016-account-fighter-self-link.md` — ADR о развороте
       границы 0007: контекст (0007 отвязала, 0026/0034/0037 не восстанавливали),
       решение (чтение своего бойца владельцем), границы (только владелец,
       только чтение, только активный турнир, админка не меняется, снапшот и
