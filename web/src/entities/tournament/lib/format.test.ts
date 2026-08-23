@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactHref, daysUntil, formatEventRange } from "./format";
+import { contactHref, daysUntil, formatEntryFee, formatEventRange } from "./format";
 
 describe("entities/tournament/lib/format contactHref", () => {
   it("passes through http(s) URLs as-is", () => {
@@ -117,5 +117,34 @@ describe("entities/tournament/lib/format daysUntil", () => {
     // tournamentPhase. Честный отрицательный результат, без null.
     const now = new Date("2026-08-22T12:00:00Z");
     expect(daysUntil("2026-08-20T09:00:00Z", now)).toBe(-2);
+  });
+});
+
+describe("entities/tournament/lib/format formatEntryFee (spec 0038, FR-44)", () => {
+  it("returns null when the fee is not set (tile is not rendered at all)", () => {
+    expect(formatEntryFee(null, "RUB")).toBeNull();
+  });
+
+  it("returns null when the fee is not set even without a currency", () => {
+    expect(formatEntryFee(null, "")).toBeNull();
+  });
+
+  it('reads a zero fee as free participation, distinct from "not set"', () => {
+    expect(formatEntryFee(0, "RUB")).toBe("Бесплатно");
+  });
+
+  it("formats a positive fee in major units with the currency code", () => {
+    // Intl.NumberFormat("ru-RU") группирует разряды неразрывным пробелом
+    // (U+00A0), не обычным — сравниваем через regex, чтобы не завязывать
+    // тест на конкретный юникод-символ.
+    expect(formatEntryFee(150000, "RUB")).toMatch(/^1\s500 RUB$/);
+  });
+
+  it("formats a fractional fee in major units", () => {
+    expect(formatEntryFee(150050, "RUB")).toMatch(/^1\s500,5 RUB$/);
+  });
+
+  it("omits a trailing space when the currency is empty", () => {
+    expect(formatEntryFee(150000, "")).toMatch(/^1\s500$/);
   });
 });

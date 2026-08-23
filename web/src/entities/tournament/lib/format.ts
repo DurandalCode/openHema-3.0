@@ -1,4 +1,5 @@
 import type { ContactType } from "./types";
+import { entryFeeMinorToAmount } from "./draft";
 
 /**
  * CONTACT_LABELS — человекочитаемые подписи типов контактов (спека 0034,
@@ -103,4 +104,37 @@ export function contactHref(type: ContactType, value: string): string {
     default:
       return value;
   }
+}
+
+/**
+ * formatEntryFee — сумма взноса за номинацию для показа (спека 0038,
+ * FR-43/FR-44), не для формы ввода. Отличается от `entryFeeMinorToAmount`
+ * (`lib/draft.ts`), которая отдаёт голое число строкой для инпута формы:
+ * здесь нужен готовый к рендеру текст с валютой и текстом «Бесплатно».
+ *
+ * Конвертация минорных единиц в основные (копейки → рубли) переиспользуется
+ * из `entryFeeMinorToAmount`, а не копируется — единственное место с этой
+ * арифметикой остаётся `lib/draft.ts` (его домен — редактирование, но сама
+ * формула конвертации от направления не зависит).
+ *
+ * - `minor === null` — взнос не задан: плитка взноса не рендерится вовсе
+ *   (FR-44), поэтому здесь тоже `null` — решение «не показывать» остаётся
+ *   за вызывающим компонентом, а не размазывается по функциям форматирования.
+ * - `minor === 0` — участие бесплатное, отличимо от «не задано» (0037,
+ *   FR-21) человекочитаемым текстом, а не «0 RUB».
+ * - `minor > 0` — сумма в основных единицах с кодом валюты. Валюта —
+ *   свободная строка без проверки на ISO-4217 (форма настроек её не
+ *   валидирует, `tournament-settings-form.tsx`), поэтому не используется
+ *   `Intl.NumberFormat(..., { style: "currency" })` — он бросает
+ *   `RangeError` на нераспознанном коде; группировка разрядов —
+ *   `Intl.NumberFormat("ru-RU")` без `style`, код валюты дописывается рядом
+ *   простым текстом.
+ */
+export function formatEntryFee(minor: number | null, currency: string): string | null {
+  if (minor === null) return null;
+  if (minor === 0) return "Бесплатно";
+
+  const amount = Number(entryFeeMinorToAmount(minor));
+  const formatted = new Intl.NumberFormat("ru-RU").format(amount);
+  return currency ? `${formatted} ${currency}` : formatted;
 }
