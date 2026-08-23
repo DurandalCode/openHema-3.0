@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { refreshDecision } from "@/shared/lib/session-refresh";
+import { mergeRequestCookieHeader, refreshDecision } from "@/shared/lib/session-refresh";
 
 // Совпадают с ACCESS_COOKIE/REFRESH_COOKIE (`lib/session/cookies.ts`). Не
 // импортируются оттуда напрямую: тот модуль тянет `next/headers`, чей
@@ -32,6 +32,15 @@ export const config = {
  * пару cookie, либо гасит protected refresh и оставляет читаемую клиентом
  * метку истечения. Повторов нет (NFR-5): при неудаче refresh-cookie
  * удаляется, следующая навигация идёт уже веткой «гость».
+ *
+ * Свежие cookie накладываются на заголовок `Cookie` ТЕКУЩЕГО запроса через
+ * `NextResponse.next({ request })` — не только в ответ браузеру. Без этого
+ * downstream Server Component того же запроса (`getCurrentUser()` в
+ * `app/dashboard/page.tsx`) читает исходный `Cookie` без свежего access и
+ * успевает `redirect("/login")` раньше, чем браузер применит новые cookie
+ * со следующей навигации — продление стало бы формально успешным, но всё
+ * равно на секунду выкидывало бы на `/login` (найдено ручной проверкой T25,
+ * `mergeRequestCookieHeader` — её юнит-тест).
  */
 export async function middleware(req: NextRequest): Promise<NextResponse> {
   const decision = refreshDecision({
@@ -57,8 +66,16 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     return sessionExpiredResponse();
   }
 
-  const response = NextResponse.next();
-  for (const cookie of refreshResponse.headers.getSetCookie()) {
+  const setCookieHeaders = refreshResponse.headers.getSetCookie();
+
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set(
+    "cookie",
+    mergeRequestCookieHeader(req.headers.get("cookie") ?? "", setCookieHeaders),
+  );
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  for (const cookie of setCookieHeaders) {
     response.headers.append("set-cookie", cookie);
   }
   return response;
