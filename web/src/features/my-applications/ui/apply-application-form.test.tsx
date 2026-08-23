@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplyApplicationForm } from "./apply-application-form";
 import { ApplicationRequestError } from "../api/mutation-error";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import { loadDraft } from "../model/apply-draft";
 
 beforeAll(() => {
@@ -128,6 +129,18 @@ describe("features/my-applications/ui ApplyApplicationForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Подать заявку" }));
 
     expect(toastError).toHaveBeenCalledWith("Не удалось выполнить действие, попробуйте ещё раз");
+  });
+
+  it("does not toast on UnauthorizedError — the session-expired dialog already explains it (spec 0038, FR-18/AC-10)", () => {
+    submitMutate.mockImplementation((_vars, opts?: MutateOpts) => {
+      opts?.onError?.(new UnauthorizedError());
+    });
+
+    render(<ApplyApplicationForm nominationId="n1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Подать заявку" }));
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("restores a locally saved draft into the fields on mount (FR-19)", () => {

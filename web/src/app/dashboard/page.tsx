@@ -1,64 +1,45 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card";
-import { Col, Row } from "@/shared/ui/stack";
-import { LogoutButton } from "./logout-button";
+import { getMyFighter } from "@/entities/fighter/model/get-my-fighter";
+import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
+import { getNominations } from "@/entities/nomination/model/get-nominations";
+import { getTournamentLive } from "@/entities/tournament-live/model/get-tournament-live";
+import { emptyTournamentLiveSnapshot } from "@/entities/tournament-live/lib/types";
+import { DashboardScreen } from "@/widgets/dashboard/dashboard-screen";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Защищённый кабинет: доступен только аутентифицированным пользователям. */
+/**
+ * DashboardPage — защищённый кабинет (спека 0038), сужен до server-обёртки
+ * (правило 0032, NFR-2): композиция — в `DashboardScreen`. Живая сводка
+ * турнира запрашивается, только если у пользователя есть боец в активном
+ * турнире (`myFighter`) — иначе некому подписываться (NFR-3), и снапшот не
+ * нужен ни для одного блока экрана.
+ */
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
   }
 
+  const [myFighter, tournament] = await Promise.all([
+    getMyFighter(),
+    getActiveTournament(),
+  ]);
+
+  const [nominations, initialSnapshot] = await Promise.all([
+    getNominations(tournament?.id ?? ""),
+    myFighter ? getTournamentLive(tournament?.id ?? "") : Promise.resolve(emptyTournamentLiveSnapshot(tournament?.id ?? "")),
+  ]);
+  const nominationTitleById = Object.fromEntries(nominations.map((n) => [n.id, n.title]));
+
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Кабинет</h1>
-      <p className="mt-2 text-muted-foreground">
-        Привет, {user.displayName || user.email}!
-      </p>
-
-      <Card className="mt-6 max-w-md">
-        <CardHeader>
-          <CardTitle>Профиль</CardTitle>
-          <CardDescription>Данные вашего аккаунта.</CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm">
-          <Col gap={3}>
-            <ProfileRow label="Email" value={user.email} />
-            <ProfileRow label="Имя" value={user.displayName || "—"} />
-            <ProfileRow
-              label="Регистрация"
-              value={
-                user.createdAt
-                  ? new Date(user.createdAt).toLocaleDateString("ru-RU")
-                  : "—"
-              }
-            />
-          </Col>
-        </CardContent>
-      </Card>
-
-      <LogoutButton />
-    </div>
-  );
-}
-
-/** ProfileRow — единая строка «label — value» карточки профиля. */
-function ProfileRow({ label, value }: { label: string; value: string }) {
-  return (
-    <Row justify="between" gap={4}>
-      <span className="text-muted-foreground">{label}</span>
-      <span className="truncate font-medium">{value}</span>
-    </Row>
+    <DashboardScreen
+      user={user}
+      myFighter={myFighter}
+      initialSnapshot={initialSnapshot}
+      nominationTitleById={nominationTitleById}
+    />
   );
 }

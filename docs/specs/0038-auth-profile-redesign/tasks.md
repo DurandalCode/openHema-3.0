@@ -141,30 +141,46 @@ D (диалоги профиля живут в его же треке) — join-
 
 ## Кабинет (join-волна)
 
-- [ ] T18. **проекция «моего» (red→green)** —
+- [x] T18. **проекция «моего» (red→green)** —
       `entities/tournament-live/lib/my-view.test.ts`: `myBouts`, `nextBout`
       (идущий приоритетнее не начатого), `boutsUntil`, `myNominationProgress`
       (`null` без боёв, победы/поражения, имя контейнера) → затем `my-view.ts`.
-- [ ] T19. **профиль и пароль (red→green)** — тесты
+- [x] T19. **профиль и пароль (red→green)** — тесты
       `features/profile/api/requests.test.ts` и RTL-тесты
       `edit-profile-dialog`/`change-password-dialog`: пустое имя отклонено,
       неверный текущий пароль — отказ у поля, успех — тост с предупреждением о
-      других устройствах → затем `features/profile/**`.
-- [ ] T20. **экран кабинета (red→green)** —
+      других устройствах → затем `features/profile/**`. Заодно расширен
+      FR-18 на мутации/запросы, для которых глобальный `QueryCache.onError`
+      (T16) не срабатывает: `shared/lib/query-client.ts` получил
+      `mutationCache.onError` (та же проверка `UnauthorizedError`),
+      `use-submit-application.ts` и `use-my-applications.ts` (обе — вне
+      исходного списка файлов трека, но прямо названы в FR-18/«Вне скоупа»
+      спеки: «кабинет и подача заявки») бросают `UnauthorizedError` на 401
+      вместо обычной ошибки; `apply-application-form.tsx` больше не дублирует
+      тостом то, что уже сказал диалог «Сессия истекла».
+- [x] T20. **экран кабинета (red→green)** —
       `widgets/dashboard/dashboard-screen.test.tsx`: боец есть (номинации,
       ближайший бой, «через N боёв», живое обновление счёта), бойца нет (блоков
       нет, подсказка про заявку), боец выведен (плашка, боя нет), заявок нет
       (приглашение), подписка не открывается вне идущего турнира → затем
-      компоненты `widgets/dashboard/**`.
-- [ ] T21. **роут** — `app/dashboard/page.tsx` как server-обёртка: гость →
+      компоненты `widgets/dashboard/**`. `dashboard-skeleton.tsx` из плана не
+      заведён отдельным файлом — единственные клиентские данные экрана
+      (список заявок, `useMyApplications`) используют существующий
+      `SkeletonCards`, как и `MyApplicationsScreen`; отдельный компонент был
+      бы controlled duplicate.
+- [x] T21. **роут** — `app/dashboard/page.tsx` как server-обёртка: гость →
       `redirect("/login")`, `getMyFighter`, `getTournamentLive` только при
-      наличии бойца; `logout-button.tsx` переезжает в виджет.
+      наличии бойца; `logout-button.tsx` переехал в
+      `widgets/dashboard/logout-button.tsx`.
 
 ## Проверка
 
-- [ ] T22. `make test-all` зелёный.
-- [ ] T23. `pnpm exec tsc --noEmit`.
-- [ ] T24. `go build ./...` + `pnpm build`.
+- [x] T22. `make test-all` зелёный (299 файлов / 2245 тестов web + весь
+      server-suite).
+- [x] T23. `pnpm exec tsc --noEmit` — чисто.
+- [x] T24. `go build ./...` + `pnpm build` — оба чистые (два pre-existing
+      lint-предупреждения вне скоупа спеки не трогались; два предупреждения
+      из собственных файлов инкремента исправлены по ходу).
 - [ ] T25. Ручная проверка сквозного сценария на `make dev`: истечение access
       (подождать/срезать TTL) → продление без выхода; смена пароля → старая
       вкладка получает «Сессия истекла»; письмо восстановления из журнала

@@ -17,7 +17,7 @@ export function LogoutButton() {
       variant="outline"
       onClick={() => logout.mutate()}
       loading={logout.isPending}
-      className="mt-6 gap-2"
+      className="w-full gap-2"
     >
       {!logout.isPending && <LogOutIcon />}
       Выйти

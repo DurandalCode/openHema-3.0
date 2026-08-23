@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { useMyApplications } from "./use-my-applications";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 const listMyApplicationsRequestMock = vi.fn();
 vi.mock("./requests", () => ({
@@ -39,5 +40,18 @@ describe("features/my-applications/api/useMyApplications", () => {
 
     expect(result.current.fetchStatus).toBe("idle");
     expect(listMyApplicationsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("throws UnauthorizedError (not a generic Error) on a 401 — spec 0038, FR-18", async () => {
+    listMyApplicationsRequestMock.mockResolvedValue({
+      ok: false,
+      error: "unauthenticated",
+      status: 401,
+    });
+
+    const { result } = renderHook(() => useMyApplications(), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toBeInstanceOf(UnauthorizedError);
   });
 });

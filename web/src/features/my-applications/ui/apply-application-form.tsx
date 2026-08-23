@@ -12,6 +12,7 @@ import { useSubmitApplication } from "@/features/my-applications/api/use-submit-
 import { applicationErrorMessage } from "@/features/my-applications/api/errors";
 import { ApplicationRequestError } from "@/features/my-applications/api/mutation-error";
 import { clearDraft, loadDraft, saveDraft } from "@/features/my-applications/model/apply-draft";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 type ApplyDraft = { club: string; needsEquipment: boolean };
 
@@ -47,7 +48,6 @@ export function ApplyApplicationForm({ nominationId }: { nominationId: string })
       setClub(draft.club);
       setNeedsEquipment(draft.needsEquipment);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nominationId]);
 
   function updateClub(value: string) {
@@ -71,6 +71,11 @@ export function ApplyApplicationForm({ nominationId }: { nominationId: string })
           router.push("/applications");
         },
         onError: (error) => {
+          // UnauthorizedError уже поднимает «Сессия истекла»
+          // (widgets/session-expired, глобальный MutationCache.onError) —
+          // тост поверх нёс бы дублирующее и более общее сообщение
+          // (спека 0038, FR-18/AC-10).
+          if (error instanceof UnauthorizedError) return;
           const status = error instanceof ApplicationRequestError ? error.status : undefined;
           toastError(applicationErrorMessage(error.message, status));
         },

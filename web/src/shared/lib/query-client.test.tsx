@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ReactNode } from "react";
 import { makeQueryClient } from "./query-client";
@@ -53,6 +53,51 @@ describe("makeQueryClient", () => {
         }),
       { wrapper },
     );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(useSessionExpiredStore.getState().isOpen).toBe(false);
+  });
+
+  it("opens the session-expired store when a MUTATION throws UnauthorizedError (spec 0038, FR-18)", async () => {
+    const client = makeQueryClient();
+    function wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    }
+
+    const { result } = renderHook(
+      () =>
+        useMutation({
+          mutationFn: async () => {
+            throw new UnauthorizedError();
+          },
+        }),
+      { wrapper },
+    );
+
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(useSessionExpiredStore.getState().isOpen).toBe(true);
+    expect(useSessionExpiredStore.getState().reason).toBe("query");
+  });
+
+  it("does not open the session-expired store on an unrelated mutation error", async () => {
+    const client = makeQueryClient();
+    function wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    }
+
+    const { result } = renderHook(
+      () =>
+        useMutation({
+          mutationFn: async () => {
+            throw new Error("boom");
+          },
+        }),
+      { wrapper },
+    );
+
+    result.current.mutate();
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(useSessionExpiredStore.getState().isOpen).toBe(false);

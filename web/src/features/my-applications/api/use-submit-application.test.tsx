@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { useSubmitApplication } from "./use-submit-application";
 import { ApplicationRequestError } from "./mutation-error";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 const submitApplicationRequestMock = vi.fn();
 vi.mock("./requests", () => ({
@@ -43,5 +44,23 @@ describe("features/my-applications/api/useSubmitApplication", () => {
     expect(result.current.error).toBeInstanceOf(ApplicationRequestError);
     expect((result.current.error as ApplicationRequestError).status).toBe(409);
     expect(result.current.error?.message).toBe("Приём заявок в эту номинацию завершён");
+  });
+
+  it("throws UnauthorizedError (not ApplicationRequestError) on a 401 — spec 0038, FR-18/AC-10", async () => {
+    submitApplicationRequestMock.mockResolvedValue({
+      ok: false,
+      error: "unauthenticated",
+      status: 401,
+    });
+
+    const { result } = renderHook(() => useSubmitApplication(), { wrapper });
+
+    act(() => {
+      result.current.mutate({ nominationId: "n1" });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toBeInstanceOf(UnauthorizedError);
   });
 });
