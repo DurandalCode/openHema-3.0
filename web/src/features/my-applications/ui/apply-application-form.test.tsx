@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplyApplicationForm } from "./apply-application-form";
 import { ApplicationRequestError } from "../api/mutation-error";
+import { loadDraft } from "../model/apply-draft";
 
 beforeAll(() => {
   if (!("ResizeObserver" in window)) {
@@ -49,6 +50,11 @@ describe("features/my-applications/ui ApplyApplicationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     submitPending = false;
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
   });
 
   it("renders an explicitly optional club field, an equipment checkbox and a submit button (FR-3)", () => {
@@ -122,5 +128,54 @@ describe("features/my-applications/ui ApplyApplicationForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Подать заявку" }));
 
     expect(toastError).toHaveBeenCalledWith("Не удалось выполнить действие, попробуйте ещё раз");
+  });
+
+  it("restores a locally saved draft into the fields on mount (FR-19)", () => {
+    const { unmount } = render(<ApplyApplicationForm nominationId="n1" />);
+
+    fireEvent.change(screen.getByLabelText(/клуб.*опционально/i), {
+      target: { value: "Стальной град" },
+    });
+    fireEvent.click(screen.getByRole("checkbox"));
+    unmount();
+
+    render(<ApplyApplicationForm nominationId="n1" />);
+
+    expect((screen.getByLabelText(/клуб.*опционально/i) as HTMLInputElement).value).toBe(
+      "Стальной град",
+    );
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "checked");
+  });
+
+  it("does not leak a draft from one nomination into another (FR-21)", () => {
+    const { unmount } = render(<ApplyApplicationForm nominationId="n1" />);
+
+    fireEvent.change(screen.getByLabelText(/клуб.*опционально/i), {
+      target: { value: "Стальной град" },
+    });
+    unmount();
+
+    render(<ApplyApplicationForm nominationId="n2" />);
+
+    expect((screen.getByLabelText(/клуб.*опционально/i) as HTMLInputElement).value).toBe("");
+  });
+
+  it("clears the draft after a successful submit (FR-21)", () => {
+    submitMutate.mockImplementation((_vars, opts?: MutateOpts) => {
+      opts?.onSuccess?.();
+    });
+
+    const { unmount } = render(<ApplyApplicationForm nominationId="n1" />);
+
+    fireEvent.change(screen.getByLabelText(/клуб.*опционально/i), {
+      target: { value: "Стальной град" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Подать заявку" }));
+    unmount();
+
+    expect(loadDraft("n1")).toBeNull();
+
+    render(<ApplyApplicationForm nominationId="n1" />);
+    expect((screen.getByLabelText(/клуб.*опционально/i) as HTMLInputElement).value).toBe("");
   });
 });
