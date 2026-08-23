@@ -1,8 +1,7 @@
 import { cookies } from "next/headers";
+import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/shared/config/session-cookies";
 
-// Имена cookie с токенами. httpOnly → браузерный JS не имеет к ним доступа.
-export const ACCESS_COOKIE = "hema_access";
-export const REFRESH_COOKIE = "hema_refresh";
+export { ACCESS_COOKIE, REFRESH_COOKIE };
 
 // TTL cookie (в секундах). Должны примерно соответствовать TTL токенов на сервере.
 const ACCESS_MAX_AGE = 15 * 60; // 15 минут

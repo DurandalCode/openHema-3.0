@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/entities/application/lib/types";
-import { MyApplicationsScreen } from "./my-applications-screen";
+import { MyApplicationsPreview } from "./my-applications-preview";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 afterEach(() => {
@@ -37,36 +37,30 @@ vi.mock("@/features/my-applications/api/use-my-applications", () => ({
   useMyApplications: () => ({ ...myApplicationsState, refetch: refetchMock }),
 }));
 
-const cardCalls: Array<{ application: Application; nominationTitle?: string }> = [];
 vi.mock("@/features/my-applications/ui/application-card", () => ({
-  ApplicationCard: (props: { application: Application; nominationTitle?: string }) => {
-    cardCalls.push(props);
-    return (
-      <div data-testid="application-card">
-        {props.application.id} — {props.nominationTitle ?? "(без названия)"}
-      </div>
-    );
-  },
+  ApplicationCard: (props: { application: Application; nominationTitle?: string }) => (
+    <div data-testid="application-card">
+      {props.application.id} — {props.nominationTitle ?? "(без названия)"}
+    </div>
+  ),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  cardCalls.length = 0;
   myApplicationsState = { data: [], isLoading: false, isError: false };
 });
 
-describe("MyApplicationsScreen", () => {
-  it("shows a skeleton while loading (FR-24)", () => {
+describe("widgets/dashboard/MyApplicationsPreview", () => {
+  it("shows a skeleton while loading", () => {
     myApplicationsState = { data: undefined, isLoading: true, isError: false };
-    const { container } = render(<MyApplicationsScreen nominationTitleById={{}} />);
+    const { container } = render(<MyApplicationsPreview nominationTitleById={{}} />);
 
     expect(container.querySelector('[data-slot="skeleton-cards"]')).toBeInTheDocument();
-    expect(screen.queryByTestId("application-card")).not.toBeInTheDocument();
   });
 
-  it("shows a styled error state with retry on load failure, not 'no applications' (FR-24/AC-12)", () => {
-    myApplicationsState = { data: undefined, isLoading: false, isError: true };
-    render(<MyApplicationsScreen nominationTitleById={{}} />);
+  it("shows a styled error with retry on a generic load failure, not 'no applications'", () => {
+    myApplicationsState = { data: undefined, isLoading: false, isError: true, error: new Error("boom") };
+    render(<MyApplicationsPreview nominationTitleById={{}} />);
 
     expect(screen.queryByText(/Заявок пока нет/)).not.toBeInTheDocument();
     const retryButton = screen.getByRole("button", { name: "Повторить" });
@@ -74,39 +68,35 @@ describe("MyApplicationsScreen", () => {
     expect(refetchMock).toHaveBeenCalled();
   });
 
-  it("renders nothing extra on UnauthorizedError — the global session-expired dialog already covers it (spec 0038, FR-18)", () => {
+  it("does not claim 'no applications' on UnauthorizedError — the global session-expired dialog covers it (spec 0038, FR-18)", () => {
     myApplicationsState = {
       data: undefined,
       isLoading: false,
       isError: true,
       error: new UnauthorizedError(),
     };
-    render(<MyApplicationsScreen nominationTitleById={{}} />);
+    render(<MyApplicationsPreview nominationTitleById={{}} />);
 
+    expect(screen.queryByText(/Заявок пока нет/)).not.toBeInTheDocument();
     expect(screen.queryByText("Не удалось загрузить заявки")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Заявок пока нет/)).not.toBeInTheDocument();
   });
 
-  it("shows an empty state with a link to nominations when there are no applications (FR-25/AC-13)", () => {
+  it("shows an empty-state invitation when there really are no applications", () => {
     myApplicationsState = { data: [], isLoading: false, isError: false };
-    render(<MyApplicationsScreen nominationTitleById={{}} />);
+    render(<MyApplicationsPreview nominationTitleById={{}} />);
 
     expect(screen.getByText(/Заявок пока нет/)).toBeInTheDocument();
-    const link = screen.getByRole("link");
-    expect(link).toHaveAttribute("href", "/#nominations");
   });
 
-  it("renders a card per application with the title resolved from the map, undefined on a miss (AC-7/FR-26)", () => {
+  it("renders up to PREVIEW_COUNT application cards", () => {
     myApplicationsState = {
-      data: [app({ id: "a1", nominationId: "n1" }), app({ id: "a2", nominationId: "n-unknown" })],
+      data: [app({ id: "a1" }), app({ id: "a2" }), app({ id: "a3" })],
       isLoading: false,
       isError: false,
     };
-    render(<MyApplicationsScreen nominationTitleById={{ n1: "Лонгсворд" }} />);
+    render(<MyApplicationsPreview nominationTitleById={{}} />);
 
     expect(screen.getAllByTestId("application-card")).toHaveLength(2);
-    expect(cardCalls[0]).toMatchObject({ nominationTitle: "Лонгсворд" });
-    expect(cardCalls[1].nominationTitle).toBeUndefined();
   });
 });

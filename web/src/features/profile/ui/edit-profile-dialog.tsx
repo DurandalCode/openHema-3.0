@@ -51,7 +51,7 @@ export function EditProfileDialog({
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
-    if (next) reset();
+    if (!next) reset();
   }
 
   function onSubmit(e: FormEvent) {

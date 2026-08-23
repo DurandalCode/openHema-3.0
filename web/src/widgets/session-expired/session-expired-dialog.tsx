@@ -14,20 +14,8 @@ import { Button } from "@/shared/ui/button";
 import { useSessionExpiredStore } from "@/shared/lib/session-expired-store";
 import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
 import { hasAnyDraft } from "@/features/my-applications/model/apply-draft";
-
-const SESSION_EXPIRED_COOKIE = "hema_session_expired";
-
-// Защищённые страницы, недоступные гостю (спека 0038, FR-17): выход из
-// диалога на них уводит на главную, а не оставляет на месте.
-const PROTECTED_PREFIXES = ["/dashboard", "/applications"];
-const NOMINATION_APPLY_RE = /^\/nominations\/[^/]+\/apply(\/|$)/;
-
-function isProtectedRoute(pathname: string): boolean {
-  if (PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    return true;
-  }
-  return NOMINATION_APPLY_RE.test(pathname);
-}
+import { SESSION_EXPIRED_COOKIE } from "@/shared/config/session-cookies";
+import { isProtectedRoute } from "@/shared/config/protected-routes";
 
 function readSessionExpiredCookie(): boolean {
   if (typeof document === "undefined") return false;
@@ -43,12 +31,17 @@ function clearSessionExpiredCookie(): void {
 /**
  * SessionExpiredDialog — «Сессия истекла» (спека 0038, FR-15..FR-17).
  * Поднимается двумя путями: меткой-cookie от `middleware.ts` (продление не
- * удалось при переходе между страницами — читается и сразу гасится на
- * монтировании) и `UnauthorizedError` от клиентского запроса (перехвачен
- * `QueryCache.onError`, см. `shared/lib/query-client.ts`) — оба сходятся в
- * `useSessionExpiredStore`.
+ * удалось при переходе между страницами) и `UnauthorizedError` от
+ * клиентского запроса (перехвачен `QueryCache.onError`/`MutationCache.onError`,
+ * см. `shared/lib/query-client.ts`) — оба сходятся в `useSessionExpiredStore`.
  *
- * Монтируется один раз в корневом layout (как `AuthDialog`).
+ * Монтируется один раз в корневом layout (как `AuthDialog`) и НЕ
+ * перемонтируется при клиентской (soft) навигации — App Router переиспользует
+ * layout. Middleware при этом может выставить метку на любой такой
+ * навигации, не только на первой загрузке страницы, поэтому проверка cookie
+ * идёт по `pathname` в зависимостях эффекта, а не один раз на монтирование —
+ * иначе метка, выставленная после первого перехода, никогда бы не
+ * подхватилась.
  */
 export function SessionExpiredDialog() {
   const pathname = usePathname() ?? "";
@@ -63,8 +56,7 @@ export function SessionExpiredDialog() {
       clearSessionExpiredCookie();
       open("cookie");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- один раз на монтирование
-  }, []);
+  }, [pathname, open]);
 
   const protectedRoute = isProtectedRoute(pathname);
   const showDraftNote = protectedRoute && hasAnyDraft();

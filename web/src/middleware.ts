@@ -1,19 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mergeRequestCookieHeader, refreshDecision } from "@/shared/lib/session-refresh";
+import {
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  SESSION_EXPIRED_COOKIE,
+} from "@/shared/config/session-cookies";
 
-// Совпадают с ACCESS_COOKIE/REFRESH_COOKIE (`lib/session/cookies.ts`). Не
-// импортируются оттуда напрямую: тот модуль тянет `next/headers`, чей
-// `cookies()` рассчитан на Server Component/Route Handler контекст, не на
-// Middleware (здесь штатный способ — `NextRequest`/`NextResponse.cookies`).
-// Сами значения и их httpOnly/secure/maxAge-опции не дублируются — куки
-// по-прежнему ставит `POST /api/auth/refresh` штатным `setSessionCookies`.
-const ACCESS_COOKIE = "hema_access";
-const REFRESH_COOKIE = "hema_refresh";
-
-// Короткоживущая, НЕ httpOnly метка — читается клиентским кодом
-// (`session-expired-store`, спека 0038 FR-15), чтобы поднять диалог «Сессия
-// истекла» сразу на первой отрисовке после неудачного продления.
-const SESSION_EXPIRED_COOKIE = "hema_session_expired";
+// Имена — из `shared/config/session-cookies.ts` (общие с `lib/session/
+// cookies.ts` и `SessionExpiredDialog`). Сами значения cookie и их
+// httpOnly/secure/maxAge-опции здесь не ставятся — куки по-прежнему кладёт
+// `POST /api/auth/refresh` штатным `setSessionCookies`.
 const SESSION_EXPIRED_MAX_AGE = 30;
 
 // Все страницы, кроме статики/картинок/файлов с расширением и `/api/*` —

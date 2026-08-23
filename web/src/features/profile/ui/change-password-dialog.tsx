@@ -15,6 +15,7 @@ import { Label } from "@/shared/ui/label";
 import { Col } from "@/shared/ui/stack";
 import { toastSuccess } from "@/shared/lib/toast";
 import { passwordHint } from "@/entities/user/lib/password";
+import { PasswordHint } from "@/entities/user/ui/password-hint";
 import { useChangePassword } from "../api/use-change-password";
 
 const OTHER_DEVICES_WARNING =
@@ -114,6 +115,7 @@ export function ChangePasswordDialog({
               onChange={(e) => setNewPassword(e.target.value)}
               autoComplete="new-password"
             />
+            {newPassword.length > 0 && <PasswordHint value={newPassword} />}
           </Col>
 
           <Col gap={2}>

@@ -8,7 +8,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Col } from "@/shared/ui/stack";
-import { PasswordHint } from "./password-hint";
+import { PasswordHint } from "@/entities/user/ui/password-hint";
 
 /**
  * ResetPasswordForm — «новый пароль + подтверждение» для страницы по

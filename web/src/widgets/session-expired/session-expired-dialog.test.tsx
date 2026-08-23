@@ -60,6 +60,20 @@ describe("widgets/session-expired/SessionExpiredDialog", () => {
     expect(document.cookie).not.toContain("hema_session_expired=1");
   });
 
+  it("re-checks the cookie on a client-side navigation, not just on the initial mount", () => {
+    pathname = "/nominations/n1";
+    const { rerender } = render(<SessionExpiredDialog />);
+    expect(screen.queryByRole("heading", { name: "Сессия истекла" })).not.toBeInTheDocument();
+
+    // middleware выставляет метку на СЛЕДУЮЩЕЙ soft-навигации, не при первой
+    // отрисовке — компонент из корневого layout при этом не перемонтируется.
+    document.cookie = "hema_session_expired=1; path=/";
+    pathname = "/dashboard";
+    rerender(<SessionExpiredDialog />);
+
+    expect(screen.getByRole("heading", { name: "Сессия истекла" })).toBeInTheDocument();
+  });
+
   it("opens when useSessionExpiredStore is opened (UnauthorizedError path)", () => {
     render(<SessionExpiredDialog />);
     expect(screen.queryByRole("heading", { name: "Сессия истекла" })).not.toBeInTheDocument();
@@ -95,6 +109,14 @@ describe("widgets/session-expired/SessionExpiredDialog", () => {
 
     expect(routerPush).toHaveBeenCalledWith("/");
     expect(useSessionExpiredStore.getState().isOpen).toBe(false);
+  });
+
+  it("treats the admin section as protected too (shared with app/(admin)/layout.tsx's own guard)", () => {
+    pathname = "/admin/tournament";
+    useSessionExpiredStore.setState({ isOpen: true, reason: "query" });
+    render(<SessionExpiredDialog />);
+
+    expect(screen.getByRole("button", { name: "На главную" })).toBeInTheDocument();
   });
 
   it("treats a nomination apply route as protected too", () => {

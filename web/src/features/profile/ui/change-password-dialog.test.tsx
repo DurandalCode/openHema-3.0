@@ -51,12 +51,24 @@ describe("features/profile/ui/ChangePasswordDialog", () => {
     cleanup();
   });
 
+  it("shows a live PasswordHint under the new-password field as the user types (matches reset-password-form.tsx)", () => {
+    renderDialog();
+
+    expect(screen.queryByText(/не меньше 8 символов/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Новый пароль"), { target: { value: "short" } });
+
+    expect(screen.getByText(/не меньше 8 символов/i)).toBeInTheDocument();
+  });
+
   it("blocks submit locally when the new password is shorter than 8 characters", () => {
     renderDialog();
 
     fillAndSubmit("current1", "short", "short");
 
-    expect(screen.getByText(/не меньше 8 символов/i)).toBeInTheDocument();
+    // Сообщение теперь и в живой подсказке под «Новый пароль», и под
+    // «Повторите новый пароль» после попытки отправки — оба узла законны.
+    expect(screen.getAllByText(/не меньше 8 символов/i).length).toBeGreaterThan(0);
     expect(changePasswordRequestMock).not.toHaveBeenCalled();
   });
 

@@ -9,7 +9,7 @@ import { Label } from "@/shared/ui/label";
 import { Col } from "@/shared/ui/stack";
 import { useLogin } from "../api/use-login";
 import { useRegister } from "../api/use-register";
-import { PasswordHint } from "./password-hint";
+import { PasswordHint } from "@/entities/user/ui/password-hint";
 
 /** AuthForm — форма входа/регистрации на shadcn-примитивах + useMutation. */
 export function AuthForm({

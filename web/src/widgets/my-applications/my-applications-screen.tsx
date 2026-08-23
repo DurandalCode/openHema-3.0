@@ -7,6 +7,7 @@ import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col } from "@/shared/ui/stack";
 import { useMyApplications } from "@/features/my-applications/api/use-my-applications";
 import { ApplicationCard } from "@/features/my-applications/ui/application-card";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 /**
  * MyApplicationsScreen — экран «Мои заявки» (спека 0036, 15a): скелетон в
@@ -17,6 +18,11 @@ import { ApplicationCard } from "@/features/my-applications/ui/application-card"
  * NFR-плана «названия — SSR-проп, не query»); промах по ключу — карточка
  * без названия (FR-26).
  *
+ * `UnauthorizedError` (спека 0038, FR-18) не рисует свой блок ошибки: сессия
+ * истекла — это уже сообщает глобальный `SessionExpiredDialog`, а «Повторить»
+ * здесь только заново упёрся бы в тот же 401 и дублировал бы диалог
+ * противоречивым UI поверх него.
+ *
  * Заголовок — простой `<h1>`+`<p>` (не админский `PageHeader`, публичный
  * экран без действий/статуса в шапке).
  */
@@ -25,7 +31,7 @@ export function MyApplicationsScreen({
 }: {
   nominationTitleById: Record<string, string>;
 }) {
-  const { data: applications, isLoading, isError, refetch } = useMyApplications();
+  const { data: applications, isLoading, isError, error, refetch } = useMyApplications();
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-16">
@@ -36,7 +42,7 @@ export function MyApplicationsScreen({
       <div className="mt-8">
         {isLoading ? (
           <SkeletonCards count={2} />
-        ) : isError ? (
+        ) : isError && error instanceof UnauthorizedError ? null : isError ? (
           <Col gap={3} align="start">
             <p className="text-sm text-destructive">Не удалось загрузить заявки</p>
             <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>

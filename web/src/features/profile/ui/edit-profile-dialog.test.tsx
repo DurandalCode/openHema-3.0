@@ -91,6 +91,35 @@ describe("features/profile/ui/EditProfileDialog", () => {
     expect(routerRefresh).toHaveBeenCalled();
   });
 
+  it("discards unsaved edits when the dialog is dismissed without saving (Escape)", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <EditProfileDialog user={user} open onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Имя"), { target: { value: "Незафиксированное имя" } });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(updateProfileRequestMock).not.toHaveBeenCalled();
+
+    // Тот же экземпляр компонента: родитель отражает закрытие через open=false,
+    // затем пользователь открывает диалог снова — поле должно вернуться к
+    // сохранённому значению, а не остаться с недосохранённым черновиком.
+    rerender(
+      <QueryClientProvider client={qc}>
+        <EditProfileDialog user={user} open={false} onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={qc}>
+        <EditProfileDialog user={user} open onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText("Имя")).toHaveValue("Иван");
+  });
+
   it("shows the server error inline when the name is rejected server-side", async () => {
     updateProfileRequestMock.mockResolvedValue({ ok: false, error: "display name is required" });
 
