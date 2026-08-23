@@ -67,6 +67,22 @@ type Tournament struct {
 	Contacts  []Contact
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// ChiefJudge — главный судья турнира (ФИО свободной строкой). Опционально.
+	ChiefJudge string
+	// RegulationsURL — веб-адрес регламента (обычно PDF). Только http/https.
+	// Опционально.
+	RegulationsURL string
+	// VenueName / VenueAddress — место проведения: название площадки и
+	// почтовый адрес. Опциональны независимо друг от друга.
+	VenueName    string
+	VenueAddress string
+	// EntryFeeMinor — взнос за участие в ОДНОЙ номинации, в минорных единицах
+	// валюты (копейки). nil означает «не задан» (публично не показывается);
+	// указатель на 0 — участие бесплатное (FR-21). Задан ⇒ EntryFeeCurrency
+	// непустой.
+	EntryFeeMinor *int64
+	// EntryFeeCurrency — код валюты ISO-4217 (например "RUB").
+	EntryFeeCurrency string
 }
 
 // UpdateInput — новые значения полей активного турнира при обновлении.
@@ -86,6 +102,16 @@ type UpdateInput struct {
 	HasEventEndAt  bool
 	EmblemURL       string
 	Contacts        []ContactInput
+	// ChiefJudge / RegulationsURL / VenueName / VenueAddress — см. Tournament.
+	// Опциональны, без обязательности; сохраняются как есть после trim.
+	ChiefJudge     string
+	RegulationsURL string
+	VenueName      string
+	VenueAddress   string
+	// EntryFeeMinor — nil означает «не задан»; указатель на 0 — бесплатно
+	// (FR-21). См. Tournament.EntryFeeMinor.
+	EntryFeeMinor    *int64
+	EntryFeeCurrency string
 }
 
 // ContactInput — контакт при вводе (без id и без position).

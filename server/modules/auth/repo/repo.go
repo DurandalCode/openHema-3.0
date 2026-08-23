@@ -4,6 +4,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -150,14 +151,123 @@ func (r *Repo) SetUserRole(ctx context.Context, id string, role domain.Role) (do
 	return toDomain(row), nil
 }
 
+// UpdatePassword заменяет хеш пароля и ставит password_changed_at в
+// переданное значение (не now() на стороне PG — см. domain.Repository).
+func (r *Repo) UpdatePassword(ctx context.Context, userID, passwordHash string, changedAt time.Time) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return domain.ErrUserNotFound
+	}
+	return r.q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
+		ID:                uid,
+		PasswordHash:      passwordHash,
+		PasswordChangedAt: changedAt,
+	})
+}
+
+// UpdateProfile правит отображаемое имя и клуб пользователя.
+func (r *Repo) UpdateProfile(ctx context.Context, userID, displayName, club string) (domain.User, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+	row, err := r.q.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
+		ID:          uid,
+		DisplayName: displayName,
+		Club:        club,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.User{}, domain.ErrUserNotFound
+		}
+		return domain.User{}, err
+	}
+	return toDomain(row), nil
+}
+
+// CreateResetToken сохраняет новый токен восстановления (хеш, не сырой).
+func (r *Repo) CreateResetToken(ctx context.Context, t domain.NewResetToken) (domain.ResetToken, error) {
+	uid, err := uuid.Parse(t.UserID)
+	if err != nil {
+		return domain.ResetToken{}, domain.ErrUserNotFound
+	}
+	row, err := r.q.CreateResetToken(ctx, sqlc.CreateResetTokenParams{
+		UserID:    uid,
+		TokenHash: t.TokenHash,
+		ExpiresAt: t.ExpiresAt,
+	})
+	if err != nil {
+		return domain.ResetToken{}, err
+	}
+	return toDomainResetToken(row), nil
+}
+
+// LastResetTokenAt возвращает время выдачи последнего токена восстановления
+// пользователя (в т.ч. погашенного). Нулевое время — токенов не было.
+func (r *Repo) LastResetTokenAt(ctx context.Context, userID string) (time.Time, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return time.Time{}, domain.ErrUserNotFound
+	}
+	return r.q.LastResetTokenAt(ctx, uid)
+}
+
+// InvalidateActiveResetTokens гасит все активные токены пользователя (FR-5).
+func (r *Repo) InvalidateActiveResetTokens(ctx context.Context, userID string) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return domain.ErrUserNotFound
+	}
+	return r.q.InvalidateActiveResetTokens(ctx, uid)
+}
+
+// GetActiveResetToken ищет активный (не погашенный, не просроченный) токен
+// по хешу. Не найден/просрочен/погашен → ErrInvalidResetToken.
+func (r *Repo) GetActiveResetToken(ctx context.Context, tokenHash string) (domain.ResetToken, error) {
+	row, err := r.q.GetActiveResetToken(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ResetToken{}, domain.ErrInvalidResetToken
+		}
+		return domain.ResetToken{}, err
+	}
+	return toDomainResetToken(row), nil
+}
+
+// MarkResetTokenUsed погашает токен после успешной смены пароля (FR-4).
+func (r *Repo) MarkResetTokenUsed(ctx context.Context, id string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return domain.ErrInvalidResetToken
+	}
+	return r.q.MarkResetTokenUsed(ctx, uid)
+}
+
 func toDomain(u sqlc.AuthUser) domain.User {
 	return domain.User{
-		ID:          u.ID.String(),
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		Role:        domain.Role(u.Role),
-		CreatedAt:   u.CreatedAt,
+		ID:                u.ID.String(),
+		Email:             u.Email,
+		DisplayName:       u.DisplayName,
+		Role:              domain.Role(u.Role),
+		CreatedAt:         u.CreatedAt,
+		Club:              u.Club,
+		PasswordChangedAt: u.PasswordChangedAt,
 	}
+}
+
+func toDomainResetToken(t sqlc.AuthPasswordResetToken) domain.ResetToken {
+	rt := domain.ResetToken{
+		ID:        t.ID.String(),
+		UserID:    t.UserID.String(),
+		TokenHash: t.TokenHash,
+		CreatedAt: t.CreatedAt,
+		ExpiresAt: t.ExpiresAt,
+	}
+	if t.UsedAt.Valid {
+		usedAt := t.UsedAt.Time
+		rt.UsedAt = &usedAt
+	}
+	return rt
 }
 
 func isUniqueViolation(err error) bool {

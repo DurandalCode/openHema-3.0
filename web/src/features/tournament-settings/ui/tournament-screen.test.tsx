@@ -27,6 +27,12 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     contacts: [{ id: "c1", type: "CONTACT_TYPE_TELEGRAM", value: "@org" }],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: new Date().toISOString(),
+    chiefJudge: "",
+    regulationsUrl: "",
+    venueName: "",
+    venueAddress: "",
+    entryFeeMinor: null,
+    entryFeeCurrency: "",
     ...overrides,
   };
 }
@@ -135,6 +141,42 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
+  // Регресс-тест: раньше handleSave проверял только errors.title/eventEndAt
+  // явным перечислением — ошибка нового поля (regulationsUrl/entryFeeAmount,
+  // spec 0037) показывалась под инпутом, но не блокировала отправку, и
+  // форма всё равно уходила на сервер с заведомо невалидными данными.
+  it("an invalid regulations URL blocks saving with an inline error and no request (spec 0037, FR-20)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Ссылка на регламент"), {
+      target: { value: "not-a-url" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(
+      screen.getByText("Укажите полную ссылку (http:// или https://)"),
+    ).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("a negative entry fee blocks saving with an inline error and no request (spec 0037, FR-21)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    // type="number" в jsdom (как и в реальных браузерах) отбрасывает
+    // нечисловой ввод молча — "-100" реалистично достижимо через это поле
+    // (min=0 не мешает набрать отрицательное число, это лишь constraint-
+    // validation hint), в отличие от произвольного текста.
+    fireEvent.change(screen.getByLabelText("Сумма взноса"), {
+      target: { value: "-100" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(
+      screen.getByText("Сумма взноса не может быть отрицательной"),
+    ).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
   it("an end date before the start date blocks saving with an inline error (AC-8)", () => {
     // Исходно start=1 дек, end=3 дек (валидно). Двигаем start на 20 дек —
     // end остаётся раньше начала.
@@ -162,5 +204,37 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(message).toBe("Проверьте название и даты");
     expect(options?.retry).toBeUndefined();
     expect(screen.getByLabelText("Название *")).toHaveValue("Новое название");
+  });
+
+  // spec 0037 (T17, FR-22): UpdateActiveTournament заменяет профиль целиком.
+  // Регрессия, которую боится плейбук задачи: сохранение НЕсвязанного поля
+  // (описания) не должно обнулять уже заполненные новые поля профиля.
+  it("saving an unrelated field does not null out already-set new profile fields (spec 0037, FR-22)", () => {
+    render(
+      <TournamentScreen
+        tournament={tournament({
+          chiefJudge: "Иванов И.И.",
+          regulationsUrl: "https://cdn.example.com/rules.pdf",
+          venueName: "Дворец спорта",
+          venueAddress: "г. Москва, ул. Спортивная, 1",
+          entryFeeMinor: 150000,
+          entryFeeCurrency: "RUB",
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Описание"), {
+      target: { value: "Новое описание" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const input = updateMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(input.chiefJudge).toBe("Иванов И.И.");
+    expect(input.regulationsUrl).toBe("https://cdn.example.com/rules.pdf");
+    expect(input.venueName).toBe("Дворец спорта");
+    expect(input.venueAddress).toBe("г. Москва, ул. Спортивная, 1");
+    expect(input.entryFeeMinor).toBe(150000);
+    expect(input.entryFeeCurrency).toBe("RUB");
   });
 });

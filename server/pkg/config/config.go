@@ -26,6 +26,21 @@ type Config struct {
 	BootstrapAdminEmail       string
 	BootstrapAdminPassword    string
 	BootstrapAdminDisplayName string
+
+	// PublicAppURL — базовый адрес публичного веб-приложения. Используется
+	// для сборки ссылки восстановления пароля в письме (спека 0037).
+	PublicAppURL string
+	// PasswordResetTTL — срок жизни ссылки восстановления пароля (FR-4).
+	PasswordResetTTL time.Duration
+
+	// SMTP* — креды почтового адаптера отправки писем. Все поля
+	// необязательны: пустой SMTPHost — легальная конфигурация (NFR-3),
+	// composition root тогда выбирает лог-адаптер вместо SMTP.
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 // Load собирает Config из окружения, применяя разумные значения по умолчанию
@@ -40,6 +55,12 @@ func Load() (Config, error) {
 		BootstrapAdminEmail:       env("BOOTSTRAP_ADMIN_EMAIL", ""),
 		BootstrapAdminPassword:    env("BOOTSTRAP_ADMIN_PASSWORD", ""),
 		BootstrapAdminDisplayName: env("BOOTSTRAP_ADMIN_DISPLAY_NAME", "Admin"),
+		PublicAppURL:              env("PUBLIC_APP_URL", "http://localhost:3000"),
+		SMTPHost:                  env("SMTP_HOST", ""),
+		SMTPPort:                  env("SMTP_PORT", ""),
+		SMTPUsername:              env("SMTP_USERNAME", ""),
+		SMTPPassword:              env("SMTP_PASSWORD", ""),
+		SMTPFrom:                  env("SMTP_FROM", ""),
 	}
 
 	accessTTL, err := time.ParseDuration(env("JWT_ACCESS_TTL", "15m"))
@@ -50,8 +71,13 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("parse JWT_REFRESH_TTL: %w", err)
 	}
+	passwordResetTTL, err := time.ParseDuration(env("PASSWORD_RESET_TTL", "30m"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse PASSWORD_RESET_TTL: %w", err)
+	}
 	cfg.JWTAccessTTL = accessTTL
 	cfg.JWTRefreshTTL = refreshTTL
+	cfg.PasswordResetTTL = passwordResetTTL
 
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")

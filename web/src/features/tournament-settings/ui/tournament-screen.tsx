@@ -8,9 +8,12 @@ import { formatRelativeTime } from "@/shared/lib/datetime";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import {
   draftToTournament,
+  entryFeeAmountToMinor,
+  entryFeeMinorToAmount,
   tournamentDraftChanges,
   validateTournamentDraft,
   type TournamentDraft,
+  type TournamentDraftErrors,
 } from "@/entities/tournament/lib/draft";
 import type { UpdateTournamentInput } from "../api/requests";
 import { useUpdateTournament } from "../api/use-update-tournament";
@@ -26,10 +29,17 @@ function draftFromTournament(t: Tournament): TournamentDraft {
     eventStartAt: t.eventStartAt || null,
     eventEndAt: t.eventEndAt || null,
     contacts: t.contacts.map((c) => ({ type: c.type, value: c.value })),
+    chiefJudge: t.chiefJudge,
+    regulationsUrl: t.regulationsUrl,
+    venueName: t.venueName,
+    venueAddress: t.venueAddress,
+    entryFeeAmount: entryFeeMinorToAmount(t.entryFeeMinor),
+    entryFeeCurrency: t.entryFeeCurrency,
   };
 }
 
 function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
+  const entryFeeMinor = entryFeeAmountToMinor(draft.entryFeeAmount);
   return {
     title: draft.title,
     description: draft.description,
@@ -37,6 +47,15 @@ function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
     eventStartAt: draft.eventStartAt,
     eventEndAt: draft.eventEndAt,
     contacts: draft.contacts.filter((c) => c.value.trim() !== ""),
+    chiefJudge: draft.chiefJudge,
+    regulationsUrl: draft.regulationsUrl,
+    venueName: draft.venueName,
+    venueAddress: draft.venueAddress,
+    entryFeeMinor,
+    // «не задан» затирает валюту (FR-21), тот же приём, что в
+    // `draftToTournament` (превью) — иначе можно уйти на сервер с суммой
+    // null, но не пустой валютой.
+    entryFeeCurrency: entryFeeMinor === null ? "" : draft.entryFeeCurrency,
   };
 }
 
@@ -52,7 +71,7 @@ function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
 export function TournamentScreen({ tournament }: { tournament: Tournament }) {
   const [saved, setSaved] = useState(tournament);
   const [draft, setDraft] = useState<TournamentDraft>(() => draftFromTournament(tournament));
-  const [errors, setErrors] = useState<{ title?: string; eventEndAt?: string }>({});
+  const [errors, setErrors] = useState<TournamentDraftErrors>({});
 
   const update = useUpdateTournament();
 
@@ -67,7 +86,12 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
   function handleSave() {
     const validationErrors = validateTournamentDraft(draft);
     setErrors(validationErrors);
-    if (validationErrors.title || validationErrors.eventEndAt) return;
+    // Object.keys, а не перечисление конкретных полей — иначе поле,
+    // добавленное в validateTournamentDraft (напр. regulationsUrl/
+    // entryFeeAmount, spec 0037), показывало бы ошибку под инпутом, но не
+    // блокировало сохранение: форма ушла бы на сервер с заведомо invalid
+    // данными несмотря на видимую ошибку.
+    if (Object.keys(validationErrors).length > 0) return;
 
     update.mutate(draftToUpdateInput(draft), {
       onSuccess: (nextTournament) => {

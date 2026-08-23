@@ -56,6 +56,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       displayName: u.displayName,
       role: toRoleSafe(u.role),
       createdAt: timestampToIso(u.createdAt),
+      club: u.club,
     };
   } catch {
     return null;

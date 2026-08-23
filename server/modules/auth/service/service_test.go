@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +14,20 @@ import (
 )
 
 func testService() (*Service, *testutil.FakeRepo) {
+	svc, repo, _ := testServiceWithMailer()
+	return svc, repo
+}
+
+// testServiceWithMailer создаёт сервис с реальными часами (time.Now) — для
+// тестов, которым не важна детерминированность TTL/троттлинга сброса пароля.
+// Тесты сброса пароля (password_reset_test.go) используют собственный
+// конструктор с управляемыми часами.
+func testServiceWithMailer() (*Service, *testutil.FakeRepo, *testutil.FakeMailer) {
 	repo := testutil.NewFakeRepo()
+	mailer := testutil.NewFakeMailer()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	return New(repo, tokens), repo
+	svc := New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, time.Now)
+	return svc, repo, mailer
 }
 
 func TestRegister_HappyPath(t *testing.T) {
@@ -42,7 +54,7 @@ func TestRegister_HappyPath(t *testing.T) {
 func TestRegister_NormalizesEmail(t *testing.T) {
 	svc, _ := testService()
 
-	user, _, err := svc.Register(context.Background(), "  Knight@HEMA.Test  ", "pass", "Name")
+	user, _, err := svc.Register(context.Background(), "  Knight@HEMA.Test  ", "password1", "Name")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -54,12 +66,12 @@ func TestRegister_NormalizesEmail(t *testing.T) {
 func TestRegister_DuplicateEmail(t *testing.T) {
 	svc, _ := testService()
 
-	_, _, err := svc.Register(context.Background(), "dup@hema.test", "pass", "First")
+	_, _, err := svc.Register(context.Background(), "dup@hema.test", "password1", "First")
 	if err != nil {
 		t.Fatalf("first Register: %v", err)
 	}
 
-	_, _, err = svc.Register(context.Background(), "dup@hema.test", "pass", "Second")
+	_, _, err = svc.Register(context.Background(), "dup@hema.test", "password1", "Second")
 	if !errors.Is(err, domain.ErrUserExists) {
 		t.Errorf("expected ErrUserExists, got %v", err)
 	}
@@ -73,7 +85,7 @@ func TestRegister_EmptyFields(t *testing.T) {
 		email    string
 		password string
 	}{
-		{"empty email", "", "pass"},
+		{"empty email", "", "password1"},
 		{"empty password", "a@b.test", ""},
 	}
 	for _, tc := range cases {
@@ -83,6 +95,43 @@ func TestRegister_EmptyFields(t *testing.T) {
 				t.Errorf("expected ErrInvalidCredentials, got %v", err)
 			}
 		})
+	}
+}
+
+// TestRegister_RejectsMalformedEmail — защита от SMTP header injection:
+// RequestPasswordReset позже шлёт письмо на user.Email, прочитанный из БД
+// (не на сырой ввод запроса), поэтому единственная точка защиты — не дать
+// такому email вообще попасть в базу при создании аккаунта.
+func TestRegister_RejectsMalformedEmail(t *testing.T) {
+	svc, _ := testService()
+
+	cases := []string{
+		"evil@x.com\r\nBcc: victim@evil.com",
+		"evil@x.com\nBcc: victim@evil.com",
+		"not-an-email",
+		"@missing-local-part.com",
+	}
+	for _, email := range cases {
+		t.Run(email, func(t *testing.T) {
+			_, _, err := svc.Register(context.Background(), email, "password1", "Name")
+			if !errors.Is(err, domain.ErrInvalidEmail) {
+				t.Errorf("Register(%q): err = %v, want ErrInvalidEmail", email, err)
+			}
+		})
+	}
+}
+
+// TestRegister_RejectsOversizedDisplayName — тот же лимит длины, что и
+// UpdateProfile (MaxProfileFieldLen), действует и здесь: createUser — общая
+// точка для Register/CreateAdmin/bootstrap, лимит без него применялся бы
+// только к правке профиля, а не к его первоначальному вводу.
+func TestRegister_RejectsOversizedDisplayName(t *testing.T) {
+	svc, _ := testService()
+
+	tooLong := strings.Repeat("a", MaxProfileFieldLen+1)
+	_, _, err := svc.Register(context.Background(), "ivan@example.com", "password1", tooLong)
+	if !errors.Is(err, domain.ErrInvalidProfile) {
+		t.Errorf("Register with oversized display name: err = %v, want ErrInvalidProfile", err)
 	}
 }
 
@@ -110,12 +159,12 @@ func TestRegister_PasswordIsHashed(t *testing.T) {
 func TestLogin_HappyPath(t *testing.T) {
 	svc, _ := testService()
 
-	_, _, err := svc.Register(context.Background(), "login@hema.test", "mypass", "Login User")
+	_, _, err := svc.Register(context.Background(), "login@hema.test", "mypassword", "Login User")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
-	user, tokens, err := svc.Login(context.Background(), "login@hema.test", "mypass")
+	user, tokens, err := svc.Login(context.Background(), "login@hema.test", "mypassword")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -141,7 +190,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 func TestLogin_NonexistentUser(t *testing.T) {
 	svc, _ := testService()
 
-	_, _, err := svc.Login(context.Background(), "ghost@hema.test", "pass")
+	_, _, err := svc.Login(context.Background(), "ghost@hema.test", "password1")
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Errorf("expected ErrInvalidCredentials (not ErrUserNotFound), got %v", err)
 	}
@@ -150,7 +199,7 @@ func TestLogin_NonexistentUser(t *testing.T) {
 func TestRefresh_HappyPath(t *testing.T) {
 	svc, _ := testService()
 
-	_, tokens, err := svc.Register(context.Background(), "refresh@hema.test", "pass", "User")
+	_, tokens, err := svc.Register(context.Background(), "refresh@hema.test", "password1", "User")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -176,7 +225,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 func TestRefresh_AccessTokenRejected(t *testing.T) {
 	svc, _ := testService()
 
-	_, tokens, _ := svc.Register(context.Background(), "rt@hema.test", "pass", "User")
+	_, tokens, _ := svc.Register(context.Background(), "rt@hema.test", "password1", "User")
 
 	_, err := svc.Refresh(context.Background(), tokens.Access)
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
@@ -187,7 +236,7 @@ func TestRefresh_AccessTokenRejected(t *testing.T) {
 func TestMe_HappyPath(t *testing.T) {
 	svc, _ := testService()
 
-	_, tokens, err := svc.Register(context.Background(), "me@hema.test", "pass", "Me User")
+	_, tokens, err := svc.Register(context.Background(), "me@hema.test", "password1", "Me User")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -213,7 +262,7 @@ func TestMe_InvalidToken(t *testing.T) {
 func TestMe_RefreshTokenRejected(t *testing.T) {
 	svc, _ := testService()
 
-	_, tokens, _ := svc.Register(context.Background(), "rt@hema.test", "pass", "User")
+	_, tokens, _ := svc.Register(context.Background(), "rt@hema.test", "password1", "User")
 
 	_, err := svc.Me(context.Background(), tokens.Refresh)
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
@@ -225,11 +274,11 @@ func TestDisplayNames_HappyPath(t *testing.T) {
 	svc, _ := testService()
 	ctx := context.Background()
 
-	u1, _, err := svc.Register(ctx, "one@hema.test", "pass", "Fighter One")
+	u1, _, err := svc.Register(ctx, "one@hema.test", "password1", "Fighter One")
 	if err != nil {
 		t.Fatalf("Register 1: %v", err)
 	}
-	u2, _, err := svc.Register(ctx, "two@hema.test", "pass", "Fighter Two")
+	u2, _, err := svc.Register(ctx, "two@hema.test", "password1", "Fighter Two")
 	if err != nil {
 		t.Fatalf("Register 2: %v", err)
 	}
@@ -250,7 +299,7 @@ func TestDisplayNames_UnknownIDSkippedGracefully(t *testing.T) {
 	svc, _ := testService()
 	ctx := context.Background()
 
-	u1, _, err := svc.Register(ctx, "known@hema.test", "pass", "Known User")
+	u1, _, err := svc.Register(ctx, "known@hema.test", "password1", "Known User")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}

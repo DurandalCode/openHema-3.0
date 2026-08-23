@@ -62,10 +62,16 @@ func (h *AdminHandler) UpdateActiveTournament(
 ) (*connect.Response[hemav1.UpdateActiveTournamentResponse], error) {
 	m := req.Msg
 	in := domain.UpdateInput{
-		Title:       m.Title,
-		Description: m.Description,
-		EmblemURL:   m.EmblemUrl,
-		Contacts:    fromProtoContacts(m.Contacts),
+		Title:            m.Title,
+		Description:      m.Description,
+		EmblemURL:        m.EmblemUrl,
+		Contacts:         fromProtoContacts(m.Contacts),
+		ChiefJudge:       m.ChiefJudge,
+		RegulationsURL:   m.RegulationsUrl,
+		VenueName:        m.VenueName,
+		VenueAddress:     m.VenueAddress,
+		EntryFeeMinor:    m.EntryFeeMinor,
+		EntryFeeCurrency: m.EntryFeeCurrency,
 	}
 	if m.EventStartAt != nil {
 		in.EventStartAt = m.EventStartAt.AsTime()
@@ -98,14 +104,20 @@ func mapError(err error) error {
 
 func toProtoTournament(t domain.Tournament) *hemav1.Tournament {
 	out := &hemav1.Tournament{
-		Id:          t.ID,
-		Title:       t.Title,
-		Description: t.Description,
-		EmblemUrl:   t.EmblemURL,
-		IsActive:    t.IsActive,
-		Contacts:    toProtoContacts(t.Contacts),
-		CreatedAt:   timestamppb.New(t.CreatedAt),
-		UpdatedAt:   timestamppb.New(t.UpdatedAt),
+		Id:               t.ID,
+		Title:            t.Title,
+		Description:      t.Description,
+		EmblemUrl:        t.EmblemURL,
+		IsActive:         t.IsActive,
+		Contacts:         toProtoContacts(t.Contacts),
+		CreatedAt:        timestamppb.New(t.CreatedAt),
+		UpdatedAt:        timestamppb.New(t.UpdatedAt),
+		ChiefJudge:       t.ChiefJudge,
+		RegulationsUrl:   t.RegulationsURL,
+		VenueName:        t.VenueName,
+		VenueAddress:     t.VenueAddress,
+		EntryFeeMinor:    t.EntryFeeMinor,
+		EntryFeeCurrency: t.EntryFeeCurrency,
 	}
 	if t.HasEventStartAt {
 		out.EventStartAt = timestamppb.New(t.EventStartAt)

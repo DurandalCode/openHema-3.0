@@ -90,6 +90,71 @@ func (h *Handler) Me(
 	return connect.NewResponse(&hemav1.MeResponse{User: toProtoUser(user)}), nil
 }
 
+// RequestPasswordReset выдаёт ссылку восстановления и отправляет её на
+// почту. Публичный RPC — ответ не зависит от существования аккаунта (FR-2).
+func (h *Handler) RequestPasswordReset(
+	ctx context.Context,
+	req *connect.Request[hemav1.RequestPasswordResetRequest],
+) (*connect.Response[hemav1.RequestPasswordResetResponse], error) {
+	if err := h.svc.RequestPasswordReset(ctx, req.Msg.Email); err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.RequestPasswordResetResponse{}), nil
+}
+
+// ResetPassword задаёт новый пароль по одноразовому токену из письма.
+// Публичный RPC. Сессию не выдаёт (спека 0037, решение 5).
+func (h *Handler) ResetPassword(
+	ctx context.Context,
+	req *connect.Request[hemav1.ResetPasswordRequest],
+) (*connect.Response[hemav1.ResetPasswordResponse], error) {
+	m := req.Msg
+	if err := h.svc.ResetPassword(ctx, m.Token, m.NewPassword); err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ResetPasswordResponse{}), nil
+}
+
+// ChangePassword меняет пароль залогиненного пользователя. Access-токен —
+// в заголовке Authorization, тем же приёмом, что и в Me.
+func (h *Handler) ChangePassword(
+	ctx context.Context,
+	req *connect.Request[hemav1.ChangePasswordRequest],
+) (*connect.Response[hemav1.ChangePasswordResponse], error) {
+	token := connectutil.BearerToken(req.Header())
+	if token == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, domain.ErrInvalidCredentials)
+	}
+	m := req.Msg
+	pair, err := h.svc.ChangePassword(ctx, token, m.CurrentPassword, m.NewPassword)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ChangePasswordResponse{
+		Tokens: toProtoTokens(pair),
+	}), nil
+}
+
+// UpdateProfile правит отображаемое имя и клуб текущего пользователя.
+// Access-токен — в заголовке Authorization, тем же приёмом, что и в Me.
+func (h *Handler) UpdateProfile(
+	ctx context.Context,
+	req *connect.Request[hemav1.UpdateProfileRequest],
+) (*connect.Response[hemav1.UpdateProfileResponse], error) {
+	token := connectutil.BearerToken(req.Header())
+	if token == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, domain.ErrInvalidCredentials)
+	}
+	m := req.Msg
+	user, err := h.svc.UpdateProfile(ctx, token, m.DisplayName, m.Club)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.UpdateProfileResponse{
+		User: toProtoUser(user),
+	}), nil
+}
+
 func toProtoUser(u domain.User) *hemav1.User {
 	return &hemav1.User{
 		Id:          u.ID,
@@ -97,6 +162,7 @@ func toProtoUser(u domain.User) *hemav1.User {
 		DisplayName: u.DisplayName,
 		CreatedAt:   timestamppb.New(u.CreatedAt),
 		Role:        toProtoRole(u.Role),
+		Club:        u.Club,
 	}
 }
 
@@ -129,6 +195,16 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeUnauthenticated, domain.ErrInvalidCredentials)
 	case errors.Is(err, domain.ErrForbidden):
 		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, domain.ErrInvalidResetToken):
+		// Не CodeNotFound: код не должен различать «нет токена» и
+		// «просрочен» — оба раскрывали бы больше, чем FR-8 разрешает.
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrWeakPassword):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrInvalidProfile):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrInvalidEmail):
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

@@ -50,7 +50,27 @@ describe("getCurrentUser", () => {
       displayName: "Иван",
       role: "ROLE_USER",
       createdAt: "2023-11-14T22:13:20.000Z",
+      club: "",
     });
+  });
+
+  // spec 0037 (T16): club — новое поле User (данные учётки, не бойца).
+  it("carries a non-empty club through (spec 0037, FR-13)", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("token-abc");
+    vi.mocked(authClient.me).mockResolvedValue(
+      create(MeResponseSchema, {
+        user: create(UserSchema, {
+          id: "u1",
+          email: "ivan@example.com",
+          displayName: "Иван",
+          role: Role.USER,
+          club: "Северный клинок",
+        }),
+      }),
+    );
+
+    const user = await getCurrentUser();
+    expect(user?.club).toBe("Северный клинок");
   });
 
   it("passes Bearer token in Authorization header", async () => {
@@ -116,6 +136,7 @@ describe("getCurrentUser", () => {
       displayName: "Admin",
       role: "ROLE_ADMIN",
       createdAt: "1970-01-01T00:00:00.000Z",
+      club: "",
     });
   });
 

@@ -1,5 +1,6 @@
 -- name: GetActiveTournament :one
-SELECT id, title, description, event_start_at, event_end_at, emblem_url, is_active, created_at, updated_at
+SELECT id, title, description, event_start_at, event_end_at, emblem_url, is_active, created_at, updated_at,
+       chief_judge, regulations_url, venue_name, venue_address, entry_fee_minor, entry_fee_currency
 FROM tournament.tournaments
 WHERE is_active = TRUE
 LIMIT 1;
@@ -13,14 +14,21 @@ ORDER BY position ASC;
 -- name: UpdateActiveTournament :one
 UPDATE tournament.tournaments
 SET
-    title          = $1,
-    description    = $2,
-    event_start_at = $3,
-    event_end_at   = $4,
-    emblem_url     = $5,
-    updated_at     = now()
+    title               = $1,
+    description         = $2,
+    event_start_at      = $3,
+    event_end_at        = $4,
+    emblem_url          = $5,
+    chief_judge         = $6,
+    regulations_url     = $7,
+    venue_name          = $8,
+    venue_address       = $9,
+    entry_fee_minor     = $10,
+    entry_fee_currency  = $11,
+    updated_at          = now()
 WHERE is_active = TRUE
-RETURNING id, title, description, event_start_at, event_end_at, emblem_url, is_active, created_at, updated_at;
+RETURNING id, title, description, event_start_at, event_end_at, emblem_url, is_active, created_at, updated_at,
+          chief_judge, regulations_url, venue_name, venue_address, entry_fee_minor, entry_fee_currency;
 
 -- name: DeleteContactsByTournament :exec
 DELETE FROM tournament.contacts

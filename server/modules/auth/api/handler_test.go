@@ -26,7 +26,8 @@ func setup(t *testing.T) (hemav1connect.AuthServiceClient, hemav1connect.AdminSe
 
 	repo := testutil.NewFakeRepo()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo, tokens)
+	mailer := testutil.NewFakeMailer()
+	svc := service.New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, time.Now)
 	authHandler := NewHandler(svc)
 	adminHandler := NewAdminHandler(svc)
 
@@ -87,7 +88,7 @@ func TestRegister_E2E_DuplicateReturnsAlreadyExists(t *testing.T) {
 
 	_, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "dup@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}))
 	if err != nil {
 		t.Fatalf("first Register: %v", err)
@@ -95,7 +96,7 @@ func TestRegister_E2E_DuplicateReturnsAlreadyExists(t *testing.T) {
 
 	_, err = client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "dup@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}))
 	if connect.CodeOf(err) != connect.CodeAlreadyExists {
 		t.Errorf("expected CodeAlreadyExists, got %v", connect.CodeOf(err))
@@ -107,7 +108,7 @@ func TestLogin_E2E(t *testing.T) {
 
 	_, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "login@hema.test",
-		Password: "mypass",
+		Password: "mypassword",
 	}))
 	if err != nil {
 		t.Fatalf("Register: %v", err)
@@ -115,7 +116,7 @@ func TestLogin_E2E(t *testing.T) {
 
 	res, err := client.Login(context.Background(), connect.NewRequest(&hemav1.LoginRequest{
 		Email:    "login@hema.test",
-		Password: "mypass",
+		Password: "mypassword",
 	}))
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -133,7 +134,7 @@ func TestLogin_E2E_WrongPasswordReturnsUnauthenticated(t *testing.T) {
 
 	_, _ = client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "login@hema.test",
-		Password: "correct",
+		Password: "correctpw",
 	}))
 
 	_, err := client.Login(context.Background(), connect.NewRequest(&hemav1.LoginRequest{
@@ -150,7 +151,7 @@ func TestLogin_E2E_NonexistentUserReturnsUnauthenticated(t *testing.T) {
 
 	_, err := client.Login(context.Background(), connect.NewRequest(&hemav1.LoginRequest{
 		Email:    "ghost@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
@@ -162,7 +163,7 @@ func TestMe_E2E(t *testing.T) {
 
 	regRes, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:       "me@hema.test",
-		Password:    "pass",
+		Password:    "password1",
 		DisplayName: "Me User",
 	}))
 	if err != nil {
@@ -209,7 +210,7 @@ func TestRefresh_E2E(t *testing.T) {
 
 	regRes, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "refresh@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}))
 	if err != nil {
 		t.Fatalf("Register: %v", err)
@@ -242,7 +243,7 @@ func TestRefresh_E2E_AccessTokenRejected(t *testing.T) {
 
 	regRes, err := client.Register(context.Background(), connect.NewRequest(&hemav1.RegisterRequest{
 		Email:    "rt@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}))
 	if err != nil {
 		t.Fatalf("Register: %v", err)

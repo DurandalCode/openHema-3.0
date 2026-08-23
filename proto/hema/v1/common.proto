@@ -20,6 +20,10 @@ message User {
   string display_name = 3;
   google.protobuf.Timestamp created_at = 4;
   Role role = 5;
+  // club — клуб пользователя (данные учётки, не бойца: спеки 0007/0026
+  // связь учётка↔боец не восстанавливают). Опционально, пустая строка —
+  // «не указан».
+  string club = 6;
 }
 
 // TokenPair — пара JWT: короткоживущий access и долгоживущий refresh.

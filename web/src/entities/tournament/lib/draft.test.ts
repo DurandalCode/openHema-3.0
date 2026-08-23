@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   draftToTournament,
+  entryFeeAmountToMinor,
+  entryFeeMinorToAmount,
   tournamentDraftChanges,
   validateTournamentDraft,
   type TournamentDraft,
@@ -22,6 +24,12 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     ],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    chiefJudge: "Иванов И.И.",
+    regulationsUrl: "https://cdn.example.com/rules.pdf",
+    venueName: "Спорткомплекс «Заря»",
+    venueAddress: "г. Москва, ул. Спортивная, 1",
+    entryFeeMinor: 150000,
+    entryFeeCurrency: "RUB",
     ...overrides,
   };
 }
@@ -34,6 +42,12 @@ function draftFrom(saved: Tournament): TournamentDraft {
     eventStartAt: saved.eventStartAt || null,
     eventEndAt: saved.eventEndAt || null,
     contacts: saved.contacts.map((c) => ({ type: c.type, value: c.value })),
+    chiefJudge: saved.chiefJudge,
+    regulationsUrl: saved.regulationsUrl,
+    venueName: saved.venueName,
+    venueAddress: saved.venueAddress,
+    entryFeeAmount: entryFeeMinorToAmount(saved.entryFeeMinor),
+    entryFeeCurrency: saved.entryFeeCurrency,
   };
 }
 
@@ -139,6 +153,102 @@ describe("entities/tournament/lib/draft validateTournamentDraft (spec 0029, AC-7
     draft.eventEndAt = null;
     expect(validateTournamentDraft(draft)).toEqual({});
   });
+
+  // spec 0037, FR-20/AC-15: сервер отклоняет regulationsUrl без http/https
+  // схемы. Без клиентской пре-проверки такой ввод проходит эти три правила
+  // молча, доходит до сервера и там получает generic 400, который
+  // `tournamentErrorMessage` раньше списывал на «название и даты».
+  it("rejects a regulationsUrl without an http/https scheme", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "not-a-url";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeTruthy();
+  });
+
+  it("rejects a regulationsUrl with a non-http(s) scheme", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "ftp://example.com/rules.pdf";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeTruthy();
+  });
+
+  it("accepts an empty regulationsUrl (not set)", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeUndefined();
+  });
+
+  it("accepts a valid https regulationsUrl", () => {
+    const draft = draftFrom(tournament());
+    draft.regulationsUrl = "https://cdn.example.com/rules.pdf";
+    expect(validateTournamentDraft(draft).regulationsUrl).toBeUndefined();
+  });
+
+  // spec 0037, FR-21/AC-16: сервер отклоняет отрицательный взнос; клиент
+  // конвертирует форму (entryFeeAmount) в entryFeeMinor через
+  // entryFeeAmountToMinor, которая на неоднозначном вводе (несколько
+  // разделителей) возвращает null — без пре-проверки это молча
+  // отправлялось бы как «взнос не задан», а не как ошибка ввода.
+  it("rejects a negative entry fee amount", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "-100";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeTruthy();
+  });
+
+  it("rejects an unparseable entry fee amount", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "1,234.56";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeTruthy();
+  });
+
+  it("accepts an empty entry fee amount (not set)", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeUndefined();
+  });
+
+  it("accepts a valid entry fee amount", () => {
+    const draft = draftFrom(tournament());
+    draft.entryFeeAmount = "1500.50";
+    expect(validateTournamentDraft(draft).entryFeeAmount).toBeUndefined();
+  });
+});
+
+describe("entities/tournament/lib/draft entryFeeAmountToMinor", () => {
+  it("parses a plain integer amount", () => {
+    expect(entryFeeAmountToMinor("1500")).toBe(150000);
+  });
+
+  it("parses a period-decimal amount", () => {
+    expect(entryFeeAmountToMinor("1500.5")).toBe(150050);
+  });
+
+  // Единственный легитимный случай запятой — RU-раскладка нумпада
+  // (десятичный разделитель), ровно одна запятая, без точки.
+  it("parses a single comma as a decimal separator (RU numpad)", () => {
+    expect(entryFeeAmountToMinor("1500,5")).toBe(150050);
+  });
+
+  // Раньше `.replace(",", ".")` заменял только первую запятую, и
+  // "1,234.56"/"1.500,50" превращались в строки с двумя разделителями
+  // (Number() → NaN → null) — то есть неоднозначный ввод и правда не
+  // парсился, но результат (null = «взнос не задан») без ошибки
+  // выглядел как тихий успех. Явная проверка "> 1 разделителя" делает
+  // это осознанным отказом, а не побочным эффектом.
+  it("refuses input mixing a comma and a period (ambiguous thousands/decimal)", () => {
+    expect(entryFeeAmountToMinor("1,234.56")).toBeNull();
+    expect(entryFeeAmountToMinor("1.500,50")).toBeNull();
+  });
+
+  it("refuses input with more than one comma", () => {
+    expect(entryFeeAmountToMinor("1,234,56")).toBeNull();
+  });
+
+  it("returns null for an empty string", () => {
+    expect(entryFeeAmountToMinor("")).toBeNull();
+  });
+
+  it("returns null for garbage text", () => {
+    expect(entryFeeAmountToMinor("not a number")).toBeNull();
+  });
 });
 
 describe("entities/tournament/lib/draft draftToTournament (spec 0029, FR-3/FR-5/AC-2/AC-3)", () => {
@@ -184,5 +294,79 @@ describe("entities/tournament/lib/draft draftToTournament (spec 0029, FR-3/FR-5/
     const preview = draftToTournament(saved, draft);
     expect(preview.eventStartAt).toBe("");
     expect(preview.eventEndAt).toBe("");
+  });
+
+  // spec 0037 (T17): 6 новых полей должны доехать до превью так же, как
+  // остальные — иначе сохранение (полная замена, FR-22) молча обнулило бы их.
+  it("carries the 6 new profile fields through to the preview (spec 0037, FR-18/FR-22)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.chiefJudge = "Петров П.П.";
+    draft.regulationsUrl = "https://cdn.example.com/new-rules.pdf";
+    draft.venueName = "Дворец спорта";
+    draft.venueAddress = "г. Санкт-Петербург, пр. Спортивный, 5";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.chiefJudge).toBe("Петров П.П.");
+    expect(preview.regulationsUrl).toBe("https://cdn.example.com/new-rules.pdf");
+    expect(preview.venueName).toBe("Дворец спорта");
+    expect(preview.venueAddress).toBe("г. Санкт-Петербург, пр. Спортивный, 5");
+  });
+
+  it("converts entryFeeAmount (major units) into entryFeeMinor (minor units)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.entryFeeAmount = "1500.5";
+    draft.entryFeeCurrency = "RUB";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.entryFeeMinor).toBe(150050);
+    expect(preview.entryFeeCurrency).toBe("RUB");
+  });
+
+  it("clears the currency when the entry fee amount is unset (FR-21: unset != zero)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.entryFeeAmount = "";
+    draft.entryFeeCurrency = "RUB";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.entryFeeMinor).toBeNull();
+    expect(preview.entryFeeCurrency).toBe("");
+  });
+
+  it("keeps an explicit zero entry fee distinct from unset (FR-21)", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.entryFeeAmount = "0";
+    draft.entryFeeCurrency = "RUB";
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.entryFeeMinor).toBe(0);
+    expect(preview.entryFeeCurrency).toBe("RUB");
+  });
+});
+
+describe("entities/tournament/lib/draft tournamentDraftChanges — new profile fields (spec 0037)", () => {
+  it("reports each new field changed by name", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.chiefJudge = "Новый судья";
+    draft.regulationsUrl = "https://cdn.example.com/other-rules.pdf";
+    draft.venueName = "Другой зал";
+    draft.entryFeeAmount = "2000";
+
+    expect(tournamentDraftChanges(saved, draft)).toEqual([
+      "главный судья",
+      "регламент",
+      "место проведения",
+      "взнос",
+    ]);
+  });
+
+  it("returns no changes when the new fields are untouched", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    expect(tournamentDraftChanges(saved, draft)).toEqual([]);
   });
 });

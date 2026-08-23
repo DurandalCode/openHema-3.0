@@ -16,6 +16,19 @@ service AuthService {
   rpc Refresh(RefreshRequest) returns (RefreshResponse);
   // Me возвращает текущего пользователя по access-токену (в метаданных).
   rpc Me(MeRequest) returns (MeResponse);
+  // RequestPasswordReset выдаёт ссылку восстановления и отправляет её на
+  // почту. Публичный RPC. Ответ не зависит от существования аккаунта
+  // (спека 0037, FR-2).
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+  // ResetPassword задаёт новый пароль по одноразовому токену из письма.
+  // Публичный RPC. Сессию не выдаёт (спека 0037, решение 5).
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  // ChangePassword меняет пароль залогиненного пользователя (нужен текущий
+  // пароль). Возвращает новую пару токенов: старые refresh обрываются
+  // (спека 0037, FR-12).
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  // UpdateProfile правит отображаемое имя и клуб текущего пользователя.
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
 }
 
 message RegisterRequest {
@@ -50,5 +63,41 @@ message RefreshResponse {
 message MeRequest {}
 
 message MeResponse {
+  User user = 1;
+}
+
+message RequestPasswordResetRequest {
+  string email = 1;
+}
+
+// Намеренно пустой ответ: FR-2 требует, чтобы наличие/отсутствие аккаунта
+// не читалось по форме ответа.
+message RequestPasswordResetResponse {}
+
+message ResetPasswordRequest {
+  // token — сырой токен восстановления из ссылки письма.
+  string token = 1;
+  string new_password = 2;
+}
+
+// Без TokenPair: сброс не выдаёт сессию (FR-7), дальше — обычный вход.
+message ResetPasswordResponse {}
+
+message ChangePasswordRequest {
+  string current_password = 1;
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {
+  TokenPair tokens = 1;
+}
+
+message UpdateProfileRequest {
+  string display_name = 1;
+  // club — пустая строка означает «убрать клуб».
+  string club = 2;
+}
+
+message UpdateProfileResponse {
   User user = 1;
 }

@@ -61,7 +61,7 @@ func TestCreateAdmin_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
 
 	_, err := adminClient.CreateAdmin(context.Background(), connect.NewRequest(&hemav1.CreateAdminRequest{
 		Email:    "new@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}))
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
@@ -75,7 +75,7 @@ func TestCreateAdmin_E2E_UserReturnsPermissionDenied(t *testing.T) {
 
 	_, err := adminClient.CreateAdmin(context.Background(), withToken(connect.NewRequest(&hemav1.CreateAdminRequest{
 		Email:    "new@hema.test",
-		Password: "pass",
+		Password: "password1",
 	}), userToken))
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
@@ -89,7 +89,7 @@ func TestCreateAdmin_E2E_AdminCreatesAdmin(t *testing.T) {
 
 	res, err := adminClient.CreateAdmin(context.Background(), withToken(connect.NewRequest(&hemav1.CreateAdminRequest{
 		Email:       "new-admin@hema.test",
-		Password:    "pass",
+		Password:    "password1",
 		DisplayName: "New Admin",
 	}), token))
 	if err != nil {

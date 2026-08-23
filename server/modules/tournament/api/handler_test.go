@@ -262,6 +262,138 @@ func TestUpdateActiveTournament_E2E_NonAdminUserReturnsPermissionDenied(t *testi
 	}
 }
 
+func TestUpdateActiveTournament_E2E_ProfileExtras_RoundTrip(t *testing.T) {
+	_, client, _ := setup(t)
+
+	fee := int64(150000)
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title:            "T",
+		ChiefJudge:       "Петров Пётр",
+		RegulationsUrl:   "https://example.com/regulations.pdf",
+		VenueName:        "Дворец спорта",
+		VenueAddress:     "г. Москва, ул. Спортивная, 1",
+		EntryFeeMinor:    &fee,
+		EntryFeeCurrency: "RUB",
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := client.UpdateActiveTournament(context.Background(), req)
+	if err != nil {
+		t.Fatalf("UpdateActiveTournament: %v", err)
+	}
+	got := res.Msg.Tournament
+	if got.ChiefJudge != "Петров Пётр" {
+		t.Errorf("ChiefJudge = %q", got.ChiefJudge)
+	}
+	if got.RegulationsUrl != "https://example.com/regulations.pdf" {
+		t.Errorf("RegulationsUrl = %q", got.RegulationsUrl)
+	}
+	if got.VenueName != "Дворец спорта" {
+		t.Errorf("VenueName = %q", got.VenueName)
+	}
+	if got.VenueAddress != "г. Москва, ул. Спортивная, 1" {
+		t.Errorf("VenueAddress = %q", got.VenueAddress)
+	}
+	if got.EntryFeeMinor == nil || *got.EntryFeeMinor != 150000 {
+		t.Errorf("EntryFeeMinor = %v", got.EntryFeeMinor)
+	}
+	if got.EntryFeeCurrency != "RUB" {
+		t.Errorf("EntryFeeCurrency = %q", got.EntryFeeCurrency)
+	}
+}
+
+func TestGetActiveTournament_E2E_ProfileExtras(t *testing.T) {
+	repo := testutil.NewFakeRepoWithActive(domain.Tournament{
+		ID:             "00000000-0000-0000-0000-000000000001",
+		Title:          "Seeded Cup",
+		ChiefJudge:     "Судья Судьёв",
+		RegulationsURL: "https://example.com/regs.pdf",
+		VenueName:      "Арена",
+		VenueAddress:   "г. Санкт-Петербург",
+	})
+	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
+	svc := service.New(repo)
+	pubHandler := NewHandler(svc)
+	baseOpts := []connect.HandlerOption{connect.WithInterceptors(connectutil.Auth(tokens))}
+	pubPath, pubH := hemav1connect.NewTournamentServiceHandler(pubHandler, baseOpts...)
+	mux := http.NewServeMux()
+	mux.Handle(pubPath, pubH)
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := hemav1connect.NewTournamentServiceClient(server.Client(), server.URL)
+
+	res, err := client.GetActiveTournament(context.Background(), connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
+	if err != nil {
+		t.Fatalf("GetActiveTournament: %v", err)
+	}
+	got := res.Msg.Tournament
+	if got.ChiefJudge != "Судья Судьёв" {
+		t.Errorf("ChiefJudge = %q", got.ChiefJudge)
+	}
+	if got.RegulationsUrl != "https://example.com/regs.pdf" {
+		t.Errorf("RegulationsUrl = %q", got.RegulationsUrl)
+	}
+	if got.VenueName != "Арена" {
+		t.Errorf("VenueName = %q", got.VenueName)
+	}
+	if got.VenueAddress != "г. Санкт-Петербург" {
+		t.Errorf("VenueAddress = %q", got.VenueAddress)
+	}
+	if got.EntryFeeMinor != nil {
+		t.Errorf("EntryFeeMinor should be nil (unset), got %v", got.EntryFeeMinor)
+	}
+}
+
+func TestGetActiveTournament_E2E_EntryFeeZeroDiffersFromUnset(t *testing.T) {
+	zero := int64(0)
+	repo := testutil.NewFakeRepoWithActive(domain.Tournament{
+		ID:               "00000000-0000-0000-0000-000000000001",
+		Title:            "Seeded Cup",
+		EntryFeeMinor:    &zero,
+		EntryFeeCurrency: "RUB",
+	})
+	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
+	svc := service.New(repo)
+	pubHandler := NewHandler(svc)
+	baseOpts := []connect.HandlerOption{connect.WithInterceptors(connectutil.Auth(tokens))}
+	pubPath, pubH := hemav1connect.NewTournamentServiceHandler(pubHandler, baseOpts...)
+	mux := http.NewServeMux()
+	mux.Handle(pubPath, pubH)
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := hemav1connect.NewTournamentServiceClient(server.Client(), server.URL)
+
+	res, err := client.GetActiveTournament(context.Background(), connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
+	if err != nil {
+		t.Fatalf("GetActiveTournament: %v", err)
+	}
+	got := res.Msg.Tournament
+	if got.EntryFeeMinor == nil {
+		t.Fatal("EntryFeeMinor should be set (pointer to zero), got nil")
+	}
+	if *got.EntryFeeMinor != 0 {
+		t.Errorf("EntryFeeMinor = %d, want 0", *got.EntryFeeMinor)
+	}
+	if got.EntryFeeCurrency != "RUB" {
+		t.Errorf("EntryFeeCurrency = %q", got.EntryFeeCurrency)
+	}
+}
+
+func TestUpdateActiveTournament_E2E_InvalidRegulationsUrl_InvalidArgument(t *testing.T) {
+	_, client, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title:          "T",
+		RegulationsUrl: "not-a-url",
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := client.UpdateActiveTournament(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
 func TestUpdateActiveTournament_E2E_NoActiveReturnsNotFound(t *testing.T) {
 	_, client := setupEmptyRepo(t)
 

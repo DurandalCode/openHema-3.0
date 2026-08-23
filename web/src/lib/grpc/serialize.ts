@@ -56,6 +56,7 @@ import {
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
+import type { CurrentUser } from "@/entities/user/lib/types";
 import type {
   Nomination as NominationDto,
   NominationStatus as NominationStatusDto,
@@ -156,10 +157,23 @@ import { emptyNominationResults } from "@/entities/nomination-results/lib/types"
 /**
  * userToJson превращает protobuf-сообщение User в обычный JSON-объект,
  * пригодный для NextResponse.json (Timestamp → ISO-строка, без BigInt).
+ *
+ * Нормализует proto3-дефолт `club` (spec 0037, FR-13/FR-15): `toJson`
+ * опускает пустую строку, но `club` в UI/CurrentUser — обязательное поле
+ * контракта (пустая строка == «клуб не указан», не «поле отсутствует»),
+ * тот же приём, что уже применён к `tournamentToJson`.
  */
-export function userToJson(user: User | undefined) {
+export function userToJson(user: User | undefined): CurrentUser | null {
   if (!user) return null;
-  return toJson(UserSchema, user);
+  const raw = toJson(UserSchema, user) as Partial<CurrentUser>;
+  return {
+    id: raw.id ?? "",
+    email: raw.email ?? "",
+    displayName: raw.displayName ?? "",
+    role: raw.role ?? "ROLE_UNSPECIFIED",
+    createdAt: raw.createdAt ?? "",
+    club: raw.club ?? "",
+  };
 }
 
 /**
@@ -171,10 +185,17 @@ export function userToJson(user: User | undefined) {
  * `Tournament` (title/description/emblemUrl — строки, contacts — массив).
  * Без нормализации пустой seed-турнир отдаёт JSON без `contacts`, и
  * `TournamentHero` падает на `undefined.filter(...)`.
+ *
+ * `entryFeeMinor` (proto3 `optional int64`, spec 0037/FR-21) — отдельный
+ * случай: connect-es сериализует 64-битные числа в JSON СТРОКОЙ ("150000"),
+ * не числом, и это единственное поле, где presence различает «не задан»
+ * (`undefined` в toJson → `null` в DTO) от заданного нуля ("0" → 0).
  */
 export function tournamentToJson(tournament: Tournament | undefined): TournamentDto | null {
   if (!tournament) return null;
-  const raw = toJson(TournamentSchema, tournament) as Partial<TournamentDto>;
+  const raw = toJson(TournamentSchema, tournament) as Partial<TournamentDto> & {
+    entryFeeMinor?: string;
+  };
   return {
     id: raw.id ?? "",
     title: raw.title ?? "",
@@ -188,6 +209,12 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
       : [],
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
+    chiefJudge: raw.chiefJudge ?? "",
+    regulationsUrl: raw.regulationsUrl ?? "",
+    venueName: raw.venueName ?? "",
+    venueAddress: raw.venueAddress ?? "",
+    entryFeeMinor: typeof raw.entryFeeMinor === "string" ? Number(raw.entryFeeMinor) : null,
+    entryFeeCurrency: raw.entryFeeCurrency ?? "",
   };
 }
 

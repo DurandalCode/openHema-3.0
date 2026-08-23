@@ -15,6 +15,19 @@ export type TournamentDraft = {
   eventStartAt: string | null;
   eventEndAt: string | null;
   contacts: ContactDraft[];
+  // Профиль турнира — новые поля (spec 0037, FR-18): судья, регламент,
+  // место проведения, взнос.
+  chiefJudge: string;
+  regulationsUrl: string;
+  venueName: string;
+  venueAddress: string;
+  // entryFeeAmount — сумма взноса в ОСНОВНЫХ единицах валюты (рубли, не
+  // копейки) строкой ввода: "" — взнос не задан, иначе десятичная строка
+  // ("1500" / "1500.50"). Конвертация в/из `entryFeeMinor` — на границе
+  // (`entryFeeAmountToMinor`/`entryFeeMinorToAmount`), сам Tournament DTO
+  // остаётся в минорных единицах (FR-21).
+  entryFeeAmount: string;
+  entryFeeCurrency: string;
 };
 
 function contactWord(n: number): string {
@@ -33,6 +46,49 @@ function normalizeContacts(contacts: ContactDraft[]): ContactDraft[] {
   return contacts
     .map((c) => ({ type: c.type, value: c.value.trim() }))
     .filter((c) => c.value !== "");
+}
+
+/**
+ * entryFeeMinorToAmount / entryFeeAmountToMinor — конвертация взноса между
+ * минорными единицами (Tournament DTO, копейки) и основными (поле ввода
+ * формы, рубли). Округление до копейки (`Math.round(value * 100)`) —
+ * значения из формы бывают с плавающей точкой (`1500.5`).
+ */
+export function entryFeeMinorToAmount(minor: number | null): string {
+  if (minor === null) return "";
+  return (minor / 100).toString();
+}
+
+export function entryFeeAmountToMinor(amount: string): number | null {
+  const trimmed = amount.trim();
+  if (trimmed === "") return null;
+  // Запятая как десятичный разделитель поддержана только в одном
+  // однозначном случае — ровно одна запятая, без точки (нумпад/RU-
+  // раскладка). Больше одной запятой или смесь запятой с точкой —
+  // неоднозначный формат (какая часть тут дробная?), не пытаемся угадать.
+  const commaCount = (trimmed.match(/,/g) ?? []).length;
+  if (commaCount > 1 || (commaCount === 1 && trimmed.includes("."))) {
+    return null;
+  }
+  const value = Number(trimmed.replace(",", "."));
+  if (!Number.isFinite(value)) return null;
+  return Math.round(value * 100);
+}
+
+/**
+ * isValidRegulationsUrl — то же правило, что и сервер (Service.UpdateActive,
+ * FR-20/AC-15): пусто — легально («не задан»); непусто — только абсолютный
+ * http/https адрес с непустым host.
+ */
+function isValidRegulationsUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === "") return true;
+  try {
+    const u = new URL(trimmed);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname !== "";
+  } catch {
+    return false;
+  }
 }
 
 /** Число позиционно различающихся контактов между двумя (уже нормализованными
@@ -70,6 +126,17 @@ export function tournamentDraftChanges(
     changes.push("дата окончания");
   }
   if (draft.emblemUrl !== saved.emblemUrl) changes.push("эмблема");
+  if (draft.chiefJudge !== saved.chiefJudge) changes.push("главный судья");
+  if (draft.regulationsUrl !== saved.regulationsUrl) changes.push("регламент");
+  if (draft.venueName !== saved.venueName || draft.venueAddress !== saved.venueAddress) {
+    changes.push("место проведения");
+  }
+  if (
+    entryFeeAmountToMinor(draft.entryFeeAmount) !== saved.entryFeeMinor ||
+    draft.entryFeeCurrency !== saved.entryFeeCurrency
+  ) {
+    changes.push("взнос");
+  }
 
   const savedContacts = normalizeContacts(
     saved.contacts.map((c) => ({ type: c.type, value: c.value })),
@@ -83,16 +150,25 @@ export function tournamentDraftChanges(
   return changes;
 }
 
+export type TournamentDraftErrors = {
+  title?: string;
+  eventEndAt?: string;
+  regulationsUrl?: string;
+  entryFeeAmount?: string;
+};
+
 /**
- * validateTournamentDraft — ровно те три правила, что уже проверяет сервер
- * (`Service.UpdateActive`): пустое название и некорректный диапазон дат
- * (окончание раньше начала, окончание без начала). Сообщения по-русски
- * (spec FR-11/FR-12, AC-7/AC-8).
+ * validateTournamentDraft — правила, что уже проверяет сервер
+ * (`Service.UpdateActive`): пустое название, некорректный диапазон дат
+ * (окончание раньше начала, окончание без начала), ссылка на регламент без
+ * http/https схемы (FR-20/AC-15) и отрицательный/неразбираемый взнос
+ * (FR-21/AC-16). Без пре-проверки последних двух полей их 400 с сервера
+ * молча всплывал бы как «взнос не задан» (см. `entryFeeAmountToMinor`) или
+ * попадал под generic-сообщение `tournamentErrorMessage`, не указывающее на
+ * настоящую причину. Сообщения по-русски (spec FR-11/FR-12, AC-7/AC-8).
  */
-export function validateTournamentDraft(
-  draft: TournamentDraft,
-): { title?: string; eventEndAt?: string } {
-  const errors: { title?: string; eventEndAt?: string } = {};
+export function validateTournamentDraft(draft: TournamentDraft): TournamentDraftErrors {
+  const errors: TournamentDraftErrors = {};
 
   if (!draft.title.trim()) {
     errors.title = "Введите название турнира";
@@ -105,6 +181,20 @@ export function validateTournamentDraft(
       new Date(draft.eventEndAt).getTime() < new Date(draft.eventStartAt).getTime()
     ) {
       errors.eventEndAt = "Дата окончания не может быть раньше даты начала";
+    }
+  }
+
+  if (!isValidRegulationsUrl(draft.regulationsUrl)) {
+    errors.regulationsUrl = "Укажите полную ссылку (http:// или https://)";
+  }
+
+  const trimmedFee = draft.entryFeeAmount.trim();
+  if (trimmedFee !== "") {
+    const minor = entryFeeAmountToMinor(trimmedFee);
+    if (minor === null) {
+      errors.entryFeeAmount = "Введите сумму числом (например, 1500 или 1500.50)";
+    } else if (minor < 0) {
+      errors.entryFeeAmount = "Сумма взноса не может быть отрицательной";
     }
   }
 
@@ -122,6 +212,7 @@ export function draftToTournament(
   saved: Tournament,
   draft: TournamentDraft,
 ): Tournament {
+  const entryFeeMinor = entryFeeAmountToMinor(draft.entryFeeAmount);
   return {
     id: saved.id,
     title: draft.title,
@@ -133,5 +224,13 @@ export function draftToTournament(
     contacts: normalizeContacts(draft.contacts),
     createdAt: saved.createdAt,
     updatedAt: saved.updatedAt,
+    chiefJudge: draft.chiefJudge,
+    regulationsUrl: draft.regulationsUrl,
+    venueName: draft.venueName,
+    venueAddress: draft.venueAddress,
+    entryFeeMinor,
+    // «не задан» затирает валюту (FR-21): взнос без суммы не должен нести
+    // валюту, которая на публичной странице читалась бы как «взнос есть».
+    entryFeeCurrency: entryFeeMinor === null ? "" : draft.entryFeeCurrency,
   };
 }

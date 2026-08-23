@@ -12,6 +12,18 @@ describe("features/tournament-settings/api/errors tournamentErrorMessage (spec 0
     expect(message).toMatch(/дат/);
   });
 
+  // spec 0037 добавила два новых серверных 400-правила (regulations_url
+  // scheme, отрицательный/безвалютный взнос), которых нет в клиентском
+  // `validateTournamentDraft` на момент написания этого теста в прошлом —
+  // сообщение не должно молчать про них, если запрос всё же дошёл до
+  // сервера с одним из этих полей невалидным (race, будущий клиентский
+  // баг обхода пре-валидации).
+  it("also mentions regulations URL and entry fee on 400 (spec 0037)", () => {
+    const message = tournamentErrorMessage("tournament: invalid input", 400);
+    expect(message).toMatch(/регламент/);
+    expect(message).toMatch(/взнос/);
+  });
+
   it('returns "Недостаточно прав" on 401', () => {
     expect(tournamentErrorMessage("unauthenticated", 401)).toBe("Недостаточно прав");
   });

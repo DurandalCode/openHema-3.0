@@ -258,6 +258,184 @@ func TestUpdateActive_EmptyContactValue(t *testing.T) {
 	}
 }
 
+func TestUpdateActive_ProfileExtras_HappyPath(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	fee := int64(50000)
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:            "T",
+		ChiefJudge:       "Иванов Иван",
+		RegulationsURL:   "https://example.com/regulations.pdf",
+		VenueName:        "Дворец спорта",
+		VenueAddress:     "г. Москва, ул. Спортивная, 1",
+		EntryFeeMinor:    &fee,
+		EntryFeeCurrency: "RUB",
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if got.ChiefJudge != "Иванов Иван" {
+		t.Errorf("ChiefJudge = %q", got.ChiefJudge)
+	}
+	if got.RegulationsURL != "https://example.com/regulations.pdf" {
+		t.Errorf("RegulationsURL = %q", got.RegulationsURL)
+	}
+	if got.VenueName != "Дворец спорта" {
+		t.Errorf("VenueName = %q", got.VenueName)
+	}
+	if got.VenueAddress != "г. Москва, ул. Спортивная, 1" {
+		t.Errorf("VenueAddress = %q", got.VenueAddress)
+	}
+	if got.EntryFeeMinor == nil || *got.EntryFeeMinor != 50000 {
+		t.Errorf("EntryFeeMinor = %v", got.EntryFeeMinor)
+	}
+	if got.EntryFeeCurrency != "RUB" {
+		t.Errorf("EntryFeeCurrency = %q", got.EntryFeeCurrency)
+	}
+}
+
+func TestUpdateActive_RegulationsURL_HttpAllowed(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:          "T",
+		RegulationsURL: "http://example.com/regulations.pdf",
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if got.RegulationsURL != "http://example.com/regulations.pdf" {
+		t.Errorf("RegulationsURL = %q", got.RegulationsURL)
+	}
+}
+
+func TestUpdateActive_RegulationsURL_EmptyAllowed(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:          "T",
+		RegulationsURL: "   ",
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if got.RegulationsURL != "" {
+		t.Errorf("RegulationsURL = %q, want empty", got.RegulationsURL)
+	}
+}
+
+func TestUpdateActive_RegulationsURL_InvalidScheme_Rejected(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	cases := []string{
+		"ftp://example.com/regulations.pdf",
+		"not a url at all",
+		"javascript:alert(1)",
+		"//example.com/regulations.pdf",
+	}
+	for _, url := range cases {
+		_, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+			Title:          "T",
+			RegulationsURL: url,
+		})
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("url %q: expected ErrInvalidInput, got %v", url, err)
+		}
+	}
+}
+
+func TestUpdateActive_EntryFee_NotSetDiffersFromZero(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	// Не задан.
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title: "T",
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive (unset): %v", err)
+	}
+	if got.EntryFeeMinor != nil {
+		t.Errorf("EntryFeeMinor should be nil (unset), got %v", got.EntryFeeMinor)
+	}
+	if got.EntryFeeCurrency != "" {
+		t.Errorf("EntryFeeCurrency should be cleared when fee unset, got %q", got.EntryFeeCurrency)
+	}
+
+	// Ноль — бесплатное участие, отличается от «не задан».
+	zero := int64(0)
+	got2, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:         "T",
+		EntryFeeMinor: &zero,
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive (zero): %v", err)
+	}
+	if got2.EntryFeeMinor == nil || *got2.EntryFeeMinor != 0 {
+		t.Errorf("EntryFeeMinor should be pointer-to-zero, got %v", got2.EntryFeeMinor)
+	}
+}
+
+func TestUpdateActive_EntryFee_Negative_Rejected(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	fee := int64(-100)
+	_, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:         "T",
+		EntryFeeMinor: &fee,
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for negative fee, got %v", err)
+	}
+}
+
+func TestUpdateActive_EntryFee_DefaultsCurrencyToRUB(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	fee := int64(1000)
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:         "T",
+		EntryFeeMinor: &fee,
+		// EntryFeeCurrency не указана.
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if got.EntryFeeCurrency != "RUB" {
+		t.Errorf("EntryFeeCurrency = %q, want default RUB", got.EntryFeeCurrency)
+	}
+}
+
+func TestUpdateActive_EntryFee_NotSet_ClearsCurrency(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	// Сначала задаём взнос с валютой.
+	fee := int64(1000)
+	_, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:            "T",
+		EntryFeeMinor:    &fee,
+		EntryFeeCurrency: "USD",
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive (set): %v", err)
+	}
+
+	// Затем очищаем взнос — валюта должна затереться в пустую строку, а не
+	// остаться от предыдущего значения (полная замена профиля, FR-22).
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:            "T",
+		EntryFeeCurrency: "USD",
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive (unset): %v", err)
+	}
+	if got.EntryFeeMinor != nil {
+		t.Errorf("EntryFeeMinor should be nil, got %v", got.EntryFeeMinor)
+	}
+	if got.EntryFeeCurrency != "" {
+		t.Errorf("EntryFeeCurrency should be cleared to empty, got %q", got.EntryFeeCurrency)
+	}
+}
+
 func TestUpdateActive_NoActiveTournament(t *testing.T) {
 	svc, _ := testService()
 

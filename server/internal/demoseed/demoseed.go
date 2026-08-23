@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	arenarepo "github.com/hema/server/modules/arena/repo"
 	arenaservice "github.com/hema/server/modules/arena/service"
 	"github.com/hema/server/modules/auth"
+	authmailer "github.com/hema/server/modules/auth/mailer"
 	authrepo "github.com/hema/server/modules/auth/repo"
 	authservice "github.com/hema/server/modules/auth/service"
 	fightermodule "github.com/hema/server/modules/fighter"
@@ -48,6 +50,7 @@ import (
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/jwt"
 	"github.com/hema/server/pkg/livebus"
+	"github.com/hema/server/pkg/mail"
 )
 
 const (
@@ -179,8 +182,15 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
 	fighterNominations := platform.NewFighterNominationProvider(pool, activeTournaments)
 
+	// Демо-сценарии не отправляют реальную почту — восстановление пароля
+	// вне их сценариев, лог-адаптер (NFR-3) с дефолтами `pkg/config`.
+	demoMailer := authmailer.New(mail.NewLogger(slog.Default()), 30*time.Minute)
+
 	return Services{
-		Auth:       authservice.New(authrepo.New(pool), tokens),
+		Auth: authservice.New(
+			authrepo.New(pool), tokens, demoMailer,
+			"http://localhost:3000", 30*time.Minute, time.Now,
+		),
 		Tournament: tournamentservice.New(tournamentrepo.New(pool)),
 		Nomination: nomservice.New(nomrepo.New(pool), activeTournaments),
 		Arena:      arenaservice.New(arenarepo.New(pool), activeTournaments),
