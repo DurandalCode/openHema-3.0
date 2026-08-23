@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/lib/cn";
 import { isActiveNavItem } from "@/shared/lib/is-active-nav-item";
+import { isAdminRoute } from "@/shared/lib/is-admin-route";
 import { siteConfig } from "@/shared/config/site-config";
 import { Row } from "@/shared/ui/stack";
 
@@ -31,7 +32,7 @@ const authedNavItem = { title: "Мои заявки", href: "/applications" };
 export function NavLinks({ isAuthenticated }: { isAuthenticated: boolean }) {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/admin")) return null;
+  if (isAdminRoute(pathname)) return null;
 
   const items = isAuthenticated ? [...siteConfig.navItems, authedNavItem] : siteConfig.navItems;
 
