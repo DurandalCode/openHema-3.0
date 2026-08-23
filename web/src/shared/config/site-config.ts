@@ -10,7 +10,7 @@ export const siteConfig = {
     // вёл).
     { title: "Турнир", href: "/#tournament" },
     { title: "Номинации", href: "/#nominations" },
-    { title: "О платформе", href: "/about" },
+    { title: "О турнире", href: "/about" },
   ],
 } as const;
 

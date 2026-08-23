@@ -45,6 +45,17 @@ service FighterPublicService {
   rpc ListNominationRoster(ListNominationRosterRequest) returns (ListNominationRosterResponse);
 }
 
+// FighterService — чтение своего бойца пользователем (спека 0038, FR-38..
+// FR-42; ADR 0016). Требует access-токен (НЕ входит в publicProcedures
+// интерсептора Auth); пользователь берётся из токена, не из тела запроса —
+// узнать чужого бойца по этому RPC нельзя.
+service FighterService {
+  // GetMyFighter возвращает бойца текущего пользователя в турнире (по
+  // умолчанию — активном). Пустой fighter в ответе — не ошибка: у
+  // подавляющего большинства учёток бойца нет (FR-41).
+  rpc GetMyFighter(GetMyFighterRequest) returns (GetMyFighterResponse);
+}
+
 // FighterStatus — статус бойца на уровне всего турнира.
 enum FighterStatus {
   FIGHTER_STATUS_UNSPECIFIED = 0;
@@ -192,4 +203,15 @@ message ListNominationRosterRequest {
 
 message ListNominationRosterResponse {
   repeated RosterEntry entries = 1;
+}
+
+// GetMyFighterRequest — tournament_id опционален: пустой — активный турнир
+// (как ListRosterRequest).
+message GetMyFighterRequest {
+  optional string tournament_id = 1;
+}
+
+message GetMyFighterResponse {
+  // fighter не заполнен, если у пользователя нет бойца в турнире (FR-41).
+  Fighter fighter = 1;
 }

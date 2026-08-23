@@ -31,10 +31,12 @@ type Deps struct {
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
-// применяются к обоим сервисам (recovery/logging/auth); adminOpts
+// применяются ко всем трём сервисам (recovery/logging/auth); adminOpts
 // дополнительно накладываются на FighterAdminService (require-admin).
 // FighterPublicService остаётся публичным (см. publicProcedures интерсептора
-// Auth).
+// Auth). FighterService (GetMyFighter, спека 0038/ADR 0016) требует
+// access-токен — только baseOpts, без adminOpts: авторизация владельца
+// проверяется на уровне CallerID внутри хендлера, не роли.
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	svc := newService(deps)
 
@@ -49,6 +51,10 @@ func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, a
 
 	pubPath, pubH := hemav1connect.NewFighterPublicServiceHandler(publicHandler, baseOpts...)
 	mux.Handle(pubPath, pubH)
+
+	meHandler := api.NewMeHandler(svc)
+	mePath, meH := hemav1connect.NewFighterServiceHandler(meHandler, baseOpts...)
+	mux.Handle(mePath, meH)
 }
 
 func newService(deps Deps) *service.Service {

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/entities/application/lib/types";
 import { MyApplicationsScreen } from "./my-applications-screen";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 afterEach(() => {
   cleanup();
@@ -28,6 +29,7 @@ let myApplicationsState: {
   data: Application[] | undefined;
   isLoading: boolean;
   isError: boolean;
+  error?: Error | null;
 } = { data: [], isLoading: false, isError: false };
 const refetchMock = vi.fn();
 
@@ -70,6 +72,20 @@ describe("MyApplicationsScreen", () => {
     const retryButton = screen.getByRole("button", { name: "Повторить" });
     fireEvent.click(retryButton);
     expect(refetchMock).toHaveBeenCalled();
+  });
+
+  it("renders nothing extra on UnauthorizedError — the global session-expired dialog already covers it (spec 0038, FR-18)", () => {
+    myApplicationsState = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new UnauthorizedError(),
+    };
+    render(<MyApplicationsScreen nominationTitleById={{}} />);
+
+    expect(screen.queryByText("Не удалось загрузить заявки")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Заявок пока нет/)).not.toBeInTheDocument();
   });
 
   it("shows an empty state with a link to nominations when there are no applications (FR-25/AC-13)", () => {

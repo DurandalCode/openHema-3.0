@@ -4,7 +4,11 @@ import { useAuthDialogStore } from "./auth-dialog-store";
 
 describe("features/auth/model/auth-dialog-store", () => {
   beforeEach(() => {
-    useAuthDialogStore.setState({ isOpen: false, mode: "login" });
+    useAuthDialogStore.setState({
+      isOpen: false,
+      mode: "login",
+      returnTo: undefined,
+    });
   });
 
   it("has initial state: closed, login mode", () => {
@@ -19,6 +23,26 @@ describe("features/auth/model/auth-dialog-store", () => {
     const state = useAuthDialogStore.getState();
     expect(state.isOpen).toBe(true);
     expect(state.mode).toBe("register");
+  });
+
+  it("open(mode) accepts a reset mode", () => {
+    useAuthDialogStore.getState().open("reset");
+
+    const state = useAuthDialogStore.getState();
+    expect(state.isOpen).toBe(true);
+    expect(state.mode).toBe("reset");
+  });
+
+  it("open(mode, returnTo) sets returnTo; open(mode) leaves it undefined", () => {
+    useAuthDialogStore.getState().open("login", "/nominations/n1/apply");
+
+    expect(useAuthDialogStore.getState().returnTo).toBe(
+      "/nominations/n1/apply",
+    );
+
+    useAuthDialogStore.getState().open("login");
+
+    expect(useAuthDialogStore.getState().returnTo).toBeUndefined();
   });
 
   it("open(login) sets mode to login", () => {

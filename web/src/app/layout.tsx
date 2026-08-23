@@ -5,6 +5,7 @@ import { siteConfig } from "@/shared/config/site-config";
 import { ThemeProvider } from "@/shared/lib/theme-provider";
 import { QueryProvider } from "@/shared/lib/query-provider";
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
+import { SessionExpiredDialog } from "@/widgets/session-expired/session-expired-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
 import { Col } from "@/shared/ui/stack";
 import { Toaster } from "@/shared/ui/sonner";
@@ -52,6 +53,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <main className="flex-1">{children}</main>
             </Col>
             <AuthDialog />
+            <SessionExpiredDialog />
             <Toaster />
           </QueryProvider>
         </ThemeProvider>

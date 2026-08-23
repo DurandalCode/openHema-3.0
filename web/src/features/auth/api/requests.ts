@@ -1,4 +1,4 @@
-export type AuthMode = "login" | "register";
+export type AuthMode = "login" | "register" | "reset";
 
 export type AuthResult = { ok: true } | { ok: false; error: string };
 
@@ -28,6 +28,30 @@ export async function registerRequest(
 /** logoutRequest — POST /api/auth/logout (BFF). Очищает httpOnly-cookie. */
 export async function logoutRequest(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+}
+
+/**
+ * requestPasswordReset — POST /api/auth/password-reset (BFF, spec 0037
+ * FR-1/FR-2). Ответ одинаковый независимо от того, существует ли аккаунт —
+ * компонент не должен пытаться различить причины (FR-8).
+ */
+export async function requestPasswordReset(email: string): Promise<AuthResult> {
+  return post("/api/auth/password-reset", { email });
+}
+
+export type ResetPasswordInput = {
+  token: string;
+  password: string;
+};
+
+/**
+ * resetPassword — POST /api/auth/password-reset/confirm (BFF, spec 0037
+ * FR-7/FR-8). Не выдаёт сессию при успехе (FR-11 spec 0038).
+ */
+export async function resetPassword(
+  input: ResetPasswordInput,
+): Promise<AuthResult> {
+  return post("/api/auth/password-reset/confirm", input);
 }
 
 async function post(url: string, body: unknown): Promise<AuthResult> {

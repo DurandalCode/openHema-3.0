@@ -42,6 +42,10 @@ var publicProcedures = map[string]struct{}{
 	// номинаций + фазы номинаций) — публичная главная, без авторизации.
 	"/hema.v1.StagePublicService/GetTournamentLive":   {},
 	"/hema.v1.StagePublicService/WatchTournamentLive": {},
+	// Спека 0038/ADR 0016: FighterService.GetMyFighter сюда НЕ добавляется.
+	// Это чтение своего бойца владельцем (не публичный ростер) — RPC должен
+	// требовать access-токен по умолчанию (default-deny этого интерсептора),
+	// CallerID берётся из токена, не из тела запроса.
 }
 
 // Auth — Connect-интерсептор: валидирует Bearer access-токен и кладёт

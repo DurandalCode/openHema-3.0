@@ -4,6 +4,8 @@ import {
   loginRequest,
   logoutRequest,
   registerRequest,
+  requestPasswordReset,
+  resetPassword,
 } from "./requests";
 
 describe("features/auth/api/requests", () => {
@@ -123,6 +125,70 @@ describe("features/auth/api/requests", () => {
       });
 
       expect(result).toEqual({ ok: false, error: "Email уже занят" });
+    });
+  });
+
+  describe("requestPasswordReset", () => {
+    it("POSTs /api/auth/password-reset and returns ok:true", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const result = await requestPasswordReset("ivan@example.com");
+
+      expect(result).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith("/api/auth/password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "ivan@example.com" }),
+      });
+    });
+
+    it("returns ok:false with server error on failure", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "Ошибка запроса" }),
+      });
+
+      const result = await requestPasswordReset("ivan@example.com");
+
+      expect(result).toEqual({ ok: false, error: "Ошибка запроса" });
+    });
+  });
+
+  describe("resetPassword", () => {
+    it("POSTs /api/auth/password-reset/confirm and returns ok:true", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const result = await resetPassword({
+        token: "tok123",
+        password: "newpassword1",
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/auth/password-reset/confirm",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: "tok123", password: "newpassword1" }),
+        },
+      );
+    });
+
+    it("returns ok:false with server error on invalid/expired token", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "ссылка недействительна или устарела" }),
+      });
+
+      const result = await resetPassword({
+        token: "bad",
+        password: "newpassword1",
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: "ссылка недействительна или устарела",
+      });
     });
   });
 
