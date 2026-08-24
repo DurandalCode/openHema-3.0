@@ -11,6 +11,7 @@ import {
   setArenaDefaultDurationRequest,
   updateArenaRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/arena-management/api/requests", () => {
   const fetchMock = vi.fn();
@@ -55,16 +56,14 @@ describe("features/arena-management/api/requests", () => {
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
 
-    it("carries the HTTP status through on failure (spec 0038, FR-18) — needed to distinguish 401 from other errors", async () => {
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17) instead of returning ok:false", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
         json: async () => ({ error: "authentication required" }),
       });
 
-      const result = await listArenasRequest("t1");
-
-      expect(result).toEqual({ ok: false, error: "authentication required", status: 401 });
+      await expect(listArenasRequest("t1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

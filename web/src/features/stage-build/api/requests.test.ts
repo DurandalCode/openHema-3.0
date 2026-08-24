@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildStageRequest, previewStageBuildRequest } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/stage-build/api/requests", () => {
   const fetchMock = vi.fn();
@@ -64,6 +65,11 @@ describe("features/stage-build/api/requests", () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await previewStageBuildRequest("s1", []);
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+      await expect(previewStageBuildRequest("s1", [])).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

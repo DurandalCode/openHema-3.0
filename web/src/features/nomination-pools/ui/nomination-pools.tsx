@@ -21,6 +21,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { Bout } from "@/entities/bout/lib/types";
@@ -77,6 +78,11 @@ export function NominationPools({ stageId }: { stageId: string }) {
 
   if (isLoading) {
     return <NominationPoolsSkeleton />;
+  }
+  if (error instanceof UnauthorizedError) {
+    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
+    return null;
   }
   if (error || !layout) {
     return (

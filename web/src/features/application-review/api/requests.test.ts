@@ -7,6 +7,7 @@ import {
   listApplicationsOverviewRequest,
   registerFighterRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/application-review/api/requests", () => {
   const fetchMock = vi.fn();
@@ -53,6 +54,12 @@ describe("features/application-review/api/requests", () => {
       const result = await listApplicationsOverviewRequest("t1", {});
 
       expect(result).toEqual({ ok: false, error: "bad" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(listApplicationsOverviewRequest("t1", {})).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

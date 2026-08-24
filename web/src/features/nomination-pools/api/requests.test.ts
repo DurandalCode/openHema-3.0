@@ -12,6 +12,7 @@ import {
   undoRequest,
   unassignFighterRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/nomination-pools/api/requests", () => {
   const fetchMock = vi.fn();
@@ -50,6 +51,11 @@ describe("features/nomination-pools/api/requests", () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await getLayoutRequest("s1");
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+      await expect(getLayoutRequest("s1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

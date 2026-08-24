@@ -1,4 +1,5 @@
 import type { Application, ApplicationEvent, ApplicationState } from "@/entities/application/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ApplicationListResult =
   | { ok: true; applications: Application[] }
@@ -30,36 +31,22 @@ export async function listApplicationsOverviewRequest(
   if (filters.status !== undefined) params.set("status", String(filters.status));
   if (filters.nominationId) params.set("nominationId", filters.nominationId);
 
-  try {
-    const res = await fetch(`/api/applications/overview?${params.toString()}`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { applications?: Application[] };
-    return { ok: true, applications: data.applications ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ applications?: Application[] }>(
+    `/api/applications/overview?${params.toString()}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, applications: res.data.applications ?? [] };
 }
 
 /** confirmPaymentRequest — POST /api/applications/[id]/confirm-payment (admin). */
 export async function confirmPaymentRequest(applicationId: string): Promise<ApplicationResult> {
-  try {
-    const res = await fetch(`/api/applications/${encodeURIComponent(applicationId)}/confirm-payment`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { application?: Application };
-    return { ok: true, application: data.application as Application };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ application?: Application }>(
+    `/api/applications/${encodeURIComponent(applicationId)}/confirm-payment`,
+    { method: "POST" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, application: res.data.application as Application };
 }
 
 /**
@@ -68,26 +55,16 @@ export async function confirmPaymentRequest(applicationId: string): Promise<Appl
  * переполнении номинации (soft cap), не блокирует регистрацию.
  */
 export async function registerFighterRequest(applicationId: string): Promise<RegisterFighterResult> {
-  try {
-    const res = await fetch(`/api/applications/${encodeURIComponent(applicationId)}/register`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      application?: Application;
-      capacityExceeded?: boolean;
-    };
-    return {
-      ok: true,
-      application: data.application as Application,
-      capacityExceeded: data.capacityExceeded ?? false,
-    };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ application?: Application; capacityExceeded?: boolean }>(
+    `/api/applications/${encodeURIComponent(applicationId)}/register`,
+    { method: "POST" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return {
+    ok: true,
+    application: res.data.application as Application,
+    capacityExceeded: res.data.capacityExceeded ?? false,
+  };
 }
 
 export type EditApplicationInput = {
@@ -108,21 +85,16 @@ export async function editApplicationRequest(
   applicationId: string,
   input: EditApplicationInput,
 ): Promise<ApplicationResult> {
-  try {
-    const res = await fetch(`/api/applications/${encodeURIComponent(applicationId)}/edit`, {
+  const res = await apiFetch<{ application?: Application }>(
+    `/api/applications/${encodeURIComponent(applicationId)}/edit`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { application?: Application };
-    return { ok: true, application: data.application as Application };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, application: res.data.application as Application };
 }
 
 export type ApplicationDetailResult =
@@ -136,24 +108,14 @@ export type ApplicationDetailResult =
  * карточки.
  */
 export async function getApplicationRequest(applicationId: string): Promise<ApplicationDetailResult> {
-  try {
-    const res = await fetch(`/api/applications/${encodeURIComponent(applicationId)}`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      application?: Application;
-      history?: ApplicationEvent[];
-    };
-    return {
-      ok: true,
-      application: data.application as Application,
-      history: data.history ?? [],
-    };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ application?: Application; history?: ApplicationEvent[] }>(
+    `/api/applications/${encodeURIComponent(applicationId)}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return {
+    ok: true,
+    application: res.data.application as Application,
+    history: res.data.history ?? [],
+  };
 }

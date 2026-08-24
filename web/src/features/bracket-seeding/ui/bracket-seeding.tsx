@@ -21,6 +21,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { toastError, toastUndo } from "@/shared/lib/toast";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { FighterRef } from "@/entities/pool/lib/types";
 import type { BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
@@ -68,6 +69,11 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
 
   if (isLoading) {
     return <BracketSeedingSkeleton />;
+  }
+  if (error instanceof UnauthorizedError) {
+    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
+    return null;
   }
   if (error || !bracket) {
     return (

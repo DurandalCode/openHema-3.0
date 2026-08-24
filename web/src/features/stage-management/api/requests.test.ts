@@ -8,6 +8,7 @@ import {
   setStageStatusRequest,
   updateStageRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/stage-management/api/requests", () => {
   const fetchMock = vi.fn();
@@ -72,6 +73,11 @@ describe("features/stage-management/api/requests", () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await listStagesRequest("n1");
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+      await expect(listStagesRequest("n1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

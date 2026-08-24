@@ -7,6 +7,7 @@ import {
   promoteUserRequest,
 } from "./requests";
 import * as requestsModule from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/admin/api/requests", () => {
   const fetchMock = vi.fn();
@@ -99,16 +100,14 @@ describe("features/admin/api/requests", () => {
       expect(res).toEqual({ ok: true, users: [] });
     });
 
-    it("carries the HTTP status through on failure (spec 0038, FR-18) — needed to distinguish 401 from other errors", async () => {
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17) instead of returning ok:false", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
         json: async () => ({ error: "authentication required" }),
       });
 
-      const res = await listUsersRequest();
-
-      expect(res).toEqual({ ok: false, error: "authentication required", status: 401 });
+      await expect(listUsersRequest()).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

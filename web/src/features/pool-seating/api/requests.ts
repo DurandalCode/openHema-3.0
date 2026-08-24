@@ -1,5 +1,6 @@
 import type { Pool } from "@/entities/pool/lib/types";
 import type { Bout } from "@/entities/bout/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type PoolsForArenaResult =
   | { ok: true; seated: Pool | null; available: Pool[] }
@@ -15,22 +16,12 @@ export type BoutsResult = { ok: true; bouts: Bout[] } | { ok: false; error: stri
  * постановке пулы.
  */
 export async function getPoolsForArenaRequest(arenaId: string): Promise<PoolsForArenaResult> {
-  try {
-    const res = await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/pools`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      seated?: Pool | null;
-      available?: Pool[];
-    };
-    return { ok: true, seated: data.seated ?? null, available: data.available ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ seated?: Pool | null; available?: Pool[] }>(
+    `/api/arenas/${encodeURIComponent(arenaId)}/pools`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, seated: res.data.seated ?? null, available: res.data.available ?? [] };
 }
 
 /**
@@ -57,19 +48,12 @@ export async function unseatPoolRequest(poolId: string): Promise<ActionResult> {
  * nomination-pools).
  */
 export async function getBoutsForNominationRequest(nominationId: string): Promise<BoutsResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/bouts`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { bouts?: Bout[] };
-    return { ok: true, bouts: data.bouts ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ bouts?: Bout[] }>(
+    `/api/nominations/${encodeURIComponent(nominationId)}/bouts`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, bouts: res.data.bouts ?? [] };
 }
 
 async function sendAction(
@@ -77,19 +61,12 @@ async function sendAction(
   method: "POST",
   body?: unknown,
 ): Promise<ActionResult> {
-  try {
-    const res = await fetch(url, {
-      method,
-      ...(body !== undefined
-        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-        : {}),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<unknown>(url, {
+    method,
+    ...(body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
 }

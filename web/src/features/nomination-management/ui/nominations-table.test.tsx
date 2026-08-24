@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import type { NominationSchema } from "../api/use-nomination-schemas";
 import { NominationsTable } from "./nominations-table";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 afterEach(() => {
   cleanup();
@@ -81,6 +82,15 @@ describe("NominationsTable", () => {
     expect(screen.getByText("Сеть недоступна")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {
+    render(
+      <NominationsTable {...defaultProps()} nominations={[]} error={new UnauthorizedError()} />,
+    );
+
+    expect(screen.queryByText("unauthenticated")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
 
   it("shows an explained empty state when there are no nominations at all (AC-15)", () => {

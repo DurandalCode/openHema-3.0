@@ -6,6 +6,7 @@ import {
   submitApplicationRequest,
   withdrawApplicationRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/my-applications/api/requests", () => {
   const fetchMock = vi.fn();
@@ -40,16 +41,14 @@ describe("features/my-applications/api/requests", () => {
       expect(result).toEqual({ ok: false, error: "unauthenticated" });
     });
 
-    it("carries the HTTP status through so callers can pick a message (spec 0036, FR-6)", async () => {
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17) instead of returning ok:false", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
         json: async () => ({ error: "unauthenticated" }),
       });
 
-      const result = await listMyApplicationsRequest();
-
-      expect(result).toEqual({ ok: false, error: "unauthenticated", status: 401 });
+      await expect(listMyApplicationsRequest()).rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     it("returns network error when fetch throws", async () => {
@@ -113,6 +112,12 @@ describe("features/my-applications/api/requests", () => {
         error: "Вы уже подали заявку в эту номинацию",
         status: 409,
       });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(submitApplicationRequest("n1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

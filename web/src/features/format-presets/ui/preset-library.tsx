@@ -9,6 +9,7 @@ import { PageHeader } from "@/shared/ui/page-header";
 import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import { usePresets } from "../api/use-presets";
 import { useDeletePreset } from "../api/use-delete-preset";
 import { PresetCard } from "./preset-card";
@@ -88,7 +89,7 @@ export function PresetLibrary() {
 
         {isLoading ? (
           <SkeletonCards count={3} />
-        ) : error || !presets ? (
+        ) : error instanceof UnauthorizedError ? null : error || !presets ? (
           <Col gap={3} align="center" className="p-8 text-center">
             <p className="text-sm text-muted-foreground">
               {error?.message ?? "Не удалось загрузить пресеты"}
