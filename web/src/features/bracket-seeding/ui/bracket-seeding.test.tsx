@@ -376,4 +376,97 @@ describe("BracketSeeding", () => {
 
     expect(refetch).toHaveBeenCalledTimes(1);
   });
+
+  // Спека 0039, T11/AC-15: клавиатурный путь к посеву — меню «Поставить в
+  // слот» на карточке нераспределённого бойца зовёт ту же мутацию, что и drop.
+  describe("keyboard seed menu", () => {
+    function openMenu(name: string) {
+      const trigger = screen.getByRole("button", { name });
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerId: 1 });
+      fireEvent.click(trigger);
+    }
+
+    it("lists both empty slots (from either half) for an unassigned fighter", () => {
+      render(<BracketSeeding stageId="stage-1" />);
+
+      openMenu("Поставить b3 в слот");
+      expect(screen.getByRole("menuitem", { name: "В слот 2" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "В слот 4" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "В слот 1" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "В слот 3" })).not.toBeInTheDocument();
+    });
+
+    it("selecting a slot from the menu calls seedSlot with the same shape as drop", () => {
+      render(<BracketSeeding stageId="stage-1" />);
+
+      openMenu("Поставить b3 в слот");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В слот 2" }));
+
+      expect(seedMutate).toHaveBeenCalledWith(
+        { fighterId: "b3", slot: 2 },
+        expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+      );
+    });
+
+    // T12/AC-14: успешный перенос через меню объявлен тостом с именем бойца
+    // и местом назначения.
+    it("shows a success toast naming the fighter and destination slot after a successful menu seed", () => {
+      seedMutate.mockImplementation((_vars, options: { onSuccess?: () => void }) => {
+        options?.onSuccess?.();
+      });
+
+      render(<BracketSeeding stageId="stage-1" />);
+      openMenu("Поставить b3 в слот");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В слот 2" }));
+
+      expect(toastSuccessMock).toHaveBeenCalledWith("b3 → слот 2");
+    });
+
+    it("shows a translated error toast when a menu seed fails, without a success toast", () => {
+      seedMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
+        options?.onError?.(new Error("bracket: slot occupied"));
+      });
+
+      render(<BracketSeeding stageId="stage-1" />);
+      openMenu("Поставить b3 в слот");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В слот 2" }));
+
+      expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied"), undefined);
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
+    // Опционально (T11): перестановка уже посеянного бойца в другой пустой
+    // слот — тем же меню на заполненном слоте, той же мутацией seedSlot.
+    it("offers moving an already-seeded fighter to another empty slot via its own menu", () => {
+      render(<BracketSeeding stageId="stage-1" />);
+
+      openMenu("Переместить b1 в другой слот");
+      expect(screen.getByRole("menuitem", { name: "В слот 2" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "В слот 4" })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("menuitem", { name: "В слот 4" }));
+
+      expect(seedMutate).toHaveBeenCalledWith(
+        { fighterId: "b1", slot: 4 },
+        expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+      );
+    });
+
+    // AC-16: перетаскивание мышью не тронуто — существующие DnD-тесты этого
+    // файла остаются зелёными без правок (см. тесты выше в этом describe-блоке).
+    it("a successful seed drag still calls seedSlot silently (no toast) alongside the new menu path", () => {
+      render(<BracketSeeding stageId="stage-1" />);
+      capturedOnDragEnd?.({
+        active: { data: { current: { fighterId: "b3", fromSlot: null } } },
+        over: { data: { current: { slot: 2 } } },
+      });
+
+      expect(seedMutate).toHaveBeenCalledWith(
+        { fighterId: "b3", slot: 2 },
+        expect.objectContaining({ onError: expect.any(Function) }),
+      );
+      expect(seedMutate.mock.calls[0][1].onSuccess).toBeUndefined();
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+  });
 });
