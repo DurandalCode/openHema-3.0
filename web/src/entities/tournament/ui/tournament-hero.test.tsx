@@ -111,3 +111,81 @@ describe("entities/tournament/ui TournamentHero (spec 0034, FR-3/FR-4)", () => {
     expect(link).toHaveAttribute("href", "https://t.me/org");
   });
 });
+
+describe("entities/tournament/ui TournamentHero facts (spec 0039, FR-1..FR-5)", () => {
+  afterEach(cleanup);
+
+  it("shows the venue when both name and address are set (AC-1)", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({
+          venueName: "Дворец спорта",
+          venueAddress: "ул. Ленина, 1",
+        })}
+        now={now}
+      />,
+    );
+    expect(screen.getByText("Дворец спорта, ул. Ленина, 1")).toBeInTheDocument();
+  });
+
+  it("hides the venue line when neither name nor address is set (AC-2)", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({ venueName: "", venueAddress: "" })}
+        now={now}
+      />,
+    );
+    // Кроме заголовка турнира, никакого другого текста с площадкой быть не должно.
+    expect(screen.queryByText(/Дворец спорта/)).not.toBeInTheDocument();
+  });
+
+  it("shows the entry fee when set (AC-1)", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({ entryFeeMinor: 150000, entryFeeCurrency: "RUB" })}
+        now={now}
+      />,
+    );
+    expect(screen.getByText(/1.500 RUB/)).toBeInTheDocument();
+  });
+
+  it("hides the entry fee when not set (AC-2)", () => {
+    render(
+      <TournamentHero tournament={tournament({ entryFeeMinor: null })} now={now} />,
+    );
+    expect(screen.queryByText(/Бесплатно/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/RUB/)).not.toBeInTheDocument();
+  });
+
+  it("shows the regulations link when set (AC-1)", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({ regulationsUrl: "https://example.com/rules.pdf" })}
+        now={now}
+      />,
+    );
+    const link = screen.getByRole("link", { name: /Регламент турнира/ });
+    expect(link).toHaveAttribute("href", "https://example.com/rules.pdf");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("hides the regulations link when not set (AC-2)", () => {
+    render(<TournamentHero tournament={tournament({ regulationsUrl: "" })} now={now} />);
+    expect(screen.queryByText(/Регламент турнира/)).not.toBeInTheDocument();
+  });
+
+  it("shows the arenas count when arenasCount is passed (AC-3)", () => {
+    render(<TournamentHero tournament={tournament()} now={now} arenasCount={3} />);
+    expect(screen.getByText(/Площадок:\s*3/)).toBeInTheDocument();
+  });
+
+  it("hides the arenas count when arenasCount is not passed (AC-2)", () => {
+    render(<TournamentHero tournament={tournament()} now={now} />);
+    expect(screen.queryByText(/Площадок/)).not.toBeInTheDocument();
+  });
+
+  it("hides the arenas count when arenasCount is zero (nothing to show)", () => {
+    render(<TournamentHero tournament={tournament()} now={now} arenasCount={0} />);
+    expect(screen.queryByText(/Площадок/)).not.toBeInTheDocument();
+  });
+});
