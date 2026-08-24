@@ -1,5 +1,6 @@
 import type { PoolLayout } from "@/entities/pool/lib/types";
 import type { Bout } from "@/entities/bout/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type PoolLayoutResult =
   | { ok: true; layout: PoolLayout }
@@ -98,31 +99,16 @@ export async function setLayoutStatusRequest(
  * по всем этапам номинации.
  */
 export async function fetchBouts(nominationId: string): Promise<BoutsResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/bouts`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { bouts?: Bout[] };
-    return { ok: true, bouts: data.bouts ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ bouts?: Bout[] }>(
+    `/api/nominations/${encodeURIComponent(nominationId)}/bouts`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, bouts: res.data.bouts ?? [] };
 }
 
 async function fetchLayout(url: string, init: RequestInit): Promise<PoolLayoutResult> {
-  try {
-    const res = await fetch(url, init);
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { layout?: PoolLayout };
-    return { ok: true, layout: data.layout as PoolLayout };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ layout?: PoolLayout }>(url, init);
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, layout: res.data.layout as PoolLayout };
 }

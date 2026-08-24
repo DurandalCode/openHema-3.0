@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { ApplicationsTable } from "./applications-table";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
@@ -94,6 +95,12 @@ describe("ApplicationsTable", () => {
     expect(screen.getByText("Сеть недоступна")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {
+    render(<ApplicationsTable {...baseProps()} error={new UnauthorizedError()} />);
+
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
 
   it("shows 'заявок в турнире нет' when there are no applications at all (FR-26)", () => {

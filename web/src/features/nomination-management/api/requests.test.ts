@@ -11,6 +11,7 @@ import {
   reorderNominationsRequest,
   updateNominationRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/nomination-management/api/requests", () => {
   const fetchMock = vi.fn();
@@ -204,6 +205,12 @@ describe("features/nomination-management/api/requests", () => {
       const result = await listNominationStagesRequest("n1");
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(listNominationStagesRequest("n1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

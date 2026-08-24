@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JournalEntryDto } from "@/entities/arena-live/lib/journal";
 import { ArenaJournal } from "./arena-journal";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 afterEach(() => {
   cleanup();
@@ -93,5 +94,13 @@ describe("ArenaJournal (спека 0033, FR-33/FR-35, AC-19/AC-20)", () => {
     render(<ArenaJournal arenaId="a1" />);
 
     expect(screen.getByText("Ошибка запроса")).toBeInTheDocument();
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {
+    journalState = { data: undefined, isLoading: false, error: new UnauthorizedError() };
+
+    const { container } = render(<ArenaJournal arenaId="a1" />);
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

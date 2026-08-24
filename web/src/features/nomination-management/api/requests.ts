@@ -1,5 +1,6 @@
 import type { Nomination } from "@/entities/nomination/lib/types";
 import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type NominationInput = {
   title: string;
@@ -26,51 +27,32 @@ export type NominationStagesResult =
 export async function listNominationStagesRequest(
   nominationId: string,
 ): Promise<NominationStagesResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { stages?: Stage[]; issues?: SchemaIssue[] };
-    return { ok: true, stages: data.stages ?? [], issues: data.issues ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ stages?: Stage[]; issues?: SchemaIssue[] }>(
+    `/api/nominations/${encodeURIComponent(nominationId)}/stages`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, stages: res.data.stages ?? [], issues: res.data.issues ?? [] };
 }
 
 /** getNominationRequest — GET /api/nominations/[id] (публичный). */
 export async function getNominationRequest(id: string): Promise<NominationResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(id)}`, { method: "GET" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { nomination?: Nomination };
-    return { ok: true, nomination: data.nomination as Nomination };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ nomination?: Nomination }>(
+    `/api/nominations/${encodeURIComponent(id)}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, nomination: res.data.nomination as Nomination };
 }
 
 /** listNominationsRequest — GET /api/nominations?tournamentId=... (публичный). */
 export async function listNominationsRequest(tournamentId: string): Promise<NominationListResult> {
-  try {
-    const res = await fetch(`/api/nominations?tournamentId=${encodeURIComponent(tournamentId)}`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { nominations?: Nomination[] };
-    return { ok: true, nominations: data.nominations ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ nominations?: Nomination[] }>(
+    `/api/nominations?tournamentId=${encodeURIComponent(tournamentId)}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, nominations: res.data.nominations ?? [] };
 }
 
 /** createNominationRequest — POST /api/nominations (только admin). */
@@ -91,16 +73,11 @@ export async function updateNominationRequest(
 
 /** deleteNominationRequest — DELETE /api/nominations/[id] (только admin). */
 export async function deleteNominationRequest(id: string): Promise<DeleteResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<unknown>(`/api/nominations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
 }
 
 /** reorderNominationsRequest — POST /api/nominations/reorder (только admin). */
@@ -108,21 +85,13 @@ export async function reorderNominationsRequest(
   tournamentId: string,
   orderedIds: string[],
 ): Promise<NominationListResult> {
-  try {
-    const res = await fetch("/api/nominations/reorder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tournamentId, orderedIds }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { nominations?: Nomination[] };
-    return { ok: true, nominations: data.nominations ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ nominations?: Nomination[] }>("/api/nominations/reorder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tournamentId, orderedIds }),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, nominations: res.data.nominations ?? [] };
 }
 
 /**
@@ -148,21 +117,13 @@ async function sendNomination(
   method: "POST" | "PUT",
   body: unknown,
 ): Promise<NominationResult> {
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { nomination?: Nomination };
-    return { ok: true, nomination: data.nomination as Nomination };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ nomination?: Nomination }>(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, nomination: res.data.nomination as Nomination };
 }
 
 /**
@@ -173,15 +134,7 @@ async function sendNomination(
  * строка сервера.
  */
 async function postNominationAction(url: string): Promise<NominationResult> {
-  try {
-    const res = await fetch(url, { method: "POST" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { nomination?: Nomination };
-    return { ok: true, nomination: data.nomination as Nomination };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ nomination?: Nomination }>(url, { method: "POST" });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, nomination: res.data.nomination as Nomination };
 }

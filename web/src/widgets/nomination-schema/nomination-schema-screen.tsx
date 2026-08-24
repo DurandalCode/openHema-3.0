@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Col, Row } from "@/shared/ui/stack";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { nominationStatusTag } from "@/entities/nomination/lib/types";
 import { stageErrorMessage } from "@/entities/stage/lib/errors";
@@ -150,7 +151,7 @@ export function NominationSchemaScreen({ nomination: initialNomination }: { nomi
 
         {isLoading ? (
           <SchemaSkeleton />
-        ) : error || !data ? (
+        ) : error instanceof UnauthorizedError ? null : error || !data ? (
           <Col gap={3} className="items-start">
             <p className="text-sm text-destructive">{error?.message ?? "Не удалось загрузить схему"}</p>
             <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>

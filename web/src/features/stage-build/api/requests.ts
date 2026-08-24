@@ -1,6 +1,7 @@
 import type { Bracket } from "@/entities/bracket/lib/types";
 import type { PoolLayout } from "@/entities/pool/lib/types";
 import type { StageBuildPreview, TieResolution } from "@/entities/stage/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 /**
  * requests — фетчеры фичи `stage-build` (спека 0019, FR-13..FR-24): превью
@@ -32,21 +33,16 @@ export async function previewStageBuildRequest(
   stageId: string,
   ties: TieResolution[],
 ): Promise<PreviewStageBuildResult> {
-  try {
-    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}/build/preview`, {
+  const res = await apiFetch<{ preview?: StageBuildPreview }>(
+    `/api/stages/${encodeURIComponent(stageId)}/build/preview`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ties }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { preview?: StageBuildPreview };
-    return { ok: true, preview: data.preview as StageBuildPreview };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, preview: res.data.preview as StageBuildPreview };
 }
 
 /**
@@ -60,22 +56,14 @@ export async function buildStageRequest(
   stageId: string,
   ties: TieResolution[],
 ): Promise<BuildStageResult> {
-  try {
-    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}/build`, {
+  const res = await apiFetch<{ layout?: PoolLayout | null; bracket?: Bracket | null }>(
+    `/api/stages/${encodeURIComponent(stageId)}/build`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ties }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      layout?: PoolLayout | null;
-      bracket?: Bracket | null;
-    };
-    return { ok: true, layout: data.layout ?? null, bracket: data.bracket ?? null };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, layout: res.data.layout ?? null, bracket: res.data.bracket ?? null };
 }

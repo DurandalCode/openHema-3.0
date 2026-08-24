@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NominationPools } from "./nomination-pools";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 /**
  * Radix `Dialog`/`FocusScope` в jsdom требуют pointer-capture/scrollIntoView
@@ -413,6 +414,20 @@ describe("NominationPools", () => {
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
 
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  // Спека 0039, FR-18/AC-12: истёкшая сессия — без собственного блока ошибки.
+  it("does not render its own error block when the session expired", () => {
+    useLayoutMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new UnauthorizedError(),
+      refetch: vi.fn(),
+    });
+
+    render(<NominationPools stageId="stage-1" />);
+
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
 
   // Спека 0030, FR-13/AC-13: пустые состояния различаются.

@@ -12,6 +12,7 @@ import { filterChipVariants } from "@/shared/ui/filter-chip";
 import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { Pool } from "@/entities/pool/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
 import { usePoolsForArena } from "../api/use-pools-for-arena";
@@ -34,6 +35,11 @@ export function PoolSeating({ arenaId }: { arenaId: string }) {
 
   if (isLoading) {
     return <SkeletonCards count={2} />;
+  }
+  if (error instanceof UnauthorizedError) {
+    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
+    return null;
   }
   if (error || !data) {
     return (

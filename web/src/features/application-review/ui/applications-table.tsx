@@ -7,6 +7,7 @@ import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
 import type { Application } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import { sortApplications } from "../lib/select-applications";
 import { ApplicationRow } from "./application-row";
 
@@ -71,7 +72,7 @@ export function ApplicationsTable({
 
       {isLoading ? (
         <SkeletonRows rows={6} cols={5} />
-      ) : error ? (
+      ) : error instanceof UnauthorizedError ? null : error ? (
         <div className="flex flex-col items-center gap-3 p-8 text-center">
           <p className="text-sm text-muted-foreground">{error.message}</p>
           <Button type="button" variant="outline" size="sm" onClick={onRetry}>

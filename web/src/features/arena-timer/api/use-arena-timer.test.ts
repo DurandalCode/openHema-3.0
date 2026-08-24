@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useArenaTimer } from "./use-arena-timer";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
 import type { ArenaLiveSnapshotDto, TimerCommandDto } from "@/entities/arena-live/lib/types";
+import { useSessionExpiredStore } from "@/shared/lib/session-expired-store";
 
 const T0 = 1_700_000_000_000;
 
@@ -73,6 +74,7 @@ describe("useArenaTimer", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    useSessionExpiredStore.getState().close();
   });
 
   function flushRaf() {
@@ -204,5 +206,36 @@ describe("useArenaTimer", () => {
     expect(JSON.parse(calls[0][1]!.body as string)).toEqual({ kind: "START", amountSeconds: undefined });
     expect(JSON.parse(calls[3][1]!.body as string)).toEqual({ kind: "ADJUST", amountSeconds: -3 });
     calls.forEach(([url]) => expect(url).toBe("/api/arenas/a1/timer"));
+  });
+
+  it("opens the global 'session expired' dialog when a command POST comes back 401 (spec 0039, FR-17)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) })),
+    );
+    const { live } = makeLive(followerSnapshot("TIMER_STATUS_STOPPED", 9000, T0));
+    const { result } = renderHook(() => useArenaTimer("a1", live));
+
+    await act(async () => {
+      result.current.controls.start();
+    });
+
+    expect(useSessionExpiredStore.getState().isOpen).toBe(true);
+  });
+
+  it("opens the global 'session expired' dialog when a timer-frame publish comes back 401 (spec 0039, FR-17)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) })),
+    );
+    const { live, listeners } = makeLive(sourceSnapshot(90));
+    renderHook(() => useArenaTimer("a1", live));
+    flushRaf();
+
+    await act(async () => {
+      listeners.forEach((l) => l({ kind: "TIMER_COMMAND_KIND_START", amountSeconds: 0 }));
+    });
+
+    expect(useSessionExpiredStore.getState().isOpen).toBe(true);
   });
 });

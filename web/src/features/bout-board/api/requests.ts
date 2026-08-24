@@ -1,4 +1,5 @@
 import type { BoutBoard } from "@/entities/pool/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type BoardResult = { ok: true; board: BoutBoard | null } | { ok: false; error: string };
 
@@ -8,19 +9,12 @@ export type BoardResult = { ok: true; board: BoutBoard | null } | { ok: false; e
  * текущий бой). `board` — `null`, если на арене никто не стоит.
  */
 export async function getBoutBoardRequest(arenaId: string): Promise<BoardResult> {
-  try {
-    const res = await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/board`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { board?: BoutBoard | null };
-    return { ok: true, board: data.board ?? null };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ board?: BoutBoard | null }>(
+    `/api/arenas/${encodeURIComponent(arenaId)}/board`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, board: res.data.board ?? null };
 }
 
 /**
@@ -76,16 +70,11 @@ export type RevealBoutResult = { ok: true } | { ok: false; error: string };
  * тип результата вместо общего `BoardResult`.
  */
 export async function revealBoutRequest(arenaId: string): Promise<RevealBoutResult> {
-  try {
-    const res = await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/reveal-bout`, { method: "POST" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<unknown>(`/api/arenas/${encodeURIComponent(arenaId)}/reveal-bout`, {
+    method: "POST",
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
 }
 
 async function sendBoutAction(poolId: string, body: unknown): Promise<BoardResult> {
@@ -97,19 +86,11 @@ async function sendJson(
   method: "POST" | "PUT",
   body: unknown,
 ): Promise<BoardResult> {
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { board?: BoutBoard | null };
-    return { ok: true, board: data.board ?? null };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ board?: BoutBoard | null }>(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, board: res.data.board ?? null };
 }

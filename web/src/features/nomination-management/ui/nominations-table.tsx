@@ -5,6 +5,7 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { NominationSchema } from "../api/use-nomination-schemas";
 import { NominationRow } from "./nomination-row";
 
@@ -61,7 +62,7 @@ export function NominationsTable({
 
       {isLoading ? (
         <SkeletonRows rows={5} cols={6} />
-      ) : error ? (
+      ) : error instanceof UnauthorizedError ? null : error ? (
         <div className="flex flex-col items-center gap-3 p-8 text-center">
           <p className="text-sm text-muted-foreground">{error.message}</p>
           <Button type="button" variant="outline" size="sm" onClick={onRetry}>

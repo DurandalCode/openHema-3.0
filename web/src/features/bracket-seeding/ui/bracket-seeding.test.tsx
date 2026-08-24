@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BracketSeeding } from "./bracket-seeding";
 import { bracketErrorMessage } from "../api/errors";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { Bracket, BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import type { FighterRef, Pool } from "@/entities/pool/lib/types";
 
@@ -468,5 +469,14 @@ describe("BracketSeeding", () => {
       expect(seedMutate.mock.calls[0][1].onSuccess).toBeUndefined();
       expect(toastSuccessMock).not.toHaveBeenCalled();
     });
+  });
+
+  // Спека 0039, FR-18/AC-12: истёкшая сессия — без собственного блока ошибки.
+  it("does not render its own error block when the session expired", () => {
+    mockBracketData(undefined, { isLoading: false, error: new UnauthorizedError() });
+
+    render(<BracketSeeding stageId="stage-1" />);
+
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
 });

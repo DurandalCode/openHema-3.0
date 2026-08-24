@@ -1,4 +1,5 @@
 import type { Role } from "@/entities/user/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type AdminUser = {
   id: string;
@@ -39,59 +40,40 @@ export const DEFAULT_LIST_LIMIT = 1000;
 export async function createAdminRequest(
   input: CreateAdminInput,
 ): Promise<AdminResult> {
-  return post<AdminUser>("/api/admin/create", input);
+  return post("/api/admin/create", input);
 }
 
 /** listUsersRequest — GET /api/admin/users?limit=… (единственный источник списка, план §«Обзор» п.1). */
 export async function listUsersRequest(limit: number = DEFAULT_LIST_LIMIT): Promise<ListResult> {
-  return get<AdminUser[]>(`/api/admin/users?limit=${limit}`, "users");
+  const res = await apiFetch<{ users?: AdminUser[] }>(`/api/admin/users?limit=${limit}`, {
+    method: "GET",
+  });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, users: res.data.users ?? [] };
 }
 
 /** promoteUserRequest — POST /api/admin/promote. */
 export async function promoteUserRequest(
   userId: string,
 ): Promise<ActionResult> {
-  return post<AdminUser>("/api/admin/promote", { userId });
+  return post("/api/admin/promote", { userId });
 }
 
 /** demoteUserRequest — POST /api/admin/demote. */
 export async function demoteUserRequest(
   userId: string,
 ): Promise<ActionResult> {
-  return post<AdminUser>("/api/admin/demote", { userId });
+  return post("/api/admin/demote", { userId });
 }
 
-async function get<T>(url: string, field: "users"): Promise<ListResult> {
-  try {
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    const users = (data[field] ?? []) as unknown as T;
-    return { ok: true, users: users as AdminUser[] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
-}
-
-async function post<T>(url: string, body: unknown): Promise<
+async function post(url: string, body: unknown): Promise<
   { ok: true; user: AdminUser } | { ok: false; error: string }
 > {
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { user: T };
-    return { ok: true, user: data.user as unknown as AdminUser };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ user?: AdminUser }>(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, user: res.data.user as AdminUser };
 }

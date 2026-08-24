@@ -6,6 +6,7 @@ import {
   seatPoolRequest,
   unseatPoolRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/pool-seating/api/requests", () => {
   const fetchMock = vi.fn();
@@ -54,6 +55,12 @@ describe("features/pool-seating/api/requests", () => {
       const result = await getPoolsForArenaRequest("a1");
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(getPoolsForArenaRequest("a1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

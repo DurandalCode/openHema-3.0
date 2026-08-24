@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fighter } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { FightersTable } from "./fighters-table";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 afterEach(() => {
   cleanup();
@@ -82,6 +83,15 @@ describe("FightersTable", () => {
     expect(screen.getByText("Сеть недоступна")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12) — the global dialog already explains it", () => {
+    render(
+      <FightersTable {...defaultProps} fighters={[]} error={new UnauthorizedError()} />,
+    );
+
+    expect(screen.queryByText("unauthenticated")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
 
   it("shows an empty roster message when there are no fighters at all (FR-25)", () => {

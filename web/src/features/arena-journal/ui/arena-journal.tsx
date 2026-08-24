@@ -5,6 +5,7 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { journalEntryText, journalEntryTime } from "@/entities/arena-live/lib/journal";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import { useArenaJournal } from "../api/use-arena-journal";
 
 /**
@@ -22,6 +23,11 @@ export function ArenaJournal({ arenaId }: { arenaId: string }) {
 
   if (isLoading) {
     return <SkeletonRows rows={3} cols={2} />;
+  }
+  if (error instanceof UnauthorizedError) {
+    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
+    return null;
   }
   if (error) {
     return (
