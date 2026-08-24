@@ -7,6 +7,7 @@ import { QueryProvider } from "@/shared/lib/query-provider";
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 import { SessionExpiredDialog } from "@/widgets/session-expired/session-expired-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
+import { NavbarVisibilityGate } from "@/widgets/navbar/navbar-visibility-gate";
 import { Col } from "@/shared/ui/stack";
 import { Toaster } from "@/shared/ui/sonner";
 import "./globals.css";
@@ -49,7 +50,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           <QueryProvider>
             <Col className="relative min-h-svh">
-              <Navbar />
+              <NavbarVisibilityGate>
+                <Navbar />
+              </NavbarVisibilityGate>
               <main className="flex-1">{children}</main>
             </Col>
             <AuthDialog />

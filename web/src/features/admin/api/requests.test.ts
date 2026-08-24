@@ -98,6 +98,18 @@ describe("features/admin/api/requests", () => {
 
       expect(res).toEqual({ ok: true, users: [] });
     });
+
+    it("carries the HTTP status through on failure (spec 0038, FR-18) — needed to distinguish 401 from other errors", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: "authentication required" }),
+      });
+
+      const res = await listUsersRequest();
+
+      expect(res).toEqual({ ok: false, error: "authentication required", status: 401 });
+    });
   });
 
   describe("promoteUserRequest", () => {

@@ -20,7 +20,7 @@ export type AdminResult =
 
 export type ListResult =
   | { ok: true; users: AdminUser[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export type ActionResult =
   | { ok: true; user: AdminUser }
@@ -66,7 +66,7 @@ async function get<T>(url: string, field: "users"): Promise<ListResult> {
     const res = await fetch(url, { method: "GET" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     const users = (data[field] ?? []) as unknown as T;

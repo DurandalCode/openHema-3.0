@@ -54,6 +54,18 @@ describe("features/arena-management/api/requests", () => {
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
+
+    it("carries the HTTP status through on failure (spec 0038, FR-18) — needed to distinguish 401 from other errors", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: "authentication required" }),
+      });
+
+      const result = await listArenasRequest("t1");
+
+      expect(result).toEqual({ ok: false, error: "authentication required", status: 401 });
+    });
   });
 
   describe("getArenaRequest", () => {

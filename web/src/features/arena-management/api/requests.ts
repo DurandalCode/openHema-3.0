@@ -12,7 +12,7 @@ export type ArenaResult =
 
 export type ArenaListResult =
   | { ok: true; arenas: Arena[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 export type ArenaBoardResult =
   | { ok: true; board: BoutBoard | null }
@@ -26,7 +26,7 @@ export async function listArenasRequest(tournamentId: string): Promise<ArenaList
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
+      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
     }
     const data = (await res.json().catch(() => ({}))) as { arenas?: Arena[] };
     return { ok: true, arenas: data.arenas ?? [] };
