@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: in progress
 - Дата: 2026-08-24
 - План: `./plan.md`
 
@@ -32,62 +32,67 @@
 
 ## Трек A — факты турнира в афише (FR-1..FR-5)
 
-- [ ] T1. **`entities/tournament/lib/format.ts` (red→green)** — тест
+- [x] T1. **`entities/tournament/lib/format.ts` (red→green)** — тест
       `venueLine`: название + адрес, только название, только адрес, ничего
       → затем реализация. Рефактор: `widgets/tournament-about/about-facts.tsx`
       переходит на хелпер вместо инлайновой склейки.
-- [ ] T2. **`entities/tournament/ui/regulations-link.tsx`** — переезд из
+- [x] T2. **`entities/tournament/ui/regulations-link.tsx`** — переезд из
       `widgets/tournament-about/about-regulations.tsx` вместе с тестом
       (разметка и текст без изменений); `tournament-about-screen.tsx`
       импортирует из `entities`; старые файл и тест удаляются.
-- [ ] T3. **`entities/tournament/ui/tournament-hero.tsx` (red→green)** —
+- [x] T3. **`entities/tournament/ui/tournament-hero.tsx` (red→green)** —
       тесты: место, взнос, число площадок, ссылка регламента показаны;
       каждое поле по отдельности скрыто при пустом значении (AC-1, AC-2);
       `arenasCount` не передан → счётчика нет → затем разметка фактов.
-- [ ] T4. **`widgets/home/home-screen.tsx` (red→green)** — тест: в фазе
+- [x] T4. **`widgets/home/home-screen.tsx` (red→green)** — тест: в фазе
       `before` в афишу уходит число площадок из снапшота (AC-3) → затем
       проп.
 
 ## Трек D — сквозной перехват «неаутентифицирован» (FR-17..FR-20)
 
-- [ ] T5. **`shared/api/api-fetch.ts` (red→green)** — тесты: 401 бросает
+- [x] T5. **`shared/api/api-fetch.ts` (red→green)** — тесты: 401 бросает
       `UnauthorizedError` (в т.ч. при не-JSON теле), сетевой сбой возвращает
       `{ ok:false }`, успех разбирается, ошибка сервера отдаёт текст → затем
       реализация. **Ключевое**: бросок 401 — вне сетевого `try`.
-- [ ] T6. **Перевод админских срезов (red→green по одному)** —
+- [x] T6. **Перевод админских срезов (red→green по одному)** —
       `features/admin/api/requests.ts`, `application-review`,
       `fighter-management`, `nomination-management`, `arena-management`,
       `format-presets`, `tournament-settings`. На каждый — тест «на 401
       бросается `UnauthorizedError`», затем перевод на `apiFetch`.
-- [ ] T7. **Перевод срезов площадки и посева** — `arena-journal`,
+- [x] T7. **Перевод срезов площадки и посева** — `arena-journal`,
       `arena-timer/api/use-arena-timer.ts`, `bout-board`, `pool-seating`,
       `nomination-pools`, `bracket-seeding`, `stage-build`,
       `stage-management`, `my-applications/api/requests.ts`. Тот же цикл.
       _(`features/profile/api/requests.ts` уже на `ensureAuthorized` —
       только сверить, что поведение совпало.)_
-- [ ] T8. **Экраны перестают рисовать свою ошибку на 401 (red→green)** —
+- [x] T8. **Экраны перестают рисовать свою ошибку на 401 (red→green)** —
       тесты «при `UnauthorizedError` собственный блок ошибки не рендерится»
       для экранов бойцов, номинаций, схемы, посева групп и сетки, пресетов,
       заявок админа, журнала и панели площадки (AC-12) → затем ветка
       `error instanceof UnauthorizedError → null` по образцу 0038.
-- [ ] T9. **`shared/api/no-direct-fetch.test.ts`** — страж NFR-5: прямой
-      `fetch(` в `features/*/api/**` запрещён, allowlist —
-      `features/auth/api/requests.ts` и живые хуки `tournament-live`,
-      `nomination-live`, `arena-live` (FR-19, FR-20). Тест пишется
-      **последним в треке**: до перевода он красный по всем файлам разом и
-      не даёт вести цикл по одному срезу.
+- [x] T9. **`shared/api/no-direct-fetch.test.ts`** — страж NFR-5: прямой
+      `fetch(` в `features/*/api/**` запрещён, allowlist — ровно 5 файлов:
+      `features/auth/api/requests.ts` и четыре публичных живых хука
+      `arena-live/use-arena-live.ts`, `tournament-live/use-tournament-live.ts`,
+      `nomination-live/use-nomination-live.ts`,
+      `nomination-live/use-live-snapshot.ts` (FR-19, FR-20; исходный текст
+      плана называл «три» — `use-live-snapshot.ts`, admin-рельс страницы
+      этапа, обнаружился при реализации как ещё один потребитель того же
+      публичного без-авторизации роута). Тест пишется **последним в
+      треке**: до перевода он красный по всем файлам разом и не даёт вести
+      цикл по одному срезу.
 
 ## Трек E — клавиатурный путь в посеве (FR-21..FR-25)
 
-- [ ] T10. **`features/nomination-pools/ui/nomination-pools.tsx`
+- [x] T10. **`features/nomination-pools/ui/nomination-pools.tsx`
       (red→green)** — тесты: меню «Переместить» на карточке бойца зовёт
       `assign` с тем же `poolId`, что и drop; «В нераспределённые» зовёт
       `unassign`; в `readOnly` меню недоступно; кнопка меню имеет `aria-label`
       с именем бойца (AC-14, FR-23) → затем меню.
-- [ ] T11. **`features/bracket-seeding/ui/bracket-seeding.tsx` (red→green)**
+- [x] T11. **`features/bracket-seeding/ui/bracket-seeding.tsx` (red→green)**
       — тесты: постановка в слот и снятие со слота через меню (AC-15) →
       затем меню.
-- [ ] T12. **Объявление результата (red→green)** — тест: успешный перенос
+- [x] T12. **Объявление результата (red→green)** — тест: успешный перенос
       показывает тост с именем бойца и местом назначения (AC-14, FR-24) →
       затем `toastSuccess`. Проверить, что перетаскивание мышью не
       изменилось (AC-16) — существующие тесты обоих файлов должны остаться
