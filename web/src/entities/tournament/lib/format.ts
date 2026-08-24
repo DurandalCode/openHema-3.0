@@ -1,4 +1,4 @@
-import type { ContactType } from "./types";
+import type { ContactType, Tournament } from "./types";
 import { entryFeeMinorToAmount } from "./draft";
 
 /**
@@ -137,4 +137,15 @@ export function formatEntryFee(minor: number | null, currency: string): string |
   const amount = Number(entryFeeMinorToAmount(minor));
   const formatted = new Intl.NumberFormat("ru-RU").format(amount);
   return currency ? `${formatted} ${currency}` : formatted;
+}
+
+/**
+ * venueLine — место проведения турнира для показа: «название площадки,
+ * адрес» (спека 0039, FR-1). Каждая часть независимо опциональна (правило
+ * 0001): пустая склеивается без запятой-разделителя, обе пустые — пустая
+ * строка (вызывающий компонент решает не рендерить блок вовсе, как уже
+ * делает `widgets/tournament-about/about-facts.tsx`).
+ */
+export function venueLine(t: Tournament): string {
+  return [t.venueName, t.venueAddress].filter(Boolean).join(", ");
 }

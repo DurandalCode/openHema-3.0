@@ -1,6 +1,6 @@
 import { Card } from "@/shared/ui/card";
 import type { Tournament } from "@/entities/tournament/lib/types";
-import { formatEntryFee, formatEventRange } from "@/entities/tournament/lib/format";
+import { formatEntryFee, formatEventRange, venueLine } from "@/entities/tournament/lib/format";
 
 /**
  * AboutFacts — плитки «когда / где / номинаций / взнос» экрана «О турнире»
@@ -21,7 +21,7 @@ export function AboutFacts({
   nominationsCount: number;
 }) {
   const eventRange = formatEventRange(tournament.eventStartAt, tournament.eventEndAt);
-  const venue = [tournament.venueName, tournament.venueAddress].filter(Boolean).join(", ");
+  const venue = venueLine(tournament);
   const fee = formatEntryFee(tournament.entryFeeMinor, tournament.entryFeeCurrency);
 
   return (

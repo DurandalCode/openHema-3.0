@@ -4,7 +4,15 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Tournament } from "../lib/types";
-import { contactHref, contactLabel, daysUntil, formatEventRange } from "../lib/format";
+import {
+  contactHref,
+  contactLabel,
+  daysUntil,
+  formatEntryFee,
+  formatEventRange,
+  venueLine,
+} from "../lib/format";
+import { RegulationsLink } from "./regulations-link";
 
 /**
  * countdownLabel — текст обратного отсчёта афиши (спека 0034, FR-4).
@@ -44,13 +52,24 @@ function countdownLabel(days: number | null): string | null {
  * передают `now` явно для детерминированности. Будущая композиция
  * `widgets/home/home-screen.tsx` (T23) сможет передавать `now` осознанно
  * (например, синхронизированным с `serverNowUnixMs` живой сводки).
+ *
+ * `arenasCount` (спека 0039, FR-4/AC-3) — число площадок турнира.
+ * **Опционален**: компонент остаётся презентационным и не ходит за
+ * площадками сам — если проп не передан, счётчик не рендерится вовсе (как и
+ * при `0`, когда площадок фактически ещё нет — правило 0001, «ни прочерков,
+ * ни заглушек»). Считает и передаёт его вызывающая композиция
+ * (`widgets/home/home-screen.tsx` — из уже загруженного `liveSnapshot`),
+ * живое превью настроек турнира (`features/tournament-settings`) его не
+ * передаёт — площадки не его данные.
  */
 export function TournamentHero({
   tournament,
   now = new Date(),
+  arenasCount,
 }: {
   tournament: Tournament | null;
   now?: Date;
+  arenasCount?: number;
 }) {
   // Турнира нет — спокойная заглушка (см. FR-6).
   if (!tournament || !tournament.title) {
@@ -75,6 +94,14 @@ export function TournamentHero({
   const eventRange = formatEventRange(tournament.eventStartAt, tournament.eventEndAt);
   const countdown = countdownLabel(daysUntil(tournament.eventStartAt || null, now));
   const contacts = tournament.contacts.filter((c) => c.value);
+
+  // Факты турнира (спека 0039, FR-1/FR-2/FR-4): место, взнос, число
+  // площадок. Каждый — независимо опциональный (FR-5, правило 0001): пустое
+  // поле просто не попадает в строку, вместо прочерка или заглушки.
+  const venue = venueLine(tournament);
+  const fee = formatEntryFee(tournament.entryFeeMinor, tournament.entryFeeCurrency);
+  const hasArenasCount = arenasCount !== undefined && arenasCount > 0;
+  const hasFacts = venue !== "" || fee !== null || hasArenasCount;
 
   return (
     <section
@@ -114,6 +141,22 @@ export function TournamentHero({
             {tournament.description}
           </p>
         )}
+
+        {hasFacts && (
+          <Row
+            align="center"
+            justify="center"
+            gap={4}
+            wrap
+            className="text-sm text-muted-foreground"
+          >
+            {venue && <span>{venue}</span>}
+            {fee !== null && <span>Взнос: {fee}</span>}
+            {hasArenasCount && <span>Площадок: {arenasCount}</span>}
+          </Row>
+        )}
+
+        <RegulationsLink url={tournament.regulationsUrl} />
 
         {contacts.length > 0 && (
           <Row align="center" justify="center" gap={3} wrap>
