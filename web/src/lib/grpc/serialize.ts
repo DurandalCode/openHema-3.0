@@ -356,6 +356,14 @@ export function fighterToJson(fighter: Fighter | undefined): FighterDto | null {
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
     fromApplication: raw.fromApplication ?? false,
+    // linkedAccountId/linkedAccountDisplayName/mergedIntoId (спека 0040,
+    // FR-8/FR-10): сервер заполняет их ТОЛЬКО в ответах FighterAdminService
+    // (ADR 0016 не расширяется) — в ответах FighterPublicService/
+    // FighterService этих полей нет вовсе, `raw.*` для них `undefined`, и
+    // здесь они естественно схлопываются в "".
+    linkedAccountId: raw.linkedAccountId ?? "",
+    linkedAccountDisplayName: raw.linkedAccountDisplayName ?? "",
+    mergedIntoId: raw.mergedIntoId ?? "",
   };
 }
 
