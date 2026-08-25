@@ -38,3 +38,30 @@ WHERE tournament_id = $1;
 INSERT INTO tournament.contacts (tournament_id, type, value, position)
 VALUES ($1, $2, $3, $4)
 RETURNING id, tournament_id, type, value, position;
+
+-- name: ListProgramDaysByTournament :many
+SELECT id, tournament_id, event_date, position
+FROM tournament.program_days
+WHERE tournament_id = $1
+ORDER BY position ASC;
+
+-- name: ListProgramItemsByTournament :many
+SELECT pi.id, pi.day_id, pi.position, pi.time_label, pi.text
+FROM tournament.program_items pi
+JOIN tournament.program_days pd ON pd.id = pi.day_id
+WHERE pd.tournament_id = $1
+ORDER BY pd.position ASC, pi.position ASC;
+
+-- name: DeleteProgramDaysByTournament :exec
+DELETE FROM tournament.program_days
+WHERE tournament_id = $1;
+
+-- name: InsertProgramDay :one
+INSERT INTO tournament.program_days (tournament_id, event_date, position)
+VALUES ($1, $2, $3)
+RETURNING id, tournament_id, event_date, position;
+
+-- name: InsertProgramItem :one
+INSERT INTO tournament.program_items (day_id, position, time_label, text)
+VALUES ($1, $2, $3, $4)
+RETURNING id, day_id, position, time_label, text;
