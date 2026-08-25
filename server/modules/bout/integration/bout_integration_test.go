@@ -688,3 +688,143 @@ func TestIntegration_BoutTimesForPools_ReflectsRealEventJournal(t *testing.T) {
 		t.Fatalf("expected empty map for an unrelated pool, got %d entries", len(unrelated))
 	}
 }
+
+// --- ExistsBoutForNomination / RepointFighter (спека 0040, T10) ---
+
+// TestIntegration_ExistsBoutForNomination проверяет реальный SQL-запрос
+// гейта удаления номинации (сценарий 1, FR-1б): номинация без боёв — false,
+// после GenerateForStage — true. Использует idx_bouts_nomination.
+func TestIntegration_ExistsBoutForNomination(t *testing.T) {
+	_, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+	nomID := uuid.NewString()
+	poolID := uuid.NewString()
+
+	got, err := repo.ExistsBoutForNomination(context.Background(), nomID)
+	if err != nil {
+		t.Fatalf("ExistsBoutForNomination (before): %v", err)
+	}
+	if got {
+		t.Fatal("expected false for a nomination without bouts")
+	}
+
+	fa, fb := uuid.NewString(), uuid.NewString()
+	if err := svc.GenerateForStage(context.Background(), nomID, []domain.PoolInput{
+		{PoolID: poolID, Fighters: []domain.FighterRef{{ID: fa, Name: "A"}, {ID: fb, Name: "B"}}},
+	}); err != nil {
+		t.Fatalf("GenerateForStage: %v", err)
+	}
+
+	got, err = repo.ExistsBoutForNomination(context.Background(), nomID)
+	if err != nil {
+		t.Fatalf("ExistsBoutForNomination (after): %v", err)
+	}
+	if !got {
+		t.Fatal("expected true once the nomination has a scheduled bout")
+	}
+
+	// A different nomination remains unaffected.
+	other, err := repo.ExistsBoutForNomination(context.Background(), uuid.NewString())
+	if err != nil {
+		t.Fatalf("ExistsBoutForNomination (unrelated nomination): %v", err)
+	}
+	if other {
+		t.Fatal("expected false for an unrelated nomination")
+	}
+}
+
+// TestIntegration_RepointFighter_MovesBothSides_KeepsSnapshot проверяет
+// реальный SQL слияния дублей бойца (сценарий 3): RepointFighter переносит
+// FighterID на обоих бортах (FighterA — в одном бою, FighterB — в другом),
+// не трогая денормализованные имя/клуб — журнал боя остаётся историческим
+// снапшотом на момент проведения (plan.md, «Риски»). Также проверяет
+// идемпотентность: повторный вызов на уже репойнтнутые строки — no-op, не
+// ошибка.
+func TestIntegration_RepointFighter_MovesBothSides_KeepsSnapshot(t *testing.T) {
+	c, svc, pool := setup(t)
+	repo := boutrepo.New(pool)
+
+	oldID, newID := uuid.NewString(), uuid.NewString()
+	otherA, otherB := uuid.NewString(), uuid.NewString()
+
+	// Bout 1: oldID on the A side, opposite an unrelated fighter.
+	nom1 := uuid.NewString()
+	pool1 := uuid.NewString()
+	if err := svc.GenerateForStage(context.Background(), nom1, []domain.PoolInput{
+		{PoolID: pool1, Fighters: []domain.FighterRef{
+			{ID: oldID, Name: "Old Name", Club: "Old Club"},
+			{ID: otherA, Name: "Other A", Club: "Club A"},
+		}},
+	}); err != nil {
+		t.Fatalf("GenerateForStage (bout 1): %v", err)
+	}
+
+	// Bout 2: oldID on the B side (different nomination/pool — fighter_a_id
+	// vs fighter_b_id assignment inside GenerateRoundRobin isn't controlled
+	// directly, so a second pair with a distinct opponent still exercises
+	// whichever side oldID lands on).
+	nom2 := uuid.NewString()
+	pool2 := uuid.NewString()
+	if err := svc.GenerateForStage(context.Background(), nom2, []domain.PoolInput{
+		{PoolID: pool2, Fighters: []domain.FighterRef{
+			{ID: otherB, Name: "Other B", Club: "Club B"},
+			{ID: oldID, Name: "Old Name", Club: "Old Club"},
+		}},
+	}); err != nil {
+		t.Fatalf("GenerateForStage (bout 2): %v", err)
+	}
+
+	bouts1 := listBouts(t, c, nom1)
+	bouts2 := listBouts(t, c, nom2)
+	if len(bouts1) != 1 || len(bouts2) != 1 {
+		t.Fatalf("expected 1 bout each, got %d and %d", len(bouts1), len(bouts2))
+	}
+
+	if err := repo.RepointFighter(context.Background(), oldID, newID); err != nil {
+		t.Fatalf("RepointFighter: %v", err)
+	}
+
+	check := func(nomID string) *hemav1.Bout {
+		t.Helper()
+		got := listBouts(t, c, nomID)
+		if len(got) != 1 {
+			t.Fatalf("expected 1 bout for nomination %s, got %d", nomID, len(got))
+		}
+		return got[0]
+	}
+
+	for _, nomID := range []string{nom1, nom2} {
+		b := check(nomID)
+		var (
+			id, name, club string
+			found          bool
+		)
+		switch {
+		case b.FighterA.FighterId == oldID:
+			t.Fatalf("bout %s: fighter_a_id still points at oldID %s after repoint", b.Id, oldID)
+		case b.FighterB.FighterId == oldID:
+			t.Fatalf("bout %s: fighter_b_id still points at oldID %s after repoint", b.Id, oldID)
+		case b.FighterA.FighterId == newID:
+			id, name, club, found = b.FighterA.FighterId, b.FighterA.Name, b.FighterA.Club, true
+		case b.FighterB.FighterId == newID:
+			id, name, club, found = b.FighterB.FighterId, b.FighterB.Name, b.FighterB.Club, true
+		}
+		if !found {
+			t.Fatalf("bout %s: expected newID %s on one side, got fighter_a_id=%s fighter_b_id=%s", b.Id, newID, b.FighterA.FighterId, b.FighterB.FighterId)
+		}
+		if id != newID {
+			t.Fatalf("bout %s: expected repointed id %s, got %s", b.Id, newID, id)
+		}
+		// The denormalized snapshot (name/club) must NOT be rewritten —
+		// the bout log stays a historical fact (plan.md, «Риски»).
+		if name != "Old Name" || club != "Old Club" {
+			t.Fatalf("bout %s: expected snapshot to stay ('Old Name'/'Old Club'), got (%q/%q)", b.Id, name, club)
+		}
+	}
+
+	// Idempotent: repointing again (oldID no longer referenced anywhere)
+	// finds no rows and does not error.
+	if err := repo.RepointFighter(context.Background(), oldID, newID); err != nil {
+		t.Fatalf("RepointFighter (idempotent repeat): %v", err)
+	}
+}

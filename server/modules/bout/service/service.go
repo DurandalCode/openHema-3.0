@@ -241,6 +241,37 @@ func (s *Service) TimesForPools(ctx context.Context, poolIDs []string) (map[stri
 	return s.repo.BoutTimesForPools(ctx, poolIDs)
 }
 
+// HasBouts — есть ли среди боёв номинации хотя бы один поставленный (спека
+// 0040, сценарий 1, FR-1б). Тонкая обёртка над репозиторием — эта
+// доменная-порт-реализация используется nomination-модулем через
+// BoutOccupancyAdapter (см. modules/bout/occupancy_adapter.go): гейт перед
+// удалением номинации сам не читает данные bout напрямую (ADR 0002,
+// модульные границы).
+func (s *Service) HasBouts(ctx context.Context, nominationID string) (bool, error) {
+	nominationID = strings.TrimSpace(nominationID)
+	if nominationID == "" {
+		return false, domain.ErrInvalidInput
+	}
+	return s.repo.ExistsBoutForNomination(ctx, nominationID)
+}
+
+// RepointFighter переносит оба борта (FighterA/FighterB) всех боёв
+// дубля-источника (oldID) на итоговую запись (newID) — сторона слияния
+// дублей бойца (спека 0040, сценарий 3). Тонкая обёртка над репозиторием,
+// используется fighter-модулем через RepointAdapter (см.
+// modules/bout/repoint_adapter.go), best-effort шаг без распределённой
+// транзакции (plan.md, «Риски»); идемпотентна — повторный вызов на уже
+// репойнтнутые строки безопасен (repo.RepointFighter, WHERE fighter_*_id =
+// oldID не находит строк).
+func (s *Service) RepointFighter(ctx context.Context, oldID, newID string) error {
+	oldID = strings.TrimSpace(oldID)
+	newID = strings.TrimSpace(newID)
+	if oldID == "" || newID == "" {
+		return domain.ErrInvalidInput
+	}
+	return s.repo.RepointFighter(ctx, oldID, newID)
+}
+
 // act реализует общий цикл load → rebuild → decide → append (ADR 0011) для
 // лайфсайкл-команд боя. Конфликт версии — один прозрачный повтор
 // (reload → redecide → reappend), затем ErrConcurrency наружу (не слепой

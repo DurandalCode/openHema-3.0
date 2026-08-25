@@ -178,3 +178,32 @@ LEFT JOIN bout.bout_events f ON f.bout_id = b.id AND f.event_type = 'finished'
         WHERE x.bout_id = f.bout_id AND x.event_type IN ('reopened', 'reset') AND x.version > f.version
     )
 WHERE b.pool_id = ANY(sqlc.arg(pool_ids)::uuid[]);
+
+-- name: ExistsBoutForNomination :one
+-- Гейт удаления номинации (спека 0040, сценарий 1, FR-1б): есть ли среди
+-- боёв номинации хотя бы один поставленный бой — nomination/domain.Service
+-- отказывает в Delete, если true (nomination/domain.BoutOccupancyChecker,
+-- реализуется modules/bout.BoutOccupancyAdapter). Использует существующий
+-- idx_bouts_nomination, отдельного индекса не требует.
+SELECT EXISTS(SELECT 1 FROM bout.bouts WHERE nomination_id = $1) AS exists_bout;
+
+-- name: RepointFighterA :execrows
+-- Слияние дублей бойца (спека 0040, сценарий 3): переносит борт A боёв с
+-- дубля-источника на итоговую запись по идентификатору
+-- (fighter/domain.BoutRepointer, реализуется modules/bout.RepointAdapter).
+-- Денормализованные fighter_a_name/fighter_a_club НЕ переписываются —
+-- журнал боя остаётся историческим снапшотом на момент проведения (plan.md,
+-- «Риски»: «журнал боя — исторический факт»). Идемпотентно: повторный вызов
+-- на уже репойнтнутые строки не находит их (WHERE fighter_a_id = old_id).
+UPDATE bout.bouts
+SET fighter_a_id = sqlc.arg(new_fighter_id)::uuid
+WHERE fighter_a_id = sqlc.arg(old_fighter_id)::uuid;
+
+-- name: RepointFighterB :execrows
+-- Симметрично RepointFighterA — борт B. Оба вызываются одной транзакцией
+-- из repo.RepointFighter (бой может иметь дубля-источника на любом из двух
+-- бортов, теоретически на обоих сразу — round-robin допускает разные пары в
+-- разных турах, спека 0010).
+UPDATE bout.bouts
+SET fighter_b_id = sqlc.arg(new_fighter_id)::uuid
+WHERE fighter_b_id = sqlc.arg(old_fighter_id)::uuid;
