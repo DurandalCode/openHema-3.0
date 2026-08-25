@@ -36,6 +36,9 @@ function fighter(overrides: Partial<Fighter>): Fighter {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     fromApplication: true,
+    linkedAccountId: "",
+    linkedAccountDisplayName: "",
+    mergedIntoId: "",
     ...overrides,
   };
 }
@@ -79,6 +82,7 @@ const withdrawMutate = vi.fn((_args: unknown, opts?: MutateOpts) => opts?.onSucc
 const addMutate = vi.fn((_args: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
 const removeMutate = vi.fn((_args: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
 const moveMutate = vi.fn((_args: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
+const mergeMutate = vi.fn((_args: unknown, opts?: MutateOpts) => opts?.onSuccess?.());
 const createMutate = vi.fn();
 
 vi.mock("../api/use-fighter-mutations", () => ({
@@ -88,7 +92,12 @@ vi.mock("../api/use-fighter-mutations", () => ({
   useAddToNomination: () => ({ mutate: addMutate, isPending: false }),
   useRemoveFromNomination: () => ({ mutate: removeMutate, isPending: false }),
   useMoveFighter: () => ({ mutate: moveMutate, isPending: false }),
+  useMergeFighters: () => ({ mutate: mergeMutate, isPending: false }),
   useCreateFighter: () => ({ mutate: createMutate, isPending: false, error: null, reset: vi.fn() }),
+}));
+
+vi.mock("../api/return-outcome", () => ({
+  resolveReturnSeeding: vi.fn().mockResolvedValue(null),
 }));
 
 const toastSuccess = vi.fn();
@@ -226,6 +235,20 @@ describe("FightersScreen", () => {
     expect(within(header).getByText("Бойцы")).toBeInTheDocument();
     expect(within(header).getByText("164 бойца · 9 номинаций")).toBeInTheDocument();
     expect(within(header).getByRole("button", { name: /Боец вручную/ })).toBeInTheDocument();
+  });
+
+  it("opens the find-by-account dialog from the section header (spec 0040, FR-9)", () => {
+    render(<FightersScreen tournamentId="t1" nominations={[]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Найти по учётке" }));
+    expect(screen.getByRole("dialog", { name: /Найти бойца по учётке/ })).toBeInTheDocument();
+  });
+
+  it("opens the merge dialog from the section header (spec 0040, FR-10)", () => {
+    render(<FightersScreen tournamentId="t1" nominations={[]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Слить дубли" }));
+    expect(screen.getByRole("dialog", { name: /Слить дубли/ })).toBeInTheDocument();
   });
 
   it("shows only 'БОЙЦЫ' in the crumb without an active tournament", () => {

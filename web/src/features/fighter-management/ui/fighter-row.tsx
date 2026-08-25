@@ -5,7 +5,7 @@ import { Tag } from "@/shared/ui/tag";
 import { TableRow } from "@/shared/ui/table-row";
 import { formatDateTime } from "@/shared/lib/datetime";
 import { fighterStatusLabel, originLabel, withdrawalReasonLabel } from "@/entities/fighter/lib/labels";
-import type { Fighter } from "@/entities/fighter/lib/types";
+import { hasLinkedAccount, type Fighter } from "@/entities/fighter/lib/types";
 
 /** MAX_VISIBLE_TAGS — сколько тегов участий показываем до сворачивания «+N» (spec FR-2). */
 const MAX_VISIBLE_TAGS = 3;
@@ -85,7 +85,15 @@ export function FighterRow({
       state={withdrawn ? "out" : "default"}
       onClick={() => onOpenCard(fighter.id)}
       cells={[
-        { text: fighter.name || "—", tone: "strong", strike: true },
+        {
+          text: fighter.name || "—",
+          tone: "strong",
+          strike: true,
+          // Бейдж «привязана учётка» (спека 0040, FR-8/AC-6) — только admin
+          // видит эту проекцию, публичные/пользовательские экраны её не
+          // получают (ADR 0016 не расширяется).
+          tags: hasLinkedAccount(fighter) ? [{ label: "учётка", tone: "violet" }] : undefined,
+        },
         { text: fighter.club || "—", tone: "body", width: 180 },
         { node: <ParticipationCell fighter={fighter} nominationTitleById={nominationTitleById} /> },
         {

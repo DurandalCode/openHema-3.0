@@ -4,7 +4,9 @@ import {
   addToNominationRequest,
   createFighterRequest,
   editFighterRequest,
+  findFighterByAccountRequest,
   listRosterRequest,
+  mergeFightersRequest,
   moveFighterRequest,
   removeFromNominationRequest,
   returnFighterRequest,
@@ -134,6 +136,51 @@ describe("features/fighter-management/api/requests", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fromNominationId: "n1", toNominationId: "n2" }),
       });
+    });
+  });
+
+  describe("findFighterByAccountRequest", () => {
+    it("GETs by userId (spec 0040, FR-9)", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ fighter: { id: "f1" } }) });
+      const result = await findFighterByAccountRequest("u1");
+      expect(result).toEqual({ ok: true, fighter: { id: "f1" } });
+      expect(fetchMock).toHaveBeenCalledWith("/api/fighters/find-by-account?userId=u1", {
+        method: "GET",
+      });
+    });
+
+    it("adds tournamentId to the query when provided", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ fighter: null }) });
+      const result = await findFighterByAccountRequest("u1", "t1");
+      expect(result).toEqual({ ok: true, fighter: null });
+      expect(fetchMock).toHaveBeenCalledWith("/api/fighters/find-by-account?userId=u1&tournamentId=t1", {
+        method: "GET",
+      });
+    });
+
+    it("returns ok:false on non-ok response", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "boom" }) });
+      const result = await findFighterByAccountRequest("u1");
+      expect(result).toEqual({ ok: false, error: "boom" });
+    });
+  });
+
+  describe("mergeFightersRequest", () => {
+    it("POSTs sourceFighterId/targetFighterId (spec 0040, FR-10)", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ fighter: { id: "f2" } }) });
+      const result = await mergeFightersRequest("f1", "f2");
+      expect(result).toEqual({ ok: true, fighter: { id: "f2" } });
+      expect(fetchMock).toHaveBeenCalledWith("/api/fighters/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceFighterId: "f1", targetFighterId: "f2" }),
+      });
+    });
+
+    it("returns ok:false on non-ok response", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "already merged" }) });
+      const result = await mergeFightersRequest("f1", "f2");
+      expect(result).toEqual({ ok: false, error: "already merged" });
     });
   });
 });

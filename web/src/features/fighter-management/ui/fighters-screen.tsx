@@ -14,6 +14,8 @@ import { CreateFighterDialog } from "./create-fighter-dialog";
 import { FighterCardDialog } from "./fighter-card-dialog";
 import { countWord, FightersFilters } from "./fighters-filters";
 import { FightersTable } from "./fighters-table";
+import { FindFighterByAccountDialog } from "./find-fighter-by-account-dialog";
+import { MergeFightersDialog } from "./merge-fighters-dialog";
 
 /** PAGE_SIZE — фиксированный размер клиентской страницы (spec FR-11). */
 export const PAGE_SIZE = 20;
@@ -55,6 +57,8 @@ export function FightersScreen({
   const [page, setPage] = useState(1);
   const [openFighterId, setOpenFighterId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [findByAccountOpen, setFindByAccountOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const all = useMemo(() => rosterQuery.data ?? [], [rosterQuery.data]);
   // statusCounts не зависит от фильтров/поиска намеренно (FR-7/AC-2).
@@ -108,9 +112,18 @@ export function FightersScreen({
         title="Бойцы"
         meta={meta}
         action={
-          <Button type="button" onClick={() => setCreateOpen(true)}>
-            + Боец вручную
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Обратная проекция «учётка ↔ боец» — admin-only (спека 0040, FR-9/FR-10). */}
+            <Button type="button" variant="outline" onClick={() => setFindByAccountOpen(true)}>
+              Найти по учётке
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setMergeOpen(true)}>
+              Слить дубли
+            </Button>
+            <Button type="button" onClick={() => setCreateOpen(true)}>
+              + Боец вручную
+            </Button>
+          </div>
         }
       />
 
@@ -164,6 +177,15 @@ export function FightersScreen({
         onOpenChange={setCreateOpen}
         onCreated={(fighter: Fighter) => toastSuccess(`${fighter.name} добавлен`)}
       />
+
+      <FindFighterByAccountDialog
+        tournamentId={tournamentId}
+        open={findByAccountOpen}
+        onOpenChange={setFindByAccountOpen}
+        onOpenFighter={setOpenFighterId}
+      />
+
+      <MergeFightersDialog fighters={all} open={mergeOpen} onOpenChange={setMergeOpen} />
     </div>
   );
 }
