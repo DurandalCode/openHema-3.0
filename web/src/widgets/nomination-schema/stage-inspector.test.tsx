@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { StageInspector } from "./stage-inspector";
 import type { Stage } from "@/entities/stage/lib/types";
+import { useUnsavedGuardStore } from "@/shared/lib/unsaved-guard-store";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
@@ -110,6 +111,7 @@ describe("StageInspector (спека 0031, T13)", () => {
     setStatusError = null;
     deleteError = null;
     vi.clearAllMocks();
+    useUnsavedGuardStore.setState({ dirtyReason: null, pendingHref: null });
   });
 
   afterEach(() => {
@@ -268,5 +270,50 @@ describe("StageInspector (спека 0031, T13)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
 
     expect(toastErrorMock.mock.calls[0][0]).toEqual(expect.stringContaining("источником"));
+  });
+
+  // spec 0039, T20 (FR-13, FR-15): инспектор держит два независимых
+  // несохранённых черновика («Параметры», «Правило отбора») — guard должен
+  // видеть изменение любого из них.
+  it("marks the unsaved-guard store dirty when editing config fields (spec 0039)", () => {
+    renderInspector(groupsStage);
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Число групп"), { target: { value: "6" } });
+
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBe("этап «Групповой этап»");
+  });
+
+  it("marks the unsaved-guard store dirty when editing the selection rule (spec 0039)", () => {
+    renderInspector(ruledBracketStage);
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/До места/), { target: { value: "3" } });
+
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBe("этап «Плейофф»");
+  });
+
+  it("clears the unsaved-guard flag when switching to a different stage (spec 0039)", () => {
+    const { rerender } = render(
+      <StageInspector
+        stage={groupsStage}
+        stages={[groupsStage, ruledBracketStage]}
+        nominationId="n1"
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Число групп"), { target: { value: "6" } });
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBe("этап «Групповой этап»");
+
+    rerender(
+      <StageInspector
+        stage={ruledBracketStage}
+        stages={[groupsStage, ruledBracketStage]}
+        nominationId="n1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBeNull();
   });
 });
