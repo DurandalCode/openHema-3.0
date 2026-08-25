@@ -312,6 +312,17 @@ type PoolMember struct {
 	FighterID string
 }
 
+// DraftMembership — членство бойца в пуле этапа, который ещё в статусе
+// draft (спека 0040, FR-4) — вход OnFighterWithdrawn: только такие
+// членства запоминаются в withdrawn_seeds при выводе бойца, членства вне
+// draft остаются как есть (посев там уже зафиксирован, тот же порог, что у
+// DeletePool/ResetLayout).
+type DraftMembership struct {
+	NominationID string
+	StageID      string
+	PoolID       string
+}
+
 // Layout — раскладка одного этапа номинации: статус, нераспределённые,
 // пулы. CanUndo — доступна ли кнопка «Отменить» на экране (FR-7a). Stage —
 // этап, которому принадлежит раскладка (спека 0017, FR-11): при отсутствии
@@ -608,6 +619,40 @@ type Repository interface {
 	// FR-7/FR-8/FR-9): boutID пуст — указатель сбрасывается (нет
 	// непроведённых боёв после авто-продвижения, AC-10).
 	SetCurrentBout(ctx context.Context, poolID, boutID string) error
+
+	// Спека 0040: гейт на удаление номинации, память посева при возврате
+	// выведенного бойца, репойнт при слиянии дублей бойца.
+
+	// ExistsDistributedFighterForNomination — есть ли в номинации хотя бы
+	// один боец, распределённый в пул любой её стадии (FR-1 гейта удаления
+	// номинации) — читает stage.PoolOccupancyAdapter поверх
+	// nomination/domain.PoolOccupancyChecker.
+	ExistsDistributedFighterForNomination(ctx context.Context, nominationID string) (bool, error)
+	// DraftMembershipsByFighter возвращает членства бойца в пулах этапов,
+	// ещё находящихся в draft (FR-4) — вход OnFighterWithdrawn: только эти
+	// членства запоминаются в withdrawn_seeds, членства вне draft остаются
+	// как есть (посев там уже зафиксирован — тот же порог, что у
+	// DeletePool/ResetLayout).
+	DraftMembershipsByFighter(ctx context.Context, fighterID string) ([]DraftMembership, error)
+	// CaptureWithdrawnSeed атомарно переносит членство бойца в указанном
+	// draft-этапе из pool_members в withdrawn_seeds (FR-4, «память» пула,
+	// откуда боец выведен). Идемпотентно: если членства уже нет (гонка),
+	// no-op.
+	CaptureWithdrawnSeed(ctx context.Context, fighterID, stageID string) error
+	// RestoreWithdrawnSeed пытается восстановить все запомненные посевы
+	// бойца (по всем номинациям, FR-5): для каждой строки withdrawn_seeds —
+	// если её стадия всё ещё draft и пул ещё существует, членство
+	// восстанавливается в pool_members; иначе память просто освобождается
+	// (FR-6, best-effort истечение — без силового восстановления).
+	RestoreWithdrawnSeed(ctx context.Context, fighterID string) error
+	// RepointFighter переносит членства source в target по всем этапам, где
+	// target ещё не состоит (сценарий 3, слияние дублей бойца) — коллизия
+	// по uq_members_stage_fighter не репойнтится молча (см.
+	// repo/queries/stage.sql).
+	RepointFighter(ctx context.Context, sourceFighterID, targetFighterID string) error
+	// RepointWithdrawnSeed переносит запомненные посевы source в target той
+	// же защитой от коллизии — по PK (fighter_id, nomination_id).
+	RepointWithdrawnSeed(ctx context.Context, sourceFighterID, targetFighterID string) error
 }
 
 // ActiveFightersProvider — межмодульная зависимость: активный ростер
