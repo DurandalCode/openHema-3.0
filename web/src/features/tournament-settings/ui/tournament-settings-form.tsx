@@ -17,6 +17,7 @@ import { DateTimeField } from "@/shared/ui/datetime-field";
 import { Col, Row } from "@/shared/ui/stack";
 import type { ContactType } from "@/entities/tournament/lib/types";
 import type { ContactDraft, TournamentDraft } from "@/entities/tournament/lib/draft";
+import { TournamentProgramEditor } from "./tournament-program-editor";
 
 const CONTACT_TYPES: { value: ContactType; label: string }[] = [
   { value: "CONTACT_TYPE_TELEGRAM", label: "Telegram" },
@@ -226,6 +227,13 @@ export function TournamentSettingsForm({
           Пустая сумма — взнос не задан (не то же самое, что бесплатное
           участие).
         </p>
+      </Col>
+
+      <Col gap={2}>
+        <TournamentProgramEditor
+          value={value.program}
+          onChange={(program) => set("program", program)}
+        />
       </Col>
 
       <Col gap={2}>

@@ -215,6 +215,18 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
     venueAddress: raw.venueAddress ?? "",
     entryFeeMinor: typeof raw.entryFeeMinor === "string" ? Number(raw.entryFeeMinor) : null,
     entryFeeCurrency: raw.entryFeeCurrency ?? "",
+    // program (спека 0040, FR-14/FR-15): та же нормализация proto3-дефолтов,
+    // что contacts — пустой repeated опускается toJson целиком, а вложенные
+    // поля дня/пункта (date/items/timeLabel/text) опускаются по отдельности
+    // на своём зероvalue.
+    program: Array.isArray(raw.program)
+      ? raw.program.map((d) => ({
+          date: d.date ?? "",
+          items: Array.isArray(d.items)
+            ? d.items.map((it) => ({ timeLabel: it.timeLabel ?? "", text: it.text ?? "" }))
+            : [],
+        }))
+      : [],
   };
 }
 

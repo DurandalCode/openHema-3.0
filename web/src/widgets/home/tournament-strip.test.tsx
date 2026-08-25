@@ -23,6 +23,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "",
     entryFeeMinor: null,
     entryFeeCurrency: "",
+    program: [],
     ...overrides,
   };
 }
@@ -88,3 +89,36 @@ describe("widgets/home TournamentStrip (spec 0034, FR-12/FR-13, AC-18)", () => {
     expect(screen.getByRole("link", { name: "О турнире" })).toHaveAttribute("href", "/custom");
   });
 });
+
+describe("widgets/home TournamentStrip program (spec 0040, FR-15/FR-16)", () => {
+  afterEach(cleanup);
+
+  it("shows the program by days when set (AC-10)", () => {
+    render(
+      <TournamentStrip
+        tournament={tournament({
+          program: [
+            { date: "2026-12-01", items: [{ timeLabel: "9:00", text: "Сбор участников" }] },
+          ],
+        })}
+        snapshot={snapshot()}
+        phase="running"
+        now={now}
+      />,
+    );
+    expect(screen.getByText("Сбор участников")).toBeInTheDocument();
+  });
+
+  it("hides the program section when it is empty (AC-11)", () => {
+    render(
+      <TournamentStrip
+        tournament={tournament({ program: [] })}
+        snapshot={snapshot()}
+        phase="running"
+        now={now}
+      />,
+    );
+    expect(document.getElementById("tournament-program")).not.toBeInTheDocument();
+  });
+});
+

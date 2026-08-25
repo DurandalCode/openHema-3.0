@@ -36,6 +36,10 @@ function draftFromTournament(t: Tournament): TournamentDraft {
     venueAddress: t.venueAddress,
     entryFeeAmount: entryFeeMinorToAmount(t.entryFeeMinor),
     entryFeeCurrency: t.entryFeeCurrency,
+    program: t.program.map((d) => ({
+      date: d.date,
+      items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
+    })),
   };
 }
 
@@ -57,6 +61,16 @@ function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
     // `draftToTournament` (превью) — иначе можно уйти на сервер с суммой
     // null, но не пустой валютой.
     entryFeeCurrency: entryFeeMinor === null ? "" : draft.entryFeeCurrency,
+    // Пустые пункты/дни отбрасываются на границе отправки (тот же приём,
+    // что contacts.filter выше) — сервер валидирует непустой text каждого
+    // пункта (spec 0040, FR-14), клиент не должен уходить на 400 из-за
+    // незаполненной строки, добавленной кнопкой «+ Добавить пункт».
+    program: draft.program
+      .map((d) => ({
+        date: d.date,
+        items: d.items.filter((it) => it.text.trim() !== ""),
+      }))
+      .filter((d) => d.items.length > 0),
   };
 }
 

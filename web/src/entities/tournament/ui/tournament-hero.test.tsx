@@ -22,6 +22,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "",
     entryFeeMinor: null,
     entryFeeCurrency: "",
+    program: [],
     ...overrides,
   };
 }
@@ -187,5 +188,28 @@ describe("entities/tournament/ui TournamentHero facts (spec 0039, FR-1..FR-5)", 
   it("hides the arenas count when arenasCount is zero (nothing to show)", () => {
     render(<TournamentHero tournament={tournament()} now={now} arenasCount={0} />);
     expect(screen.queryByText(/Площадок/)).not.toBeInTheDocument();
+  });
+});
+
+describe("entities/tournament/ui TournamentHero program (spec 0040, FR-15/FR-16)", () => {
+  afterEach(cleanup);
+
+  it("shows the program by days when set (AC-10)", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({
+          program: [
+            { date: "2026-12-01", items: [{ timeLabel: "9:00", text: "Сбор участников" }] },
+          ],
+        })}
+        now={now}
+      />,
+    );
+    expect(screen.getByText("Сбор участников")).toBeInTheDocument();
+  });
+
+  it("hides the program section when it is empty (AC-11)", () => {
+    render(<TournamentHero tournament={tournament({ program: [] })} now={now} />);
+    expect(document.getElementById("tournament-program")).not.toBeInTheDocument();
   });
 });

@@ -30,6 +30,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "г. Москва, ул. Спортивная, 1",
     entryFeeMinor: 150000,
     entryFeeCurrency: "RUB",
+    program: [],
     ...overrides,
   };
 }
@@ -48,6 +49,10 @@ function draftFrom(saved: Tournament): TournamentDraft {
     venueAddress: saved.venueAddress,
     entryFeeAmount: entryFeeMinorToAmount(saved.entryFeeMinor),
     entryFeeCurrency: saved.entryFeeCurrency,
+    program: saved.program.map((d) => ({
+      date: d.date,
+      items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
+    })),
   };
 }
 
@@ -370,3 +375,63 @@ describe("entities/tournament/lib/draft tournamentDraftChanges — new profile f
     expect(tournamentDraftChanges(saved, draft)).toEqual([]);
   });
 });
+
+describe("entities/tournament/lib/draft program by days (spec 0040, FR-14/FR-14a)", () => {
+  it("carries program days/items through to the preview", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.program = [
+      {
+        date: "2026-12-01",
+        items: [{ timeLabel: "9:00", text: "Сбор участников" }],
+      },
+    ];
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.program).toEqual([
+      {
+        date: "2026-12-01",
+        items: [{ timeLabel: "9:00", text: "Сбор участников" }],
+      },
+    ]);
+  });
+
+  it("drops items with empty text and days left with no items", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.program = [
+      {
+        date: "2026-12-01",
+        items: [
+          { timeLabel: "9:00", text: "Сбор участников" },
+          { timeLabel: "", text: "   " },
+        ],
+      },
+      { date: "2026-12-02", items: [{ timeLabel: "10:00", text: "  " }] },
+    ];
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.program).toEqual([
+      { date: "2026-12-01", items: [{ timeLabel: "9:00", text: "Сбор участников" }] },
+    ]);
+  });
+
+  it("reports a program change by name", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.program = [
+      { date: "2026-12-01", items: [{ timeLabel: "9:00", text: "Сбор участников" }] },
+    ];
+
+    expect(tournamentDraftChanges(saved, draft)).toEqual(["программа"]);
+  });
+
+  it("does not count an empty added day/item as a change", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.program = [{ date: "2026-12-01", items: [{ timeLabel: "", text: "" }] }];
+
+    expect(tournamentDraftChanges(saved, draft)).toEqual([]);
+  });
+});
+

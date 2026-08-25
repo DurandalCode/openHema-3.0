@@ -7,7 +7,7 @@ import { getAccessToken } from "@/lib/session/cookies";
 import {
   ContactType as ContactTypeProto,
 } from "@/gen/hema/v1/tournament_pb";
-import type { ContactType } from "@/entities/tournament/lib/types";
+import type { ContactType, TournamentProgramDay } from "@/entities/tournament/lib/types";
 
 export const runtime = "nodejs";
 
@@ -29,6 +29,10 @@ type UpdateBody = {
   // entryFeeMinor — null означает «не задан» (FR-21, отличимо от 0).
   entryFeeMinor?: number | null;
   entryFeeCurrency?: string;
+  // program — программа турнира по дням (спека 0040, FR-14). Та же
+  // full-replace семантика, что contacts (FR-22): не форвардить здесь —
+  // обнулить программу на сервере при следующем сохранении любого поля.
+  program?: TournamentProgramDay[];
 };
 
 // UI хранит enum строкой с proto-именем ("CONTACT_TYPE_TELEGRAM"); proto-поле
@@ -121,6 +125,7 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
         venueAddress: body.venueAddress ?? "",
         entryFeeMinor,
         entryFeeCurrency: body.entryFeeCurrency ?? "",
+        program: body.program ?? [],
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

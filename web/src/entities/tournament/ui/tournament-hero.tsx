@@ -13,6 +13,7 @@ import {
   venueLine,
 } from "../lib/format";
 import { RegulationsLink } from "./regulations-link";
+import { TournamentProgram } from "./tournament-program";
 
 /**
  * countdownLabel — текст обратного отсчёта афиши (спека 0034, FR-4).
@@ -157,6 +158,8 @@ export function TournamentHero({
         )}
 
         <RegulationsLink url={tournament.regulationsUrl} />
+
+        <TournamentProgram program={tournament.program} />
 
         {contacts.length > 0 && (
           <Row align="center" justify="center" gap={3} wrap>

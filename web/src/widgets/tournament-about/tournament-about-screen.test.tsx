@@ -23,6 +23,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "г. Москва, ул. Спортивная, 1",
     entryFeeMinor: 150000,
     entryFeeCurrency: "RUB",
+    program: [],
     ...overrides,
   };
 }
@@ -171,4 +172,31 @@ describe("widgets/tournament-about TournamentAboutScreen (spec 0038, FR-43..FR-4
     expect(screen.queryByRole("link", { name: /подать заявку/i })).not.toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
   });
+
 });
+
+describe("widgets/tournament-about TournamentAboutScreen program (spec 0040, FR-15/FR-16)", () => {
+  afterEach(cleanup);
+
+  it("shows the program by days when set (AC-10)", () => {
+    render(
+      <TournamentAboutScreen
+        tournament={tournament({
+          program: [
+            { date: "2026-12-01", items: [{ timeLabel: "9:00", text: "Сбор участников" }] },
+          ],
+        })}
+        nominations={[nomination()]}
+      />,
+    );
+    expect(screen.getByText("Сбор участников")).toBeInTheDocument();
+  });
+
+  it("hides the program section when it is empty (AC-11)", () => {
+    render(
+      <TournamentAboutScreen tournament={tournament({ program: [] })} nominations={[nomination()]} />,
+    );
+    expect(document.getElementById("tournament-program")).not.toBeInTheDocument();
+  });
+});
+
