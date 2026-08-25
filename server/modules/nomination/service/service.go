@@ -12,11 +12,16 @@ import (
 type Service struct {
 	repo        domain.Repository
 	tournaments domain.ActiveTournamentProvider
+	// pools/bouts — межмодульные гейт-чекеры для Delete (спека 0040, FR-1):
+	// удаление номинации отклоняется, если в ней есть распределённые бойцы
+	// или поставленные бои.
+	pools domain.PoolOccupancyChecker
+	bouts domain.BoutOccupancyChecker
 }
 
 // New создаёт сервис nomination.
-func New(repo domain.Repository, tournaments domain.ActiveTournamentProvider) *Service {
-	return &Service{repo: repo, tournaments: tournaments}
+func New(repo domain.Repository, tournaments domain.ActiveTournamentProvider, pools domain.PoolOccupancyChecker, bouts domain.BoutOccupancyChecker) *Service {
+	return &Service{repo: repo, tournaments: tournaments, pools: pools, bouts: bouts}
 }
 
 // List возвращает номинации турнира по порядку. tournamentID обязателен и
@@ -77,12 +82,34 @@ func (s *Service) Update(ctx context.Context, in domain.UpdateInput) (domain.Nom
 	return s.repo.Update(ctx, in)
 }
 
-// Delete удаляет номинацию по идентификатору.
+// Delete удаляет номинацию по идентификатору. Отказывает (без изменений в
+// хранилище), если в номинации есть распределённый в пул боец
+// (ErrHasDistributedFighters) либо хотя бы один поставленный бой
+// (ErrHasBouts) — спека 0040, FR-1/FR-2/FR-3a. Единственный способ снять
+// блокировку — вручную развести бойцов/сбросить посев через уже
+// существующие операции модулей stage/fighter, до повторного вызова Delete.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return domain.ErrInvalidInput
 	}
+
+	hasDistributed, err := s.pools.HasDistributedFighters(ctx, id)
+	if err != nil {
+		return err
+	}
+	if hasDistributed {
+		return domain.ErrHasDistributedFighters
+	}
+
+	hasBouts, err := s.bouts.HasBouts(ctx, id)
+	if err != nil {
+		return err
+	}
+	if hasBouts {
+		return domain.ErrHasBouts
+	}
+
 	return s.repo.Delete(ctx, id)
 }
 

@@ -11,16 +11,34 @@ import (
 
 const activeTournamentID = "11111111-1111-1111-1111-111111111111"
 
+// testService создаёт сервис с fake-репо и незанятыми (false/false)
+// occupancy-чекерами — гейт Delete (спека 0040) не мешает существующим
+// тестам, не связанным с ним.
 func testService() (*Service, *testutil.FakeRepo) {
 	repo := testutil.NewFakeRepo()
 	provider := testutil.NewFakeActiveTournamentProvider(activeTournamentID)
-	return New(repo, provider), repo
+	pools := testutil.NewFakePoolOccupancyChecker(false)
+	bouts := testutil.NewFakeBoutOccupancyChecker(false)
+	return New(repo, provider, pools, bouts), repo
 }
 
 func testServiceNoActiveTournament() (*Service, *testutil.FakeRepo) {
 	repo := testutil.NewFakeRepo()
 	provider := testutil.NewFakeActiveTournamentProviderWithError(errors.New("no active tournament"))
-	return New(repo, provider), repo
+	pools := testutil.NewFakePoolOccupancyChecker(false)
+	bouts := testutil.NewFakeBoutOccupancyChecker(false)
+	return New(repo, provider, pools, bouts), repo
+}
+
+// testServiceWithOccupancy — как testService, но с явно заданными
+// occupancy-чекерами (спека 0040, T3): для тестов гейта Delete на всех
+// четырёх комбинациях true/false.
+func testServiceWithOccupancy(hasDistributed, hasBouts bool) (*Service, *testutil.FakeRepo) {
+	repo := testutil.NewFakeRepo()
+	provider := testutil.NewFakeActiveTournamentProvider(activeTournamentID)
+	pools := testutil.NewFakePoolOccupancyChecker(hasDistributed)
+	bouts := testutil.NewFakeBoutOccupancyChecker(hasBouts)
+	return New(repo, provider, pools, bouts), repo
 }
 
 func TestCreate_HappyPath(t *testing.T) {
@@ -469,7 +487,9 @@ func seedWithState(id string, status domain.Status, reason domain.ClosedReason, 
 		HasDistributedFighters: hasDistributed,
 	})
 	provider := testutil.NewFakeActiveTournamentProvider(activeTournamentID)
-	return New(repo, provider), repo
+	pools := testutil.NewFakePoolOccupancyChecker(false)
+	bouts := testutil.NewFakeBoutOccupancyChecker(false)
+	return New(repo, provider, pools, bouts), repo
 }
 
 func TestCloseRegistration_OpenToClosedManual(t *testing.T) {
@@ -724,5 +744,76 @@ func TestSyncExecutionState_NotFound(t *testing.T) {
 	err := svc.SyncExecutionState(context.Background(), "does-not-exist", domain.ExecutionActive)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// --- Спека 0040: гейт на удаление номинации (сценарий 1, FR-1/FR-3/FR-3a) ---
+
+// AC-1: в номинации есть распределённый в пул боец — Delete отказывает,
+// номинация остаётся нетронутой.
+func TestDelete_HasDistributedFighters_ErrHasDistributedFighters(t *testing.T) {
+	svc, repo := testServiceWithOccupancy(true, false)
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Title: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.Delete(context.Background(), created.ID)
+	if !errors.Is(err, domain.ErrHasDistributedFighters) {
+		t.Errorf("expected ErrHasDistributedFighters, got %v", err)
+	}
+	if _, getErr := repo.GetByID(context.Background(), created.ID); getErr != nil {
+		t.Errorf("nomination should still exist after blocked delete, GetByID: %v", getErr)
+	}
+}
+
+// AC-2: в номинации есть поставленный (или завершённый) бой — Delete
+// отказывает, даже без распределённых бойцов.
+func TestDelete_HasBouts_ErrHasBouts(t *testing.T) {
+	svc, repo := testServiceWithOccupancy(false, true)
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Title: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.Delete(context.Background(), created.ID)
+	if !errors.Is(err, domain.ErrHasBouts) {
+		t.Errorf("expected ErrHasBouts, got %v", err)
+	}
+	if _, getErr := repo.GetByID(context.Background(), created.ID); getErr != nil {
+		t.Errorf("nomination should still exist after blocked delete, GetByID: %v", getErr)
+	}
+}
+
+// Оба условия верны одновременно — распределённые бойцы проверяются первыми
+// (FR-1: «(а) ... ; (б) ...» — порядок из plan.md), поэтому побеждает
+// ErrHasDistributedFighters, а не ErrHasBouts.
+func TestDelete_HasDistributedFightersAndBouts_ErrHasDistributedFightersWins(t *testing.T) {
+	svc, _ := testServiceWithOccupancy(true, true)
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Title: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.Delete(context.Background(), created.ID)
+	if !errors.Is(err, domain.ErrHasDistributedFighters) {
+		t.Errorf("expected ErrHasDistributedFighters, got %v", err)
+	}
+}
+
+// AC-3: ни распределённых бойцов, ни боёв нет — Delete проходит как и
+// сегодня, без изменений в этом случае.
+func TestDelete_NoOccupancy_HappyPath(t *testing.T) {
+	svc, _ := testServiceWithOccupancy(false, false)
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Title: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := svc.Delete(context.Background(), created.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := svc.Get(context.Background(), created.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
 	}
 }

@@ -23,6 +23,13 @@ var (
 	// активна) — единый код для обоих случаев FR-4 (AC-9/AC-16), спека не
 	// требует различать их в ответе клиенту.
 	ErrCannotReopen = errors.New("nomination: registration cannot be reopened")
+	// ErrHasDistributedFighters — Delete отклонён: в номинации есть боец,
+	// распределённый в пул любой её стадии (спека 0040, FR-1а, AC-1).
+	ErrHasDistributedFighters = errors.New("nomination: has distributed fighters")
+	// ErrHasBouts — Delete отклонён: в номинации есть хотя бы один
+	// поставленный (в процессе или завершённый) бой (спека 0040, FR-1б,
+	// AC-2).
+	ErrHasBouts = errors.New("nomination: has bouts")
 )
 
 // Status — статус жизненного цикла номинации (спека 0012, FR-1). Публичное
@@ -168,4 +175,20 @@ type Repository interface {
 // клиентом (в MVP: должен совпадать с активным турниром).
 type ActiveTournamentProvider interface {
 	ActiveTournamentID(ctx context.Context) (string, error)
+}
+
+// PoolOccupancyChecker — межмодульная зависимость: есть ли в номинации хотя
+// бы один боец, распределённый в пул любой её стадии (через API модуля
+// stage, без прямого доступа к его PG-схеме — ADR 0002). Используется
+// Delete как гейт на удаление номинации (спека 0040, FR-1а).
+type PoolOccupancyChecker interface {
+	HasDistributedFighters(ctx context.Context, nominationID string) (bool, error)
+}
+
+// BoutOccupancyChecker — межмодульная зависимость: есть ли в номинации хотя
+// бы один поставленный (в процессе или завершённый) бой (через API модуля
+// bout, без прямого доступа к его PG-схеме — ADR 0002). Используется Delete
+// как гейт на удаление номинации (спека 0040, FR-1б).
+type BoutOccupancyChecker interface {
+	HasBouts(ctx context.Context, nominationID string) (bool, error)
 }

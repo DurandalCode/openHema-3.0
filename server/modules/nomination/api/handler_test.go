@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,13 +28,25 @@ const (
 // setup поднимает реальные Connect-хендлеры с fake-репозиторием и
 // fake-провайдером активного турнира. Конфигурация повторяет прод-сетап:
 // глобально Auth (валидация Bearer), на admin-сервис — RequireAdmin.
+// Occupancy-чекеры (спека 0040) фиксированы в false/false — гейт удаления не
+// мешает тестам, не связанным с ним; см. setupWithOccupancy для гейт-тестов.
 func setup(t *testing.T, nominations ...domain.Nomination) (hemav1connect.NominationServiceClient, hemav1connect.NominationAdminServiceClient, *testutil.FakeRepo) {
+	t.Helper()
+	pub, admin, repo, _, _ := setupWithOccupancy(t, false, false, nominations...)
+	return pub, admin, repo
+}
+
+// setupWithOccupancy — как setup, но с явно заданными occupancy-чекерами
+// (спека 0040, T4): для e2e-тестов гейта DeleteNomination.
+func setupWithOccupancy(t *testing.T, hasDistributed, hasBouts bool, nominations ...domain.Nomination) (hemav1connect.NominationServiceClient, hemav1connect.NominationAdminServiceClient, *testutil.FakeRepo, *testutil.FakePoolOccupancyChecker, *testutil.FakeBoutOccupancyChecker) {
 	t.Helper()
 
 	repo := testutil.NewFakeRepoWithNominations(nominations...)
 	provider := testutil.NewFakeActiveTournamentProvider(activeTournamentID)
+	pools := testutil.NewFakePoolOccupancyChecker(hasDistributed)
+	bouts := testutil.NewFakeBoutOccupancyChecker(hasBouts)
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo, provider)
+	svc := service.New(repo, provider, pools, bouts)
 	pubHandler := NewHandler(svc)
 	adminHandler := NewAdminHandler(svc)
 
@@ -57,7 +70,7 @@ func setup(t *testing.T, nominations ...domain.Nomination) (hemav1connect.Nomina
 	client := server.Client()
 	pubClient := hemav1connect.NewNominationServiceClient(client, server.URL)
 	adminClient := hemav1connect.NewNominationAdminServiceClient(client, server.URL)
-	return pubClient, adminClient, repo
+	return pubClient, adminClient, repo, pools, bouts
 }
 
 func adminBearer(t *testing.T) string {
@@ -646,6 +659,82 @@ func TestListNominations_E2E_ExecutionFinished_OverridesStatusClosed(t *testing.
 	}
 	if res.Msg.Nominations[0].Status != hemav1.NominationStatus_NOMINATION_STATUS_FINISHED {
 		t.Errorf("Status = %v, want FINISHED even though registration Status is closed", res.Msg.Nominations[0].Status)
+	}
+}
+
+// --- Спека 0040: гейт на удаление номинации (сценарий 1, FR-1/FR-2/FR-3) ---
+
+// AC-1: в номинации есть распределённый в пул боец — DeleteNomination
+// отказывает с CodeFailedPrecondition.
+func TestDeleteNomination_E2E_HasDistributedFighters_FailedPrecondition(t *testing.T) {
+	_, admin, _, _, _ := setupWithOccupancy(t, true, false, seedNomination("n1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.DeleteNominationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.DeleteNomination(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+	if !strings.Contains(err.Error(), "distributed") {
+		t.Errorf("error text should be distinguishable (has distributed fighters), got %q", err.Error())
+	}
+}
+
+// AC-2: в номинации есть поставленный (или завершённый) бой —
+// DeleteNomination отказывает с CodeFailedPrecondition, даже без
+// распределённых бойцов.
+func TestDeleteNomination_E2E_HasBouts_FailedPrecondition(t *testing.T) {
+	_, admin, _, _, _ := setupWithOccupancy(t, false, true, seedNomination("n1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.DeleteNominationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := admin.DeleteNomination(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+	if !strings.Contains(err.Error(), "bouts") {
+		t.Errorf("error text should be distinguishable (has bouts), got %q", err.Error())
+	}
+}
+
+// FR-2: отказ должен быть различим для вызывающего — тексты двух причин
+// отказа не совпадают (клиент должен суметь показать конкретную причину).
+func TestDeleteNomination_E2E_DistinctReasons_DifferentText(t *testing.T) {
+	_, admin1, _, _, _ := setupWithOccupancy(t, true, false, seedNomination("n1", "T", 0))
+	req1 := connect.NewRequest(&hemav1.DeleteNominationRequest{Id: "n1"})
+	req1.Header().Set("Authorization", adminBearer(t))
+	_, err1 := admin1.DeleteNomination(context.Background(), req1)
+
+	_, admin2, _, _, _ := setupWithOccupancy(t, false, true, seedNomination("n2", "T", 0))
+	req2 := connect.NewRequest(&hemav1.DeleteNominationRequest{Id: "n2"})
+	req2.Header().Set("Authorization", adminBearer(t))
+	_, err2 := admin2.DeleteNomination(context.Background(), req2)
+
+	if err1 == nil || err2 == nil {
+		t.Fatalf("expected both deletes to be blocked, got err1=%v err2=%v", err1, err2)
+	}
+	if err1.Error() == err2.Error() {
+		t.Errorf("expected distinguishable error text (FR-2), got same text for both reasons: %q", err1.Error())
+	}
+}
+
+// AC-3: ни распределённых бойцов, ни боёв нет — DeleteNomination проходит
+// как и сегодня.
+func TestDeleteNomination_E2E_NoOccupancy_HappyPath(t *testing.T) {
+	pub, admin, _, _, _ := setupWithOccupancy(t, false, false, seedNomination("n1", "T", 0))
+
+	req := connect.NewRequest(&hemav1.DeleteNominationRequest{Id: "n1"})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	if _, err := admin.DeleteNomination(context.Background(), req); err != nil {
+		t.Fatalf("DeleteNomination: %v", err)
+	}
+
+	_, err := pub.GetNomination(context.Background(), connect.NewRequest(&hemav1.GetNominationRequest{Id: "n1"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("expected CodeNotFound after delete, got %v", connect.CodeOf(err))
 	}
 }
 

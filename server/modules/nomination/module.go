@@ -22,10 +22,15 @@ import (
 
 // Deps — явные зависимости модуля nomination (DI через конструктор).
 // Tournaments — межмодульная зависимость (порт, не прямой доступ к схеме
-// tournament); см. tournament.NewActiveTournamentIDProvider.
+// tournament); см. tournament.NewActiveTournamentIDProvider. Pools/Bouts —
+// гейт на удаление номинации (спека 0040, FR-1): реализуются адаптерами
+// stage.PoolOccupancyAdapter/bout.BoutOccupancyAdapter, подключаемыми
+// composition root'ом (internal/platform).
 type Deps struct {
 	Pool        *pgxpool.Pool
 	Tournaments domain.ActiveTournamentProvider
+	Pools       domain.PoolOccupancyChecker
+	Bouts       domain.BoutOccupancyChecker
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux.
@@ -34,7 +39,7 @@ type Deps struct {
 // (require-admin).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Tournaments)
+	svc := service.New(r, deps.Tournaments, deps.Pools, deps.Bouts)
 
 	pubHandler := api.NewHandler(svc)
 	adminHandler := api.NewAdminHandler(svc)
