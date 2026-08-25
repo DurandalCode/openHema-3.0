@@ -30,6 +30,20 @@ function nominationsCountWord(n: number): string {
   return countWord(n, ["номинация", "номинации", "номинаций"]);
 }
 
+// deleteGateMessage — переводит машиночитаемый код гейта на удаление
+// номинации (спека 0040, FR-1/FR-2/AC-1/AC-2; BFF `app/api/nominations/
+// [id]/route.ts`, `deleteErrorResponse`) в конкретную русскую причину. Код,
+// не входящий в словарь (в т.ч. «not found» и сетевые ошибки), показывается
+// как есть — BFF в этих случаях уже отдаёт разумный текст.
+const DELETE_GATE_MESSAGES: Record<string, string> = {
+  has_distributed_fighters: "В номинации есть распределённые бойцы",
+  has_bouts: "В номинации есть бои",
+};
+
+function deleteGateMessage(error: string): string {
+  return DELETE_GATE_MESSAGES[error] ?? error;
+}
+
 /**
  * NominationsScreen — корень экрана «Номинации» (spec FR-1…FR-20): таблица с
  * порядком/статусом приёма/сводкой схемы/действиями, модалки создания и
@@ -100,7 +114,7 @@ export function NominationsScreen({
     if (!deletingId) return;
     del.mutate(deletingId, {
       onSuccess: () => toastSuccess("Номинация удалена"),
-      onError: (err: Error) => toastError(err.message),
+      onError: (err: Error) => toastError(deleteGateMessage(err.message)),
     });
     setDeletingId(null);
   }
