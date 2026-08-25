@@ -91,24 +91,43 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	tournament.Register(mux, tournamentDeps, baseOpts, adminOpts)
 
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
+
+	// displayNames — резолв отображаемых имён пользователей (модуль auth,
+	// ADR 0002): один объект, переиспользуемый application (спека 0025),
+	// stage (спека 0033, журнал боёв площадки, приём 0025) и fighter (спека
+	// 0040, обратная проекция «учётка↔боец», FR-8).
+	displayNames := auth.NewDisplayNameProvider(pool, tokens)
+
+	// Межмодульные адаптеры спеки 0040 (сценарии 1-3): гейт на удаление
+	// номинации, восстановление посева при возврате бойца, репойнт при
+	// слиянии дублей. См. domain_gaps_adapters.go.
+	poolOccupancy, seedingSink, stageRepointer := NewStageCrossModuleAdapters(pool)
+	boutOccupancy, boutRepointer := NewBoutCrossModuleAdapters(pool)
+
+	// Pools/Bouts — гейт на удаление номинации (спека 0040, сценарий 1,
+	// FR-1).
 	nominationDeps := nomination.Deps{
 		Pool:        pool,
 		Tournaments: activeTournaments,
+		Pools:       poolOccupancy,
+		Bouts:       boutOccupancy,
 	}
 	nomination.Register(mux, nominationDeps, baseOpts, adminOpts)
 
 	fighterNominations := NewFighterNominationProvider(pool, activeTournaments)
+	// Seeding/Stage/Bout — восстановление посева при возврате бойца
+	// (сценарий 2) и репойнт при слиянии дублей (сценарий 3). Accounts —
+	// обратная проекция «учётка↔боец» (сценарий 3, FR-8/FR-9).
 	fighterDeps := fighter.Deps{
 		Pool:        pool,
 		Nominations: fighterNominations,
 		Tournaments: activeTournaments,
+		Seeding:     seedingSink,
+		Stage:       stageRepointer,
+		Bout:        boutRepointer,
+		Accounts:    displayNames,
 	}
 	fighter.Register(mux, fighterDeps, baseOpts, adminOpts)
-
-	// displayNames — резолв отображаемых имён пользователей (модуль auth,
-	// ADR 0002): один объект, переиспользуемый application (спека 0025) и
-	// stage (спека 0033, журнал боёв площадки, приём 0025).
-	displayNames := auth.NewDisplayNameProvider(pool, tokens)
 
 	applicationDeps := application.Deps{
 		Pool:        pool,

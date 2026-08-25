@@ -192,7 +192,9 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 			"http://localhost:3000", 30*time.Minute, time.Now,
 		),
 		Tournament: tournamentservice.New(tournamentrepo.New(pool)),
-		Nomination: nomservice.New(nomrepo.New(pool), activeTournaments),
+		// Pools/Bouts (спека 0040) — nil: демо-сидинг не удаляет номинации
+		// через гейт, ему не нужны межмодульные чекеры occupancy.
+		Nomination: nomservice.New(nomrepo.New(pool), activeTournaments, nil, nil),
 		Arena:      arenaservice.New(arenarepo.New(pool), activeTournaments),
 		Application: appservice.New(
 			apprepo.New(pool),
@@ -200,10 +202,13 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 			auth.NewDisplayNameProvider(pool, tokens),
 			fightermodule.NewRegistrationSink(pool, fighterNominations),
 		),
+		// Seeding/Stage/Bout/Accounts (спека 0040) — nil: демо-сидинг не
+		// выводит/сливает бойцов через эти сценарии.
 		Fighter: fighterservice.New(
 			fighterrepo.New(pool),
 			fighterNominations,
 			activeTournaments,
+			nil, nil, nil, nil,
 		),
 		Pool: stageservice.New(
 			stagerepo.New(pool),

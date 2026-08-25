@@ -23,7 +23,9 @@ type StageActiveFightersProvider struct {
 // ActiveTournamentProvider fighter-сервиса — оба порта можно не передавать.
 func NewStageActiveFightersProvider(pool *pgxpool.Pool) *StageActiveFightersProvider {
 	r := fighterrepo.New(pool)
-	return &StageActiveFightersProvider{svc: fighterservice.New(r, nil, nil)}
+	// Seeding/Stage/Bout/Accounts (спека 0040) — nil:
+	// ActiveFightersByNomination их не использует.
+	return &StageActiveFightersProvider{svc: fighterservice.New(r, nil, nil, nil, nil, nil, nil)}
 }
 
 var _ stagedomain.ActiveFightersProvider = (*StageActiveFightersProvider)(nil)
