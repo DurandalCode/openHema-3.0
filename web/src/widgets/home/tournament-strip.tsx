@@ -3,6 +3,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import { formatEventRange } from "@/entities/tournament/lib/format";
+import { TournamentProgram } from "@/entities/tournament/ui/tournament-program";
 import type { TournamentLiveSnapshotDto } from "@/entities/tournament-live/lib/types";
 import {
   arenasBusy,
@@ -77,6 +78,12 @@ export function TournamentStrip({
           </Link>
         </Row>
       </Row>
+
+      {tournament.program.length > 0 && (
+        <div className="mx-auto w-full max-w-6xl px-4 pb-3">
+          <TournamentProgram program={tournament.program} title="Программа" />
+        </div>
+      )}
     </section>
   );
 }

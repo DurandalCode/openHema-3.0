@@ -1,4 +1,4 @@
-import type { ContactType, Tournament } from "@/entities/tournament/lib/types";
+import type { ContactType, Tournament, TournamentProgramDay } from "@/entities/tournament/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ContactInput = { type: ContactType; value: string };
@@ -24,6 +24,10 @@ export type UpdateTournamentInput = {
   // (FR-21, отличимо от явного 0).
   entryFeeMinor?: number | null;
   entryFeeCurrency?: string;
+  // program — программа турнира по дням (спека 0040, FR-14): полная замена,
+  // тем же приёмом, что contacts (не передать поле — обнулить его на сервере
+  // при следующем сохранении).
+  program?: TournamentProgramDay[];
 };
 
 export type TournamentResult =

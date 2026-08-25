@@ -8,6 +8,13 @@ import type { ContactType, Tournament } from "./types";
  */
 export type ContactDraft = { type: ContactType; value: string };
 
+// ProgramItemDraft/ProgramDayDraft — программа турнира по дням в форме
+// (спека 0040, FR-14): та же форма, что `TournamentProgramItem`/
+// `TournamentProgramDay` в `Tournament` — day/item не несут id/position
+// (порядок — индекс в массиве, тот же приём, что contacts).
+export type ProgramItemDraft = { timeLabel: string; text: string };
+export type ProgramDayDraft = { date: string; items: ProgramItemDraft[] };
+
 export type TournamentDraft = {
   title: string;
   description: string;
@@ -28,6 +35,9 @@ export type TournamentDraft = {
   // остаётся в минорных единицах (FR-21).
   entryFeeAmount: string;
   entryFeeCurrency: string;
+  // program — программа турнира по дням (спека 0040, FR-14/FR-14a): дни
+  // задаются admin вручную, без привязки к eventStartAt/eventEndAt.
+  program: ProgramDayDraft[];
 };
 
 function contactWord(n: number): string {
@@ -46,6 +56,26 @@ function normalizeContacts(contacts: ContactDraft[]): ContactDraft[] {
   return contacts
     .map((c) => ({ type: c.type, value: c.value.trim() }))
     .filter((c) => c.value !== "");
+}
+
+/**
+ * normalizeProgram — тот же приём, что `normalizeContacts`: обрезает
+ * пробелы и отбрасывает пустые пункты (пустой текст, добавленный кнопкой
+ * «+ Добавить пункт» и не заполненный, не должен ни считаться изменением,
+ * ни попадать в превью/сохранение); день, оставшийся без пунктов после
+ * такой фильтрации, отбрасывается целиком — пустой день программы не несёт
+ * смысла.
+ */
+function normalizeProgramItems(items: ProgramItemDraft[]): ProgramItemDraft[] {
+  return items
+    .map((it) => ({ timeLabel: it.timeLabel.trim(), text: it.text.trim() }))
+    .filter((it) => it.text !== "");
+}
+
+function normalizeProgram(days: ProgramDayDraft[]): ProgramDayDraft[] {
+  return days
+    .map((d) => ({ date: d.date.trim(), items: normalizeProgramItems(d.items) }))
+    .filter((d) => d.items.length > 0);
 }
 
 /**
@@ -147,6 +177,17 @@ export function tournamentDraftChanges(
     changes.push(`${contactsChanged} ${contactWord(contactsChanged)}`);
   }
 
+  const savedProgram = normalizeProgram(
+    saved.program.map((d) => ({
+      date: d.date,
+      items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
+    })),
+  );
+  const draftProgram = normalizeProgram(draft.program);
+  if (JSON.stringify(savedProgram) !== JSON.stringify(draftProgram)) {
+    changes.push("программа");
+  }
+
   return changes;
 }
 
@@ -232,5 +273,6 @@ export function draftToTournament(
     // «не задан» затирает валюту (FR-21): взнос без суммы не должен нести
     // валюту, которая на публичной странице читалась бы как «взнос есть».
     entryFeeCurrency: entryFeeMinor === null ? "" : draft.entryFeeCurrency,
+    program: normalizeProgram(draft.program),
   };
 }

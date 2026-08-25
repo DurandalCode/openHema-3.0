@@ -240,5 +240,51 @@ describe("app/api/tournament route", () => {
       expect(res.status).toBe(400);
       expect(tournamentAdminClient.updateActiveTournament).not.toHaveBeenCalled();
     });
+
+    // spec 0040, FR-14/FR-22: та же full-replace семантика, что contacts —
+    // не форвардить program здесь означало бы обнулять программу на сервере
+    // при каждом сохранении любого другого поля.
+    it("forwards the program field (spec 0040, FR-14)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(
+        putReq({
+          title: "Cup",
+          program: [
+            {
+              date: "2026-12-01",
+              items: [{ timeLabel: "9:00", text: "Сбор участников" }],
+            },
+          ],
+        }),
+      );
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.program).toEqual([
+        {
+          date: "2026-12-01",
+          items: [{ timeLabel: "9:00", text: "Сбор участников" }],
+        },
+      ]);
+    });
+
+    it("defaults program to an empty array when absent", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(putReq({ title: "Cup" }));
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.program).toEqual([]);
+    });
   });
 });

@@ -80,6 +80,7 @@ type TournamentJson = {
   venueAddress: string;
   entryFeeMinor: number | null;
   entryFeeCurrency: string;
+  program: { date: string; items: { timeLabel: string; text: string }[] }[];
 };
 
 describe("userToJson", () => {
@@ -295,7 +296,47 @@ describe("tournamentToJson", () => {
     expect(json.entryFeeMinor).toBeNull();
     expect(json.entryFeeCurrency).toBe("");
   });
+
+  // spec 0040 (T27): program — программа турнира по дням. toJson опускает
+  // repeated целиком на пустом значении (как contacts), и опускает поля
+  // day/item по отдельности на их зероvalue — нормализация должна работать
+  // на обоих уровнях.
+  it("normalizes an empty program to an empty array (FR-16)", () => {
+    const t = fromJson(TournamentSchema, { id: "t1" });
+    const json = tournamentToJson(t) as TournamentJson;
+    expect(json.program).toEqual([]);
+  });
+
+  it("carries program days/items through, in order (spec 0040, FR-14/FR-15)", () => {
+    const t = fromJson(TournamentSchema, {
+      id: "t1",
+      program: [
+        {
+          date: "2026-12-01",
+          items: [
+            { timeLabel: "9:00", text: "Сбор участников" },
+            { timeLabel: "10:00", text: "Начало номинаций" },
+          ],
+        },
+        { date: "2026-12-02", items: [{ timeLabel: "10:00", text: "Финалы" }] },
+      ],
+    });
+
+    const json = tournamentToJson(t) as TournamentJson;
+
+    expect(json.program).toEqual([
+      {
+        date: "2026-12-01",
+        items: [
+          { timeLabel: "9:00", text: "Сбор участников" },
+          { timeLabel: "10:00", text: "Начало номинаций" },
+        ],
+      },
+      { date: "2026-12-02", items: [{ timeLabel: "10:00", text: "Финалы" }] },
+    ]);
+  });
 });
+
 
 type NominationJson = {
   id: string;

@@ -42,6 +42,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "",
     entryFeeMinor: null,
     entryFeeCurrency: "",
+    program: [],
     ...overrides,
   };
 }

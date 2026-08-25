@@ -27,6 +27,7 @@ function saved(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "",
     entryFeeMinor: null,
     entryFeeCurrency: "",
+    program: [],
     ...overrides,
   };
 }
@@ -45,6 +46,10 @@ function draftFrom(t: Tournament): TournamentDraft {
     venueAddress: t.venueAddress,
     entryFeeAmount: entryFeeMinorToAmount(t.entryFeeMinor),
     entryFeeCurrency: t.entryFeeCurrency,
+    program: t.program.map((d) => ({
+      date: d.date,
+      items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
+    })),
   };
 }
 
