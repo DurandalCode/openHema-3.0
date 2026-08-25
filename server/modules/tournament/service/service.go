@@ -93,5 +93,25 @@ func (s *Service) UpdateActive(ctx context.Context, in domain.UpdateInput) (doma
 	}
 	in.Contacts = contacts
 
+	// program: непустой Text каждого пункта (chk_program_items_text
+	// дублируется на уровне домена ради читаемой ошибки до похода в БД);
+	// position не передаётся наружу explicit — репозиторий проставляет по
+	// индексу среза (FR-14/FR-14a).
+	program := make([]domain.ProgramDay, 0, len(in.Program))
+	for _, d := range in.Program {
+		items := make([]domain.ProgramItem, 0, len(d.Items))
+		for _, it := range d.Items {
+			it.TimeLabel = strings.TrimSpace(it.TimeLabel)
+			it.Text = strings.TrimSpace(it.Text)
+			if it.Text == "" {
+				return domain.Tournament{}, domain.ErrInvalidInput
+			}
+			items = append(items, it)
+		}
+		d.Items = items
+		program = append(program, d)
+	}
+	in.Program = program
+
 	return s.repo.UpdateActive(ctx, in)
 }

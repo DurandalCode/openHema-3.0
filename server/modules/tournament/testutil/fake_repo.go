@@ -82,6 +82,15 @@ func (r *FakeRepo) UpdateActive(_ context.Context, in domain.UpdateInput) (domai
 		})
 	}
 	t.Contacts = contacts
+
+	program := make([]domain.ProgramDay, 0, len(in.Program))
+	for _, d := range in.Program {
+		items := make([]domain.ProgramItem, 0, len(d.Items))
+		items = append(items, d.Items...)
+		program = append(program, domain.ProgramDay{Date: d.Date, Items: items})
+	}
+	t.Program = program
+
 	r.tournament = t
 	return cloneTournament(t), nil
 }
@@ -90,6 +99,16 @@ func cloneTournament(t domain.Tournament) domain.Tournament {
 	out := t
 	if len(t.Contacts) > 0 {
 		out.Contacts = append([]domain.Contact(nil), t.Contacts...)
+	}
+	if len(t.Program) > 0 {
+		program := make([]domain.ProgramDay, len(t.Program))
+		for i, d := range t.Program {
+			program[i] = domain.ProgramDay{Date: d.Date}
+			if len(d.Items) > 0 {
+				program[i].Items = append([]domain.ProgramItem(nil), d.Items...)
+			}
+		}
+		out.Program = program
 	}
 	return out
 }
