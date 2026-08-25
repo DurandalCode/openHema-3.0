@@ -1,4 +1,4 @@
-import type { Application } from "@/entities/application/lib/types";
+import type { Application, ApplicationEvent } from "@/entities/application/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ApplicationResult =
@@ -16,6 +16,29 @@ export async function listMyApplicationsRequest(): Promise<ApplicationListResult
   });
   if (!res.ok) return { ok: false, error: res.error, status: res.status };
   return { ok: true, applications: res.data.applications ?? [] };
+}
+
+export type ApplicationDetailResult =
+  | { ok: true; application: Application; history: ApplicationEvent[] }
+  | { ok: false; error: string; status?: number };
+
+/**
+ * getMyApplicationRequest — GET /api/applications/[id] (владелец заявки).
+ * Заявка с историей событий (спека 0040, FR-12/FR-13) — та же BFF-ручка,
+ * что использует admin-фича `application-review`; сервер сам проверяет
+ * доступ (владелец или admin), чужая заявка отвечает отказом.
+ */
+export async function getMyApplicationRequest(applicationId: string): Promise<ApplicationDetailResult> {
+  const res = await apiFetch<{ application?: Application; history?: ApplicationEvent[] }>(
+    `/api/applications/${encodeURIComponent(applicationId)}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return {
+    ok: true,
+    application: res.data.application as Application,
+    history: res.data.history ?? [],
+  };
 }
 
 export type SubmitApplicationDetails = {
