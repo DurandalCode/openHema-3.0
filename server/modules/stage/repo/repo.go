@@ -1623,3 +1623,159 @@ func isUniqueViolation(err error, constraintName string) bool {
 	}
 	return pgErr.Code == uniqueViolation && pgErr.ConstraintName == constraintName
 }
+
+// Спека 0040: гейт на удаление номинации, память посева при возврате
+// выведенного бойца, репойнт при слиянии дублей бойца.
+
+// ExistsDistributedFighterForNomination — есть ли в номинации хотя бы один
+// боец, распределённый в пул любой её стадии (FR-1 гейта удаления
+// номинации).
+func (r *Repo) ExistsDistributedFighterForNomination(ctx context.Context, nominationID string) (bool, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return false, domain.ErrNotFound
+	}
+	exists, err := r.q.ExistsDistributedFighterForNomination(ctx, nid)
+	if err != nil {
+		return false, fmt.Errorf("exists distributed fighter for nomination: %w", err)
+	}
+	return exists, nil
+}
+
+// DraftMembershipsByFighter возвращает членства бойца в пулах этапов, ещё
+// находящихся в draft (FR-4) — вход OnFighterWithdrawn.
+func (r *Repo) DraftMembershipsByFighter(ctx context.Context, fighterID string) ([]domain.DraftMembership, error) {
+	fid, err := uuid.Parse(fighterID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	rows, err := r.q.DraftMembershipsByFighter(ctx, fid)
+	if err != nil {
+		return nil, fmt.Errorf("draft memberships by fighter: %w", err)
+	}
+	out := make([]domain.DraftMembership, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.DraftMembership{
+			NominationID: row.NominationID.String(),
+			StageID:      row.StageID.String(),
+			PoolID:       row.PoolID.String(),
+		})
+	}
+	return out, nil
+}
+
+// CaptureWithdrawnSeed атомарно переносит членство бойца в указанном
+// draft-этапе из pool_members в withdrawn_seeds (FR-4). Идемпотентно: если
+// членства уже нет (гонка/повторный вызов), no-op.
+func (r *Repo) CaptureWithdrawnSeed(ctx context.Context, fighterID, stageID string) error {
+	fid, err := uuid.Parse(fighterID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	member, err := q.MemberByStageFighter(ctx, sqlc.MemberByStageFighterParams{StageID: sid, FighterID: fid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Членства уже нет (гонка/повторный вызов) — нечего запоминать.
+			return nil
+		}
+		return fmt.Errorf("member by stage fighter: %w", err)
+	}
+	if err := q.InsertWithdrawnSeed(ctx, sqlc.InsertWithdrawnSeedParams{
+		FighterID: fid, NominationID: member.NominationID, StageID: sid, PoolID: member.PoolID,
+	}); err != nil {
+		return fmt.Errorf("insert withdrawn seed: %w", err)
+	}
+	if err := q.DeleteMemberByFighter(ctx, sqlc.DeleteMemberByFighterParams{StageID: sid, FighterID: fid}); err != nil {
+		return fmt.Errorf("delete member: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// RestoreWithdrawnSeed пытается восстановить все запомненные посевы бойца
+// (FR-5/FR-6): для каждой строки withdrawn_seeds — если её стадия всё ещё
+// draft и пул ещё существует, членство возвращается в pool_members; иначе
+// память просто освобождается (best-effort истечение, без силового
+// восстановления любой ценой).
+func (r *Repo) RestoreWithdrawnSeed(ctx context.Context, fighterID string) error {
+	fid, err := uuid.Parse(fighterID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	rows, err := q.WithdrawnSeedsByFighter(ctx, fid)
+	if err != nil {
+		return fmt.Errorf("withdrawn seeds by fighter: %w", err)
+	}
+	for _, row := range rows {
+		if row.Restorable != nil && *row.Restorable {
+			if err := q.InsertMember(ctx, sqlc.InsertMemberParams{PoolID: row.PoolID, FighterID: fid, Slot: nil}); err != nil {
+				return fmt.Errorf("insert member: %w", err)
+			}
+		}
+		if err := q.DeleteWithdrawnSeed(ctx, sqlc.DeleteWithdrawnSeedParams{FighterID: fid, NominationID: row.NominationID}); err != nil {
+			return fmt.Errorf("delete withdrawn seed: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// RepointFighter переносит членства source в target по всем этапам, где
+// target ещё не состоит (сценарий 3, слияние дублей бойца). Коллизия по
+// uq_members_stage_fighter не репойнтится молча (см. repo/queries/stage.sql).
+func (r *Repo) RepointFighter(ctx context.Context, sourceFighterID, targetFighterID string) error {
+	src, err := uuid.Parse(sourceFighterID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	tgt, err := uuid.Parse(targetFighterID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	if _, err := r.q.RepointFighter(ctx, sqlc.RepointFighterParams{SourceID: src, TargetID: tgt}); err != nil {
+		return fmt.Errorf("repoint fighter: %w", err)
+	}
+	return nil
+}
+
+// RepointWithdrawnSeed переносит запомненные посевы source в target
+// (сценарий 3) — той же защитой от коллизии, по PK (fighter_id,
+// nomination_id).
+func (r *Repo) RepointWithdrawnSeed(ctx context.Context, sourceFighterID, targetFighterID string) error {
+	src, err := uuid.Parse(sourceFighterID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	tgt, err := uuid.Parse(targetFighterID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	if _, err := r.q.RepointWithdrawnSeed(ctx, sqlc.RepointWithdrawnSeedParams{SourceID: src, TargetID: tgt}); err != nil {
+		return fmt.Errorf("repoint withdrawn seed: %w", err)
+	}
+	return nil
+}

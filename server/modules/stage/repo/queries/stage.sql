@@ -357,3 +357,81 @@ SELECT EXISTS (
 -- sqlc.narg допускает явный NULL.
 UPDATE stage.pools SET current_bout_id = sqlc.narg(bout_id), updated_at = now()
 WHERE id = $1;
+
+-- Спека 0040: гейт на удаление номинации (сценарий 1), память посева при
+-- возврате выведенного бойца (сценарий 2), репойнт при слиянии дублей
+-- бойца (сценарий 3).
+
+-- name: ExistsDistributedFighterForNomination :one
+-- Есть ли в номинации хотя бы один боец, распределённый в пул любой её
+-- стадии (FR-1 гейта удаления номинации) — денормализация nomination_id в
+-- pool_members (см. migrations/00001_init.sql) позволяет обойтись без join.
+SELECT EXISTS(SELECT 1 FROM stage.pool_members WHERE nomination_id = $1);
+
+-- name: DraftMembershipsByFighter :many
+-- Членства бойца в пулах ЭТАПОВ, ещё в draft (FR-4) — вход
+-- OnFighterWithdrawn: только они запоминаются в withdrawn_seeds при
+-- выводе, членства вне draft остаются как есть (посев там уже
+-- зафиксирован, тот же порог, что у DeletePool/ResetLayout).
+SELECT m.nomination_id, m.stage_id, m.pool_id
+FROM stage.pool_members m
+JOIN stage.stages s ON s.id = m.stage_id
+WHERE m.fighter_id = sqlc.arg(fighter_id)::uuid AND s.status = 'draft';
+
+-- name: MemberByStageFighter :one
+-- Пул + номинация членства бойца в конкретном этапе (уникальность —
+-- uq_members_stage_fighter) — вход CaptureWithdrawnSeed перед переносом
+-- строки в withdrawn_seeds.
+SELECT pool_id, nomination_id FROM stage.pool_members
+WHERE stage_id = sqlc.arg(stage_id)::uuid AND fighter_id = sqlc.arg(fighter_id)::uuid;
+
+-- name: InsertWithdrawnSeed :exec
+-- Записывает «память» о членстве бойца в пуле draft-этапа, откуда он
+-- выведен (FR-4). ON CONFLICT — идемпотентность на случай повторного
+-- вывода без возврата между ними (PK — (fighter_id, nomination_id)).
+INSERT INTO stage.withdrawn_seeds (fighter_id, nomination_id, stage_id, pool_id)
+VALUES (sqlc.arg(fighter_id)::uuid, sqlc.arg(nomination_id)::uuid, sqlc.arg(stage_id)::uuid, sqlc.arg(pool_id)::uuid)
+ON CONFLICT (fighter_id, nomination_id) DO UPDATE
+SET stage_id = excluded.stage_id, pool_id = excluded.pool_id, withdrawn_at = now();
+
+-- name: WithdrawnSeedsByFighter :many
+-- Запомненные посевы бойца по всем номинациям (FR-5) — restorable говорит,
+-- жива ли ещё draft-стадия и существует ли ещё сам пул: LEFT JOIN даёт
+-- NULL (⇒ restorable=false), если стадия или пул к моменту возврата уже
+-- удалены (FR-6).
+SELECT w.fighter_id, w.nomination_id, w.stage_id, w.pool_id,
+       (s.status = 'draft' AND p.id IS NOT NULL) AS restorable
+FROM stage.withdrawn_seeds w
+LEFT JOIN stage.stages s ON s.id = w.stage_id
+LEFT JOIN stage.pools p ON p.id = w.pool_id
+WHERE w.fighter_id = sqlc.arg(fighter_id)::uuid;
+
+-- name: DeleteWithdrawnSeed :exec
+-- Освобождает память об одном запомненном посеве (успешно восстановлен
+-- либо истёк — best-effort, FR-6).
+DELETE FROM stage.withdrawn_seeds WHERE fighter_id = sqlc.arg(fighter_id)::uuid AND nomination_id = sqlc.arg(nomination_id)::uuid;
+
+-- name: RepointFighter :execrows
+-- Переносит членства source в target по всем этапам, где target ещё не
+-- состоит (сценарий 3, слияние дублей бойца). Коллизия по
+-- uq_members_stage_fighter (target уже сидит в той же стадии) не
+-- репойнтится молча: source-строка в этом редком случае остаётся за
+-- source — слияние не теряет данные, но и не разрешает конфликт
+-- автоматически (снятие — отдельное ручное действие admin, не merge).
+UPDATE stage.pool_members SET fighter_id = sqlc.arg(target_id)::uuid
+WHERE fighter_id = sqlc.arg(source_id)::uuid
+  AND NOT EXISTS (
+    SELECT 1 FROM stage.pool_members m2
+    WHERE m2.stage_id = stage.pool_members.stage_id AND m2.fighter_id = sqlc.arg(target_id)::uuid
+  );
+
+-- name: RepointWithdrawnSeed :execrows
+-- Аналогично RepointFighter для withdrawn_seeds — защита от коллизии по PK
+-- (fighter_id, nomination_id): если target уже имеет запомненный посев той
+-- же номинации, строка source не репойнтится молча.
+UPDATE stage.withdrawn_seeds SET fighter_id = sqlc.arg(target_id)::uuid
+WHERE fighter_id = sqlc.arg(source_id)::uuid
+  AND NOT EXISTS (
+    SELECT 1 FROM stage.withdrawn_seeds w2
+    WHERE w2.nomination_id = stage.withdrawn_seeds.nomination_id AND w2.fighter_id = sqlc.arg(target_id)::uuid
+  );
