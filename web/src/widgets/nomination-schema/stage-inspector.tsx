@@ -11,6 +11,7 @@ import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Col, Row } from "@/shared/ui/stack";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
+import { useUnsavedGuard } from "@/shared/lib/use-unsaved-guard";
 import { stageErrorMessage } from "@/entities/stage/lib/errors";
 import { stageRuleLabel, stageTypeLabel } from "@/entities/stage/lib/labels";
 import type {
@@ -106,6 +107,45 @@ export function StageInspector({
   }, [stage.id]);
 
   const sourceStages = stages.filter((s) => s.type === "STAGE_TYPE_GROUPS" && s.id !== stage.id);
+
+  // Guard несохранённых изменений (спека 0039, FR-13, FR-15): два
+  // независимых черновика — «Параметры» и «Правило отбора». `title`
+  // сюда не входит — он автосохраняется по blur (`commitTitle`), это не
+  // копящийся черновик. Сравнение — напрямую с полями `stage` (не через
+  // общий `tournamentDraftChanges`-подобный хелпер, для `Stage` такого
+  // нет и не нужен ради одного места использования). Сбрасывается тем же
+  // эффектом, что переинициализирует форму на `[stage.id]` — при смене
+  // выбранного этапа локальные значения снова совпадают с `stage`.
+  const configDirty =
+    composeEmpty &&
+    (stage.type === "STAGE_TYPE_BRACKET"
+      ? bracketSize !== ((stage.bracket?.size as (typeof BRACKET_SIZES)[number]) ?? 8) ||
+        thirdPlace !== (stage.bracket?.thirdPlace ?? false)
+      : stage.type === "STAGE_TYPE_GROUPS"
+        ? groupCount !== (stage.groups?.groupCount ?? 0)
+        : false);
+
+  const savedRule: SeedingRuleInput | null = stage.rule
+    ? {
+        sourceKind: stage.rule.sourceKind,
+        sourceStageId: stage.rule.sourceStageId,
+        selector: stage.rule.selector,
+        placeFrom: stage.rule.placeFrom,
+        placeTo: stage.rule.placeTo,
+      }
+    : null;
+  const currentRule = buildRule();
+  const ruleDirty =
+    (currentRule === null) !== (savedRule === null) ||
+    (currentRule !== null &&
+      savedRule !== null &&
+      (currentRule.sourceKind !== savedRule.sourceKind ||
+        currentRule.sourceStageId !== savedRule.sourceStageId ||
+        currentRule.selector !== savedRule.selector ||
+        currentRule.placeFrom !== savedRule.placeFrom ||
+        currentRule.placeTo !== savedRule.placeTo));
+
+  useUnsavedGuard(configDirty || ruleDirty, `этап «${stage.title}»`);
 
   function commitTitle() {
     const trimmed = title.trim();

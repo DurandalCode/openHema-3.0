@@ -5,6 +5,7 @@ import { Button } from "@/shared/ui/button";
 import { PageHeader } from "@/shared/ui/page-header";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
 import { formatRelativeTime } from "@/shared/lib/datetime";
+import { useUnsavedGuard } from "@/shared/lib/use-unsaved-guard";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import {
   draftToTournament,
@@ -77,6 +78,13 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
 
   const changes = tournamentDraftChanges(saved, draft);
   const previewTournament = draftToTournament(saved, draft);
+
+  // Guard несохранённых изменений (спека 0039, FR-13, FR-15): `changes`
+  // уже пересчитывается в 0 и после «Отменить правки» (draft возвращается
+  // к saved), и после успешного сохранения (saved/draft синхронизируются
+  // в handleSave) — отдельно сбрасывать признак не нужно, он снимается тем
+  // же значением, что уже показывает `UnsavedChangesBar`.
+  useUnsavedGuard(changes.length > 0, "профиль турнира");
 
   function handleReset() {
     setDraft(draftFromTournament(saved));

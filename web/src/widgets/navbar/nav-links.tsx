@@ -5,13 +5,8 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/shared/lib/cn";
 import { isActiveNavItem } from "@/shared/lib/is-active-nav-item";
 import { isAdminRoute } from "@/shared/lib/is-admin-route";
-import { siteConfig } from "@/shared/config/site-config";
+import type { NavItem } from "@/shared/config/site-config";
 import { Row } from "@/shared/ui/stack";
-
-// authedNavItem — «Мои заявки» видна только аутентифицированным пользователям,
-// поэтому не часть публичного siteConfig.navItems (тот список не знает о
-// сессии и проверяется отдельным тестом на публичные роуты/якоря).
-const authedNavItem = { title: "Мои заявки", href: "/applications" };
 
 /**
  * NavLinks — пункты навигации верхнего уровня с подсветкой активного роута.
@@ -22,19 +17,18 @@ const authedNavItem = { title: "Мои заявки", href: "/applications" };
  * странице искал якорь на текущей странице вместо перехода). Клиентский
  * компонент: нужен usePathname.
  *
- * isAuthenticated — добавляет «Мои заявки» в конец списка (страница требует
- * сессии); сам флаг приходит от серверного Navbar (getCurrentUser), токен в
- * клиент не утекает.
+ * `items` — готовый список пунктов (спека 0039, T16): состав по фазе
+ * турнира и авторизации уже решён вызывающим кодом (`publicNavItems`,
+ * `widgets/navbar/navbar.tsx`) — компонент больше не читает `siteConfig` и
+ * не знает о сессии сам, только рендерит и подсвечивает.
  *
  * Скрывается в админ-зоне: у неё своя под-навигация (AdminNav), а публичные
  * якоря («Турнир», «Номинации») там означали бы другой, конфликтующий адрес.
  */
-export function NavLinks({ isAuthenticated }: { isAuthenticated: boolean }) {
+export function NavLinks({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
 
   if (isAdminRoute(pathname)) return null;
-
-  const items = isAuthenticated ? [...siteConfig.navItems, authedNavItem] : siteConfig.navItems;
 
   return (
     <Row as="nav" align="center" gap={6} className="hidden text-sm md:flex">
