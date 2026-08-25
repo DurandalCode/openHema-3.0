@@ -3,8 +3,8 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: in progress
-- Дата: 2026-08-24
+- Статус: done
+- Дата: 2026-08-25
 - План: `./plan.md`
 
 ## Порядок
@@ -102,37 +102,37 @@
 
 ### Навигация
 
-- [ ] T13. **`shared/lib/public-nav-items.ts` (red→green)** — тесты состава
+- [x] T13. **`shared/lib/public-nav-items.ts` (red→green)** — тесты состава
       по трём фазам × (гость / вошедший) из таблицы `plan.md`; отдельным
       кейсом — в `running` нет пунктов на `#tournament` и `#nominations`
       (AC-4) → затем чистая функция.
-- [ ] T14. **`shared/config/site-config.test.ts` (red→green)** — расширить:
+- [x] T14. **`shared/config/site-config.test.ts` (red→green)** — расширить:
       якоря пунктов каждой фазы должны входить в множество секций, которые
       главная рендерит **в этой фазе**; списки секций по фазам — рядом с
       тестом → затем правки `site-config.ts`, если понадобятся.
-- [ ] T15. **`entities/tournament-live/model/get-public-phase.ts`
+- [x] T15. **`entities/tournament-live/model/get-public-phase.ts`
       (red→green)** — тест: склейка «нет турнира → `before`», «есть running
       номинация → `running`», ошибка gRPC → `before` → затем реализация
       поверх `tournamentPhase`. Тем же шагом — `cache()` на
       `get-active-tournament.ts` и `get-tournament-live.ts` (NFR-3).
-- [ ] T16. **`widgets/navbar/nav-links.tsx` + `navbar.tsx` (red→green)** —
+- [x] T16. **`widgets/navbar/nav-links.tsx` + `navbar.tsx` (red→green)** —
       тест: `NavLinks` рендерит переданные пункты и подсвечивает активный;
       навбар отдаёт в него результат `publicNavItems` для текущей фазы →
       затем проп вместо чтения `siteConfig`.
-- [ ] T17. **`widgets/navbar/mobile-nav.tsx` (red→green)** — тесты: те же
+- [x] T17. **`widgets/navbar/mobile-nav.tsx` (red→green)** — тесты: те же
       пункты, что у широкого меню; активный помечен `aria-current` (AC-7);
       в `/admin/**` не рендерится (AC-8) → затем нижняя панель.
-- [ ] T18. **`app/layout.tsx`** — монтаж `MobileNav` внутри
+- [x] T18. **`app/layout.tsx`** — монтаж `MobileNav` внутри
       `NavbarVisibilityGate`, нижний отступ `main` на узком экране, позиция
       `Toaster` над панелью.
 
 ### Guard несохранённых изменений
 
-- [ ] T19. **`shared/lib/unsaved-guard-store.ts` +
+- [x] T19. **`shared/lib/unsaved-guard-store.ts` +
       `use-unsaved-guard.ts` (red→green)** — тесты: признак ставится и
       снимается, `beforeunload` вешается и снимается при размонтировании →
       затем стор и хук (по образцу `session-expired-store`).
-- [ ] T20. **`widgets/unsaved-guard/unsaved-guard-dialog.tsx` (red→green)**
+- [x] T20. **`widgets/unsaved-guard/unsaved-guard-dialog.tsx` (red→green)**
       — тесты: клик по внутренней ссылке при dirty открывает подтверждение и
       не уходит (AC-9); подтверждение зовёт `router.push` и снимает признак;
       чистое состояние — переход обычный (AC-10); внешняя ссылка,
@@ -145,12 +145,22 @@
 
 ## Проверка (join-волна)
 
-- [ ] T21. `make test-web` зелёный; `pnpm exec tsc --noEmit` без ошибок.
-- [ ] T22. `pnpm build` проходит; `make test` (сервер) не запускался зря —
+- [x] T21. `make test-web` зелёный; `pnpm exec tsc --noEmit` без ошибок.
+- [x] T22. `pnpm build` проходит; `make test` (сервер) не запускался зря —
       `/server` не менялся, изменения только в `web/` и `docs/`.
-- [ ] T23. Ручная проверка того, что тесты не ловят: нижняя панель на узком
-      экране не перекрывает контент и тосты; в обеих темах; на `/admin/**`
-      её нет; в день турнира (фаза `running`) пункты меню ведут к реально
-      отрисованным секциям.
-- [ ] T24. Обновить статусы `spec.md`/`plan.md`/`tasks.md` на `done` и
-      строку 0039 в `docs/specs/README.md` (со «резерв» на «done»).
+- [x] T23. **Частично.** Проверено через `pnpm dev` (без бэкенда — go-сервер
+      и postgres не подняты): `/` рендерит нижнюю панель и корректно
+      деградирует к фазе `before`/заглушке «Турнир скоро появится»
+      (`getActiveTournament`/`getTournamentLive` ловят ошибку связи сами);
+      `/about` рендерит панель; `/admin` не рендерит панель вовсе (0
+      вхождений `aria-label="Основная навигация"` в ответе). **Не
+      проверено** в этой сессии — требует полного стека (`make dev` с
+      docker postgres + go-сервер + `make demo-bouts` для турнира в фазе
+      `running`): реальный вид нижней панели на экране телефона в обеих
+      темах, что тосты не перекрыты панелью, и что в фазе `running`
+      пункты меню ведут к секциям `#arenas-now`/`#nominations-rail`
+      (автотесты `public-nav-items.test.ts`/`site-config.test.ts`
+      проверяют это на уровне данных, но не визуально). Оставлено на
+      усмотрение пользователя перед мержем в `main`.
+- [x] T24. Статусы `spec.md`/`plan.md`/`tasks.md` → `done`, строка 0039 в
+      `docs/specs/README.md` → `done`.
