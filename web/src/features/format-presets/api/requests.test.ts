@@ -7,6 +7,7 @@ import {
   renameFormatPresetRequest,
   saveFormatPresetRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/format-presets/api/requests", () => {
   const fetchMock = vi.fn();
@@ -67,6 +68,11 @@ describe("features/format-presets/api/requests", () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await listFormatPresetsRequest();
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+      await expect(listFormatPresetsRequest()).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { contactHref, daysUntil, formatEntryFee, formatEventRange } from "./format";
+import {
+  contactHref,
+  daysUntil,
+  formatEntryFee,
+  formatEventRange,
+  venueLine,
+} from "./format";
+import type { Tournament } from "./types";
+
+function tournament(overrides: Partial<Tournament> = {}): Tournament {
+  return {
+    id: "t1",
+    title: "Кубок Севера",
+    description: "",
+    eventStartAt: "",
+    eventEndAt: "",
+    emblemUrl: "",
+    isActive: true,
+    contacts: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    chiefJudge: "",
+    regulationsUrl: "",
+    venueName: "",
+    venueAddress: "",
+    entryFeeMinor: null,
+    entryFeeCurrency: "",
+    ...overrides,
+  };
+}
 
 describe("entities/tournament/lib/format contactHref", () => {
   it("passes through http(s) URLs as-is", () => {
@@ -146,5 +175,29 @@ describe("entities/tournament/lib/format formatEntryFee (spec 0038, FR-44)", () 
 
   it("omits a trailing space when the currency is empty", () => {
     expect(formatEntryFee(150000, "")).toMatch(/^1\s500$/);
+  });
+});
+
+describe("entities/tournament/lib/format venueLine (spec 0039, FR-1)", () => {
+  it("joins name and address when both are set", () => {
+    expect(
+      venueLine(tournament({ venueName: "Дворец спорта", venueAddress: "ул. Ленина, 1" })),
+    ).toBe("Дворец спорта, ул. Ленина, 1");
+  });
+
+  it("returns only the name when the address is empty", () => {
+    expect(venueLine(tournament({ venueName: "Дворец спорта", venueAddress: "" }))).toBe(
+      "Дворец спорта",
+    );
+  });
+
+  it("returns only the address when the name is empty", () => {
+    expect(venueLine(tournament({ venueName: "", venueAddress: "ул. Ленина, 1" }))).toBe(
+      "ул. Ленина, 1",
+    );
+  });
+
+  it("returns an empty string when neither is set", () => {
+    expect(venueLine(tournament({ venueName: "", venueAddress: "" }))).toBe("");
   });
 });

@@ -5,15 +5,15 @@ import { Button } from "@/shared/ui/button";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { RegulationsLink } from "@/entities/tournament/ui/regulations-link";
 import { AboutFacts } from "./about-facts";
-import { AboutRegulations } from "./about-regulations";
 import { AboutOrganizers } from "./about-organizers";
 
 /**
  * TournamentAboutScreen — экран «О турнире» (спека 0038, T13, макет 20a):
  * профиль активного турнира вместо прежней статичной заглушки о платформе
  * (FR-43). Композиция чистая (без хуков): название/описание, плитки-факты
- * (`AboutFacts`), ссылка на регламент (`AboutRegulations`), блок
+ * (`AboutFacts`), ссылка на регламент (`RegulationsLink`), блок
  * организаторов (`AboutOrganizers`) и CTA (FR-47).
  *
  * `canApply` не приходит отдельным пропом от вызывающего роута — вычисляется
@@ -62,7 +62,7 @@ export function TournamentAboutScreen({
 
       <AboutFacts tournament={tournament} nominationsCount={nominations.length} />
 
-      <AboutRegulations url={tournament.regulationsUrl} />
+      <RegulationsLink url={tournament.regulationsUrl} />
 
       <AboutOrganizers chiefJudge={tournament.chiefJudge} contacts={tournament.contacts} />
 

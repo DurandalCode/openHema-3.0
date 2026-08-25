@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
 import { NominationSchemaScreen } from "./nomination-schema-screen";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
@@ -209,6 +210,13 @@ describe("widgets/nomination-schema/NominationSchemaScreen (spec 0031)", () => {
     expect(screen.getByText("Не удалось загрузить схему")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     expect(stagesRefetch).toHaveBeenCalled();
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {
+    stagesState = { data: undefined, isLoading: false, error: new UnauthorizedError() };
+    render(<NominationSchemaScreen nomination={nomination()} />);
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
+    expect(screen.queryByText("unauthenticated")).not.toBeInTheDocument();
   });
 
   it("opens the inspector for a stage on selection and closes it via onClose (FR-18)", () => {

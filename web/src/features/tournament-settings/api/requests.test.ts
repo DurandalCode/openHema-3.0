@@ -4,6 +4,7 @@ import {
   getActiveTournamentRequest,
   updateTournamentRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/tournament-settings/api/requests", () => {
   const fetchMock = vi.fn();
@@ -56,6 +57,12 @@ describe("features/tournament-settings/api/requests", () => {
       const result = await getActiveTournamentRequest();
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна", status: 0 });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(getActiveTournamentRequest()).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

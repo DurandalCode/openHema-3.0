@@ -1,4 +1,5 @@
 import type { ContactType, Tournament } from "@/entities/tournament/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ContactInput = { type: ContactType; value: string };
 
@@ -42,40 +43,20 @@ export async function updateTournamentRequest(
 }
 
 async function getTournament(url: string): Promise<TournamentResult> {
-  try {
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      tournament?: Tournament;
-    };
-    return { ok: true, tournament: data.tournament as Tournament };
-  } catch {
-    return { ok: false, error: "Сеть недоступна", status: 0 };
-  }
+  const res = await apiFetch<{ tournament?: Tournament }>(url, { method: "GET" });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status ?? 0 };
+  return { ok: true, tournament: res.data.tournament as Tournament };
 }
 
 async function putTournament(
   url: string,
   body: UpdateTournamentInput,
 ): Promise<TournamentResult> {
-  try {
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      tournament?: Tournament;
-    };
-    return { ok: true, tournament: data.tournament as Tournament };
-  } catch {
-    return { ok: false, error: "Сеть недоступна", status: 0 };
-  }
+  const res = await apiFetch<{ tournament?: Tournament }>(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status ?? 0 };
+  return { ok: true, tournament: res.data.tournament as Tournament };
 }

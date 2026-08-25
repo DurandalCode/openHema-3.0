@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NominationPools } from "./nomination-pools";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 /**
  * Radix `Dialog`/`FocusScope` в jsdom требуют pointer-capture/scrollIntoView
@@ -415,6 +416,20 @@ describe("NominationPools", () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
+  // Спека 0039, FR-18/AC-12: истёкшая сессия — без собственного блока ошибки.
+  it("does not render its own error block when the session expired", () => {
+    useLayoutMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new UnauthorizedError(),
+      refetch: vi.fn(),
+    });
+
+    render(<NominationPools stageId="stage-1" />);
+
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
+  });
+
   // Спека 0030, FR-13/AC-13: пустые состояния различаются.
   it("differentiates the empty unassigned column from an empty pool", () => {
     useLayoutMock.mockReturnValue({
@@ -485,5 +500,110 @@ describe("NominationPools", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
     expect(toastErrorMock.mock.calls[0][0]).toBe("сеть недоступна");
     expect(toastErrorMock.mock.calls[0][1]?.retry).toBeTypeOf("function");
+  });
+
+  // Спека 0039, T10/AC-14: клавиатурный путь к переносу — меню «Переместить»
+  // на карточке бойца зовёт ту же мутацию, что и drop.
+  describe("keyboard move menu (FighterCard)", () => {
+    function openMoveMenu(fighterName: string) {
+      const trigger = screen.getByRole("button", { name: `Переместить ${fighterName}` });
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerId: 1 });
+      fireEvent.click(trigger);
+    }
+
+    beforeEach(() => {
+      useLayoutMock.mockReturnValue({
+        data: layoutWithPools,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+    });
+
+    it("lists every other pool but not the fighter's current pool, plus «В нераспределённые» when assigned", () => {
+      render(<NominationPools stageId="stage-1" />);
+
+      // fighterA живёт в pool-1 — меню предлагает pool-2 и снятие, но не pool-1.
+      openMoveMenu("Ясь В.");
+      expect(screen.getByRole("menuitem", { name: "В Пул 2" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "В Пул 1" })).not.toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "В нераспределённые" })).toBeInTheDocument();
+    });
+
+    it("does not offer «В нераспределённые» for a fighter already unassigned", () => {
+      render(<NominationPools stageId="stage-1" />);
+
+      // fighterC (Берг И.) — нераспределён: обоим пулам можно, снимать неоткуда.
+      openMoveMenu("Берг И.");
+      expect(screen.getByRole("menuitem", { name: "В Пул 1" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "В Пул 2" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "В нераспределённые" })).not.toBeInTheDocument();
+    });
+
+    it("selecting a pool from the menu calls assign with the same shape as drop, and shows a success toast", () => {
+      render(<NominationPools stageId="stage-1" />);
+
+      openMoveMenu("Берг И.");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В Пул 1" }));
+
+      expect(assignMutate).toHaveBeenCalledWith(
+        { fighterId: "f3", poolId: "pool-1" },
+        expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+      );
+    });
+
+    it("shows a success toast naming the fighter and destination pool after a successful menu assign", () => {
+      assignMutate.mockImplementation((_vars, options: { onSuccess?: () => void }) => {
+        options?.onSuccess?.();
+      });
+
+      render(<NominationPools stageId="stage-1" />);
+      openMoveMenu("Берг И.");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В Пул 1" }));
+
+      expect(toastSuccessMock).toHaveBeenCalledWith("Берг И. → Пул 1");
+    });
+
+    it("selecting «В нераспределённые» calls unassign with the fighter id and shows a success toast", () => {
+      unassignMutate.mockImplementation((_id, options: { onSuccess?: () => void }) => {
+        options?.onSuccess?.();
+      });
+
+      render(<NominationPools stageId="stage-1" />);
+      openMoveMenu("Ясь В.");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В нераспределённые" }));
+
+      expect(unassignMutate).toHaveBeenCalledWith(
+        "f1",
+        expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+      );
+      expect(toastSuccessMock).toHaveBeenCalledWith("Ясь В. → Нераспределённые");
+    });
+
+    it("shows an error toast when a menu assign fails", () => {
+      assignMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
+        options?.onError?.(new Error("Действие недоступно"));
+      });
+
+      render(<NominationPools stageId="stage-1" />);
+      openMoveMenu("Берг И.");
+      fireEvent.click(screen.getByRole("menuitem", { name: "В Пул 1" }));
+
+      expect(toastErrorMock).toHaveBeenCalledWith("Действие недоступно", undefined);
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
+    it("does not render the move menu button when the layout is read-only", () => {
+      useLayoutMock.mockReturnValue({
+        data: { ...layoutWithPools, status: "POOL_LAYOUT_STATUS_READY" },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      render(<NominationPools stageId="stage-1" />);
+
+      expect(screen.queryByRole("button", { name: /Переместить/ })).not.toBeInTheDocument();
+    });
   });
 });

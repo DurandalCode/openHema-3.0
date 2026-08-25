@@ -1,4 +1,5 @@
 import type { Application } from "@/entities/application/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ApplicationResult =
   | { ok: true; application: Application }
@@ -10,17 +11,11 @@ export type ApplicationListResult =
 
 /** listMyApplicationsRequest — GET /api/applications («мои заявки»). */
 export async function listMyApplicationsRequest(): Promise<ApplicationListResult> {
-  try {
-    const res = await fetch("/api/applications", { method: "GET" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { applications?: Application[] };
-    return { ok: true, applications: data.applications ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ applications?: Application[] }>("/api/applications", {
+    method: "GET",
+  });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, applications: res.data.applications ?? [] };
 }
 
 export type SubmitApplicationDetails = {
@@ -55,20 +50,12 @@ export async function withdrawApplicationRequest(applicationId: string): Promise
 }
 
 async function post(url: string, body?: unknown): Promise<ApplicationResult> {
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      ...(body !== undefined
-        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-        : {}),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { application?: Application };
-    return { ok: true, application: data.application as Application };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ application?: Application }>(url, {
+    method: "POST",
+    ...(body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
+  });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, application: res.data.application as Application };
 }

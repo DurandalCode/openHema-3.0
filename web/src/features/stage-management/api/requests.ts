@@ -5,6 +5,7 @@ import type {
   StageSelectorKind,
   StageSourceKind,
 } from "@/entities/stage/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 /**
  * requests — фетчеры фичи `stage-management` (спека 0018, FR-1/FR-2/FR-3;
@@ -87,22 +88,12 @@ export type CreateStageInput =
 
 /** listStagesRequest — GET /api/nominations/[id]/stages (список этапов номинации). */
 export async function listStagesRequest(nominationId: string): Promise<ListStagesResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      stages?: Stage[];
-      issues?: SchemaIssue[];
-    };
-    return { ok: true, stages: data.stages ?? [], issues: data.issues ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ stages?: Stage[]; issues?: SchemaIssue[] }>(
+    `/api/nominations/${encodeURIComponent(nominationId)}/stages`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, stages: res.data.stages ?? [], issues: res.data.issues ?? [] };
 }
 
 /**
@@ -114,51 +105,40 @@ export async function createStageRequest(
   nominationId: string,
   input: CreateStageInput,
 ): Promise<CreateStageResult> {
-  try {
-    const body =
-      input.type === "bracket"
-        ? {
-            type: "bracket" as const,
-            title: input.title,
-            bracketSize: input.bracketSize,
-            thirdPlace: input.thirdPlace,
-            ...(input.rule ? { rule: input.rule } : {}),
-          }
-        : {
-            type: "groups" as const,
-            title: input.title,
-            groupCount: input.groupCount,
-            ...(input.rule ? { rule: input.rule } : {}),
-          };
-    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/stages`, {
+  const body =
+    input.type === "bracket"
+      ? {
+          type: "bracket" as const,
+          title: input.title,
+          bracketSize: input.bracketSize,
+          thirdPlace: input.thirdPlace,
+          ...(input.rule ? { rule: input.rule } : {}),
+        }
+      : {
+          type: "groups" as const,
+          title: input.title,
+          groupCount: input.groupCount,
+          ...(input.rule ? { rule: input.rule } : {}),
+        };
+  const res = await apiFetch<{ created?: Stage; stages?: Stage[] }>(
+    `/api/nominations/${encodeURIComponent(nominationId)}/stages`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { created?: Stage; stages?: Stage[] };
-    return { ok: true, stage: data.created as Stage, stages: data.stages ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, stage: res.data.created as Stage, stages: res.data.stages ?? [] };
 }
 
 /** deleteStageRequest — DELETE /api/stages/[stageId] (только сетка без начатых боёв, AC-14). */
 export async function deleteStageRequest(stageId: string): Promise<StagesResult> {
-  try {
-    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
-    return { ok: true, stages: data.stages ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ stages?: Stage[] }>(`/api/stages/${encodeURIComponent(stageId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, stages: res.data.stages ?? [] };
 }
 
 /**
@@ -171,21 +151,13 @@ export async function updateStageRequest(
   stageId: string,
   input: UpdateStageInput,
 ): Promise<UpdateStageResult> {
-  try {
-    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { stage?: Stage };
-    return { ok: true, stage: data.stage as Stage };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ stage?: Stage }>(`/api/stages/${encodeURIComponent(stageId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, stage: res.data.stage as Stage };
 }
 
 /**
@@ -197,21 +169,13 @@ export async function setStageRuleRequest(
   stageId: string,
   rule: SeedingRuleInput | null,
 ): Promise<SetStageRuleResult> {
-  try {
-    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}/rule`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rule }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { stage?: Stage };
-    return { ok: true, stage: data.stage as Stage };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ stage?: Stage }>(`/api/stages/${encodeURIComponent(stageId)}/rule`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rule }),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, stage: res.data.stage as Stage };
 }
 
 /**
@@ -228,21 +192,14 @@ export async function setStageStatusRequest(
   stageId: string,
   status: "draft" | "ready",
 ): Promise<SetStageStatusResult> {
-  try {
-    const res = await fetch(`/api/stages/${encodeURIComponent(stageId)}/status`, {
+  const res = await apiFetch<{ layout?: { status?: PoolLayoutStatus } }>(
+    `/api/stages/${encodeURIComponent(stageId)}/status`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as {
-      layout?: { status?: PoolLayoutStatus };
-    };
-    return { ok: true, status: data.layout?.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED" };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, status: res.data.layout?.status ?? "POOL_LAYOUT_STATUS_UNSPECIFIED" };
 }

@@ -12,15 +12,23 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { GripVertical, RotateCcw, Shuffle, Trash2, Undo2 } from "lucide-react";
+import { GripVertical, MoreVertical, RotateCcw, Shuffle, Trash2, Undo2 } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { Bout } from "@/entities/bout/lib/types";
@@ -78,6 +86,11 @@ export function NominationPools({ stageId }: { stageId: string }) {
   if (isLoading) {
     return <NominationPoolsSkeleton />;
   }
+  if (error instanceof UnauthorizedError) {
+    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
+    return null;
+  }
   if (error || !layout) {
     return (
       <Col gap={3} className="items-start">
@@ -117,6 +130,31 @@ export function NominationPools({ stageId }: { stageId: string }) {
     } else {
       assign.mutate({ fighterId, poolId: toPoolId }, { onError: onDndError });
     }
+  }
+
+  /**
+   * Клавиатурный путь к переносу (спека 0039, FR-21/FR-24): та же мутация,
+   * что и `onDragEnd`, вызванная из пункта меню «Переместить» карточки
+   * бойца. В отличие от тихого DnD, успех объявляется тостом — меню не
+   * оставляет визуального следа переноса (нет `DragOverlay`), поэтому
+   * программе чтения с экрана и глазом нужен явный отчёт о результате
+   * (FR-24, AC-14).
+   */
+  function handleMenuAssign(fighter: FighterRef, pool: Pool) {
+    assign.mutate(
+      { fighterId: fighter.fighterId, poolId: pool.id },
+      {
+        onSuccess: () => toastSuccess(`${fighter.name} → ${pool.name}`),
+        onError: (err: Error) => toastError(err.message),
+      },
+    );
+  }
+
+  function handleMenuUnassign(fighter: FighterRef) {
+    unassign.mutate(fighter.fighterId, {
+      onSuccess: () => toastSuccess(`${fighter.name} → Нераспределённые`),
+      onError: (err: Error) => toastError(err.message),
+    });
   }
 
   function handleCreatePool() {
@@ -187,16 +225,25 @@ export function NominationPools({ stageId }: { stageId: string }) {
 
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
-          <UnassignedColumn fighters={layout.unassigned} readOnly={readOnly} />
+          <UnassignedColumn
+            fighters={layout.unassigned}
+            pools={layout.pools}
+            readOnly={readOnly}
+            onAssign={handleMenuAssign}
+            onUnassign={handleMenuUnassign}
+          />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {layout.pools.map((pool) => (
               <PoolColumn
                 key={pool.id}
                 pool={pool}
+                pools={layout.pools}
                 readOnly={readOnly}
                 bouts={boutsByPool[pool.id] ?? []}
                 onDelete={() => handleDeletePool(pool)}
                 deletePending={deletePool.isPending}
+                onAssign={handleMenuAssign}
+                onUnassign={handleMenuUnassign}
               />
             ))}
             {layout.pools.length === 0 && (
@@ -314,7 +361,19 @@ function Toolbar({
   );
 }
 
-function UnassignedColumn({ fighters, readOnly }: { fighters: FighterRef[]; readOnly: boolean }) {
+function UnassignedColumn({
+  fighters,
+  pools,
+  readOnly,
+  onAssign,
+  onUnassign,
+}: {
+  fighters: FighterRef[];
+  pools: Pool[];
+  readOnly: boolean;
+  onAssign: (fighter: FighterRef, pool: Pool) => void;
+  onUnassign: (fighter: FighterRef) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: UNASSIGNED_ZONE,
     data: { poolId: null },
@@ -338,7 +397,15 @@ function UnassignedColumn({ fighters, readOnly }: { fighters: FighterRef[]; read
           >
             <Col gap={2}>
               {fighters.map((f) => (
-                <FighterCard key={f.fighterId} fighter={f} fromPoolId={null} readOnly={readOnly} />
+                <FighterCard
+                  key={f.fighterId}
+                  fighter={f}
+                  fromPoolId={null}
+                  pools={pools}
+                  readOnly={readOnly}
+                  onAssign={onAssign}
+                  onUnassign={onUnassign}
+                />
               ))}
               {fighters.length === 0 && (
                 <p className="text-xs text-muted-foreground">Пусто</p>
@@ -353,16 +420,22 @@ function UnassignedColumn({ fighters, readOnly }: { fighters: FighterRef[]; read
 
 function PoolColumn({
   pool,
+  pools,
   readOnly,
   bouts,
   onDelete,
   deletePending,
+  onAssign,
+  onUnassign,
 }: {
   pool: Pool;
+  pools: Pool[];
   readOnly: boolean;
   bouts: Bout[];
   onDelete: () => void;
   deletePending: boolean;
+  onAssign: (fighter: FighterRef, pool: Pool) => void;
+  onUnassign: (fighter: FighterRef) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: poolZoneId(pool.id),
@@ -406,7 +479,15 @@ function PoolColumn({
           >
             <Col gap={2}>
               {pool.members.map((f) => (
-                <FighterCard key={f.fighterId} fighter={f} fromPoolId={pool.id} readOnly={readOnly} />
+                <FighterCard
+                  key={f.fighterId}
+                  fighter={f}
+                  fromPoolId={pool.id}
+                  pools={pools}
+                  readOnly={readOnly}
+                  onAssign={onAssign}
+                  onUnassign={onUnassign}
+                />
               ))}
               {pool.members.length === 0 && (
                 <p className="text-xs text-muted-foreground">Перетащите бойца сюда</p>
@@ -451,11 +532,17 @@ function BoutList({ bouts }: { bouts: Bout[] }) {
 function FighterCard({
   fighter,
   fromPoolId,
+  pools,
   readOnly,
+  onAssign,
+  onUnassign,
 }: {
   fighter: FighterRef;
   fromPoolId: string | null;
+  pools: Pool[];
   readOnly: boolean;
+  onAssign: (fighter: FighterRef, pool: Pool) => void;
+  onUnassign: (fighter: FighterRef) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: fighterDragId(fighter.fighterId),
@@ -463,21 +550,61 @@ function FighterCard({
     disabled: readOnly,
   });
 
+  const otherPools = pools.filter((p) => p.id !== fromPoolId);
+
   return (
     <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
       className={cn(
-        "rounded-md border bg-card px-2 py-1.5 text-sm transition-shadow",
-        readOnly ? "cursor-default" : "cursor-grab active:cursor-grabbing",
+        "flex items-center gap-1 rounded-md border bg-card px-2 py-1.5 text-sm transition-shadow",
         // Во время drag оригинал скрыт (opacity-0) — видна только DragOverlay
         // (копия, следующая за курсором). Раньше opacity-40 давал фантомный
         // «гост», который маячил под overlay и создавал визуальный шум.
         isDragging && "opacity-0",
       )}
     >
-      <FighterCardContent fighter={fighter} readOnly={readOnly} />
+      {/*
+        Drag-ref и меню-кнопка — раздельные узлы (по образцу `SlotBox` из
+        `bracket-seeding`): drag-слушатели `useDraggable` не должны глотать
+        pointer-события клика по кнопке меню — карточка перестаёт «дёргаться»
+        от клика по «Переместить».
+      */}
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        className={cn("min-w-0 flex-1", readOnly ? "cursor-default" : "cursor-grab active:cursor-grabbing")}
+      >
+        <FighterCardContent fighter={fighter} readOnly={readOnly} />
+      </div>
+      {!readOnly && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Переместить ${fighter.name}`}
+            >
+              <MoreVertical />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {otherPools.map((pool) => (
+              <DropdownMenuItem key={pool.id} onSelect={() => onAssign(fighter, pool)}>
+                В {pool.name}
+              </DropdownMenuItem>
+            ))}
+            {fromPoolId !== null && (
+              <>
+                {otherPools.length > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuItem onSelect={() => onUnassign(fighter)}>
+                  В нераспределённые
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

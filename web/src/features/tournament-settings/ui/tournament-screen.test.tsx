@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tournament } from "@/entities/tournament/lib/types";
+import { useUnsavedGuardStore } from "@/shared/lib/unsaved-guard-store";
 import { TournamentScreen } from "./tournament-screen";
 
 beforeAll(() => {
@@ -67,6 +68,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   updatePending = false;
   updateResult = { ok: true, tournament: tournament() };
+  useUnsavedGuardStore.setState({ dirtyReason: null, pendingHref: null });
 });
 
 describe("TournamentScreen (spec 0029)", () => {
@@ -236,5 +238,42 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(input.venueAddress).toBe("г. Москва, ул. Спортивная, 1");
     expect(input.entryFeeMinor).toBe(150000);
     expect(input.entryFeeCurrency).toBe("RUB");
+  });
+
+  // spec 0039, T20 (FR-13, FR-15, AC-9/AC-10): экран копит несохранённый
+  // ввод до явного «Сохранить» — guard должен знать об этом.
+  it("marks the unsaved-guard store dirty once a field is edited (spec 0039, AC-9)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Название *"), {
+      target: { value: "Новое название" },
+    });
+
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBe("профиль турнира");
+  });
+
+  it("clears the unsaved-guard flag after a successful save (spec 0039, AC-10)", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Название *"), {
+      target: { value: "Новое название" },
+    });
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBe("профиль турнира");
+
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBeNull();
+  });
+
+  it("clears the unsaved-guard flag when changes are reset", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.change(screen.getByLabelText("Название *"), {
+      target: { value: "Новое название" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Отменить правки" }));
+
+    expect(useUnsavedGuardStore.getState().dirtyReason).toBeNull();
   });
 });

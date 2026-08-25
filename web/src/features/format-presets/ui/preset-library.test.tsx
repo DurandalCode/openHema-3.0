@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PresetLibrary } from "./preset-library";
 import type { FormatPreset } from "@/entities/stage/lib/types";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 const groupsSpec = {
   title: "Группы",
@@ -173,5 +174,11 @@ describe("PresetLibrary", () => {
     expect(screen.getByText(/сохраните её как пресет/i)).toBeInTheDocument();
     const emptyLinks = screen.getAllByRole("link", { name: /номинаци/i });
     expect(emptyLinks.some((link) => link.getAttribute("href") === "/admin/nominations")).toBe(true);
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {
+    presetsState = { data: undefined, isLoading: false, error: new UnauthorizedError() };
+    render(<PresetLibrary />);
+    expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
 });

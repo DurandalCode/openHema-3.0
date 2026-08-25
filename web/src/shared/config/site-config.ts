@@ -15,4 +15,10 @@ export const siteConfig = {
 } as const;
 
 export type SiteConfig = typeof siteConfig;
-export type NavItem = (typeof siteConfig.navItems)[number];
+
+/**
+ * NavItem — плоский тип пункта навигации, не привязанный к литеральным
+ * значениям `siteConfig.navItems` (спека 0039, T13): `publicNavItems`
+ * строит и другие фазы поверх этого же типа, а не только фазу «до старта».
+ */
+export type NavItem = { title: string; href: string };

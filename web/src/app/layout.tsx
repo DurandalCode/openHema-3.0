@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/shared/lib/theme-provider";
 import { QueryProvider } from "@/shared/lib/query-provider";
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 import { SessionExpiredDialog } from "@/widgets/session-expired/session-expired-dialog";
+import { UnsavedGuardDialog } from "@/widgets/unsaved-guard/unsaved-guard-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
 import { NavbarVisibilityGate } from "@/widgets/navbar/navbar-visibility-gate";
 import { Col } from "@/shared/ui/stack";
@@ -53,11 +54,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <NavbarVisibilityGate>
                 <Navbar />
               </NavbarVisibilityGate>
-              <main className="flex-1">{children}</main>
+              {/* pb-16 на узком экране — та же высота (h-16), что у
+                  MobileNav (widgets/navbar/mobile-nav.tsx, спека 0039,
+                  T18): без отступа фиксированная нижняя панель перекрывала
+                  бы последний экран содержимого. На md+ панели нет
+                  (md:hidden), поэтому отступ снимается тем же брейкпоинтом. */}
+              <main className="flex-1 pb-16 md:pb-0">{children}</main>
             </Col>
             <AuthDialog />
             <SessionExpiredDialog />
-            <Toaster />
+            <UnsavedGuardDialog />
+            {/* mobileOffset — тосты всплывают выше MobileNav (h-16 = 64px)
+                на узком экране, а не под ней (спека 0039, T18). */}
+            <Toaster mobileOffset="80px" />
           </QueryProvider>
         </ThemeProvider>
       </body>

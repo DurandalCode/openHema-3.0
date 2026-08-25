@@ -12,6 +12,9 @@ import {
 import { applyFrame, smoothDisplay } from "@/features/arena-timer/model/timer-follower";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
 import type { TimerCommandDto, TimerStatusDto } from "@/entities/arena-live/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
+import { useSessionExpiredStore } from "@/shared/lib/session-expired-store";
 
 // Публикация полного кадра таймера источником (спека 0015, ADR 0013 §2):
 // ~200мс пока RUNNING + немедленно на каждом переходе статуса.
@@ -51,9 +54,26 @@ function commandDtoToAuthority(command: TimerCommandDto): AuthorityCommand | nul
   }
 }
 
+/**
+ * onFireAndForgetError — таймер и панель шлют команды без ожидания ответа
+ * (следующий тик/переход просто повторит попытку, FR-16) — но 401 не должно
+ * тонуть в этом молчании (спека 0039, FR-17/NFR-5): без сессии повторные
+ * попытки никогда не пройдут, а пользователь должен узнать и войти заново.
+ * `apiFetch` бросает `UnauthorizedError` вне сетевого `try` — здесь она
+ * ловится явно (эти вызовы не идут через TanStack Query, значит и не через
+ * `QueryCache`/`MutationCache.onError` из `shared/lib/query-client.ts`) и
+ * поднимает тот же `useSessionExpiredStore`, что и остальные экраны.
+ */
+function onFireAndForgetError(err: unknown): void {
+  if (err instanceof UnauthorizedError) {
+    useSessionExpiredStore.getState().open("query");
+  }
+  // Иначе — сеть недоступна; следующий тик/переход попробует снова.
+}
+
 async function postTimerFrame(arenaId: string, state: TimerState): Promise<void> {
   try {
-    await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/timer-frame`, {
+    await apiFetch(`/api/arenas/${encodeURIComponent(arenaId)}/timer-frame`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -63,9 +83,8 @@ async function postTimerFrame(arenaId: string, state: TimerState): Promise<void>
         defaultCs: state.defaultCs,
       }),
     });
-  } catch {
-    // Сеть недоступна — следующий тик/переход попробует снова; таймер
-    // недоменный (FR-16), потерянный кадр не критичен.
+  } catch (err) {
+    onFireAndForgetError(err);
   }
 }
 
@@ -75,14 +94,13 @@ async function postTimerCommand(
   amountSeconds?: number,
 ): Promise<void> {
   try {
-    await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/timer`, {
+    await apiFetch(`/api/arenas/${encodeURIComponent(arenaId)}/timer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, amountSeconds }),
     });
-  } catch {
-    // Панель доступна независимо от роли табло — ошибка сети всплывёт при
-    // следующей попытке; не блокируем UI.
+  } catch (err) {
+    onFireAndForgetError(err);
   }
 }
 

@@ -1,5 +1,6 @@
 import type { Arena } from "@/entities/arena/lib/types";
 import type { BoutBoard } from "@/entities/pool/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ArenaInput = {
   name: string;
@@ -20,34 +21,21 @@ export type ArenaBoardResult =
 
 /** listArenasRequest — GET /api/admin/arenas?tournamentId=... (только admin). */
 export async function listArenasRequest(tournamentId: string): Promise<ArenaListResult> {
-  try {
-    const res = await fetch(`/api/admin/arenas?tournamentId=${encodeURIComponent(tournamentId)}`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { arenas?: Arena[] };
-    return { ok: true, arenas: data.arenas ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ arenas?: Arena[] }>(
+    `/api/admin/arenas?tournamentId=${encodeURIComponent(tournamentId)}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, arenas: res.data.arenas ?? [] };
 }
 
 /** getArenaRequest — GET /api/admin/arenas/[id] (только admin). */
 export async function getArenaRequest(id: string): Promise<ArenaResult> {
-  try {
-    const res = await fetch(`/api/admin/arenas/${encodeURIComponent(id)}`, { method: "GET" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { arena?: Arena };
-    return { ok: true, arena: data.arena as Arena };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ arena?: Arena }>(`/api/admin/arenas/${encodeURIComponent(id)}`, {
+    method: "GET",
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, arena: res.data.arena as Arena };
 }
 
 /** createArenaRequest — POST /api/admin/arenas (только admin). */
@@ -81,21 +69,13 @@ export async function reorderArenasRequest(
   tournamentId: string,
   orderedIds: string[],
 ): Promise<ArenaListResult> {
-  try {
-    const res = await fetch("/api/admin/arenas/reorder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tournamentId, orderedIds }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { arenas?: Arena[] };
-    return { ok: true, arenas: data.arenas ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ arenas?: Arena[] }>("/api/admin/arenas/reorder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tournamentId, orderedIds }),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, arenas: res.data.arenas ?? [] };
 }
 
 /**
@@ -106,19 +86,12 @@ export async function reorderArenasRequest(
  * не импортят друг друга (`web/AGENTS.md`, п.6).
  */
 export async function getArenaBoardRequest(arenaId: string): Promise<ArenaBoardResult> {
-  try {
-    const res = await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/board`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { board?: BoutBoard | null };
-    return { ok: true, board: data.board ?? null };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ board?: BoutBoard | null }>(
+    `/api/arenas/${encodeURIComponent(arenaId)}/board`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, board: res.data.board ?? null };
 }
 
 /**
@@ -140,33 +113,17 @@ async function sendArena(
   method: "POST" | "PATCH" | "PUT",
   body: unknown,
 ): Promise<ArenaResult> {
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { arena?: Arena };
-    return { ok: true, arena: data.arena as Arena };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ arena?: Arena }>(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, arena: res.data.arena as Arena };
 }
 
 async function sendArenaAction(url: string): Promise<ArenaResult> {
-  try {
-    const res = await fetch(url, { method: "POST" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { arena?: Arena };
-    return { ok: true, arena: data.arena as Arena };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ arena?: Arena }>(url, { method: "POST" });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, arena: res.data.arena as Arena };
 }

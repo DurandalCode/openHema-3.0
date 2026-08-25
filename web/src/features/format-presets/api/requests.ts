@@ -1,4 +1,5 @@
 import type { FormatPreset, Stage } from "@/entities/stage/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 /**
  * requests — фетчеры фичи `format-presets` (спека 0020, FR-11/FR-12/FR-13/
@@ -31,17 +32,9 @@ export type ApplyFormatResult =
 
 /** listFormatPresetsRequest — GET /api/formats (библиотека пресетов, FR-12). */
 export async function listFormatPresetsRequest(): Promise<FormatPresetsResult> {
-  try {
-    const res = await fetch("/api/formats", { method: "GET" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { presets?: FormatPreset[] };
-    return { ok: true, presets: data.presets ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ presets?: FormatPreset[] }>("/api/formats", { method: "GET" });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, presets: res.data.presets ?? [] };
 }
 
 /**
@@ -53,21 +46,13 @@ export async function saveFormatPresetRequest(
   name: string,
   nominationId: string,
 ): Promise<FormatPresetResult> {
-  try {
-    const res = await fetch("/api/formats", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, nominationId }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { preset?: FormatPreset };
-    return { ok: true, preset: data.preset as FormatPreset };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ preset?: FormatPreset }>("/api/formats", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, nominationId }),
+  });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, preset: res.data.preset as FormatPreset };
 }
 
 /**
@@ -80,21 +65,16 @@ export async function renameFormatPresetRequest(
   presetId: string,
   name: string,
 ): Promise<FormatPresetResult> {
-  try {
-    const res = await fetch(`/api/formats/${encodeURIComponent(presetId)}`, {
+  const res = await apiFetch<{ preset?: FormatPreset }>(
+    `/api/formats/${encodeURIComponent(presetId)}`,
+    {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { preset?: FormatPreset };
-    return { ok: true, preset: data.preset as FormatPreset };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, preset: res.data.preset as FormatPreset };
 }
 
 /**
@@ -103,16 +83,11 @@ export async function renameFormatPresetRequest(
  * несёт HTTP-статус (спека 0029, B1), как у `renameFormatPresetRequest`.
  */
 export async function deleteFormatPresetRequest(presetId: string): Promise<DeleteFormatPresetResult> {
-  try {
-    const res = await fetch(`/api/formats/${encodeURIComponent(presetId)}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<unknown>(`/api/formats/${encodeURIComponent(presetId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true };
 }
 
 /**
@@ -127,19 +102,14 @@ export async function applyFormatRequest(
   nominationId: string,
   source: ApplyFormatSource,
 ): Promise<ApplyFormatResult> {
-  try {
-    const res = await fetch(`/api/nominations/${encodeURIComponent(nominationId)}/format`, {
+  const res = await apiFetch<{ stages?: Stage[] }>(
+    `/api/nominations/${encodeURIComponent(nominationId)}/format`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(source),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса", status: res.status };
-    }
-    const data = (await res.json().catch(() => ({}))) as { stages?: Stage[] };
-    return { ok: true, stages: data.stages ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, stages: res.data.stages ?? [] };
 }

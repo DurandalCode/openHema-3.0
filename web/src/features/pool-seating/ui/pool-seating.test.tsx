@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "@/entities/pool/lib/types";
 import { PoolSeating } from "./pool-seating";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 afterEach(() => {
   cleanup();
@@ -159,5 +160,13 @@ describe("PoolSeating — постановка пула (спека 0033, FR-12.
     expect(screen.queryByText("Нет готовых пулов для постановки")).not.toBeInTheDocument();
     expect(screen.queryByText("Пул 1")).not.toBeInTheDocument();
     expect(screen.queryByText("Пул 2")).not.toBeInTheDocument();
+  });
+
+  it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {
+    poolsState = { data: undefined, isLoading: false, error: new UnauthorizedError() };
+
+    const { container } = render(<PoolSeating arenaId="a1" />);
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

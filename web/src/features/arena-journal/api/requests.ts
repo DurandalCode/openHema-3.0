@@ -1,4 +1,5 @@
 import type { JournalEntryDto } from "@/entities/arena-live/lib/journal";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 export type JournalResult =
   | { ok: true; entries: JournalEntryDto[] }
@@ -10,17 +11,10 @@ export type JournalResult =
  * вперёд. Пустой массив, если на арене никто не стоит — не ошибка (AC-20).
  */
 export async function getArenaJournalRequest(arenaId: string): Promise<JournalResult> {
-  try {
-    const res = await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/journal`, {
-      method: "GET",
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { entries?: JournalEntryDto[] };
-    return { ok: true, entries: data.entries ?? [] };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ entries?: JournalEntryDto[] }>(
+    `/api/arenas/${encodeURIComponent(arenaId)}/journal`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, entries: res.data.entries ?? [] };
 }

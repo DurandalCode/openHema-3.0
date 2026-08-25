@@ -10,6 +10,7 @@ import {
   returnFighterRequest,
   withdrawFighterRequest,
 } from "./requests";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/fighter-management/api/requests", () => {
   const fetchMock = vi.fn();
@@ -37,6 +38,11 @@ describe("features/fighter-management/api/requests", () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "boom" }) });
       const result = await listRosterRequest("t1");
       expect(result).toEqual({ ok: false, error: "boom" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+      await expect(listRosterRequest("t1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     it("returns ok:false on network failure", async () => {

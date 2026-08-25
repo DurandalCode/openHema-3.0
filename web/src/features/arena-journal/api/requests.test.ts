@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getArenaJournalRequest } from "./requests";
 import type { JournalEntryDto } from "@/entities/arena-live/lib/journal";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 describe("features/arena-journal/api/requests", () => {
   const fetchMock = vi.fn();
@@ -63,6 +64,12 @@ describe("features/arena-journal/api/requests", () => {
       const result = await getArenaJournalRequest("a1");
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(getArenaJournalRequest("a1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 });

@@ -1,4 +1,5 @@
 import type { Bracket } from "@/entities/bracket/lib/types";
+import { apiFetch } from "@/shared/api/api-fetch";
 
 /**
  * requests — фетчеры фичи `bracket-seeding` (спека 0018, FR-7..FR-11): чтение
@@ -66,33 +67,18 @@ export async function setStatusRequest(
 }
 
 async function fetchBracket(url: string, init: RequestInit): Promise<BracketResult> {
-  try {
-    const res = await fetch(url, init);
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    const data = (await res.json().catch(() => ({}))) as { bracket?: Bracket };
-    return { ok: true, bracket: data.bracket as Bracket };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<{ bracket?: Bracket }>(url, init);
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, bracket: res.data.bracket as Bracket };
 }
 
 async function postAction(url: string, body?: unknown): Promise<BracketActionResult> {
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      ...(body !== undefined
-        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-        : {}),
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return { ok: false, error: data.error ?? "Ошибка запроса" };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Сеть недоступна" };
-  }
+  const res = await apiFetch<unknown>(url, {
+    method: "POST",
+    ...(body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
 }

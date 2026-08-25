@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeScreen } from "./home-screen";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
-import type { TournamentLiveSnapshotDto, LiveNominationDto } from "@/entities/tournament-live/lib/types";
+import type {
+  TournamentLiveSnapshotDto,
+  LiveNominationDto,
+  LiveArenaDto,
+} from "@/entities/tournament-live/lib/types";
 import { emptyTournamentLiveSnapshot } from "@/entities/tournament-live/lib/types";
 
 /** FakeEventSource — минимальный контролируемый мок native EventSource
@@ -76,6 +80,23 @@ function snapshot(overrides: Partial<TournamentLiveSnapshotDto> = {}): Tournamen
   return { ...emptyTournamentLiveSnapshot("t1"), ...overrides };
 }
 
+function arena(overrides: Partial<LiveArenaDto> = {}): LiveArenaDto {
+  return {
+    arenaId: "a1",
+    arenaName: "Площадка 1",
+    position: 0,
+    state: "free",
+    nominationId: "",
+    nominationName: "",
+    poolName: "",
+    stageTitle: "",
+    currentBout: null,
+    poolBoutTotal: 0,
+    poolBoutFinished: 0,
+    ...overrides,
+  };
+}
+
 describe("widgets/home HomeScreen (spec 0034)", () => {
   beforeEach(() => {
     FakeEventSource.instances = [];
@@ -129,6 +150,24 @@ describe("widgets/home HomeScreen (spec 0034)", () => {
     expect(screen.queryByText("Площадки прямо сейчас")).not.toBeInTheDocument();
     expect(screen.queryByText("Лента боёв")).not.toBeInTheDocument();
     expect(FakeEventSource.instances).toHaveLength(0);
+  });
+
+  it("AC-3 (spec 0039): before phase passes the arenas count from the snapshot to the hero", () => {
+    render(
+      <HomeScreen
+        tournament={tournament()}
+        nominations={[nomination()]}
+        participantsByNomination={{}}
+        rosterByNomination={{}}
+        isAuthenticated={false}
+        initialLiveSnapshot={snapshot({
+          nominations: [liveNomination({ phase: "upcoming" })],
+          arenas: [arena({ arenaId: "a1" }), arena({ arenaId: "a2" }), arena({ arenaId: "a3" })],
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/Площадок:\s*3/)).toBeInTheDocument();
   });
 
   it("AC-6: running phase renders the strip + feed, not the join-steps/applications-summary", () => {

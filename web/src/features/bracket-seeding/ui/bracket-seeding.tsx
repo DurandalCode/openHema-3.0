@@ -12,15 +12,22 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { GripVertical, RotateCcw, Undo2, X } from "lucide-react";
+import { GripVertical, MoreVertical, RotateCcw, Undo2, X } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
-import { toastError, toastUndo } from "@/shared/lib/toast";
+import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
+import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { FighterRef } from "@/entities/pool/lib/types";
 import type { BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
 import { BracketView } from "@/widgets/bracket-view/bracket-view";
@@ -69,6 +76,11 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   if (isLoading) {
     return <BracketSeedingSkeleton />;
   }
+  if (error instanceof UnauthorizedError) {
+    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
+    return null;
+  }
   if (error || !bracket) {
     return (
       <Col gap={3} className="items-start">
@@ -88,6 +100,23 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
     seedSlot.mutate(
       { fighterId, slot },
       { onError: (err: Error) => toastError(bracketErrorMessage(err.message)) },
+    );
+  }
+
+  /**
+   * Клавиатурный путь к посеву (спека 0039, FR-22/FR-24): та же мутация
+   * `seedSlot`, что и `onDragEnd`/`handleSeedSlot`, вызванная из меню
+   * «Поставить в слот»/«Переместить в слот». В отличие от тихого DnD, здесь
+   * нет `DragOverlay`, поэтому успех объявляется тостом (AC-14) — DnD
+   * (FR-25, AC-16) не трогаем, у него по-прежнему тихий успех.
+   */
+  function handleMenuSeedSlot(fighter: FighterRef, slot: number) {
+    seedSlot.mutate(
+      { fighterId: fighter.fighterId, slot },
+      {
+        onSuccess: () => toastSuccess(`${fighter.name} → слот ${slot}`),
+        onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+      },
     );
   }
 
@@ -160,6 +189,16 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   }
 
   const round = bracket.rounds[0];
+  /**
+   * Пустые слоты обеих половин первого круга — варианты меню «Поставить в
+   * слот»/«Переместить в слот» (спека 0039, FR-22, AC-15). Заполненные слоты
+   * исключены — туда сажает только обмен (server-side), не отдельный пункт
+   * меню (см. `resolveDrop`/`useSeedSlot`).
+   */
+  const emptySlots = (round?.halves.flatMap((h) => h.pairs.flatMap((p) => [p.slotA, p.slotB])) ?? [])
+    .filter((s) => s.state !== "BRACKET_SLOT_STATE_FILLED")
+    .map((s) => s.slot)
+    .sort((a, b) => a - b);
 
   return (
     <Col gap={6}>
@@ -187,10 +226,20 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
 
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
-          <UnassignedColumn fighters={bracket.unassigned} />
+          <UnassignedColumn
+            fighters={bracket.unassigned}
+            emptySlots={emptySlots}
+            onSeedSlot={handleMenuSeedSlot}
+          />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {round?.halves.map((half) => (
-              <HalfColumn key={half.half} half={half} onClearSlot={handleClearSlot} />
+              <HalfColumn
+                key={half.half}
+                half={half}
+                onClearSlot={handleClearSlot}
+                emptySlots={emptySlots}
+                onSeedSlot={handleMenuSeedSlot}
+              />
             ))}
           </div>
         </div>
@@ -253,7 +302,15 @@ function BracketSeedingSkeleton() {
   );
 }
 
-function UnassignedColumn({ fighters }: { fighters: FighterRef[] }) {
+function UnassignedColumn({
+  fighters,
+  emptySlots,
+  onSeedSlot,
+}: {
+  fighters: FighterRef[];
+  emptySlots: number[];
+  onSeedSlot: (fighter: FighterRef, slot: number) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: UNASSIGNED_ZONE, data: { slot: null } });
 
   return (
@@ -273,7 +330,12 @@ function UnassignedColumn({ fighters }: { fighters: FighterRef[] }) {
           >
             <Col gap={2}>
               {fighters.map((f) => (
-                <UnassignedFighterCard key={f.fighterId} fighter={f} />
+                <UnassignedFighterCard
+                  key={f.fighterId}
+                  fighter={f}
+                  emptySlots={emptySlots}
+                  onSeedSlot={onSeedSlot}
+                />
               ))}
               {fighters.length === 0 && (
                 <p className="text-xs text-muted-foreground">Пусто</p>
@@ -286,7 +348,15 @@ function UnassignedColumn({ fighters }: { fighters: FighterRef[] }) {
   );
 }
 
-function UnassignedFighterCard({ fighter }: { fighter: FighterRef }) {
+function UnassignedFighterCard({
+  fighter,
+  emptySlots,
+  onSeedSlot,
+}: {
+  fighter: FighterRef;
+  emptySlots: number[];
+  onSeedSlot: (fighter: FighterRef, slot: number) => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: fighterDragId(fighter.fighterId, null),
     data: { fighterId: fighter.fighterId, fromSlot: null, fighter },
@@ -294,15 +364,41 @@ function UnassignedFighterCard({ fighter }: { fighter: FighterRef }) {
 
   return (
     <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
       className={cn(
-        "cursor-grab rounded-md border bg-card px-2 py-1.5 text-sm transition-shadow active:cursor-grabbing",
+        "flex items-center gap-1 rounded-md border bg-card px-2 py-1.5 text-sm transition-shadow",
         isDragging && "opacity-0",
       )}
     >
-      <FighterCardContent fighter={fighter} />
+      {/* Drag-ref и меню-кнопка — раздельные узлы (см. `SlotBox`): drag не
+          должен перехватывать клик по «Поставить в слот». */}
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        className="min-w-0 flex-1 cursor-grab active:cursor-grabbing"
+      >
+        <FighterCardContent fighter={fighter} />
+      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Поставить ${fighter.name} в слот`}
+          >
+            <MoreVertical />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {emptySlots.length === 0 && <DropdownMenuItem disabled>Нет свободных слотов</DropdownMenuItem>}
+          {emptySlots.map((slot) => (
+            <DropdownMenuItem key={slot} onSelect={() => onSeedSlot(fighter, slot)}>
+              В слот {slot}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -310,9 +406,13 @@ function UnassignedFighterCard({ fighter }: { fighter: FighterRef }) {
 function HalfColumn({
   half,
   onClearSlot,
+  emptySlots,
+  onSeedSlot,
 }: {
   half: BracketHalf;
   onClearSlot: (slot: number) => void;
+  emptySlots: number[];
+  onSeedSlot: (fighter: FighterRef, slot: number) => void;
 }) {
   return (
     <Card>
@@ -321,7 +421,13 @@ function HalfColumn({
           <span className="font-medium">{half.title || half.container.name}</span>
           <Col gap={3}>
             {half.pairs.map((pair) => (
-              <PairSlots key={pair.index} pair={pair} onClearSlot={onClearSlot} />
+              <PairSlots
+                key={pair.index}
+                pair={pair}
+                onClearSlot={onClearSlot}
+                emptySlots={emptySlots}
+                onSeedSlot={onSeedSlot}
+              />
             ))}
           </Col>
         </Col>
@@ -333,19 +439,33 @@ function HalfColumn({
 function PairSlots({
   pair,
   onClearSlot,
+  emptySlots,
+  onSeedSlot,
 }: {
   pair: BracketPair;
   onClearSlot: (slot: number) => void;
+  emptySlots: number[];
+  onSeedSlot: (fighter: FighterRef, slot: number) => void;
 }) {
   return (
     <Col gap={1} className="rounded-md border p-2">
-      <SlotBox slot={pair.slotA} onClear={onClearSlot} />
-      <SlotBox slot={pair.slotB} onClear={onClearSlot} />
+      <SlotBox slot={pair.slotA} onClear={onClearSlot} emptySlots={emptySlots} onSeedSlot={onSeedSlot} />
+      <SlotBox slot={pair.slotB} onClear={onClearSlot} emptySlots={emptySlots} onSeedSlot={onSeedSlot} />
     </Col>
   );
 }
 
-function SlotBox({ slot, onClear }: { slot: BracketSlot; onClear: (slot: number) => void }) {
+function SlotBox({
+  slot,
+  onClear,
+  emptySlots,
+  onSeedSlot,
+}: {
+  slot: BracketSlot;
+  onClear: (slot: number) => void;
+  emptySlots: number[];
+  onSeedSlot: (fighter: FighterRef, slot: number) => void;
+}) {
   const filled = slot.state === "BRACKET_SLOT_STATE_FILLED";
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: slotZoneId(slot.slot),
@@ -379,6 +499,34 @@ function SlotBox({ slot, onClear }: { slot: BracketSlot; onClear: (slot: number)
           >
             <FighterCardContent fighter={slot.fighter} />
           </div>
+          {/*
+            Опциональная (T11) клавиатурная перестановка уже посеянного
+            бойца в другой пустой слот — та же мутация `seedSlot`, что и
+            перетаскивание между слотами (сервер сам освобождает исходный
+            слот, см. `useSeedSlot`/`resolveDrop`). Скрыта, когда свободных
+            слотов нет.
+          */}
+          {emptySlots.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Переместить ${slot.fighter.name} в другой слот`}
+                >
+                  <MoreVertical />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {emptySlots.map((s) => (
+                  <DropdownMenuItem key={s} onSelect={() => onSeedSlot(slot.fighter, s)}>
+                    В слот {s}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             type="button"
             variant="ghost"

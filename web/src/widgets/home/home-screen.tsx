@@ -86,7 +86,11 @@ export function HomeScreen({
   if (phase === "before") {
     return (
       <Col>
-        <TournamentHero tournament={tournament} now={now} />
+        <TournamentHero
+          tournament={tournament}
+          now={now}
+          arenasCount={liveSnapshot.arenas.length}
+        />
 
         <NominationsList
           nominations={nominations}
