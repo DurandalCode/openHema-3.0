@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Application } from "@/entities/application/lib/types";
+import type { Application, ApplicationEvent } from "@/entities/application/lib/types";
 import { ApplicationRequestError } from "../api/mutation-error";
 import { ApplicationCard } from "./application-card";
 
@@ -39,10 +39,43 @@ vi.mock("@/shared/lib/toast", () => ({
   toastError: (message: string, options?: { retry?: () => void }) => toastErrorMock(message, options),
 }));
 
+const historyEvents: ApplicationEvent[] = [
+  {
+    type: "APPLICATION_EVENT_TYPE_SUBMITTED",
+    actorId: "u1",
+    actorDisplayName: "Иван Петров",
+    occurredAt: "2026-03-18T10:00:00.000Z",
+    sequence: 1,
+  },
+  {
+    type: "APPLICATION_EVENT_TYPE_PAYMENT_CONFIRMED",
+    actorId: "admin-1",
+    actorDisplayName: "Кораблёва Анна",
+    occurredAt: "2026-03-20T10:00:00.000Z",
+    sequence: 2,
+  },
+];
+
+let detailState: {
+  data: { application: Application; history: ApplicationEvent[] } | undefined;
+  isLoading: boolean;
+  error: Error | null;
+} = {
+  data: undefined,
+  isLoading: false,
+  error: null,
+};
+const detailRefetch = vi.fn();
+
+vi.mock("../api/use-application-detail", () => ({
+  useApplicationDetail: () => ({ ...detailState, refetch: detailRefetch }),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   declareState = { isPending: false };
   withdrawState = { isPending: false };
+  detailState = { data: undefined, isLoading: false, error: null };
 });
 
 function app(overrides: Partial<Application>): Application {
@@ -205,5 +238,27 @@ describe("ApplicationCard", () => {
       "Приём заявок в эту номинацию завершён",
       expect.any(Object),
     );
+  });
+
+  it("opens the history dialog showing current status and the change history (spec 0040, AC-8)", () => {
+    const application = app({ state: "APPLICATION_STATE_PAID", applicantUserId: "u1" });
+    detailState = {
+      data: { application, history: historyEvents },
+      isLoading: false,
+      error: null,
+    };
+
+    render(<ApplicationCard application={application} nominationTitle="Т" />);
+
+    expect(screen.queryByText("Заявка подана")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "История" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Оплачена")).toBeInTheDocument();
+    expect(within(dialog).getByText("Заявка подана")).toBeInTheDocument();
+    expect(within(dialog).getByText("Оплата подтверждена")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Кораблёва Анна/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/организатор/)).toBeInTheDocument();
   });
 });

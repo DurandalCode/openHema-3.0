@@ -15,13 +15,13 @@ import {
 import { Col } from "@/shared/ui/stack";
 import { isTerminal, nextExpectedStep, stateLabel } from "@/entities/application/lib/state";
 import type { Application, ApplicationState } from "@/entities/application/lib/types";
+import { ApplicationHistory } from "@/entities/application/ui/application-history";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
 import { useApplicationDetail } from "../api/use-application-detail";
 import { useConfirmPayment } from "../api/use-confirm-payment";
 import { useRegisterFighter } from "../api/use-register-fighter";
 import { rowAction } from "../lib/select-applications";
-import { ApplicationHistory } from "./application-history";
 import { EditApplicationDialog } from "./edit-application-dialog";
 
 /** statusExplanation — короткое пояснение к текущему статусу заявки (spec FR-16). */
