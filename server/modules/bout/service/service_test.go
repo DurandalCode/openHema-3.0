@@ -958,3 +958,95 @@ func TestTimesForPools_ReturnsRepoResult(t *testing.T) {
 		t.Fatalf("expected FinishedAt nil for a bout that hasn't finished, got %v", *bt.FinishedAt)
 	}
 }
+
+// --- HasBouts / RepointFighter (спека 0040, сценарии 1 и 3, T11) ---
+
+// TestHasBouts_EmptyNominationID_ReturnsInvalidInput: пустой/пробельный
+// nominationID — ErrInvalidInput без обращения к репозиторию (тот же приём,
+// что у остальных тонких обёрток сервиса, ListByNomination/BoutsByPool).
+func TestHasBouts_EmptyNominationID_ReturnsInvalidInput(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	_, err := svc.HasBouts(context.Background(), "   ")
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+	if len(repo.ExistsBoutForNominationCalls()) != 0 {
+		t.Fatal("repo must not be called for an empty nomination id")
+	}
+}
+
+// TestHasBouts_NoBouts_ReturnsFalse: номинация без поставленных боёв —
+// false (AC-3: не блокирует удаление номинации).
+func TestHasBouts_NoBouts_ReturnsFalse(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	got, err := svc.HasBouts(context.Background(), n1)
+	if err != nil {
+		t.Fatalf("HasBouts: %v", err)
+	}
+	if got {
+		t.Fatal("expected false for a nomination without bouts")
+	}
+	calls := repo.ExistsBoutForNominationCalls()
+	if len(calls) != 1 || calls[0] != n1 {
+		t.Fatalf("expected exactly 1 call with %q, got %+v", n1, calls)
+	}
+}
+
+// TestHasBouts_WithBout_ReturnsTrue: у номинации есть поставленный бой —
+// true (AC-1/AC-2: гейт удаления номинации отказывает).
+func TestHasBouts_WithBout_ReturnsTrue(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	seedScheduledBout(t, repo)
+
+	got, err := svc.HasBouts(context.Background(), n1)
+	if err != nil {
+		t.Fatalf("HasBouts: %v", err)
+	}
+	if !got {
+		t.Fatal("expected true for a nomination with a scheduled bout")
+	}
+}
+
+// TestRepointFighter_EmptyIDs_ReturnsInvalidInput: пустой/пробельный oldID
+// или newID — ErrInvalidInput без обращения к репозиторию.
+func TestRepointFighter_EmptyIDs_ReturnsInvalidInput(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	if err := svc.RepointFighter(context.Background(), "", fighterBIDLC); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("empty oldID: expected ErrInvalidInput, got %v", err)
+	}
+	if err := svc.RepointFighter(context.Background(), fighterAIDLC, "  "); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("empty newID: expected ErrInvalidInput, got %v", err)
+	}
+	if len(repo.RepointFighterCalls()) != 0 {
+		t.Fatal("repo must not be called with an empty id")
+	}
+}
+
+// TestRepointFighter_DelegatesToRepo: тонкая обёртка передаёт trimmed
+// oldID/newID репозиторию как есть — сама доменная логика переноса обоих
+// бортов (fighter_a_id/fighter_b_id) и сохранение денормализованного
+// снапшота имени/клуба живёт в repo (проверяется интеграционным тестом на
+// реальной SQL, plan.md «Риски»: «журнал боя — исторический факт»).
+func TestRepointFighter_DelegatesToRepo(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	if err := svc.RepointFighter(context.Background(), "  "+fighterAIDLC+"  ", "  "+fighterBIDLC+"  "); err != nil {
+		t.Fatalf("RepointFighter: %v", err)
+	}
+
+	calls := repo.RepointFighterCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 call, got %+v", calls)
+	}
+	if calls[0].OldID != fighterAIDLC || calls[0].NewID != fighterBIDLC {
+		t.Fatalf("expected trimmed ids (%q, %q), got (%q, %q)", fighterAIDLC, fighterBIDLC, calls[0].OldID, calls[0].NewID)
+	}
+}

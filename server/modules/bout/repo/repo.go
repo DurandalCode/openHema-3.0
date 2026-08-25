@@ -622,6 +622,57 @@ func fromNullableTimestamp(ts pgtype.Timestamptz) *time.Time {
 
 // isUniqueViolation определяет, что ошибка PG — нарушение конкретного
 // unique-констрейнта (по имени).
+// ExistsBoutForNomination — есть ли среди боёв номинации хотя бы один
+// поставленный (спека 0040, гейт удаления номинации, FR-1б). Использует
+// idx_bouts_nomination.
+func (r *Repo) ExistsBoutForNomination(ctx context.Context, nominationID string) (bool, error) {
+	nid, err := uuid.Parse(nominationID)
+	if err != nil {
+		return false, fmt.Errorf("parse nomination id: %w", err)
+	}
+	got, err := r.q.ExistsBoutForNomination(ctx, nid)
+	if err != nil {
+		return false, fmt.Errorf("exists bout for nomination: %w", err)
+	}
+	return got, nil
+}
+
+// RepointFighter переносит оба борта (fighter_a_id/fighter_b_id) всех боёв
+// дубля-источника (oldID) на итоговую запись (newID) одной транзакцией —
+// сторона слияния дублей бойца (спека 0040, сценарий 3). Денормализованные
+// fighter_a_name/fighter_a_club/fighter_b_name/fighter_b_club НЕ
+// переписываются — журнал боя остаётся историческим снапшотом на момент
+// проведения, не текущим состоянием ростера (plan.md, «Риски»).
+func (r *Repo) RepointFighter(ctx context.Context, oldID, newID string) error {
+	oid, err := uuid.Parse(oldID)
+	if err != nil {
+		return fmt.Errorf("parse old fighter id: %w", err)
+	}
+	nid, err := uuid.Parse(newID)
+	if err != nil {
+		return fmt.Errorf("parse new fighter id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if _, err := q.RepointFighterA(ctx, sqlc.RepointFighterAParams{NewFighterID: nid, OldFighterID: oid}); err != nil {
+		return fmt.Errorf("repoint fighter a: %w", err)
+	}
+	if _, err := q.RepointFighterB(ctx, sqlc.RepointFighterBParams{NewFighterID: nid, OldFighterID: oid}); err != nil {
+		return fmt.Errorf("repoint fighter b: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 func isUniqueViolation(err error, constraintName string) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {

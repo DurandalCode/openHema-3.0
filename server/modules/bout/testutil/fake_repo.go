@@ -45,6 +45,18 @@ type FakeRepo struct {
 	// BoutTimesForPools (спека 0034, FR-16) — для проверки no-op на пустом
 	// poolIDs в тестах service (TimesForPools не должен ходить в репо).
 	boutTimesForPoolsCalls [][]string
+	// existsBoutForNominationCalls — spy: аргументы каждого вызова
+	// ExistsBoutForNomination (спека 0040, гейт удаления номинации).
+	existsBoutForNominationCalls []string
+	// repointFighterCalls — spy: аргументы каждого вызова RepointFighter
+	// (спека 0040, слияние дублей бойца).
+	repointFighterCalls []RepointFighterCall
+}
+
+// RepointFighterCall — зафиксированный вызов RepointFighter.
+type RepointFighterCall struct {
+	OldID string
+	NewID string
 }
 
 // EventsForPoolsCall — зафиксированный вызов EventsForPools.
@@ -588,4 +600,62 @@ func (r *FakeRepo) BoutTimesForPoolsCalls() [][]string {
 		out[i] = append([]string{}, c...)
 	}
 	return out
+}
+
+// ExistsBoutForNomination — есть ли среди боёв номинации хотя бы один
+// поставленный (спека 0040, гейт удаления номинации). Зеркалит семантику
+// реального SQL-запроса (WHERE nomination_id = $1) над проекциями боёв.
+func (r *FakeRepo) ExistsBoutForNomination(_ context.Context, nominationID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.existsBoutForNominationCalls = append(r.existsBoutForNominationCalls, nominationID)
+
+	for _, v := range r.views {
+		if v.NominationID == nominationID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ExistsBoutForNominationCalls возвращает зафиксированные вызовы
+// ExistsBoutForNomination (для проверки в тестах service, спека 0040).
+func (r *FakeRepo) ExistsBoutForNominationCalls() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string{}, r.existsBoutForNominationCalls...)
+}
+
+// RepointFighter переносит оба борта (FighterA/FighterB) всех боёв
+// дубля-источника (oldID) на итоговую запись (newID) — слияние дублей
+// бойца (спека 0040, сценарий 3). Денормализованные имя/клуб бойца в
+// проекции НЕ переписываются — тот же исторический-снапшот приём, что и
+// настоящий SQL (repo/queries/bout.sql, RepointFighterA/B).
+func (r *FakeRepo) RepointFighter(_ context.Context, oldID, newID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.repointFighterCalls = append(r.repointFighterCalls, RepointFighterCall{OldID: oldID, NewID: newID})
+
+	for id, v := range r.views {
+		if v.FighterA.ID == oldID {
+			v.FighterA.ID = newID
+		}
+		if v.FighterB.ID == oldID {
+			v.FighterB.ID = newID
+		}
+		r.views[id] = v
+	}
+	return nil
+}
+
+// RepointFighterCalls возвращает зафиксированные вызовы RepointFighter
+// (для проверки в тестах service, спека 0040).
+func (r *FakeRepo) RepointFighterCalls() []RepointFighterCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]RepointFighterCall{}, r.repointFighterCalls...)
 }
