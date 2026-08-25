@@ -87,6 +87,44 @@ export async function moveFighterRequest(
   });
 }
 
+/**
+ * findFighterByAccountRequest — GET /api/fighters/find-by-account?userId=...
+ * (admin, спека 0040, FR-9). `tournamentId` опционален — пусто → активный
+ * турнир. `fighter: null` в результате — учётке боец в турнире не
+ * сопоставлен (не ошибка).
+ */
+export async function findFighterByAccountRequest(
+  userId: string,
+  tournamentId?: string,
+): Promise<{ ok: true; fighter: Fighter | null } | { ok: false; error: string }> {
+  const params = new URLSearchParams({ userId });
+  if (tournamentId) params.set("tournamentId", tournamentId);
+  const res = await apiFetch<{ fighter: Fighter | null }>(
+    `/api/fighters/find-by-account?${params}`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, fighter: res.data.fighter };
+}
+
+/**
+ * mergeFightersRequest — POST /api/fighters/merge (admin, спека 0040,
+ * FR-10/FR-10a): сводит дубль `sourceFighterId` в `targetFighterId`,
+ * возвращает итоговую (target) запись.
+ */
+export async function mergeFightersRequest(
+  sourceFighterId: string,
+  targetFighterId: string,
+): Promise<FighterResult> {
+  const res = await apiFetch<{ fighter?: Fighter }>("/api/fighters/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sourceFighterId, targetFighterId }),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, fighter: res.data.fighter as Fighter };
+}
+
 async function sendFighter(
   url: string,
   method: "POST" | "PATCH",

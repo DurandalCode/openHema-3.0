@@ -20,6 +20,7 @@ import (
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/auth"
 	"github.com/hema/server/modules/nomination"
+	"github.com/hema/server/modules/nomination/testutil"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
@@ -57,9 +58,15 @@ func setup(t *testing.T) (hemav1connect.NominationServiceClient, hemav1connect.N
 
 	auth.Register(mux, auth.Deps{Pool: pool, Tokens: tokens}, baseOpts, adminOpts)
 	tournament.Register(mux, tournament.Deps{Pool: pool}, baseOpts, adminOpts)
+	// Pools/Bouts: реальные адаптеры stage.PoolOccupancyAdapter/
+	// bout.BoutOccupancyAdapter — join-волна (спека 0040, T30/T31). До их
+	// подключения этот тест не покрывает сценарии 1/2 (гейт на удаление,
+	// AC-1/AC-2); false/false воспроизводит поведение до 0040 (без гейта).
 	nomination.Register(mux, nomination.Deps{
 		Pool:        pool,
 		Tournaments: tournament.NewActiveTournamentIDProvider(pool),
+		Pools:       testutil.NewFakePoolOccupancyChecker(false),
+		Bouts:       testutil.NewFakeBoutOccupancyChecker(false),
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)

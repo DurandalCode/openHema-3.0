@@ -37,6 +37,16 @@ var (
 	// создаться параллельно (partial-unique индекс БД). Service обрабатывает
 	// повторной попыткой (найти существующего и добавить участие).
 	ErrOriginConflict = errors.New("fighter: origin already registered in tournament")
+	// ErrSameFighter — MergeFighters вызван с одинаковым source и target
+	// (спека 0040, FR-10).
+	ErrSameFighter = errors.New("fighter: cannot merge fighter into itself")
+	// ErrCrossTournamentMerge — source и target MergeFighters принадлежат
+	// разным турнирам (спека 0040, «слияние ограничено записями одного
+	// турнира»).
+	ErrCrossTournamentMerge = errors.New("fighter: cannot merge fighters from different tournaments")
+	// ErrAlreadyMerged — source или target MergeFighters уже имеет
+	// status=merged (повторное слияние уже объединённой записи).
+	ErrAlreadyMerged = errors.New("fighter: fighter already merged")
 )
 
 // Status — статус бойца на уровне всего турнира.
@@ -45,6 +55,10 @@ type Status string
 const (
 	StatusActive    Status = "active"
 	StatusWithdrawn Status = "withdrawn"
+	// StatusMerged — запись-источник после MergeFighters (спека 0040,
+	// FR-10): не удаляется физически, больше не участвует как отдельный
+	// активный боец.
+	StatusMerged Status = "merged"
 )
 
 // Reason — причина вывода бойца с турнира. Пусто, пока боец активен.
@@ -84,9 +98,20 @@ type Fighter struct {
 	OriginUserID     *string
 	Status           Status
 	WithdrawalReason Reason
-	Participations   []Participation
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// MergedIntoID — id записи, в которую слит этот боец (непусто только
+	// при Status=StatusMerged, спека 0040 FR-10).
+	MergedIntoID string
+	// LinkedAccountID/LinkedAccountDisplayName — обратная проекция
+	// «боец → учётка» (спека 0040, FR-8): непусто, если у бойца есть
+	// привязанная учётка (OriginUserID). Не персистентные поля — service
+	// обогащает ими Fighter на чтении (Roster/GetFighter) батчем через
+	// AccountDirectory. Заполняются ТОЛЬКО для ответов FighterAdminService —
+	// граница ADR 0016 (api-хендлер решает, сериализовать их или нет).
+	LinkedAccountID          string
+	LinkedAccountDisplayName string
+	Participations           []Participation
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // RosterEntry — элемент публичного состава номинации (проекция, без id).
@@ -272,6 +297,18 @@ type Repository interface {
 	// (FighterStatus=active И ParticipationStatus=active) с id — для модуля
 	// pool (спека 0009, FR-12). Выведенные/снятые не включаются.
 	ActiveFightersByNomination(ctx context.Context, nominationID string) ([]FighterRef, error)
+	// MergeParticipations переносит участия source в target (спека 0040,
+	// FR-10): совпадающие по nomination_id участия target не дублируются
+	// (source-строка в этом случае отбрасывается), остальные участия source
+	// переходят target.
+	MergeParticipations(ctx context.Context, sourceID, targetID string) error
+	// ClearOriginUserID снимает привязку записи к учётке (FR-10a) —
+	// вызывается для source при слиянии независимо от того, была ли у него
+	// привязка.
+	ClearOriginUserID(ctx context.Context, fighterID string) error
+	// SetMerged помечает source объединённым: status=merged,
+	// merged_into_id=targetID.
+	SetMerged(ctx context.Context, sourceID, targetID string) error
 }
 
 // NominationInfo — сведения о номинации, нужные модулю fighter.
@@ -291,4 +328,38 @@ type NominationProvider interface {
 // активный турнир).
 type ActiveTournamentProvider interface {
 	ActiveTournamentID(ctx context.Context) (string, error)
+}
+
+// SeedingWithdrawalSink — межмодульная зависимость: уведомляет модуль stage
+// о выводе/возврате бойца, чтобы он мог запомнить/восстановить членство в
+// пуле (спека 0040, сценарий 2, FR-4..FR-6). Синхронный in-process вызов,
+// тот же приём, что application/domain.FighterRegistrationSink (ADR 0002).
+// Реализация — в модуле stage (адаптер), здесь только порт.
+type SeedingWithdrawalSink interface {
+	OnFighterWithdrawn(ctx context.Context, fighterID string) error
+	OnFighterReturned(ctx context.Context, fighterID string) error
+}
+
+// StageRepointer — межмодульная зависимость: при MergeFighters переносит
+// денормализованные ссылки на fighter_id в pool_members/withdrawn_seeds
+// модуля stage с source на target (спека 0040, сценарий 3). Реализация — в
+// модуле stage.
+type StageRepointer interface {
+	RepointFighter(ctx context.Context, oldID, newID string) error
+}
+
+// BoutRepointer — межмодульная зависимость: при MergeFighters переносит
+// денормализованные ссылки на fighter_id в bout.bouts (fighter_a_id/
+// fighter_b_id) с source на target (спека 0040, сценарий 3). Реализация — в
+// модуле bout.
+type BoutRepointer interface {
+	RepointFighter(ctx context.Context, oldID, newID string) error
+}
+
+// AccountDirectory — межмодульная зависимость: батч-резолв отображаемых
+// имён пользователей по их id (спека 0040, FR-8). Тот же порт-шейп, что
+// application/domain.UserProvider — переиспользует существующий
+// auth.DisplayNameProvider, просто в новом месте вызова.
+type AccountDirectory interface {
+	DisplayNames(ctx context.Context, ids []string) (map[string]string, error)
 }

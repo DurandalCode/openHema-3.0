@@ -25,7 +25,7 @@ func TestMyFighter(t *testing.T) {
 		repo := testutil.NewFakeRepo()
 		noms := testutil.NewFakeNominationProvider()
 		tournaments := testutil.NewFakeActiveTournamentProvider("t1")
-		svc := service.New(repo, noms, tournaments)
+		svc := service.New(repo, noms, tournaments, nil, nil, nil, nil)
 
 		created, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
 			TournamentID: "t1", NominationID: "n1", OriginUserID: "u1", Name: "Ivan", Club: "Club X",
@@ -47,7 +47,7 @@ func TestMyFighter(t *testing.T) {
 		repo := testutil.NewFakeRepo()
 		noms := testutil.NewFakeNominationProvider()
 		tournaments := testutil.NewFakeActiveTournamentProvider("t1")
-		svc := service.New(repo, noms, tournaments)
+		svc := service.New(repo, noms, tournaments, nil, nil, nil, nil)
 
 		created, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
 			TournamentID: "t1", NominationID: "n1", OriginUserID: "u1", Name: "Ivan", Club: "Club X",
@@ -80,7 +80,7 @@ func TestMyFighter(t *testing.T) {
 		repo := testutil.NewFakeRepo()
 		noms := testutil.NewFakeNominationProvider()
 		tournaments := testutil.NewFakeActiveTournamentProviderWithError(errors.New("no active tournament"))
-		svc := service.New(repo, noms, tournaments)
+		svc := service.New(repo, noms, tournaments, nil, nil, nil, nil)
 
 		_, err := svc.MyFighter(ctx, "u1", "")
 		if !errors.Is(err, domain.ErrNotFound) {

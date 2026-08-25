@@ -66,6 +66,26 @@ message Tournament {
   optional int64 entry_fee_minor = 15;
   // entry_fee_currency — код валюты ISO-4217 (например "RUB").
   string entry_fee_currency = 16;
+  // program — программа турнира по дням (спека 0040, FR-14/FR-15). Пустой
+  // список — программа не задана, раздел не показывается (FR-16). Дни
+  // задаются organizer вручную, без жёсткой привязки к event_start_at/
+  // event_end_at (FR-14a).
+  repeated TournamentProgramDay program = 17;
+}
+
+// TournamentProgramItem — один пункт программы дня (спека 0040, FR-14):
+// время + короткий текст («9:00 — Сбор участников»). time_label — короткая
+// метка, не строгий формат времени.
+message TournamentProgramItem {
+  string time_label = 1;
+  string text = 2;
+}
+
+// TournamentProgramDay — один день программы турнира.
+message TournamentProgramDay {
+  // date — YYYY-MM-DD, без временной зоны.
+  string date = 1;
+  repeated TournamentProgramItem items = 2;
 }
 
 // Contact — один канал связи: тип + значение, с позицией в списке.
@@ -106,6 +126,9 @@ message UpdateActiveTournamentRequest {
   // обязателен.
   optional int64 entry_fee_minor = 11;
   string entry_fee_currency = 12;
+  // program — полная замена программы по дням (спека 0040, FR-14), тем же
+  // приёмом, что contacts.
+  repeated TournamentProgramDay program = 13;
 }
 
 // ContactInput — контакт при вводе (без id и без position; позиция

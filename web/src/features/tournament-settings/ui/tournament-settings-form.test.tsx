@@ -33,6 +33,7 @@ function draft(overrides: Partial<TournamentDraft> = {}): TournamentDraft {
     venueAddress: "",
     entryFeeAmount: "",
     entryFeeCurrency: "",
+    program: [],
     ...overrides,
   };
 }
@@ -244,6 +245,7 @@ describe("TournamentSettingsForm (spec 0029, controlled form)", () => {
         venueAddress: "г. Москва, ул. Спортивная, 1",
         entryFeeAmount: "1500",
         entryFeeCurrency: "RUB",
+        program: [],
       });
     });
   });

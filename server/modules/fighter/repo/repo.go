@@ -257,6 +257,79 @@ func (r *Repo) ActiveFightersByNomination(ctx context.Context, nominationID stri
 	return out, nil
 }
 
+// MergeParticipations переносит участия source в target в одной транзакции
+// (спека 0040, FR-10): сначала удаляет строки source, дублирующие участие
+// target по номинации, затем репойнтит остаток на target. Два отдельных
+// sqlc-запроса вместо одного многостейтментного — см. комментарий в
+// repo/queries/fighter.sql.
+func (r *Repo) MergeParticipations(ctx context.Context, sourceID, targetID string) error {
+	sid, err := uuid.Parse(sourceID)
+	if err != nil {
+		return fmt.Errorf("parse source id: %w", err)
+	}
+	tid, err := uuid.Parse(targetID)
+	if err != nil {
+		return fmt.Errorf("parse target id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.DeleteDuplicateParticipationsForMerge(ctx, sqlc.DeleteDuplicateParticipationsForMergeParams{
+		SourceID: sid,
+		TargetID: tid,
+	}); err != nil {
+		return fmt.Errorf("delete duplicate participations: %w", err)
+	}
+	if err := q.RepointParticipations(ctx, sqlc.RepointParticipationsParams{
+		SourceID: sid,
+		TargetID: tid,
+	}); err != nil {
+		return fmt.Errorf("repoint participations: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// ClearOriginUserID снимает привязку записи к учётке (FR-10a).
+func (r *Repo) ClearOriginUserID(ctx context.Context, fighterID string) error {
+	fid, err := uuid.Parse(fighterID)
+	if err != nil {
+		return fmt.Errorf("parse fighter id: %w", err)
+	}
+	if err := r.q.ClearOriginUserID(ctx, fid); err != nil {
+		return fmt.Errorf("clear origin user id: %w", err)
+	}
+	return nil
+}
+
+// SetMerged помечает source объединённым: status=merged,
+// merged_into_id=targetID.
+func (r *Repo) SetMerged(ctx context.Context, sourceID, targetID string) error {
+	sid, err := uuid.Parse(sourceID)
+	if err != nil {
+		return fmt.Errorf("parse source id: %w", err)
+	}
+	tid, err := uuid.Parse(targetID)
+	if err != nil {
+		return fmt.Errorf("parse target id: %w", err)
+	}
+	if err := r.q.SetMerged(ctx, sqlc.SetMergedParams{
+		SourceID: sid,
+		TargetID: pgtype.UUID{Bytes: [16]byte(tid), Valid: true},
+	}); err != nil {
+		return fmt.Errorf("set merged: %w", err)
+	}
+	return nil
+}
+
 func upsertParticipations(ctx context.Context, q *sqlc.Queries, fighterID uuid.UUID, participations []domain.Participation) error {
 	for _, p := range participations {
 		nid, err := uuid.Parse(p.NominationID)
@@ -288,6 +361,9 @@ func toDomain(row sqlc.FighterFighter) domain.Fighter {
 	if row.OriginUserID.Valid {
 		s := uuid.UUID(row.OriginUserID.Bytes).String()
 		f.OriginUserID = &s
+	}
+	if row.MergedIntoID.Valid {
+		f.MergedIntoID = uuid.UUID(row.MergedIntoID.Bytes).String()
 	}
 	return f
 }

@@ -23,11 +23,19 @@ import (
 
 // Deps — явные зависимости модуля fighter (DI через конструктор).
 // Nominations и Tournaments — межмодульные зависимости (порты, не прямой
-// доступ к чужим схемам, ADR 0002).
+// доступ к чужим схемам, ADR 0002). Seeding/Stage/Bout/Accounts (спека 0040)
+// — новые межмодульные порты сценариев 2/3: реализации-адаптеры строит
+// composition root (internal/platform, join-волна T30) поверх модулей
+// stage/bout/auth — этот модуль их не импортирует напрямую. Допускают nil
+// (см. service.Service) до тех пор, пока wiring их не подключит.
 type Deps struct {
 	Pool        *pgxpool.Pool
 	Nominations domain.NominationProvider
 	Tournaments domain.ActiveTournamentProvider
+	Seeding     domain.SeedingWithdrawalSink
+	Stage       domain.StageRepointer
+	Bout        domain.BoutRepointer
+	Accounts    domain.AccountDirectory
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
@@ -59,7 +67,7 @@ func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, a
 
 func newService(deps Deps) *service.Service {
 	r := repo.New(deps.Pool)
-	return service.New(r, deps.Nominations, deps.Tournaments)
+	return service.New(r, deps.Nominations, deps.Tournaments, deps.Seeding, deps.Stage, deps.Bout, deps.Accounts)
 }
 
 // RegistrationSink адаптирует модуль fighter к порту
@@ -74,7 +82,10 @@ type RegistrationSink struct {
 // NewRegistrationSink создаёт sink-адаптер поверх пула соединений.
 func NewRegistrationSink(pool *pgxpool.Pool, nominations domain.NominationProvider) *RegistrationSink {
 	r := repo.New(pool)
-	return &RegistrationSink{svc: service.New(r, nominations, nil)}
+	// tournaments/seeding/stage/bout/accounts — nil: RegisterFromApplication
+	// не резолвит активный турнир (tournament_id всегда приходит явно из
+	// заявки) и не затрагивает withdraw/return/merge/обогащение ростера.
+	return &RegistrationSink{svc: service.New(r, nominations, nil, nil, nil, nil, nil)}
 }
 
 var _ appdomain.FighterRegistrationSink = (*RegistrationSink)(nil)

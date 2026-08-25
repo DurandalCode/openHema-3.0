@@ -36,7 +36,7 @@ func setupMe(t *testing.T) meClients {
 	noms.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
 	tournaments := testutil.NewFakeActiveTournamentProvider(tournamentID)
 
-	svc := service.New(repo, noms, tournaments)
+	svc := service.New(repo, noms, tournaments, nil, nil, nil, nil)
 	meHandler := NewMeHandler(svc)
 
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)

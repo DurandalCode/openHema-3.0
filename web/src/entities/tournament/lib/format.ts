@@ -140,6 +140,22 @@ export function formatEntryFee(minor: number | null, currency: string): string |
 }
 
 /**
+ * formatProgramDate — человекочитаемая дата одного дня программы турнира
+ * (спека 0040, FR-14): "2026-12-01" → «1 декабря 2026 г.» (без времени —
+ * `date` в `TournamentProgramDay` намеренно без временной зоны, FR-14a).
+ * Пустая строка — как и есть, пустая (день без даты в верстке не рендерит
+ * заголовок). Невалидная строка возвращается как есть — тот же
+ * защитный приём, что `formatEventRange`/`daysUntil` для дат из БД,
+ * которые в теории могут не пройти `Date`-парсинг.
+ */
+export function formatProgramDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/**
  * venueLine — место проведения турнира для показа: «название площадки,
  * адрес» (спека 0039, FR-1). Каждая часть независимо опциональна (правило
  * 0001): пустая склеивается без запятой-разделителя, обе пустые — пустая

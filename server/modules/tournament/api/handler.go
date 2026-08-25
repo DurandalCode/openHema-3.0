@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"errors"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -14,6 +15,10 @@ import (
 	"github.com/hema/server/modules/tournament/domain"
 	"github.com/hema/server/modules/tournament/service"
 )
+
+// programDateLayout — формат TournamentProgramDay.date на проводе:
+// "YYYY-MM-DD", без временной зоны (спека 0040, FR-14a).
+const programDateLayout = "2006-01-02"
 
 // Handler реализует публичный TournamentServiceHandler (чтение активного
 // турнира). Доступ не ограничен — RPC перечислен в publicProcedures.
@@ -61,6 +66,10 @@ func (h *AdminHandler) UpdateActiveTournament(
 	req *connect.Request[hemav1.UpdateActiveTournamentRequest],
 ) (*connect.Response[hemav1.UpdateActiveTournamentResponse], error) {
 	m := req.Msg
+	program, err := fromProtoProgram(m.Program)
+	if err != nil {
+		return nil, mapError(err)
+	}
 	in := domain.UpdateInput{
 		Title:            m.Title,
 		Description:      m.Description,
@@ -72,6 +81,7 @@ func (h *AdminHandler) UpdateActiveTournament(
 		VenueAddress:     m.VenueAddress,
 		EntryFeeMinor:    m.EntryFeeMinor,
 		EntryFeeCurrency: m.EntryFeeCurrency,
+		Program:          program,
 	}
 	if m.EventStartAt != nil {
 		in.EventStartAt = m.EventStartAt.AsTime()
@@ -118,6 +128,7 @@ func toProtoTournament(t domain.Tournament) *hemav1.Tournament {
 		VenueAddress:     t.VenueAddress,
 		EntryFeeMinor:    t.EntryFeeMinor,
 		EntryFeeCurrency: t.EntryFeeCurrency,
+		Program:          toProtoProgram(t.Program),
 	}
 	if t.HasEventStartAt {
 		out.EventStartAt = timestamppb.New(t.EventStartAt)
@@ -188,4 +199,58 @@ func fromProtoContactType(t hemav1.ContactType) domain.ContactType {
 	default:
 		return ""
 	}
+}
+
+
+// toProtoProgram отображает программу турнира по дням в proto (FR-15).
+func toProtoProgram(days []domain.ProgramDay) []*hemav1.TournamentProgramDay {
+	out := make([]*hemav1.TournamentProgramDay, 0, len(days))
+	for _, d := range days {
+		out = append(out, &hemav1.TournamentProgramDay{
+			Date:  d.Date.Format(programDateLayout),
+			Items: toProtoProgramItems(d.Items),
+		})
+	}
+	return out
+}
+
+func toProtoProgramItems(items []domain.ProgramItem) []*hemav1.TournamentProgramItem {
+	out := make([]*hemav1.TournamentProgramItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, &hemav1.TournamentProgramItem{
+			TimeLabel: it.TimeLabel,
+			Text:      it.Text,
+		})
+	}
+	return out
+}
+
+// fromProtoProgram отображает proto-программу в domain. Дата хранится и
+// передаётся на проводе как "YYYY-MM-DD" (без временной зоны, FR-14a);
+// нераспознаваемый формат — ошибка ввода (ErrInvalidInput), не панику/тихую
+// потерю дня.
+func fromProtoProgram(in []*hemav1.TournamentProgramDay) ([]domain.ProgramDay, error) {
+	out := make([]domain.ProgramDay, 0, len(in))
+	for _, d := range in {
+		date, err := time.Parse(programDateLayout, d.Date)
+		if err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+		out = append(out, domain.ProgramDay{
+			Date:  date,
+			Items: fromProtoProgramItems(d.Items),
+		})
+	}
+	return out, nil
+}
+
+func fromProtoProgramItems(in []*hemav1.TournamentProgramItem) []domain.ProgramItem {
+	out := make([]domain.ProgramItem, 0, len(in))
+	for _, it := range in {
+		out = append(out, domain.ProgramItem{
+			TimeLabel: it.TimeLabel,
+			Text:      it.Text,
+		})
+	}
+	return out
 }

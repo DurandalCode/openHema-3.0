@@ -22,7 +22,9 @@ type FighterNominationProvider struct {
 // NewFighterNominationProvider создаёт адаптер поверх пула соединений.
 func NewFighterNominationProvider(pool *pgxpool.Pool, tournaments nomdomain.ActiveTournamentProvider) *FighterNominationProvider {
 	r := nomrepo.New(pool)
-	return &FighterNominationProvider{svc: nomservice.New(r, tournaments)}
+	// Pools/Bouts (спека 0040) — nil: Get не участвует в гейте на удаление
+	// номинации, только читает её сведения.
+	return &FighterNominationProvider{svc: nomservice.New(r, tournaments, nil, nil)}
 }
 
 // Nomination резолвит сведения о номинации, нужные модулю fighter.

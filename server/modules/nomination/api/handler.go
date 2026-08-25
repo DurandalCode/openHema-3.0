@@ -184,6 +184,10 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, domain.ErrCannotReopen):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, domain.ErrHasDistributedFighters):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, domain.ErrHasBouts):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

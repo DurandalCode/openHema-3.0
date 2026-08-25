@@ -405,3 +405,147 @@ func TestUpdateActiveTournament_E2E_NoActiveReturnsNotFound(t *testing.T) {
 		t.Errorf("expected CodeNotFound, got %v", connect.CodeOf(err))
 	}
 }
+
+// TestUpdateActiveTournament_E2E_Program_RoundTrip — спека 0040 (T21,
+// сценарий 5): программа по дням маппится proto↔domain через реальный
+// Connect-путь (даты — "YYYY-MM-DD" без временной зоны, FR-14).
+func TestUpdateActiveTournament_E2E_Program_RoundTrip(t *testing.T) {
+	_, client, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title: "T",
+		Program: []*hemav1.TournamentProgramDay{
+			{
+				Date: "2026-12-01",
+				Items: []*hemav1.TournamentProgramItem{
+					{TimeLabel: "9:00", Text: "Сбор участников"},
+					{TimeLabel: "10:00", Text: "Начало номинаций"},
+				},
+			},
+			{
+				Date: "2026-12-02",
+				Items: []*hemav1.TournamentProgramItem{
+					{TimeLabel: "9:00", Text: "Финалы"},
+				},
+			},
+		},
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := client.UpdateActiveTournament(context.Background(), req)
+	if err != nil {
+		t.Fatalf("UpdateActiveTournament: %v", err)
+	}
+	got := res.Msg.Tournament
+	if len(got.Program) != 2 {
+		t.Fatalf("Program len = %d, want 2", len(got.Program))
+	}
+	if got.Program[0].Date != "2026-12-01" {
+		t.Errorf("Program[0].Date = %q, want 2026-12-01", got.Program[0].Date)
+	}
+	if len(got.Program[0].Items) != 2 || got.Program[0].Items[0].Text != "Сбор участников" {
+		t.Errorf("Program[0].Items = %+v", got.Program[0].Items)
+	}
+	if got.Program[1].Date != "2026-12-02" {
+		t.Errorf("Program[1].Date = %q, want 2026-12-02", got.Program[1].Date)
+	}
+	if len(got.Program[1].Items) != 1 || got.Program[1].Items[0].Text != "Финалы" {
+		t.Errorf("Program[1].Items = %+v", got.Program[1].Items)
+	}
+}
+
+// TestGetActiveTournament_E2E_Program — программа отдаётся публичным
+// GetActiveTournament (FR-15).
+func TestGetActiveTournament_E2E_Program(t *testing.T) {
+	repo := testutil.NewFakeRepoWithActive(domain.Tournament{
+		ID:    "00000000-0000-0000-0000-000000000001",
+		Title: "Seeded Cup",
+		Program: []domain.ProgramDay{
+			{
+				Date: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+				Items: []domain.ProgramItem{
+					{TimeLabel: "9:00", Text: "Сбор участников"},
+				},
+			},
+		},
+	})
+	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
+	svc := service.New(repo)
+	pubHandler := NewHandler(svc)
+	baseOpts := []connect.HandlerOption{connect.WithInterceptors(connectutil.Auth(tokens))}
+	pubPath, pubH := hemav1connect.NewTournamentServiceHandler(pubHandler, baseOpts...)
+	mux := http.NewServeMux()
+	mux.Handle(pubPath, pubH)
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client := hemav1connect.NewTournamentServiceClient(server.Client(), server.URL)
+
+	res, err := client.GetActiveTournament(context.Background(), connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
+	if err != nil {
+		t.Fatalf("GetActiveTournament: %v", err)
+	}
+	got := res.Msg.Tournament
+	if len(got.Program) != 1 {
+		t.Fatalf("Program len = %d, want 1", len(got.Program))
+	}
+	if got.Program[0].Date != "2026-12-01" {
+		t.Errorf("Program[0].Date = %q, want 2026-12-01", got.Program[0].Date)
+	}
+	if len(got.Program[0].Items) != 1 || got.Program[0].Items[0].Text != "Сбор участников" {
+		t.Errorf("Program[0].Items = %+v", got.Program[0].Items)
+	}
+}
+
+// TestGetActiveTournament_E2E_ProgramEmpty — турнир без программы (FR-16):
+// поле program в ответе пустое (не nil-панику, не заглушка).
+func TestGetActiveTournament_E2E_ProgramEmpty(t *testing.T) {
+	client, _, _ := setup(t)
+
+	res, err := client.GetActiveTournament(context.Background(), connect.NewRequest(&hemav1.GetActiveTournamentRequest{}))
+	if err != nil {
+		t.Fatalf("GetActiveTournament: %v", err)
+	}
+	if len(res.Msg.Tournament.Program) != 0 {
+		t.Errorf("Program should be empty, len = %d", len(res.Msg.Tournament.Program))
+	}
+}
+
+// TestUpdateActiveTournament_E2E_Program_EmptyItemTextRejected — сервисная
+// валидация (T21) отражается на уровне InvalidArgument через реальный
+// Connect-путь.
+func TestUpdateActiveTournament_E2E_Program_EmptyItemTextRejected(t *testing.T) {
+	_, client, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title: "T",
+		Program: []*hemav1.TournamentProgramDay{
+			{Date: "2026-12-01", Items: []*hemav1.TournamentProgramItem{{TimeLabel: "9:00", Text: "   "}}},
+		},
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := client.UpdateActiveTournament(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+// TestUpdateActiveTournament_E2E_Program_MalformedDateRejected — дата дня
+// программы не в формате YYYY-MM-DD отклоняется как невалидный ввод, не
+// падает/не сохраняет мусор.
+func TestUpdateActiveTournament_E2E_Program_MalformedDateRejected(t *testing.T) {
+	_, client, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
+		Title: "T",
+		Program: []*hemav1.TournamentProgramDay{
+			{Date: "not-a-date", Items: []*hemav1.TournamentProgramItem{{Text: "x"}}},
+		},
+	})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	_, err := client.UpdateActiveTournament(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("expected CodeInvalidArgument, got %v", connect.CodeOf(err))
+	}
+}

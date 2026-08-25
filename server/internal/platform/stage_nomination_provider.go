@@ -27,7 +27,9 @@ type StageNominationProvider struct {
 // конструктор единый, передаём как есть.
 func NewStageNominationProvider(pool *pgxpool.Pool, tournaments nomdomain.ActiveTournamentProvider) *StageNominationProvider {
 	r := nomrepo.New(pool)
-	return &StageNominationProvider{svc: nomservice.New(r, tournaments)}
+	// Pools/Bouts (спека 0040) — nil: Get/List/Sync* не участвуют в гейте на
+	// удаление номинации.
+	return &StageNominationProvider{svc: nomservice.New(r, tournaments, nil, nil)}
 }
 
 var _ stagedomain.NominationProvider = (*StageNominationProvider)(nil)

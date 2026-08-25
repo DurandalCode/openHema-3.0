@@ -24,7 +24,9 @@ type NominationInfoProvider struct {
 // NewNominationInfoProvider создаёт адаптер поверх пула соединений.
 func NewNominationInfoProvider(pool *pgxpool.Pool, tournaments nomdomain.ActiveTournamentProvider) *NominationInfoProvider {
 	r := nomrepo.New(pool)
-	return &NominationInfoProvider{svc: nomservice.New(r, tournaments)}
+	// Pools/Bouts (спека 0040) — nil: Get не участвует в гейте на удаление
+	// номинации, только читает её сведения.
+	return &NominationInfoProvider{svc: nomservice.New(r, tournaments, nil, nil)}
 }
 
 // Nomination резолвит сведения о номинации, нужные модулю application.

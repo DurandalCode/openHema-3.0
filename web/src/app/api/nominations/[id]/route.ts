@@ -1,3 +1,4 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { NextResponse, type NextRequest } from "next/server";
 import { nominationAdminClient, nominationClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
@@ -81,6 +82,32 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<Next
     );
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return errorResponse(err);
+    return deleteErrorResponse(err);
   }
+}
+
+// Гейт на удаление номинации (спека 0040, FR-1/FR-2/AC-1/AC-2): сервер
+// различает два отказа одним и тем же `connect.CodeFailedPrecondition`, по
+// тексту (тот же приём, что уже применялся в 0036 для дублей заявки —
+// `web/src/app/api/applications/route.ts`, только там коды различались, а
+// здесь код один и тот же — различитель именно текст). BFF не пробрасывает
+// сырой Go-текст (`err.rawMessage`) наружу для этих двух причин, а отдаёт
+// машиночитаемый код — UI (`nominations-screen.tsx`) переводит его в
+// человекочитаемую причину. Строки-маркеры зафиксированы в
+// `docs/specs/0040-domain-gaps/plan.md` («modules/nomination») как
+// источник истины и должны совпасть с `nomination.ErrHasDistributedFighters`/
+// `ErrHasBouts` серверного трека.
+const HAS_DISTRIBUTED_FIGHTERS_MESSAGE = "nomination: has distributed fighters";
+const HAS_BOUTS_MESSAGE = "nomination: has bouts";
+
+function deleteErrorResponse(err: unknown): NextResponse {
+  if (err instanceof ConnectError && err.code === Code.FailedPrecondition) {
+    if (err.rawMessage === HAS_DISTRIBUTED_FIGHTERS_MESSAGE) {
+      return NextResponse.json({ error: "has_distributed_fighters" }, { status: 409 });
+    }
+    if (err.rawMessage === HAS_BOUTS_MESSAGE) {
+      return NextResponse.json({ error: "has_bouts" }, { status: 409 });
+    }
+  }
+  return errorResponse(err);
 }

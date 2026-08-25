@@ -14,6 +14,10 @@ describe("fighterStatusLabel", () => {
   it("returns Выбыл for FIGHTER_STATUS_WITHDRAWN", () => {
     expect(fighterStatusLabel("FIGHTER_STATUS_WITHDRAWN")).toBe("Выбыл");
   });
+
+  it("returns Объединён for FIGHTER_STATUS_MERGED (spec 0040, FR-10)", () => {
+    expect(fighterStatusLabel("FIGHTER_STATUS_MERGED")).toBe("Объединён");
+  });
 });
 
 describe("withdrawalReasonLabel", () => {

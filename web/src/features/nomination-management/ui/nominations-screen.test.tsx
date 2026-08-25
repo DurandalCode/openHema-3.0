@@ -212,6 +212,69 @@ describe("NominationsScreen", () => {
     expect(toastUndo).not.toHaveBeenCalled();
   });
 
+  // Спека 0040, FR-1/FR-2/AC-1: BFF отдаёт машиночитаемый код
+  // «has_distributed_fighters» (route.ts, deleteErrorResponse) — экран
+  // показывает конкретную русскую причину отказа, а не сырой код.
+  it("shows a specific reason toast when delete is blocked by distributed fighters (spec 0040, AC-1)", () => {
+    deleteResult = { ok: false, error: "has_distributed_fighters" };
+    nominationsState = { data: [nomination({ id: "n1", title: "Длинный меч · муж" })], isLoading: false, error: null };
+    render(<NominationsScreen tournamentId="t1" />);
+
+    const trigger = screen.getByRole("button", { name: "Действия" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerId: 1 });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+
+    fireEvent.change(screen.getByLabelText(/Введите «Длинный меч · муж»/), {
+      target: { value: "Длинный меч · муж" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError.mock.calls[0][0]).toBe("В номинации есть распределённые бойцы");
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  // Спека 0040, FR-1/FR-2/AC-2: второй машиночитаемый код — «has_bouts».
+  it("shows a specific reason toast when delete is blocked by existing bouts (spec 0040, AC-2)", () => {
+    deleteResult = { ok: false, error: "has_bouts" };
+    nominationsState = { data: [nomination({ id: "n1", title: "Длинный меч · муж" })], isLoading: false, error: null };
+    render(<NominationsScreen tournamentId="t1" />);
+
+    const trigger = screen.getByRole("button", { name: "Действия" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerId: 1 });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+
+    fireEvent.change(screen.getByLabelText(/Введите «Длинный меч · муж»/), {
+      target: { value: "Длинный меч · муж" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError.mock.calls[0][0]).toBe("В номинации есть бои");
+  });
+
+  // AC-3: неизвестная строка ошибки — как и раньше, показывается без
+  // перевода (fallback), сервер уже отдаёт разумный текст в этом случае.
+  it("falls back to the raw error text for an unrecognized delete error", () => {
+    deleteResult = { ok: false, error: "not found" };
+    nominationsState = { data: [nomination({ id: "n1", title: "Длинный меч · муж" })], isLoading: false, error: null };
+    render(<NominationsScreen tournamentId="t1" />);
+
+    const trigger = screen.getByRole("button", { name: "Действия" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerId: 1 });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+
+    fireEvent.change(screen.getByLabelText(/Введите «Длинный меч · муж»/), {
+      target: { value: "Длинный меч · муж" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    expect(toastError.mock.calls[0][0]).toBe("not found");
+  });
+
   it("shows loading skeleton and a retryable load error", () => {
     nominationsState = { data: [], isLoading: true, error: null };
     const { unmount } = render(<NominationsScreen tournamentId="t1" />);

@@ -7,6 +7,8 @@ export function fighterStatusLabel(status: FighterStatus): string {
       return "Активен";
     case "FIGHTER_STATUS_WITHDRAWN":
       return "Выбыл";
+    case "FIGHTER_STATUS_MERGED":
+      return "Объединён";
     default:
       return "—";
   }

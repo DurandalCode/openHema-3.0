@@ -1496,3 +1496,61 @@ func (s *Service) resolveArenaNames(ctx context.Context, pools []domain.Pool) (m
 	}
 	return s.arenas.ArenasByIDs(ctx, ids)
 }
+
+// Спека 0040: гейт на удаление номинации (сценарий 1), память посева при
+// возврате выведенного бойца (сценарий 2), репойнт при слиянии дублей
+// бойца (сценарий 3).
+
+// HasDistributedFighters — есть ли в номинации хотя бы один боец,
+// распределённый в пул любой её стадии (FR-1 гейта удаления номинации) —
+// вход stage.PoolOccupancyAdapter, реализующего
+// nomination/domain.PoolOccupancyChecker.
+func (s *Service) HasDistributedFighters(ctx context.Context, nominationID string) (bool, error) {
+	return s.repo.ExistsDistributedFighterForNomination(ctx, nominationID)
+}
+
+// OnFighterWithdrawn запоминает пулы, из которых выведенный боец был
+// распределён, пока их стадия ещё draft (FR-4) — вход
+// stage.SeedingSinkAdapter, реализующего fighter/domain.SeedingWithdrawalSink.
+// Членства вне draft (стадия уже зафиксирована) не трогает: посев там уже
+// зафиксирован, тот же порог, что у DeletePool/ResetLayout.
+func (s *Service) OnFighterWithdrawn(ctx context.Context, fighterID string) error {
+	memberships, err := s.repo.DraftMembershipsByFighter(ctx, fighterID)
+	if err != nil {
+		return fmt.Errorf("draft memberships by fighter: %w", err)
+	}
+	for _, m := range memberships {
+		if err := s.repo.CaptureWithdrawnSeed(ctx, fighterID, m.StageID); err != nil {
+			return fmt.Errorf("capture withdrawn seed: %w", err)
+		}
+	}
+	return nil
+}
+
+// OnFighterReturned пытается восстановить все запомненные посевы бойца
+// (FR-5/FR-6) — вход stage.SeedingSinkAdapter. Восстанавливает членство,
+// только пока стадия запомненного пула ещё draft и сам пул ещё существует;
+// иначе тихо освобождает память (best-effort истечение, без силового
+// восстановления любой ценой) — боец остаётся «нераспределённым».
+func (s *Service) OnFighterReturned(ctx context.Context, fighterID string) error {
+	if err := s.repo.RestoreWithdrawnSeed(ctx, fighterID); err != nil {
+		return fmt.Errorf("restore withdrawn seed: %w", err)
+	}
+	return nil
+}
+
+// RepointFighter переносит членства и запомненные посевы source в target
+// (сценарий 3, слияние дублей бойца) — вход stage.RepointAdapter,
+// реализующего fighter/domain.StageRepointer. Коллизия по
+// uq_members_stage_fighter/PK withdrawn_seeds не репойнтится молча (см.
+// repo/queries/stage.sql) — снятие такой строки делегировано отдельному
+// ручному действию admin, не merge.
+func (s *Service) RepointFighter(ctx context.Context, sourceFighterID, targetFighterID string) error {
+	if err := s.repo.RepointFighter(ctx, sourceFighterID, targetFighterID); err != nil {
+		return fmt.Errorf("repoint fighter: %w", err)
+	}
+	if err := s.repo.RepointWithdrawnSeed(ctx, sourceFighterID, targetFighterID); err != nil {
+		return fmt.Errorf("repoint withdrawn seed: %w", err)
+	}
+	return nil
+}

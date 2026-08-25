@@ -21,6 +21,7 @@ import { applicationErrorMessage } from "../api/errors";
 import type { ApplicationRequestError } from "../api/mutation-error";
 import { useDeclarePayment } from "../api/use-declare-payment";
 import { useWithdrawApplication } from "../api/use-withdraw-application";
+import { ApplicationHistoryDialog } from "./application-history-dialog";
 
 /**
  * ApplicationCard — карточка заявки в списке «Мои заявки» (спека 0036,
@@ -31,6 +32,11 @@ import { useWithdrawApplication } from "../api/use-withdraw-application";
  * необратимо — только через `ConfirmDialog` (FR-21); «Я оплатил» —
  * немедленно, без диалога (FR-22). Успех/отказ — только тост (FR-23,
  * правило `web/AGENTS.md`).
+ *
+ * «История» открывает `ApplicationHistoryDialog` (спека 0040, сценарий 4,
+ * FR-12/FR-13/AC-8) — доступна всегда, включая терминальные заявки: история
+ * смен статуса не перестаёт быть интересной после того, как заявка отозвана
+ * или боец зарегистрирован.
  */
 export function ApplicationCard({
   application,
@@ -40,6 +46,7 @@ export function ApplicationCard({
   nominationTitle?: string;
 }) {
   const [confirmWithdrawOpen, setConfirmWithdrawOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const declarePayment = useDeclarePayment();
   const withdraw = useWithdrawApplication();
 
@@ -97,32 +104,33 @@ export function ApplicationCard({
             </Row>
           )}
 
-          {(actions.includes("declarePayment") || actions.includes("withdraw")) && (
-            <Row gap={2}>
-              {actions.includes("declarePayment") && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  loading={declarePayment.isPending}
-                  onClick={handleDeclarePayment}
-                >
-                  Я оплатил
-                </Button>
-              )}
-              {actions.includes("withdraw") && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  loading={withdraw.isPending}
-                  onClick={() => setConfirmWithdrawOpen(true)}
-                >
-                  Отозвать
-                </Button>
-              )}
-            </Row>
-          )}
+          <Row gap={2}>
+            {actions.includes("declarePayment") && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                loading={declarePayment.isPending}
+                onClick={handleDeclarePayment}
+              >
+                Я оплатил
+              </Button>
+            )}
+            {actions.includes("withdraw") && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                loading={withdraw.isPending}
+                onClick={() => setConfirmWithdrawOpen(true)}
+              >
+                Отозвать
+              </Button>
+            )}
+            <Button type="button" size="sm" variant="ghost" onClick={() => setHistoryOpen(true)}>
+              История
+            </Button>
+          </Row>
         </Col>
       </CardContent>
 
@@ -134,6 +142,12 @@ export function ApplicationCard({
         confirmLabel="Отозвать"
         destructive
         onConfirm={handleWithdraw}
+      />
+
+      <ApplicationHistoryDialog
+        application={application}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
       />
     </Card>
   );

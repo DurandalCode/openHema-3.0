@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   declarePaymentRequest,
+  getMyApplicationRequest,
   listMyApplicationsRequest,
   submitApplicationRequest,
   withdrawApplicationRequest,
@@ -118,6 +119,47 @@ describe("features/my-applications/api/requests", () => {
       fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
 
       await expect(submitApplicationRequest("n1")).rejects.toBeInstanceOf(UnauthorizedError);
+    });
+  });
+
+  describe("getMyApplicationRequest", () => {
+    it("GETs /api/applications/[id] and returns application + history (spec 0040, FR-12)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          application: { id: "a1" },
+          history: [{ type: "APPLICATION_EVENT_TYPE_SUBMITTED", sequence: 1 }],
+        }),
+      });
+
+      const result = await getMyApplicationRequest("a1");
+
+      expect(result).toEqual({
+        ok: true,
+        application: { id: "a1" },
+        history: [{ type: "APPLICATION_EVENT_TYPE_SUBMITTED", sequence: 1 }],
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/applications/a1", { method: "GET" });
+    });
+
+    it("defaults history to [] when the server omits it", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ application: { id: "a1" } }) });
+
+      const result = await getMyApplicationRequest("a1");
+
+      expect(result).toEqual({ ok: true, application: { id: "a1" }, history: [] });
+    });
+
+    it("returns ok:false with server error on forbidden access to another applicant's application (spec 0040, FR-13/AC-9)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: "forbidden" }),
+      });
+
+      const result = await getMyApplicationRequest("a2");
+
+      expect(result).toEqual({ ok: false, error: "forbidden", status: 403 });
     });
   });
 

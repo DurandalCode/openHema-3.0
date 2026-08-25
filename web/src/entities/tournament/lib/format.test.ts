@@ -4,6 +4,7 @@ import {
   daysUntil,
   formatEntryFee,
   formatEventRange,
+  formatProgramDate,
   venueLine,
 } from "./format";
 import type { Tournament } from "./types";
@@ -26,6 +27,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     venueAddress: "",
     entryFeeMinor: null,
     entryFeeCurrency: "",
+    program: [],
     ...overrides,
   };
 }
@@ -175,6 +177,26 @@ describe("entities/tournament/lib/format formatEntryFee (spec 0038, FR-44)", () 
 
   it("omits a trailing space when the currency is empty", () => {
     expect(formatEntryFee(150000, "")).toMatch(/^1\s500$/);
+  });
+});
+
+describe("entities/tournament/lib/format formatProgramDate (spec 0040, FR-14)", () => {
+  it("formats a YYYY-MM-DD date without a time part", () => {
+    expect(formatProgramDate("2026-12-01")).toBe(
+      new Date("2026-12-01T00:00:00").toLocaleDateString("ru-RU", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }),
+    );
+  });
+
+  it("returns an empty string for an empty date", () => {
+    expect(formatProgramDate("")).toBe("");
+  });
+
+  it("falls back to the raw string on an invalid date", () => {
+    expect(formatProgramDate("not-a-date")).toBe("not-a-date");
   });
 });
 

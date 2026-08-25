@@ -385,4 +385,19 @@ type Repository interface {
 	// SQL-запроса BoutTimesForPools). Пустой poolIDs — валидный no-op:
 	// пустая карта без ошибки (как EventsForPools/AnyStartedInPools).
 	BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]BoutTimes, error)
+	// ExistsBoutForNomination — есть ли среди боёв номинации хотя бы один
+	// поставленный (spec 0040, сценарий 1, FR-1б: гейт удаления номинации —
+	// nomination/domain.BoutOccupancyChecker, реализуется
+	// modules/bout.BoutOccupancyAdapter поверх этого метода). Использует
+	// idx_bouts_nomination.
+	ExistsBoutForNomination(ctx context.Context, nominationID string) (bool, error)
+	// RepointFighter переносит оба борта (FighterA/FighterB) всех боёв
+	// дубля-источника (oldID) на итоговую запись (newID) по идентификатору —
+	// сторона слияния дублей бойца (спека 0040, сценарий 3:
+	// fighter/domain.BoutRepointer, реализуется
+	// modules/bout.RepointAdapter). Денормализованные имя/клуб бойца в
+	// журнале боя НЕ переписываются — это исторический снапшот на момент
+	// проведения, не текущее состояние ростера (plan.md, «Риски»).
+	// Идемпотентно: повторный вызов на уже репойнтнутые строки — no-op.
+	RepointFighter(ctx context.Context, oldID, newID string) error
 }

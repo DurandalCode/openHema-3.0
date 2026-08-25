@@ -34,6 +34,15 @@ service FighterAdminService {
   rpc GetFighter(GetFighterRequest) returns (GetFighterResponse);
   // ListRoster возвращает ростер турнира: бойцов с их участиями и статусами.
   rpc ListRoster(ListRosterRequest) returns (ListRosterResponse);
+  // FindFighterByAccount ищет бойца турнира по учётке пользователя (спека
+  // 0040, FR-9). Пустой fighter в ответе — «у этой учётки нет бойца в этом
+  // турнире», не ошибка (тот же приём, что GetMyFighter/FR-41 спеки 0038).
+  rpc FindFighterByAccount(FindFighterByAccountRequest) returns (FindFighterByAccountResponse);
+  // MergeFighters сводит дубль source в target: участия переносятся на
+  // target (совпадающие по номинации — не дублируются), source помечается
+  // объединённым (FIGHTER_STATUS_MERGED), не удаляется физически (спека
+  // 0040, FR-10).
+  rpc MergeFighters(MergeFightersRequest) returns (MergeFightersResponse);
 }
 
 // FighterPublicService — публичное чтение состава номинации. RPC доступны
@@ -61,6 +70,10 @@ enum FighterStatus {
   FIGHTER_STATUS_UNSPECIFIED = 0;
   FIGHTER_STATUS_ACTIVE = 1;
   FIGHTER_STATUS_WITHDRAWN = 2;
+  // FIGHTER_STATUS_MERGED — запись-источник после слияния дублей (спека
+  // 0040, FR-10). Не удаляется физически, merged_into_id указывает на
+  // итоговую запись.
+  FIGHTER_STATUS_MERGED = 3;
 }
 
 // WithdrawalReason — причина вывода бойца с турнира.
@@ -101,6 +114,16 @@ message Fighter {
   // заявителя: origin_user_id наружу не отдаётся (спека 0007 отвязала
   // бойца от учётки, спека 0026 NFR-2 связь не восстанавливает).
   bool from_application = 10;
+  // linked_account_id (спека 0040, FR-8): непусто, если у бойца есть
+  // привязанная учётка (origin_user_id). Заполняется ТОЛЬКО в ответах
+  // FighterAdminService — FighterPublicService/FighterService (свой боец,
+  // ADR 0016) это поле не сериализуют: граница ADR 0016 не расширяется,
+  // проверяется на уровне api-хендлера, не сообщения.
+  string linked_account_id = 11;
+  string linked_account_display_name = 12;
+  // merged_into_id (спека 0040, FR-10): непусто, если status =
+  // FIGHTER_STATUS_MERGED — id записи, в которую слит этот боец.
+  string merged_into_id = 13;
 }
 
 // RosterEntry — элемент публичного состава номинации. Без id/происхождения:
@@ -195,6 +218,30 @@ message ListRosterRequest {
 
 message ListRosterResponse {
   repeated Fighter fighters = 1;
+}
+
+// FindFighterByAccountRequest — tournament_id опционален: пустой — активный
+// турнир (как ListRosterRequest).
+message FindFighterByAccountRequest {
+  string user_id = 1;
+  optional string tournament_id = 2;
+}
+
+message FindFighterByAccountResponse {
+  // fighter не заполнен, если у учётки нет бойца в этом турнире.
+  Fighter fighter = 1;
+}
+
+message MergeFightersRequest {
+  string source_fighter_id = 1;
+  // target_fighter_id — «итоговая» запись: её origin_user_id и снапшот
+  // имени/клуба остаются в силе после слияния.
+  string target_fighter_id = 2;
+}
+
+message MergeFightersResponse {
+  // fighter — итоговая запись (target) после слияния.
+  Fighter fighter = 1;
 }
 
 message ListNominationRosterRequest {

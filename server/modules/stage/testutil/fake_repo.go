@@ -79,11 +79,28 @@ type FakeRepo struct {
 	canonicalStage map[string]string    // nomination id -> id канонического (auto-managed) этапа
 	pools          map[string]*poolRow
 	presets        map[string]*presetRow // preset id -> пресет формата (спека 0020, FR-11)
+	// withdrawnSeeds — «память» о членстве в пуле бойца, выведенного с
+	// турнира (спека 0040, FR-4): ключ — fighterID+"|"+nominationID, как и
+	// PK (fighter_id, nomination_id) таблицы stage.withdrawn_seeds.
+	withdrawnSeeds map[string]*withdrawnSeedRow
 
 	// SetStatusCalls — счётчик вызовов SetStatus (спека 0010, T12): позволяет
 	// тестам service убедиться, что при ошибке BoutConductor статус в repo не
 	// меняется (порядок «эффект в bout → потом статус»).
 	SetStatusCalls int
+}
+
+// withdrawnSeedRow — одна запомненная запись «откуда выведен боец» (спека
+// 0040, FR-4): пул + этап + номинация на момент вывода.
+type withdrawnSeedRow struct {
+	fighterID    string
+	nominationID string
+	stageID      string
+	poolID       string
+}
+
+func withdrawnSeedKey(fighterID, nominationID string) string {
+	return fighterID + "|" + nominationID
 }
 
 // NewFakeRepo создаёт пустой fake-репозиторий.
@@ -93,6 +110,7 @@ func NewFakeRepo() *FakeRepo {
 		canonicalStage: make(map[string]string),
 		pools:          make(map[string]*poolRow),
 		presets:        make(map[string]*presetRow),
+		withdrawnSeeds: make(map[string]*withdrawnSeedRow),
 	}
 }
 
@@ -208,6 +226,27 @@ func (r *FakeRepo) PoolCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.pools)
+}
+
+// WithdrawnSeedCount — тестовый хелпер (спека 0040): сколько запомненных
+// посевов сейчас в памяти fake-репо — проверка того, что
+// CaptureWithdrawnSeed/RestoreWithdrawnSeed действительно пишут/освобождают
+// withdrawn_seeds, а не молча no-op.
+func (r *FakeRepo) WithdrawnSeedCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.withdrawnSeeds)
+}
+
+// SeedWithdrawnSeed — тестовый хелпер (спека 0040): напрямую заводит запись
+// «памяти» withdrawn_seeds, в обход CaptureWithdrawnSeed — для тестов
+// RestoreWithdrawnSeed/RepointWithdrawnSeed без полного цикла вывода.
+func (r *FakeRepo) SeedWithdrawnSeed(fighterID, nominationID, stageID, poolID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.withdrawnSeeds[withdrawnSeedKey(fighterID, nominationID)] = &withdrawnSeedRow{
+		fighterID: fighterID, nominationID: nominationID, stageID: stageID, poolID: poolID,
+	}
 }
 
 func membersOf(fighterIDs ...string) []memberRow {
@@ -1141,6 +1180,146 @@ func (r *FakeRepo) SetCurrentBout(_ context.Context, poolID, boutID string) erro
 		return domain.ErrNotFound
 	}
 	p.currentBoutID = boutID
+	return nil
+}
+
+// ---------------------------------------------------------------------
+// Спека 0040: гейт на удаление номинации, память посева при возврате
+// выведенного бойца, репойнт при слиянии дублей бойца.
+// ---------------------------------------------------------------------
+
+// ExistsDistributedFighterForNomination — есть ли в номинации хотя бы один
+// боец, распределённый в пул любой её стадии (FR-1 гейта удаления
+// номинации).
+func (r *FakeRepo) ExistsDistributedFighterForNomination(_ context.Context, nominationID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, p := range r.pools {
+		if p.nominationID == nominationID && len(p.members) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// DraftMembershipsByFighter возвращает членства бойца в пулах этапов, ещё
+// находящихся в draft (FR-4) — вход OnFighterWithdrawn.
+func (r *FakeRepo) DraftMembershipsByFighter(_ context.Context, fighterID string) ([]domain.DraftMembership, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]domain.DraftMembership, 0)
+	for _, p := range r.pools {
+		st, ok := r.stages[p.stageID]
+		if !ok || st.status != domain.LayoutDraft {
+			continue
+		}
+		if containsMember(p.members, fighterID) {
+			out = append(out, domain.DraftMembership{
+				NominationID: p.nominationID, StageID: p.stageID, PoolID: p.id,
+			})
+		}
+	}
+	return out, nil
+}
+
+// CaptureWithdrawnSeed переносит членство бойца в указанном этапе из
+// pool_members в withdrawnSeeds (FR-4). Идемпотентно: если членства уже
+// нет, no-op.
+func (r *FakeRepo) CaptureWithdrawnSeed(_ context.Context, fighterID, stageID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, p := range r.pools {
+		if p.stageID != stageID {
+			continue
+		}
+		if !containsMember(p.members, fighterID) {
+			continue
+		}
+		r.withdrawnSeeds[withdrawnSeedKey(fighterID, p.nominationID)] = &withdrawnSeedRow{
+			fighterID: fighterID, nominationID: p.nominationID, stageID: p.stageID, poolID: p.id,
+		}
+		p.members = deleteMemberByFighter(p.members, fighterID)
+		return nil
+	}
+	return nil
+}
+
+// RestoreWithdrawnSeed пытается восстановить все запомненные посевы бойца
+// (FR-5/FR-6): draft + пул существует → членство возвращается в
+// pool_members; иначе память просто освобождается (best-effort истечение).
+func (r *FakeRepo) RestoreWithdrawnSeed(_ context.Context, fighterID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for key, w := range r.withdrawnSeeds {
+		if w.fighterID != fighterID {
+			continue
+		}
+		st, stageOK := r.stages[w.stageID]
+		p, poolOK := r.pools[w.poolID]
+		if stageOK && st.status == domain.LayoutDraft && poolOK && p.stageID == w.stageID {
+			p.members = append(p.members, memberRow{fighterID: fighterID})
+		}
+		delete(r.withdrawnSeeds, key)
+	}
+	return nil
+}
+
+// RepointFighter переносит членства source в target по всем этапам, где
+// target ещё не состоит (сценарий 3, слияние дублей бойца). Коллизия по
+// uq_members_stage_fighter не репойнтится молча: source-строка на этой
+// стадии остаётся за source.
+func (r *FakeRepo) RepointFighter(_ context.Context, sourceFighterID, targetFighterID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	targetStages := make(map[string]bool)
+	for _, p := range r.pools {
+		if containsMember(p.members, targetFighterID) {
+			targetStages[p.stageID] = true
+		}
+	}
+	for _, p := range r.pools {
+		if targetStages[p.stageID] {
+			continue
+		}
+		for i, m := range p.members {
+			if m.fighterID == sourceFighterID {
+				p.members[i].fighterID = targetFighterID
+			}
+		}
+	}
+	return nil
+}
+
+// RepointWithdrawnSeed переносит запомненные посевы source в target той же
+// защитой от коллизии — по PK (fighter_id, nomination_id): если у target
+// уже есть запомненный посев той же номинации, строка source не
+// репойнтится молча.
+func (r *FakeRepo) RepointWithdrawnSeed(_ context.Context, sourceFighterID, targetFighterID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	targetNominations := make(map[string]bool)
+	for _, w := range r.withdrawnSeeds {
+		if w.fighterID == targetFighterID {
+			targetNominations[w.nominationID] = true
+		}
+	}
+	for key, w := range r.withdrawnSeeds {
+		if w.fighterID != sourceFighterID {
+			continue
+		}
+		if targetNominations[w.nominationID] {
+			continue
+		}
+		delete(r.withdrawnSeeds, key)
+		w.fighterID = targetFighterID
+		r.withdrawnSeeds[withdrawnSeedKey(targetFighterID, w.nominationID)] = w
+	}
 	return nil
 }
 

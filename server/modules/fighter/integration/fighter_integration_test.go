@@ -155,7 +155,7 @@ func TestIntegration_DedupRace(t *testing.T) {
 
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
 	nominations := platform.NewFighterNominationProvider(pool, activeTournaments)
-	svc := fighterservice.New(fighterrepo.New(pool), nominations, activeTournaments)
+	svc := fighterservice.New(fighterrepo.New(pool), nominations, activeTournaments, nil, nil, nil, nil)
 
 	const originUserID = "00000000-0000-0000-0000-0000000000f1"
 

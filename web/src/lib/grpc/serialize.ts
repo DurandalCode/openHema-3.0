@@ -215,6 +215,18 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
     venueAddress: raw.venueAddress ?? "",
     entryFeeMinor: typeof raw.entryFeeMinor === "string" ? Number(raw.entryFeeMinor) : null,
     entryFeeCurrency: raw.entryFeeCurrency ?? "",
+    // program (спека 0040, FR-14/FR-15): та же нормализация proto3-дефолтов,
+    // что contacts — пустой repeated опускается toJson целиком, а вложенные
+    // поля дня/пункта (date/items/timeLabel/text) опускаются по отдельности
+    // на своём зероvalue.
+    program: Array.isArray(raw.program)
+      ? raw.program.map((d) => ({
+          date: d.date ?? "",
+          items: Array.isArray(d.items)
+            ? d.items.map((it) => ({ timeLabel: it.timeLabel ?? "", text: it.text ?? "" }))
+            : [],
+        }))
+      : [],
   };
 }
 
@@ -344,6 +356,14 @@ export function fighterToJson(fighter: Fighter | undefined): FighterDto | null {
     createdAt: raw.createdAt ?? "",
     updatedAt: raw.updatedAt ?? "",
     fromApplication: raw.fromApplication ?? false,
+    // linkedAccountId/linkedAccountDisplayName/mergedIntoId (спека 0040,
+    // FR-8/FR-10): сервер заполняет их ТОЛЬКО в ответах FighterAdminService
+    // (ADR 0016 не расширяется) — в ответах FighterPublicService/
+    // FighterService этих полей нет вовсе, `raw.*` для них `undefined`, и
+    // здесь они естественно схлопываются в "".
+    linkedAccountId: raw.linkedAccountId ?? "",
+    linkedAccountDisplayName: raw.linkedAccountDisplayName ?? "",
+    mergedIntoId: raw.mergedIntoId ?? "",
   };
 }
 

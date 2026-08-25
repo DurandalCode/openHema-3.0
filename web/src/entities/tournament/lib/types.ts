@@ -24,6 +24,23 @@ export type ContactJson = {
   position?: number;
 };
 
+/**
+ * TournamentProgramItem / TournamentProgramDay — программа турнира по дням
+ * (спека 0040, FR-14/FR-14a): день → упорядоченный список пунктов
+ * «время + текст» («9:00 — Сбор участников»). `date` — "YYYY-MM-DD" без
+ * временной зоны, свободно задаётся admin, без привязки к eventStartAt/
+ * eventEndAt. `timeLabel` — короткая метка, не строгий формат времени.
+ */
+export type TournamentProgramItem = {
+  timeLabel: string;
+  text: string;
+};
+
+export type TournamentProgramDay = {
+  date: string;
+  items: TournamentProgramItem[];
+};
+
 export type Tournament = {
   id: string;
   title: string;
@@ -52,4 +69,7 @@ export type Tournament = {
   entryFeeMinor: number | null;
   // entryFeeCurrency — код валюты ISO-4217 ("RUB"). "" при entryFeeMinor === null.
   entryFeeCurrency: string;
+  // program — программа турнира по дням (спека 0040, FR-14/FR-15). Пустой
+  // список — программа не задана, раздел не показывается (FR-16).
+  program: TournamentProgramDay[];
 };
