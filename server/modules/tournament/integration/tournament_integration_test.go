@@ -21,6 +21,8 @@ import (
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/auth"
 	"github.com/hema/server/modules/tournament"
+	"github.com/hema/server/modules/tournament/domain"
+	tournamentrepo "github.com/hema/server/modules/tournament/repo"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
 )
@@ -401,5 +403,191 @@ func TestIntegration_EntryFeeConstraint(t *testing.T) {
 		tournamentID)
 	if err != nil {
 		t.Errorf("both-empty (not set) pair should be accepted: %v", err)
+	}
+}
+
+// TestIntegration_Repo_Program_RoundTrip — спека 0040 (T20, сценарий 5):
+// full-replace программы по дням (пустая → непустая) сохраняется в той же
+// транзакции, что и остальной профиль турнира, и переживает повторное
+// чтение (GetActive) из реальной PG. Вызывает repo напрямую (repo-фокусный
+// тест, тот же приём, что modules/bout/integration).
+func TestIntegration_Repo_Program_RoundTrip(t *testing.T) {
+	_, _, pool := setup(t)
+	r := tournamentrepo.New(pool)
+	ctx := context.Background()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC)
+
+	got, err := r.UpdateActive(ctx, domain.UpdateInput{
+		Title: "Program Cup",
+		Program: []domain.ProgramDay{
+			{Date: day1, Items: []domain.ProgramItem{
+				{TimeLabel: "9:00", Text: "Сбор участников"},
+				{TimeLabel: "10:00", Text: "Начало номинаций"},
+			}},
+			{Date: day2, Items: []domain.ProgramItem{
+				{TimeLabel: "9:00", Text: "Финалы"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	assertProgramRoundTrip(t, got.Program, day1, day2)
+
+	// Повторный GetActive подтверждает, что данные сохранены в БД, а не
+	// только эхом в ответе UpdateActive.
+	got2, err := r.GetActive(ctx)
+	if err != nil {
+		t.Fatalf("GetActive after update: %v", err)
+	}
+	assertProgramRoundTrip(t, got2.Program, day1, day2)
+}
+
+func assertProgramRoundTrip(t *testing.T, program []domain.ProgramDay, day1, day2 time.Time) {
+	t.Helper()
+	if len(program) != 2 {
+		t.Fatalf("Program len = %d, want 2", len(program))
+	}
+	if !program[0].Date.Equal(day1) {
+		t.Errorf("day[0].Date = %v, want %v", program[0].Date, day1)
+	}
+	if len(program[0].Items) != 2 {
+		t.Fatalf("day[0].Items len = %d, want 2", len(program[0].Items))
+	}
+	if program[0].Items[0].TimeLabel != "9:00" || program[0].Items[0].Text != "Сбор участников" {
+		t.Errorf("day[0].Items[0] = %+v", program[0].Items[0])
+	}
+	if program[0].Items[1].TimeLabel != "10:00" || program[0].Items[1].Text != "Начало номинаций" {
+		t.Errorf("day[0].Items[1] = %+v", program[0].Items[1])
+	}
+	if !program[1].Date.Equal(day2) {
+		t.Errorf("day[1].Date = %v, want %v", program[1].Date, day2)
+	}
+	if len(program[1].Items) != 1 || program[1].Items[0].Text != "Финалы" {
+		t.Errorf("day[1].Items = %+v", program[1].Items)
+	}
+}
+
+// TestIntegration_Repo_Program_ReplacesNotAppends — full-replace: второй
+// UpdateActive с другим набором дней/пунктов полностью замещает первый
+// (не добавляет к нему), как и contacts.
+func TestIntegration_Repo_Program_ReplacesNotAppends(t *testing.T) {
+	_, _, pool := setup(t)
+	r := tournamentrepo.New(pool)
+	ctx := context.Background()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := r.UpdateActive(ctx, domain.UpdateInput{
+		Title: "T",
+		Program: []domain.ProgramDay{
+			{Date: day1, Items: []domain.ProgramItem{{Text: "A"}}},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateActive (first): %v", err)
+	}
+
+	day2 := time.Date(2026, 12, 5, 0, 0, 0, 0, time.UTC)
+	got, err := r.UpdateActive(ctx, domain.UpdateInput{
+		Title: "T",
+		Program: []domain.ProgramDay{
+			{Date: day2, Items: []domain.ProgramItem{{Text: "B"}, {Text: "C"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive (second): %v", err)
+	}
+	if len(got.Program) != 1 {
+		t.Fatalf("Program len = %d, want 1 (replaced, not appended)", len(got.Program))
+	}
+	if !got.Program[0].Date.Equal(day2) {
+		t.Errorf("Program[0].Date = %v, want %v", got.Program[0].Date, day2)
+	}
+	if len(got.Program[0].Items) != 2 || got.Program[0].Items[0].Text != "B" || got.Program[0].Items[1].Text != "C" {
+		t.Errorf("Program[0].Items = %+v", got.Program[0].Items)
+	}
+}
+
+// TestIntegration_Repo_Program_EmptyClears — непустая программа → пустая
+// (Program: nil) полностью очищает набор дней/пунктов (симметрично
+// contacts, FR-16: без программы раздел не показывается).
+func TestIntegration_Repo_Program_EmptyClears(t *testing.T) {
+	_, _, pool := setup(t)
+	r := tournamentrepo.New(pool)
+	ctx := context.Background()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := r.UpdateActive(ctx, domain.UpdateInput{
+		Title: "T",
+		Program: []domain.ProgramDay{
+			{Date: day1, Items: []domain.ProgramItem{{Text: "A"}}},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateActive (seed): %v", err)
+	}
+
+	got, err := r.UpdateActive(ctx, domain.UpdateInput{Title: "T", Program: nil})
+	if err != nil {
+		t.Fatalf("UpdateActive (clear): %v", err)
+	}
+	if len(got.Program) != 0 {
+		t.Errorf("Program should be empty after clearing, len = %d", len(got.Program))
+	}
+
+	got2, err := r.GetActive(ctx)
+	if err != nil {
+		t.Fatalf("GetActive: %v", err)
+	}
+	if len(got2.Program) != 0 {
+		t.Errorf("persisted Program should be empty, len = %d", len(got2.Program))
+	}
+}
+
+// TestIntegration_ProgramItemsTextConstraint — спека 0040 (T20, plan.md):
+// CHECK chk_program_items_text должен блокировать пустой/whitespace-only
+// text на уровне PG, не только в Go-валидации сервиса (T21). Пишет напрямую
+// в таблицу, минуя service-слой (симметрично TestIntegration_EntryFeeConstraint).
+func TestIntegration_ProgramItemsTextConstraint(t *testing.T) {
+	_, _, pool := setup(t)
+	ctx := context.Background()
+
+	var tournamentID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM tournament.tournaments WHERE is_active = TRUE`,
+	).Scan(&tournamentID); err != nil {
+		t.Fatalf("select seed tournament id: %v", err)
+	}
+
+	var dayID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO tournament.program_days (tournament_id, event_date, position) VALUES ($1, $2, 0) RETURNING id`,
+		tournamentID, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+	).Scan(&dayID); err != nil {
+		t.Fatalf("insert program day: %v", err)
+	}
+
+	// Пустой text — нарушение.
+	_, err := pool.Exec(ctx,
+		`INSERT INTO tournament.program_items (day_id, position, time_label, text) VALUES ($1, 0, '', '')`,
+		dayID)
+	if err == nil {
+		t.Error("expected constraint violation: empty text")
+	}
+
+	// Whitespace-only text — тоже нарушение (btrim).
+	_, err = pool.Exec(ctx,
+		`INSERT INTO tournament.program_items (day_id, position, time_label, text) VALUES ($1, 0, '', '   ')`,
+		dayID)
+	if err == nil {
+		t.Error("expected constraint violation: whitespace-only text")
+	}
+
+	// Непустой text — проходит.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO tournament.program_items (day_id, position, time_label, text) VALUES ($1, 0, '9:00', 'ok')`,
+		dayID)
+	if err != nil {
+		t.Errorf("non-empty text should be accepted: %v", err)
 	}
 }

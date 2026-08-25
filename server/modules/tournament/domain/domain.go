@@ -49,6 +49,22 @@ type Contact struct {
 	Position int32
 }
 
+// ProgramItem — один пункт программы дня: время + короткий текст
+// («9:00 — сбор участников», спека 0040, FR-14). Используется и при чтении,
+// и при вводе (позиция — порядок в срезе, id не хранится на уровне домена).
+type ProgramItem struct {
+	TimeLabel string
+	Text      string
+}
+
+// ProgramDay — один день программы турнира: дата + упорядоченный список
+// пунктов. Дни задаются organizer вручную, без жёсткой привязки к
+// EventStartAt/EventEndAt турнира (FR-14a).
+type ProgramDay struct {
+	Date  time.Time
+	Items []ProgramItem
+}
+
 // Tournament — доменная сущность турнира.
 type Tournament struct {
 	ID          string
@@ -83,6 +99,9 @@ type Tournament struct {
 	EntryFeeMinor *int64
 	// EntryFeeCurrency — код валюты ISO-4217 (например "RUB").
 	EntryFeeCurrency string
+	// Program — программа турнира по дням (спека 0040, FR-14/FR-15). Пустой
+	// срез — программа не задана, публично раздел не показывается (FR-16).
+	Program []ProgramDay
 }
 
 // UpdateInput — новые значения полей активного турнира при обновлении.
@@ -112,6 +131,10 @@ type UpdateInput struct {
 	// (FR-21). См. Tournament.EntryFeeMinor.
 	EntryFeeMinor    *int64
 	EntryFeeCurrency string
+	// Program — полная замена программы по дням (спека 0040, FR-14), тем же
+	// приёмом, что Contacts: старый набор дней/пунктов заменяется новым,
+	// позиция дня и пункта внутри дня определяется порядком в срезе.
+	Program []ProgramDay
 }
 
 // ContactInput — контакт при вводе (без id и без position).

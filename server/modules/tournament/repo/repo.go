@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,7 +29,7 @@ func New(pool *pgxpool.Pool) *Repo {
 
 var _ domain.Repository = (*Repo)(nil)
 
-// GetActive возвращает активный турнир с контактами.
+// GetActive возвращает активный турнир с контактами и программой по дням.
 func (r *Repo) GetActive(ctx context.Context) (domain.Tournament, error) {
 	row, err := r.q.GetActiveTournament(ctx)
 	if err != nil {
@@ -41,12 +42,20 @@ func (r *Repo) GetActive(ctx context.Context) (domain.Tournament, error) {
 	if err != nil {
 		return domain.Tournament{}, fmt.Errorf("list contacts: %w", err)
 	}
-	return toDomainFromGet(row, contacts), nil
+	days, err := r.q.ListProgramDaysByTournament(ctx, row.ID)
+	if err != nil {
+		return domain.Tournament{}, fmt.Errorf("list program days: %w", err)
+	}
+	items, err := r.q.ListProgramItemsByTournament(ctx, row.ID)
+	if err != nil {
+		return domain.Tournament{}, fmt.Errorf("list program items: %w", err)
+	}
+	return toDomainFromGet(row, contacts, toDomainProgram(days, items)), nil
 }
 
-// UpdateActive атомарно обновляет поля активного турнира и заменяет набор
-// контактов. Замена контактов (delete+insert) выполняется в одной транзакции
-// с обновлением турнира.
+// UpdateActive атомарно обновляет поля активного турнира и заменяет наборы
+// контактов и программы по дням. Замена (delete+insert) для обоих
+// выполняется в одной транзакции с обновлением турнира.
 func (r *Repo) UpdateActive(ctx context.Context, in domain.UpdateInput) (domain.Tournament, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -93,32 +102,90 @@ func (r *Repo) UpdateActive(ctx context.Context, in domain.UpdateInput) (domain.
 		contacts = append(contacts, inserted)
 	}
 
+	if err := q.DeleteProgramDaysByTournament(ctx, row.ID); err != nil {
+		return domain.Tournament{}, fmt.Errorf("delete program days: %w", err)
+	}
+
+	program := make([]domain.ProgramDay, 0, len(in.Program))
+	for i, d := range in.Program {
+		insertedDay, err := q.InsertProgramDay(ctx, sqlc.InsertProgramDayParams{
+			TournamentID: row.ID,
+			EventDate:    toPgDate(d.Date),
+			Position:     int32(i),
+		})
+		if err != nil {
+			return domain.Tournament{}, fmt.Errorf("insert program day %d: %w", i, err)
+		}
+		items := make([]domain.ProgramItem, 0, len(d.Items))
+		for j, it := range d.Items {
+			insertedItem, err := q.InsertProgramItem(ctx, sqlc.InsertProgramItemParams{
+				DayID:     insertedDay.ID,
+				Position:  int32(j),
+				TimeLabel: it.TimeLabel,
+				Text:      it.Text,
+			})
+			if err != nil {
+				return domain.Tournament{}, fmt.Errorf("insert program item %d/%d: %w", i, j, err)
+			}
+			items = append(items, domain.ProgramItem{
+				TimeLabel: insertedItem.TimeLabel,
+				Text:      insertedItem.Text,
+			})
+		}
+		program = append(program, domain.ProgramDay{
+			Date:  insertedDay.EventDate.Time,
+			Items: items,
+		})
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Tournament{}, fmt.Errorf("commit: %w", err)
 	}
-	return toDomainFromUpdate(row, contacts), nil
+	return toDomainFromUpdate(row, contacts, program), nil
 }
 
-// toDomainFromGet отображает sqlc Row (Get) в доменный турнир вместе с контактами.
-func toDomainFromGet(row sqlc.GetActiveTournamentRow, contacts []sqlc.TournamentContact) domain.Tournament {
+// toDomainFromGet отображает sqlc Row (Get) в доменный турнир вместе с
+// контактами и программой по дням.
+func toDomainFromGet(row sqlc.GetActiveTournamentRow, contacts []sqlc.TournamentContact, program []domain.ProgramDay) domain.Tournament {
 	return buildTournament(
 		row.ID.String(), row.Title, row.Description,
 		row.EventStartAt, row.EventEndAt, row.EmblemUrl,
 		row.ChiefJudge, row.RegulationsUrl, row.VenueName, row.VenueAddress,
 		row.EntryFeeMinor, row.EntryFeeCurrency,
-		row.IsActive, row.CreatedAt, row.UpdatedAt, contacts,
+		row.IsActive, row.CreatedAt, row.UpdatedAt, contacts, program,
 	)
 }
 
-// toDomainFromUpdate отображает sqlc Row (Update) в доменный турнир вместе с контактами.
-func toDomainFromUpdate(row sqlc.UpdateActiveTournamentRow, contacts []sqlc.TournamentContact) domain.Tournament {
+// toDomainFromUpdate отображает sqlc Row (Update) в доменный турнир вместе с
+// контактами и программой по дням.
+func toDomainFromUpdate(row sqlc.UpdateActiveTournamentRow, contacts []sqlc.TournamentContact, program []domain.ProgramDay) domain.Tournament {
 	return buildTournament(
 		row.ID.String(), row.Title, row.Description,
 		row.EventStartAt, row.EventEndAt, row.EmblemUrl,
 		row.ChiefJudge, row.RegulationsUrl, row.VenueName, row.VenueAddress,
 		row.EntryFeeMinor, row.EntryFeeCurrency,
-		row.IsActive, row.CreatedAt, row.UpdatedAt, contacts,
+		row.IsActive, row.CreatedAt, row.UpdatedAt, contacts, program,
 	)
+}
+
+// toDomainProgram группирует плоские списки дней/пунктов (уже упорядоченные
+// SQL-запросом по position) в доменную структуру день→пункты.
+func toDomainProgram(days []sqlc.TournamentProgramDay, items []sqlc.TournamentProgramItem) []domain.ProgramDay {
+	byDay := make(map[uuid.UUID][]domain.ProgramItem, len(days))
+	for _, it := range items {
+		byDay[it.DayID] = append(byDay[it.DayID], domain.ProgramItem{
+			TimeLabel: it.TimeLabel,
+			Text:      it.Text,
+		})
+	}
+	out := make([]domain.ProgramDay, 0, len(days))
+	for _, d := range days {
+		out = append(out, domain.ProgramDay{
+			Date:  d.EventDate.Time,
+			Items: byDay[d.ID],
+		})
+	}
+	return out
 }
 
 func buildTournament(
@@ -128,6 +195,7 @@ func buildTournament(
 	entryFeeMinor *int64, entryFeeCurrency string,
 	isActive bool, createdAt, updatedAt time.Time,
 	contacts []sqlc.TournamentContact,
+	program []domain.ProgramDay,
 ) domain.Tournament {
 	out := domain.Tournament{
 		ID:               id,
@@ -148,6 +216,7 @@ func buildTournament(
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
 		Contacts:         make([]domain.Contact, 0, len(contacts)),
+		Program:          program,
 	}
 	for _, c := range contacts {
 		out.Contacts = append(out.Contacts, domain.Contact{
@@ -165,4 +234,11 @@ func toPgTimestamptz(t time.Time, ok bool) pgtype.Timestamptz {
 		return pgtype.Timestamptz{Valid: false}
 	}
 	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+// toPgDate конвертирует день программы (без временной зоны) в pgtype.Date.
+// Дни программы всегда заданы явно (нет "не задан" состояния на уровне
+// одного дня — пустая программа выражается пустым срезом UpdateInput.Program).
+func toPgDate(t time.Time) pgtype.Date {
+	return pgtype.Date{Time: t, Valid: true}
 }

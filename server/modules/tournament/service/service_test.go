@@ -446,3 +446,128 @@ func TestUpdateActive_NoActiveTournament(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
+
+// TestUpdateActive_Program_HappyPath — спека 0040 (T21, сценарий 5): дни
+// программы с непустыми пунктами сохраняются и возвращаются в заданном
+// порядке.
+func TestUpdateActive_Program_HappyPath(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC)
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title: "T",
+		Program: []domain.ProgramDay{
+			{Date: day1, Items: []domain.ProgramItem{
+				{TimeLabel: "9:00", Text: "Сбор участников"},
+				{TimeLabel: "10:00", Text: "Начало номинаций"},
+			}},
+			{Date: day2, Items: []domain.ProgramItem{
+				{TimeLabel: "9:00", Text: "Финалы"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if len(got.Program) != 2 {
+		t.Fatalf("Program len = %d, want 2", len(got.Program))
+	}
+	if !got.Program[0].Date.Equal(day1) {
+		t.Errorf("Program[0].Date = %v, want %v", got.Program[0].Date, day1)
+	}
+	if len(got.Program[0].Items) != 2 || got.Program[0].Items[0].Text != "Сбор участников" {
+		t.Errorf("Program[0].Items = %+v", got.Program[0].Items)
+	}
+	if len(got.Program[1].Items) != 1 || got.Program[1].Items[0].Text != "Финалы" {
+		t.Errorf("Program[1].Items = %+v", got.Program[1].Items)
+	}
+}
+
+// TestUpdateActive_Program_ReplacesNotAppends — full-replace: второй
+// UpdateActive с другим набором дней полностью замещает первый (тот же
+// приём, что и Contacts).
+func TestUpdateActive_Program_ReplacesNotAppends(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:   "T",
+		Program: []domain.ProgramDay{{Date: day1, Items: []domain.ProgramItem{{Text: "A"}}}},
+	}); err != nil {
+		t.Fatalf("UpdateActive (first): %v", err)
+	}
+
+	day2 := time.Date(2026, 12, 5, 0, 0, 0, 0, time.UTC)
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:   "T",
+		Program: []domain.ProgramDay{{Date: day2, Items: []domain.ProgramItem{{Text: "B"}}}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive (second): %v", err)
+	}
+	if len(got.Program) != 1 {
+		t.Fatalf("Program should be fully replaced, len = %d", len(got.Program))
+	}
+	if !got.Program[0].Date.Equal(day2) || got.Program[0].Items[0].Text != "B" {
+		t.Errorf("Program[0] = %+v", got.Program[0])
+	}
+}
+
+// TestUpdateActive_Program_EmptyAllowed — турнир без программы (FR-16):
+// пустой Program допустим (не ошибка).
+func TestUpdateActive_Program_EmptyAllowed(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title:   "T",
+		Program: nil,
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if len(got.Program) != 0 {
+		t.Errorf("Program should be empty, len = %d", len(got.Program))
+	}
+}
+
+// TestUpdateActive_Program_EmptyItemTextRejected — спека 0040 (T21):
+// непустой Text каждого пункта программы валидируется в сервисе, до похода
+// в БД (chk_program_items_text дублируется ради читаемой ошибки).
+func TestUpdateActive_Program_EmptyItemTextRejected(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	cases := []string{"", "   ", "\t\n"}
+	for _, text := range cases {
+		_, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+			Title: "T",
+			Program: []domain.ProgramDay{
+				{Date: day1, Items: []domain.ProgramItem{{TimeLabel: "9:00", Text: text}}},
+			},
+		})
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("text %q: expected ErrInvalidInput, got %v", text, err)
+		}
+	}
+}
+
+// TestUpdateActive_Program_TrimsTextAndTimeLabel — символьный мусор по
+// краям обрезается перед сохранением (тот же приём, что Contacts.Value).
+func TestUpdateActive_Program_TrimsTextAndTimeLabel(t *testing.T) {
+	svc, _ := testServiceWithActive()
+
+	day1 := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	got, err := svc.UpdateActive(context.Background(), domain.UpdateInput{
+		Title: "T",
+		Program: []domain.ProgramDay{
+			{Date: day1, Items: []domain.ProgramItem{{TimeLabel: "  9:00  ", Text: "  Сбор  "}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateActive: %v", err)
+	}
+	if got.Program[0].Items[0].TimeLabel != "9:00" || got.Program[0].Items[0].Text != "Сбор" {
+		t.Errorf("Program[0].Items[0] = %+v", got.Program[0].Items[0])
+	}
+}
