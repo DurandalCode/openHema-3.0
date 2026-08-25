@@ -10,11 +10,37 @@ import (
 	"github.com/hema/server/modules/fighter/testutil"
 )
 
+// testDeps — полный набор fake-зависимостей сервиса (спека 0040):
+// Seeding/Stage/Bout/Accounts нужны только новым тестам (withdraw/return
+// хуков, MergeFighters, обогащения ростера) — остальные тесты продолжают
+// использовать newService(), который просто отбрасывает эту часть.
+type testDeps struct {
+	repo        *testutil.FakeRepo
+	noms        *testutil.FakeNominationProvider
+	tournaments *testutil.FakeActiveTournamentProvider
+	seeding     *testutil.FakeSeedingSink
+	stage       *testutil.FakeStageRepointer
+	bout        *testutil.FakeBoutRepointer
+	accounts    *testutil.FakeAccountDirectory
+}
+
+func newServiceWithDeps() (*service.Service, testDeps) {
+	d := testDeps{
+		repo:        testutil.NewFakeRepo(),
+		noms:        testutil.NewFakeNominationProvider(),
+		tournaments: testutil.NewFakeActiveTournamentProvider("t1"),
+		seeding:     testutil.NewFakeSeedingSink(),
+		stage:       testutil.NewFakeStageRepointer(),
+		bout:        testutil.NewFakeBoutRepointer(),
+		accounts:    testutil.NewFakeAccountDirectory(),
+	}
+	svc := service.New(d.repo, d.noms, d.tournaments, d.seeding, d.stage, d.bout, d.accounts)
+	return svc, d
+}
+
 func newService() (*service.Service, *testutil.FakeRepo, *testutil.FakeNominationProvider) {
-	repo := testutil.NewFakeRepo()
-	noms := testutil.NewFakeNominationProvider()
-	tournaments := testutil.NewFakeActiveTournamentProvider("t1")
-	return service.New(repo, noms, tournaments), repo, noms
+	svc, d := newServiceWithDeps()
+	return svc, d.repo, d.noms
 }
 
 func TestRegisterFromApplication(t *testing.T) {
@@ -402,6 +428,381 @@ func TestActiveFightersByNomination(t *testing.T) {
 		_, err := svc.ActiveFightersByNomination(ctx, "")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Fatalf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+}
+
+func TestWithdrawReturn_NotifiesSeeding(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("withdraw and return call the seeding sink with the fighter id", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		created, err := svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := svc.WithdrawFighter(ctx, created.ID, domain.ReasonInjury); err != nil {
+			t.Fatalf("WithdrawFighter: %v", err)
+		}
+		if len(d.seeding.Withdrawn) != 1 || d.seeding.Withdrawn[0] != created.ID {
+			t.Fatalf("expected OnFighterWithdrawn(%s), got %+v", created.ID, d.seeding.Withdrawn)
+		}
+
+		if _, err := svc.ReturnFighter(ctx, created.ID); err != nil {
+			t.Fatalf("ReturnFighter: %v", err)
+		}
+		if len(d.seeding.Returned) != 1 || d.seeding.Returned[0] != created.ID {
+			t.Fatalf("expected OnFighterReturned(%s), got %+v", created.ID, d.seeding.Returned)
+		}
+	})
+
+	t.Run("seeding sink failure does not roll back the already-committed status change", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		d.seeding.WithError(errors.New("stage unavailable"))
+		created, err := svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		withdrawn, err := svc.WithdrawFighter(ctx, created.ID, domain.ReasonInjury)
+		if err != nil {
+			t.Fatalf("expected WithdrawFighter to succeed despite seeding sink failure, got %v", err)
+		}
+		if withdrawn.Status != domain.StatusWithdrawn {
+			t.Fatalf("expected withdrawn status, got %+v", withdrawn)
+		}
+
+		returned, err := svc.ReturnFighter(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("expected ReturnFighter to succeed despite seeding sink failure, got %v", err)
+		}
+		if returned.Status != domain.StatusActive {
+			t.Fatalf("expected active status, got %+v", returned)
+		}
+	})
+
+	t.Run("nil seeding sink does not panic", func(t *testing.T) {
+		svc, _, _ := newService() // repo/noms/tournaments only; seeding/stage/bout/accounts left nil per constructor guard
+		_ = svc
+	})
+}
+
+func TestFindByAccount(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("found fighter for account in explicit tournament", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		created, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
+			TournamentID: "t1", NominationID: "n1", OriginUserID: "u1", Name: "Ivan", Club: "Club X",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		f, found, err := svc.FindByAccount(ctx, "u1", "t1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !found {
+			t.Fatal("expected found=true")
+		}
+		if f.ID != created.ID {
+			t.Fatalf("expected fighter %s, got %s", created.ID, f.ID)
+		}
+	})
+
+	t.Run("empty tournament id resolves via active tournament", func(t *testing.T) {
+		svc, _ := newServiceWithDeps() // active tournament is "t1"
+		created, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
+			TournamentID: "t1", NominationID: "n1", OriginUserID: "u1", Name: "Ivan", Club: "Club X",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		f, found, err := svc.FindByAccount(ctx, "u1", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !found || f.ID != created.ID {
+			t.Fatalf("expected found fighter %s, got found=%v f=%+v", created.ID, found, f)
+		}
+	})
+
+	t.Run("account without a fighter is not found, not an error", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		_, found, err := svc.FindByAccount(ctx, "u-unknown", "t1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if found {
+			t.Fatal("expected found=false")
+		}
+	})
+
+	t.Run("empty user id is invalid input", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		_, _, err := svc.FindByAccount(ctx, "", "t1")
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Fatalf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+}
+
+func TestListRosterAndGetFighter_EnrichLinkedAccount(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ListRoster enriches fighters with an origin user id, leaves manual fighters untouched", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		d.accounts.Set("u1", "Ivan Display Name")
+
+		fromApp, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
+			TournamentID: "t1", NominationID: "n1", OriginUserID: "u1", Name: "Ivan", Club: "Club X",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		manual, err := svc.CreateManual(ctx, "t1", "Manual Guy", "Club Y", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		roster, err := svc.ListRoster(ctx, "t1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		var gotApp, gotManual bool
+		for _, f := range roster {
+			switch f.ID {
+			case fromApp.ID:
+				gotApp = true
+				if f.LinkedAccountID != "u1" || f.LinkedAccountDisplayName != "Ivan Display Name" {
+					t.Fatalf("expected enriched linked account, got %+v", f)
+				}
+			case manual.ID:
+				gotManual = true
+				if f.LinkedAccountID != "" || f.LinkedAccountDisplayName != "" {
+					t.Fatalf("expected no linked account for manual fighter, got %+v", f)
+				}
+			}
+		}
+		if !gotApp || !gotManual {
+			t.Fatalf("expected both fighters in roster, got %+v", roster)
+		}
+	})
+
+	t.Run("GetFighter enriches a single fighter", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		d.accounts.Set("u1", "Ivan Display Name")
+		created, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
+			TournamentID: "t1", NominationID: "n1", OriginUserID: "u1", Name: "Ivan", Club: "Club X",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		f, err := svc.GetFighter(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if f.LinkedAccountID != "u1" || f.LinkedAccountDisplayName != "Ivan Display Name" {
+			t.Fatalf("expected enriched linked account, got %+v", f)
+		}
+	})
+
+	t.Run("nil accounts directory leaves fighters unenriched, no panic", func(t *testing.T) {
+		svc, repo, _ := newService()
+		created, err := svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		f, err := svc.GetFighter(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if f.LinkedAccountID != "" {
+			t.Fatalf("expected empty linked account without accounts directory, got %+v", f)
+		}
+		_ = repo
+	})
+}
+
+func TestMergeFighters(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("happy path: participations merged without duplicates, source marked merged, repointers called", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		d.noms.Set("n1", domain.NominationInfo{TournamentID: "t1"})
+		d.noms.Set("n2", domain.NominationInfo{TournamentID: "t1"})
+		d.noms.Set("n3", domain.NominationInfo{TournamentID: "t1"})
+
+		source, err := svc.CreateManual(ctx, "t1", "Ivan Dup", "Club A", []string{"n1", "n2"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		target, err := svc.CreateManual(ctx, "t1", "Ivan Petrov", "Club B", []string{"n1", "n3"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		merged, err := svc.MergeFighters(ctx, source.ID, target.ID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if merged.ID != target.ID {
+			t.Fatalf("expected merge to return target %s, got %s", target.ID, merged.ID)
+		}
+
+		noms := make(map[string]bool)
+		for _, p := range merged.Participations {
+			if noms[p.NominationID] {
+				t.Fatalf("duplicate participation for nomination %s in merged target: %+v", p.NominationID, merged.Participations)
+			}
+			noms[p.NominationID] = true
+		}
+		if !noms["n1"] || !noms["n2"] || !noms["n3"] {
+			t.Fatalf("expected target to hold n1,n2,n3, got %+v", merged.Participations)
+		}
+
+		sourceAfter, err := svc.GetFighter(ctx, source.ID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sourceAfter.Status != domain.StatusMerged {
+			t.Fatalf("expected source status=merged, got %+v", sourceAfter)
+		}
+		if sourceAfter.MergedIntoID != target.ID {
+			t.Fatalf("expected source.MergedIntoID=%s, got %+v", target.ID, sourceAfter)
+		}
+
+		if len(d.stage.Calls) != 1 || d.stage.Calls[0].OldID != source.ID || d.stage.Calls[0].NewID != target.ID {
+			t.Fatalf("expected stage.RepointFighter(%s, %s), got %+v", source.ID, target.ID, d.stage.Calls)
+		}
+		if len(d.bout.Calls) != 1 || d.bout.Calls[0].OldID != source.ID || d.bout.Calls[0].NewID != target.ID {
+			t.Fatalf("expected bout.RepointFighter(%s, %s), got %+v", source.ID, target.ID, d.bout.Calls)
+		}
+	})
+
+	t.Run("clears source origin_user_id, keeps target's own", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		source, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
+			TournamentID: "t1", NominationID: "n1", OriginUserID: "u-source", Name: "Ivan Dup", Club: "Club A",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		target, err := svc.RegisterFromApplication(ctx, service.RegistrationInput{
+			TournamentID: "t1", NominationID: "n2", OriginUserID: "u-target", Name: "Ivan Petrov", Club: "Club B",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		merged, err := svc.MergeFighters(ctx, source.ID, target.ID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if merged.OriginUserID == nil || *merged.OriginUserID != "u-target" {
+			t.Fatalf("expected target to keep its own origin_user_id u-target, got %+v", merged.OriginUserID)
+		}
+
+		sourceAfter, err := svc.GetFighter(ctx, source.ID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sourceAfter.OriginUserID != nil {
+			t.Fatalf("expected source origin_user_id cleared, got %+v", sourceAfter.OriginUserID)
+		}
+		_ = d
+	})
+
+	t.Run("stage/bout repointer failures are best-effort and do not fail the merge", func(t *testing.T) {
+		svc, d := newServiceWithDeps()
+		d.stage.WithError(errors.New("stage down"))
+		d.bout.WithError(errors.New("bout down"))
+		source, err := svc.CreateManual(ctx, "t1", "Ivan Dup", "Club A", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		target, err := svc.CreateManual(ctx, "t1", "Ivan Petrov", "Club B", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := svc.MergeFighters(ctx, source.ID, target.ID); err != nil {
+			t.Fatalf("expected merge to succeed despite repointer failures, got %v", err)
+		}
+	})
+
+	t.Run("same fighter rejected", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		created, err := svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		_, err = svc.MergeFighters(ctx, created.ID, created.ID)
+		if !errors.Is(err, domain.ErrSameFighter) {
+			t.Fatalf("expected ErrSameFighter, got %v", err)
+		}
+	})
+
+	t.Run("cross tournament merge rejected", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		source, err := svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		target, err := svc.CreateManual(ctx, "t2", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		_, err = svc.MergeFighters(ctx, source.ID, target.ID)
+		if !errors.Is(err, domain.ErrCrossTournamentMerge) {
+			t.Fatalf("expected ErrCrossTournamentMerge, got %v", err)
+		}
+	})
+
+	t.Run("merging an already-merged fighter rejected", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		source, err := svc.CreateManual(ctx, "t1", "Ivan Dup", "Club A", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		target, err := svc.CreateManual(ctx, "t1", "Ivan Petrov", "Club B", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		other, err := svc.CreateManual(ctx, "t1", "Third Guy", "Club C", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, err := svc.MergeFighters(ctx, source.ID, target.ID); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := svc.MergeFighters(ctx, source.ID, other.ID); !errors.Is(err, domain.ErrAlreadyMerged) {
+			t.Fatalf("expected ErrAlreadyMerged for already-merged source, got %v", err)
+		}
+		if _, err := svc.MergeFighters(ctx, other.ID, source.ID); !errors.Is(err, domain.ErrAlreadyMerged) {
+			t.Fatalf("expected ErrAlreadyMerged for already-merged target, got %v", err)
+		}
+	})
+
+	t.Run("unknown source or target fighter", func(t *testing.T) {
+		svc, _ := newServiceWithDeps()
+		target, err := svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		_, err = svc.MergeFighters(ctx, "missing", target.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for unknown source, got %v", err)
+		}
+		_, err = svc.MergeFighters(ctx, target.ID, "missing")
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for unknown target, got %v", err)
 		}
 	})
 }

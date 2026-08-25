@@ -27,10 +27,15 @@ const (
 )
 
 type clients struct {
-	admin  hemav1connect.FighterAdminServiceClient
-	public hemav1connect.FighterPublicServiceClient
-	noms   *testutil.FakeNominationProvider
-	svc    *service.Service
+	admin    hemav1connect.FighterAdminServiceClient
+	public   hemav1connect.FighterPublicServiceClient
+	me       hemav1connect.FighterServiceClient
+	noms     *testutil.FakeNominationProvider
+	svc      *service.Service
+	seeding  *testutil.FakeSeedingSink
+	stage    *testutil.FakeStageRepointer
+	bout     *testutil.FakeBoutRepointer
+	accounts *testutil.FakeAccountDirectory
 }
 
 func setup(t *testing.T) clients {
@@ -41,10 +46,15 @@ func setup(t *testing.T) clients {
 	noms.Set(nominationID, domain.NominationInfo{TournamentID: tournamentID})
 	noms.Set(nomination2, domain.NominationInfo{TournamentID: tournamentID})
 	tournaments := testutil.NewFakeActiveTournamentProvider(tournamentID)
+	seeding := testutil.NewFakeSeedingSink()
+	stage := testutil.NewFakeStageRepointer()
+	bout := testutil.NewFakeBoutRepointer()
+	accounts := testutil.NewFakeAccountDirectory()
 
-	svc := service.New(repo, noms, tournaments)
+	svc := service.New(repo, noms, tournaments, seeding, stage, bout, accounts)
 	adminHandler := NewHandler(svc)
 	publicHandler := NewPublicHandler(svc)
+	meHandler := NewMeHandler(svc)
 
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
 	baseOpts := []connect.HandlerOption{
@@ -56,20 +66,27 @@ func setup(t *testing.T) clients {
 
 	adminPath, adminH := hemav1connect.NewFighterAdminServiceHandler(adminHandler, append(baseOpts, adminOpts...)...)
 	pubPath, pubH := hemav1connect.NewFighterPublicServiceHandler(publicHandler, baseOpts...)
+	mePath, meH := hemav1connect.NewFighterServiceHandler(meHandler, baseOpts...)
 
 	mux := http.NewServeMux()
 	mux.Handle(adminPath, adminH)
 	mux.Handle(pubPath, pubH)
+	mux.Handle(mePath, meH)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
 	client := server.Client()
 	return clients{
-		admin:  hemav1connect.NewFighterAdminServiceClient(client, server.URL),
-		public: hemav1connect.NewFighterPublicServiceClient(client, server.URL),
-		noms:   noms,
-		svc:    svc,
+		admin:    hemav1connect.NewFighterAdminServiceClient(client, server.URL),
+		public:   hemav1connect.NewFighterPublicServiceClient(client, server.URL),
+		me:       hemav1connect.NewFighterServiceClient(client, server.URL),
+		noms:     noms,
+		svc:      svc,
+		seeding:  seeding,
+		stage:    stage,
+		bout:     bout,
+		accounts: accounts,
 	}
 }
 
@@ -349,5 +366,334 @@ func TestListNominationRoster_Public_NoAuthRequired(t *testing.T) {
 	}
 	if !resp.Msg.Entries[0].InRoster {
 		t.Fatalf("expected in_roster=true for active fighter")
+	}
+}
+
+// TestToProtoFighterAdmin_IncludesLinkedAccountAndMergedFields и
+// TestToProtoFighterPublic_ExcludesLinkedAccountAndMergedFields — регресс-
+// тест границы ADR 0016 на уровне маппера (спека 0040): проверяют напрямую,
+// что admin-маппер сериализует linked_account_id/linked_account_display_name/
+// merged_into_id, а public/me-маппер — нет, независимо от того, как эти поля
+// оказались заполнены в domain.Fighter (обогащение сервиса или нет). Это
+// авторитетный тест границы — E2E-тесты ниже (FighterService) дополняют его
+// сквозным путём.
+func TestToProtoFighterAdmin_IncludesLinkedAccountAndMergedFields(t *testing.T) {
+	f := domain.Fighter{
+		ID:                       "f1",
+		TournamentID:             tournamentID,
+		Name:                     "Ivan",
+		Status:                   domain.StatusMerged,
+		LinkedAccountID:          "u1",
+		LinkedAccountDisplayName: "Ivan Display Name",
+		MergedIntoID:             "f2",
+	}
+	out := toProtoFighterAdmin(f)
+	if out.LinkedAccountId != "u1" {
+		t.Fatalf("expected linked_account_id=u1, got %q", out.LinkedAccountId)
+	}
+	if out.LinkedAccountDisplayName != "Ivan Display Name" {
+		t.Fatalf("expected linked_account_display_name, got %q", out.LinkedAccountDisplayName)
+	}
+	if out.MergedIntoId != "f2" {
+		t.Fatalf("expected merged_into_id=f2, got %q", out.MergedIntoId)
+	}
+	if out.Status != hemav1.FighterStatus_FIGHTER_STATUS_MERGED {
+		t.Fatalf("expected FIGHTER_STATUS_MERGED, got %s", out.Status)
+	}
+}
+
+func TestToProtoFighterPublic_ExcludesLinkedAccountAndMergedFields(t *testing.T) {
+	f := domain.Fighter{
+		ID:                       "f1",
+		TournamentID:             tournamentID,
+		Name:                     "Ivan",
+		Status:                   domain.StatusMerged,
+		LinkedAccountID:          "u1",
+		LinkedAccountDisplayName: "Ivan Display Name",
+		MergedIntoID:             "f2",
+	}
+	out := toProtoFighterPublic(f)
+	if out.LinkedAccountId != "" {
+		t.Fatalf("ADR 0016 violation: expected empty linked_account_id in public/me mapper, got %q", out.LinkedAccountId)
+	}
+	if out.LinkedAccountDisplayName != "" {
+		t.Fatalf("ADR 0016 violation: expected empty linked_account_display_name in public/me mapper, got %q", out.LinkedAccountDisplayName)
+	}
+	if out.MergedIntoId != "" {
+		t.Fatalf("ADR 0016 violation: expected empty merged_into_id in public/me mapper, got %q", out.MergedIntoId)
+	}
+}
+
+// TestGetMyFighter_ADR0016_NoLinkedAccountFields — сквозной регресс-тест
+// через реальный FighterService (спека 0040): даже если бы обогащение
+// когда-нибудь расширили на MyFighter, ответ не должен содержать
+// linked_account_*/merged_into_id — MeHandler обязан использовать
+// toProtoFighterPublic, не toProtoFighterAdmin.
+func TestGetMyFighter_ADR0016_NoLinkedAccountFields(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	c.accounts.Set(regularUser, "Regular User Display Name")
+	_, err := c.svc.RegisterFromApplication(ctx, service.RegistrationInput{
+		TournamentID: tournamentID, NominationID: nominationID, OriginUserID: regularUser,
+		Name: "Ivan Petrov", Club: "Club X",
+	})
+	if err != nil {
+		t.Fatalf("prepare fighter: %v", err)
+	}
+
+	resp, err := c.me.GetMyFighter(ctx, authedReq(t, &hemav1.GetMyFighterRequest{}, regularUser, "user"))
+	if err != nil {
+		t.Fatalf("GetMyFighter: %v", err)
+	}
+	f := resp.Msg.Fighter
+	if f == nil {
+		t.Fatal("expected fighter, got nil")
+	}
+	if f.LinkedAccountId != "" || f.LinkedAccountDisplayName != "" || f.MergedIntoId != "" {
+		t.Fatalf("ADR 0016 violation: expected no linked account/merge fields in FighterService response, got %+v", f)
+	}
+}
+
+func TestFindFighterByAccount_E2E(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	c.accounts.Set("applicant-1", "Applicant Display Name")
+	created, err := c.svc.RegisterFromApplication(ctx, service.RegistrationInput{
+		TournamentID: tournamentID,
+		NominationID: nominationID,
+		OriginUserID: "applicant-1",
+		Name:         "Ivan Petrov",
+		Club:         "Club X",
+	})
+	if err != nil {
+		t.Fatalf("RegisterFromApplication: %v", err)
+	}
+
+	resp, err := c.admin.FindFighterByAccount(ctx, authedReq(t, &hemav1.FindFighterByAccountRequest{
+		UserId: "applicant-1",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("FindFighterByAccount: %v", err)
+	}
+	if resp.Msg.Fighter == nil {
+		t.Fatal("expected fighter, got nil")
+	}
+	if resp.Msg.Fighter.Id != created.ID {
+		t.Fatalf("expected fighter %s, got %s", created.ID, resp.Msg.Fighter.Id)
+	}
+	if resp.Msg.Fighter.LinkedAccountId != "applicant-1" {
+		t.Fatalf("expected linked_account_id=applicant-1, got %q", resp.Msg.Fighter.LinkedAccountId)
+	}
+	if resp.Msg.Fighter.LinkedAccountDisplayName != "Applicant Display Name" {
+		t.Fatalf("expected linked_account_display_name, got %q", resp.Msg.Fighter.LinkedAccountDisplayName)
+	}
+}
+
+func TestFindFighterByAccount_NotFound_EmptySuccess(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	resp, err := c.admin.FindFighterByAccount(ctx, authedReq(t, &hemav1.FindFighterByAccountRequest{
+		UserId: "unknown-user",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("expected success with empty fighter, got error: %v", err)
+	}
+	if resp.Msg.Fighter != nil {
+		t.Fatalf("expected nil fighter, got %+v", resp.Msg.Fighter)
+	}
+}
+
+func TestFindFighterByAccount_RegularUserForbidden(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	_, err := c.admin.FindFighterByAccount(ctx, authedReq(t, &hemav1.FindFighterByAccountRequest{
+		UserId: "applicant-1",
+	}, regularUser, "user"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestMergeFighters_E2E(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	source, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId:  tournamentID,
+		Name:          "Ivan Dup",
+		Club:          "Club A",
+		NominationIds: []string{nominationID},
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(source): %v", err)
+	}
+	target, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId:  tournamentID,
+		Name:          "Ivan Petrov",
+		Club:          "Club B",
+		NominationIds: []string{nomination2},
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(target): %v", err)
+	}
+
+	mergeResp, err := c.admin.MergeFighters(ctx, authedReq(t, &hemav1.MergeFightersRequest{
+		SourceFighterId: source.Msg.Fighter.Id,
+		TargetFighterId: target.Msg.Fighter.Id,
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("MergeFighters: %v", err)
+	}
+	if mergeResp.Msg.Fighter.Id != target.Msg.Fighter.Id {
+		t.Fatalf("expected merged response to be target %s, got %s", target.Msg.Fighter.Id, mergeResp.Msg.Fighter.Id)
+	}
+	if len(mergeResp.Msg.Fighter.Participations) != 2 {
+		t.Fatalf("expected target to hold both nominations after merge, got %+v", mergeResp.Msg.Fighter.Participations)
+	}
+
+	sourceAfter, err := c.admin.GetFighter(ctx, authedReq(t, &hemav1.GetFighterRequest{
+		FighterId: source.Msg.Fighter.Id,
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("GetFighter(source): %v", err)
+	}
+	if sourceAfter.Msg.Fighter.Status != hemav1.FighterStatus_FIGHTER_STATUS_MERGED {
+		t.Fatalf("expected source status=merged, got %s", sourceAfter.Msg.Fighter.Status)
+	}
+	if sourceAfter.Msg.Fighter.MergedIntoId != target.Msg.Fighter.Id {
+		t.Fatalf("expected source.merged_into_id=%s, got %q", target.Msg.Fighter.Id, sourceAfter.Msg.Fighter.MergedIntoId)
+	}
+}
+
+func TestMergeFighters_SameFighter_InvalidArgument(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	created, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter: %v", err)
+	}
+
+	_, err = c.admin.MergeFighters(ctx, authedReq(t, &hemav1.MergeFightersRequest{
+		SourceFighterId: created.Msg.Fighter.Id,
+		TargetFighterId: created.Msg.Fighter.Id,
+	}, adminUserID, "admin"))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestMergeFighters_AlreadyMerged_FailedPrecondition(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	source, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan Dup",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(source): %v", err)
+	}
+	target, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan Petrov",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(target): %v", err)
+	}
+	other, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Third Guy",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(other): %v", err)
+	}
+
+	if _, err := c.admin.MergeFighters(ctx, authedReq(t, &hemav1.MergeFightersRequest{
+		SourceFighterId: source.Msg.Fighter.Id,
+		TargetFighterId: target.Msg.Fighter.Id,
+	}, adminUserID, "admin")); err != nil {
+		t.Fatalf("first MergeFighters: %v", err)
+	}
+
+	_, err = c.admin.MergeFighters(ctx, authedReq(t, &hemav1.MergeFightersRequest{
+		SourceFighterId: source.Msg.Fighter.Id,
+		TargetFighterId: other.Msg.Fighter.Id,
+	}, adminUserID, "admin"))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestMergeFighters_RegularUserForbidden(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	source, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan Dup",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(source): %v", err)
+	}
+	target, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan Petrov",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(target): %v", err)
+	}
+
+	_, err = c.admin.MergeFighters(ctx, authedReq(t, &hemav1.MergeFightersRequest{
+		SourceFighterId: source.Msg.Fighter.Id,
+		TargetFighterId: target.Msg.Fighter.Id,
+	}, regularUser, "user"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", connect.CodeOf(err))
+	}
+}
+
+// TestListRoster_IncludesLinkedAccount_AdminOnly — сквозной регресс-тест
+// границы ADR 0016 (спека 0040, FR-8): admin-ростер видит привязанную
+// учётку, публичный состав номинации (структурно RosterEntry) не может её
+// нести вовсе.
+func TestListRoster_IncludesLinkedAccount_AdminOnly(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	c.accounts.Set("applicant-1", "Applicant Display Name")
+	_, err := c.svc.RegisterFromApplication(ctx, service.RegistrationInput{
+		TournamentID: tournamentID,
+		NominationID: nominationID,
+		OriginUserID: "applicant-1",
+		Name:         "Ivan Petrov",
+		Club:         "Club X",
+	})
+	if err != nil {
+		t.Fatalf("RegisterFromApplication: %v", err)
+	}
+
+	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("ListRoster: %v", err)
+	}
+	if len(resp.Msg.Fighters) != 1 {
+		t.Fatalf("expected 1 fighter, got %d", len(resp.Msg.Fighters))
+	}
+	if resp.Msg.Fighters[0].LinkedAccountId != "applicant-1" {
+		t.Fatalf("expected linked_account_id=applicant-1 in admin roster, got %q", resp.Msg.Fighters[0].LinkedAccountId)
 	}
 }

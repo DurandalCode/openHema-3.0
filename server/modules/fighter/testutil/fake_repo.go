@@ -159,3 +159,71 @@ func (r *FakeRepo) ActiveFightersByNomination(_ context.Context, nominationID st
 	}
 	return out, nil
 }
+
+// MergeParticipations переносит участия source в target (спека 0040,
+// FR-10): совпадающие по nomination_id участия target не дублируются —
+// имитирует SQL `DELETE ... USING` + `UPDATE fighter_id` реального репо
+// (repo/queries/fighter.sql).
+func (r *FakeRepo) MergeParticipations(_ context.Context, sourceID, targetID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	source, ok := r.fighters[sourceID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	target, ok := r.fighters[targetID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+
+	existing := make(map[string]bool, len(target.Participations))
+	for _, p := range target.Participations {
+		existing[p.NominationID] = true
+	}
+	for _, p := range source.Participations {
+		if existing[p.NominationID] {
+			continue
+		}
+		target.Participations = append(target.Participations, p)
+	}
+	source.Participations = nil
+
+	r.fighters[sourceID] = source
+	r.fighters[targetID] = target
+	return nil
+}
+
+// ClearOriginUserID снимает привязку записи к учётке (FR-10a).
+func (r *FakeRepo) ClearOriginUserID(_ context.Context, fighterID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	f, ok := r.fighters[fighterID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	f.OriginUserID = nil
+	r.fighters[fighterID] = f
+	return nil
+}
+
+// SetMerged помечает source объединённым: status=merged,
+// merged_into_id=targetID. Обнуляет WithdrawalReason — так же, как это
+// делает реальный репо (repo/queries/fighter.sql, SetMerged): status='merged'
+// требует пустой withdrawal_reason (chk_fighters_reason_when), иначе
+// слияние ранее выведенного бойца нарушило бы констрейнт БД.
+func (r *FakeRepo) SetMerged(_ context.Context, sourceID, targetID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	f, ok := r.fighters[sourceID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	f.Status = domain.StatusMerged
+	f.MergedIntoID = targetID
+	f.WithdrawalReason = domain.ReasonNone
+	r.fighters[sourceID] = f
+	return nil
+}

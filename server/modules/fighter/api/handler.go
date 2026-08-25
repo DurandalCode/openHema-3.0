@@ -38,7 +38,7 @@ func (h *Handler) CreateFighter(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.CreateFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.CreateFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // EditFighter правит имя и клуб бойца.
@@ -51,7 +51,7 @@ func (h *Handler) EditFighter(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.EditFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.EditFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // WithdrawFighter выводит бойца со всего турнира с причиной.
@@ -64,7 +64,7 @@ func (h *Handler) WithdrawFighter(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.WithdrawFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.WithdrawFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // ReturnFighter возвращает ранее выведенного бойца.
@@ -76,7 +76,7 @@ func (h *Handler) ReturnFighter(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.ReturnFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.ReturnFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // AddToNomination добавляет бойцу участие в номинации.
@@ -89,7 +89,7 @@ func (h *Handler) AddToNomination(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.AddToNominationResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.AddToNominationResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // RemoveFromNomination снимает бойца с одной номинации.
@@ -102,7 +102,7 @@ func (h *Handler) RemoveFromNomination(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.RemoveFromNominationResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.RemoveFromNominationResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // MoveFighter переводит бойца из одной номинации в другую.
@@ -115,7 +115,7 @@ func (h *Handler) MoveFighter(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.MoveFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.MoveFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // GetFighter возвращает одного бойца со всеми участиями.
@@ -127,7 +127,7 @@ func (h *Handler) GetFighter(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.GetFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.GetFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // ListRoster возвращает ростер турнира.
@@ -145,9 +145,41 @@ func (h *Handler) ListRoster(
 	}
 	out := make([]*hemav1.Fighter, 0, len(fighters))
 	for _, f := range fighters {
-		out = append(out, toProtoFighter(f))
+		out = append(out, toProtoFighterAdmin(f))
 	}
 	return connect.NewResponse(&hemav1.ListRosterResponse{Fighters: out}), nil
+}
+
+// FindFighterByAccount ищет бойца турнира по учётке пользователя (спека
+// 0040, FR-9). Пустой fighter в ответе — «у этой учётки нет бойца в этом
+// турнире», не ошибка (тот же приём, что GetMyFighter/ADR 0016).
+func (h *Handler) FindFighterByAccount(
+	ctx context.Context,
+	req *connect.Request[hemav1.FindFighterByAccountRequest],
+) (*connect.Response[hemav1.FindFighterByAccountResponse], error) {
+	m := req.Msg
+	f, found, err := h.svc.FindByAccount(ctx, m.GetUserId(), m.GetTournamentId())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if !found {
+		return connect.NewResponse(&hemav1.FindFighterByAccountResponse{}), nil
+	}
+	return connect.NewResponse(&hemav1.FindFighterByAccountResponse{Fighter: toProtoFighterAdmin(f)}), nil
+}
+
+// MergeFighters сводит дубль source в target (спека 0040, FR-10): участия
+// переносятся на target, source помечается объединённым.
+func (h *Handler) MergeFighters(
+	ctx context.Context,
+	req *connect.Request[hemav1.MergeFightersRequest],
+) (*connect.Response[hemav1.MergeFightersResponse], error) {
+	m := req.Msg
+	f, err := h.svc.MergeFighters(ctx, m.SourceFighterId, m.TargetFighterId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.MergeFightersResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
 // PublicHandler реализует FighterPublicServiceHandler (публичное чтение
@@ -194,8 +226,11 @@ func mapError(err error) error {
 	case errors.Is(err, domain.ErrInvalidInput), errors.Is(err, domain.ErrEmptyName),
 		errors.Is(err, domain.ErrInvalidReason):
 		return connect.NewError(connect.CodeInvalidArgument, err)
-	case errors.Is(err, domain.ErrAlreadyWithdrawn), errors.Is(err, domain.ErrNotWithdrawn):
+	case errors.Is(err, domain.ErrAlreadyWithdrawn), errors.Is(err, domain.ErrNotWithdrawn),
+		errors.Is(err, domain.ErrAlreadyMerged):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, domain.ErrSameFighter), errors.Is(err, domain.ErrCrossTournamentMerge):
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, domain.ErrOriginConflict):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	default:
@@ -203,7 +238,28 @@ func mapError(err error) error {
 	}
 }
 
-func toProtoFighter(f domain.Fighter) *hemav1.Fighter {
+// toProtoFighterAdmin мапит domain.Fighter → proto для FighterAdminService:
+// единственный маппер, сериализующий linked_account_id/
+// linked_account_display_name/merged_into_id (спека 0040, FR-8/FR-10) —
+// обратная проекция «боец → учётка» видна только организатору. Граница
+// ADR 0016 держится на уровне выбора маппера в хендлере, не на уровне
+// proto-сообщения (см. plan.md, «modules/fighter»).
+func toProtoFighterAdmin(f domain.Fighter) *hemav1.Fighter {
+	out := toProtoFighterBase(f)
+	out.LinkedAccountId = f.LinkedAccountID
+	out.LinkedAccountDisplayName = f.LinkedAccountDisplayName
+	out.MergedIntoId = f.MergedIntoID
+	return out
+}
+
+// toProtoFighterPublic мапит domain.Fighter → proto для
+// FighterPublicService/FighterService (свой боец, ADR 0016): без
+// linked_account_*/merged_into_id — граница ADR 0016 не расширяется.
+func toProtoFighterPublic(f domain.Fighter) *hemav1.Fighter {
+	return toProtoFighterBase(f)
+}
+
+func toProtoFighterBase(f domain.Fighter) *hemav1.Fighter {
 	parts := make([]*hemav1.Participation, 0, len(f.Participations))
 	for _, p := range f.Participations {
 		parts = append(parts, &hemav1.Participation{
@@ -231,6 +287,8 @@ func toProtoStatus(s domain.Status) hemav1.FighterStatus {
 		return hemav1.FighterStatus_FIGHTER_STATUS_ACTIVE
 	case domain.StatusWithdrawn:
 		return hemav1.FighterStatus_FIGHTER_STATUS_WITHDRAWN
+	case domain.StatusMerged:
+		return hemav1.FighterStatus_FIGHTER_STATUS_MERGED
 	default:
 		return hemav1.FighterStatus_FIGHTER_STATUS_UNSPECIFIED
 	}
