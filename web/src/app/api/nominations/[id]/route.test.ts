@@ -161,5 +161,50 @@ describe("app/api/nominations/[id] route", () => {
       const res = await DELETE(new NextRequest("http://localhost/api/nominations/n1"), ctx("n1"));
       expect(res.status).toBe(404);
     });
+
+    // Спека 0040, FR-1/FR-2/AC-1: гейт «в номинации есть распределённые
+    // бойцы» — сервер отвечает FailedPrecondition с различимым по тексту
+    // сообщением, BFF переводит его в машиночитаемый код, не отдавая сырую
+    // строку Go-домена наружу.
+    it("maps the distributed-fighters gate (FailedPrecondition) to 409 with a machine-readable code (spec 0040, FR-1/FR-2)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(nominationAdminClient.deleteNomination).mockRejectedValue(
+        new ConnectError("nomination: has distributed fighters", Code.FailedPrecondition),
+      );
+
+      const res = await DELETE(new NextRequest("http://localhost/api/nominations/n1"), ctx("n1"));
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data).toEqual({ error: "has_distributed_fighters" });
+    });
+
+    // Спека 0040, FR-1/FR-2/AC-2: гейт «в номинации есть бои» — второй,
+    // различимый по тексту повод того же connect.Code.FailedPrecondition.
+    it("maps the has-bouts gate (FailedPrecondition) to 409 with a machine-readable code (spec 0040, FR-1/FR-2)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(nominationAdminClient.deleteNomination).mockRejectedValue(
+        new ConnectError("nomination: has bouts", Code.FailedPrecondition),
+      );
+
+      const res = await DELETE(new NextRequest("http://localhost/api/nominations/n1"), ctx("n1"));
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data).toEqual({ error: "has_bouts" });
+    });
+
+    // AC-3/FR-3: другой FailedPrecondition (не распознанный гейт) не
+    // глотается — падает через общий errorResponse как и раньше, с сырым
+    // текстом сервера.
+    it("falls back to the generic 409 with the raw server text for an unrecognized FailedPrecondition", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(nominationAdminClient.deleteNomination).mockRejectedValue(
+        new ConnectError("nomination: something else", Code.FailedPrecondition),
+      );
+
+      const res = await DELETE(new NextRequest("http://localhost/api/nominations/n1"), ctx("n1"));
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data).toEqual({ error: "nomination: something else" });
+    });
   });
 });
