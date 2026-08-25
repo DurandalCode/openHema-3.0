@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Fighter } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
@@ -17,6 +17,11 @@ vi.mock("../api/use-fighter-mutations", () => ({
   useReturnFighter: () => ({ mutate: mutateReturn, isPending: false }),
   useAddToNomination: () => ({ mutate: mutateAdd, isPending: false }),
   useRemoveFromNomination: () => ({ mutate: mutateRemove, isPending: false }),
+}));
+
+const resolveReturnSeeding = vi.fn();
+vi.mock("../api/return-outcome", () => ({
+  resolveReturnSeeding: (...args: unknown[]) => resolveReturnSeeding(...args),
 }));
 
 const toastSuccess = vi.fn();
@@ -50,6 +55,9 @@ function fighter(overrides: Partial<Fighter>): Fighter {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     fromApplication: true,
+    linkedAccountId: "",
+    linkedAccountDisplayName: "",
+    mergedIntoId: "",
     ...overrides,
   };
 }
@@ -94,6 +102,26 @@ describe("FighterCardDialog", () => {
     expect(screen.getByText("Активен")).toBeInTheDocument();
     expect(screen.getByText("Сабля")).toBeInTheDocument();
     expect(screen.getByText("Длинный меч")).toBeInTheDocument();
+  });
+
+  it("shows a linked-account badge with the display name when the fighter has a linked account (spec 0040, FR-8/AC-6)", () => {
+    const f = fighter({ linkedAccountId: "u1", linkedAccountDisplayName: "Ivan Petrov" });
+
+    render(
+      <FighterCardDialog fighterId="f1" fighters={[f]} nominations={nominations} open onOpenChange={vi.fn()} />,
+    );
+
+    expect(screen.getByText("Учётка: Ivan Petrov")).toBeInTheDocument();
+  });
+
+  it("does not show a linked-account badge when there is no linked account", () => {
+    const f = fighter({});
+
+    render(
+      <FighterCardDialog fighterId="f1" fighters={[f]} nominations={nominations} open onOpenChange={vi.fn()} />,
+    );
+
+    expect(screen.queryByText(/Учётка/)).not.toBeInTheDocument();
   });
 
   it("shows Снять/Перевести for an active participation and Вернуть for a removed one (AC-6)", () => {
@@ -181,6 +209,56 @@ describe("FighterCardDialog", () => {
       "f1",
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
+  });
+
+  it("shows 'возвращён в пул N' when the fighter lands back in a pool (spec 0040, FR-6/AC-4)", async () => {
+    mutateReturn.mockImplementation((_id, opts) => opts?.onSuccess?.());
+    resolveReturnSeeding.mockResolvedValue({ restored: true, poolNumber: 2 });
+    const f = fighter({
+      status: "FIGHTER_STATUS_WITHDRAWN",
+      participations: [{ nominationId: "sabre", status: "PARTICIPATION_STATUS_ACTIVE" }],
+    });
+
+    render(
+      <FighterCardDialog fighterId="f1" fighters={[f]} nominations={nominations} open onOpenChange={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть на турнир" }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Иван Петров возвращён в пул 2"));
+    expect(resolveReturnSeeding).toHaveBeenCalledWith("f1", ["sabre"]);
+  });
+
+  it("shows 'посев не восстановлен' when the fighter ends up unassigned (spec 0040, FR-6/AC-5)", async () => {
+    mutateReturn.mockImplementation((_id, opts) => opts?.onSuccess?.());
+    resolveReturnSeeding.mockResolvedValue({ restored: false });
+    const f = fighter({ status: "FIGHTER_STATUS_WITHDRAWN" });
+
+    render(
+      <FighterCardDialog fighterId="f1" fighters={[f]} nominations={nominations} open onOpenChange={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть на турнир" }));
+
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        "Иван Петров возвращён, посев не восстановлен — распределите вручную",
+      ),
+    );
+  });
+
+  it("shows a plain 'возвращён на турнир' toast when there was nothing to restore (spec 0040)", async () => {
+    mutateReturn.mockImplementation((_id, opts) => opts?.onSuccess?.());
+    resolveReturnSeeding.mockResolvedValue(null);
+    const f = fighter({ status: "FIGHTER_STATUS_WITHDRAWN" });
+
+    render(
+      <FighterCardDialog fighterId="f1" fighters={[f]} nominations={nominations} open onOpenChange={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть на турнир" }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Иван Петров возвращён на турнир"));
   });
 
   it("shows a server error toast without a retry action on mutation failure (AC-12)", () => {

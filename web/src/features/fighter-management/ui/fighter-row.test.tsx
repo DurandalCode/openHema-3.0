@@ -24,6 +24,9 @@ function fighter(overrides: Partial<Fighter>): Fighter {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     fromApplication: true,
+    linkedAccountId: "",
+    linkedAccountDisplayName: "",
+    mergedIntoId: "",
     ...overrides,
   };
 }
@@ -123,6 +126,26 @@ describe("FighterRow", () => {
     );
 
     expect(screen.getByText("заведён вручную")).toBeInTheDocument();
+  });
+
+  it("shows a linked-account badge when the fighter has linkedAccountId (spec 0040, FR-8/AC-6)", () => {
+    render(
+      <FighterRow
+        fighter={fighter({ linkedAccountId: "user-1" })}
+        nominationTitleById={nominationTitleById}
+        onOpenCard={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("учётка")).toBeInTheDocument();
+  });
+
+  it("does not show a linked-account badge when linkedAccountId is empty", () => {
+    render(
+      <FighterRow fighter={fighter({})} nominationTitleById={nominationTitleById} onOpenCard={vi.fn()} />,
+    );
+
+    expect(screen.queryByText("учётка")).not.toBeInTheDocument();
   });
 
   it("clicking the row opens the card (AC-7)", () => {

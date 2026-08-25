@@ -5,6 +5,7 @@ import {
   addToNominationRequest,
   createFighterRequest,
   editFighterRequest,
+  mergeFightersRequest,
   moveFighterRequest,
   removeFromNominationRequest,
   returnFighterRequest,
@@ -82,5 +83,16 @@ export function useMoveFighter() {
     unknown
   >(({ fighterId, fromNominationId, toNominationId }) =>
     moveFighterRequest(fighterId, fromNominationId, toNominationId),
+  );
+}
+
+/**
+ * useMergeFighters — слияние дубля source в target (admin, спека 0040,
+ * FR-10): необратимое действие, подтверждение — на UI (`ConfirmDialog`,
+ * `MergeFightersDialog`), не здесь.
+ */
+export function useMergeFighters() {
+  return useFighterMutation<{ sourceFighterId: string; targetFighterId: string }, unknown>(
+    ({ sourceFighterId, targetFighterId }) => mergeFightersRequest(sourceFighterId, targetFighterId),
   );
 }

@@ -15,6 +15,7 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Col, Row } from "@/shared/ui/stack";
+import { Tag } from "@/shared/ui/tag";
 import { formatDateTime } from "@/shared/lib/datetime";
 import { toastError, toastSuccess } from "@/shared/lib/toast";
 import {
@@ -23,7 +24,7 @@ import {
   participationLabel,
   withdrawalReasonLabel,
 } from "@/entities/fighter/lib/labels";
-import type { Fighter, WithdrawalReason } from "@/entities/fighter/lib/types";
+import { hasLinkedAccount, type Fighter, type WithdrawalReason } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import {
   useAddToNomination,
@@ -32,6 +33,7 @@ import {
   useReturnFighter,
   useWithdrawFighter,
 } from "../api/use-fighter-mutations";
+import { resolveReturnSeeding } from "../api/return-outcome";
 import { addableNominations } from "../lib/select-fighters";
 import { MoveFighterDialog } from "./move-fighter-dialog";
 
@@ -142,9 +144,29 @@ export function FighterCardDialog({
     );
   }
 
+  /**
+   * onReturnFighter — возврат на турнир (spec FR-18/FR-19), тост уточняет
+   * исход восстановления посева (спека 0040, FR-6): не новое поле ответа
+   * `ReturnFighter`, а рефетч раскладок — `resolveReturnSeeding` смотрит,
+   * оказался ли боец в `pools[i].members` (восстановлен) или в
+   * `unassigned` (не восстановлен) — plan.md «Восстановление посева».
+   */
   function onReturnFighter() {
+    const activeNominationIds = currentFighter.participations
+      .filter((p) => p.status === "PARTICIPATION_STATUS_ACTIVE")
+      .map((p) => p.nominationId);
+
     returnFighter.mutate(currentFighter.id, {
-      onSuccess: () => toastSuccess(`${currentFighter.name} возвращён на турнир`),
+      onSuccess: async () => {
+        const outcome = await resolveReturnSeeding(currentFighter.id, activeNominationIds);
+        if (outcome?.restored) {
+          toastSuccess(`${currentFighter.name} возвращён в пул ${outcome.poolNumber}`);
+        } else if (outcome && !outcome.restored) {
+          toastSuccess(`${currentFighter.name} возвращён, посев не восстановлен — распределите вручную`);
+        } else {
+          toastSuccess(`${currentFighter.name} возвращён на турнир`);
+        }
+      },
       onError: (err) => toastError(err.message),
     });
   }
@@ -199,6 +221,17 @@ export function FighterCardDialog({
             <Row align="center" gap={2}>
               <span className="text-sm text-foreground">{originLabel(fighter.fromApplication)}</span>
               <span className="text-xs text-caption-foreground">{formatDateTime(fighter.createdAt)}</span>
+              {/* Привязанная учётка (спека 0040, FR-8/AC-6) — только admin. */}
+              {hasLinkedAccount(fighter) && (
+                <Tag
+                  label={
+                    fighter.linkedAccountDisplayName
+                      ? `Учётка: ${fighter.linkedAccountDisplayName}`
+                      : "Привязана учётка"
+                  }
+                  tone="violet"
+                />
+              )}
             </Row>
 
             {editing ? (
