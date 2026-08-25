@@ -53,7 +53,7 @@ func (h *MeHandler) GetMyFighter(
 		}
 		return nil, mapError(err)
 	}
-	return connect.NewResponse(&hemav1.GetMyFighterResponse{Fighter: toProtoFighter(f)}), nil
+	return connect.NewResponse(&hemav1.GetMyFighterResponse{Fighter: toProtoFighterPublic(f)}), nil
 }
 
 var errNoCaller = errors.New("fighter: missing caller id")
