@@ -35,6 +35,33 @@ export async function listNominationStagesRequest(
   return { ok: true, stages: res.data.stages ?? [], issues: res.data.issues ?? [] };
 }
 
+export type NominationSchemaEntryDto = {
+  nominationId: string;
+  stages: Stage[];
+  issues: SchemaIssue[];
+};
+
+export type NominationSchemasResult =
+  | { ok: true; entries: NominationSchemaEntryDto[] }
+  | { ok: false; error: string };
+
+/**
+ * listNominationSchemasRequest — GET /api/tournaments/[id]/nomination-schemas
+ * (только admin, спека 0041, FR-8/FR-10): сводка схемы всех номинаций
+ * турнира одним обращением вместо одного `listNominationStagesRequest` на
+ * каждую номинацию (0028, NFR-2 — отложено, теперь реализовано).
+ */
+export async function listNominationSchemasRequest(
+  tournamentId: string,
+): Promise<NominationSchemasResult> {
+  const res = await apiFetch<{ entries?: NominationSchemaEntryDto[] }>(
+    `/api/tournaments/${encodeURIComponent(tournamentId)}/nomination-schemas`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, entries: res.data.entries ?? [] };
+}
+
 /** getNominationRequest — GET /api/nominations/[id] (публичный). */
 export async function getNominationRequest(id: string): Promise<NominationResult> {
   const res = await apiFetch<{ nomination?: Nomination }>(

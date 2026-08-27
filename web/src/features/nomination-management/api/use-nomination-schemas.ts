@@ -1,9 +1,9 @@
 "use client";
 
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
 import { nominationManagementKeys } from "./keys";
-import { listNominationStagesRequest } from "./requests";
+import { listNominationSchemasRequest } from "./requests";
 
 export type NominationSchema = {
   stages: Stage[];
@@ -13,31 +13,50 @@ export type NominationSchema = {
 
 /**
  * useNominationSchemas — схема этапов + диагностика для списка номинаций
- * (спека 0028, FR-5/FR-6): один запрос этапов на номинацию (NFR-2), без
- * агрегирующей ручки. В отличие от живого статуса площадок (0027) — без
- * `refetchInterval`: схема холодная, обновляется мутациями, не таймером
- * (spec NFR-2). Ошибка одной номинации не роняет остальные (`retry: false`,
- * FR-6) — вызывающий код читает `isError` и показывает «схема недоступна»
- * только в её строке.
+ * турнира (спека 0028, FR-5/FR-6). С 0041 (FR-8/FR-10) — один агрегирующий
+ * запрос `GET /api/tournaments/[id]/nomination-schemas` за один цикл вместо
+ * одного запроса этапов на каждую номинацию (0028, NFR-2 — «вернуться, если
+ * число запросов станет узким местом», теперь реализовано). Охват совпадает
+ * с `useNominations`: сервер резолвит список номинаций тем же портом
+ * `NominationProvider.NominationsByTournament` (спека 0034), что и
+ * `GetTournamentLive` — расхождений между показанными номинациями и
+ * полученными схемами быть не должно. Без `refetchInterval`, как и раньше:
+ * схема — холодные данные, обновляются мутациями, не таймером (FR-10).
+ *
+ * Обработка ошибок: агрегирующий RPC `ListStagesForTournament` либо целиком
+ * успевает, либо целиком падает (`retry: false`) — то же решение и то же
+ * обоснование, что на сервере в `server/modules/stage/service/
+ * stage_aggregates.go` (`ListStagesForTournament`): все номинации турнира
+ * читаются последовательно в одном запросе поверх одного и того же
+ * порта/хранилища, единственный реалистичный источник ошибки чтения схемы
+ * ОДНОЙ номинации здесь — тот же отказ сети/сервера, что уронил бы и чтение
+ * схемы остальных номинаций этого же запроса, а не что-то специфичное для
+ * одной номинации. В отличие от прежней версии на `useQueries` (по
+ * независимому HTTP-запросу на номинацию) клиент больше не знает полный
+ * список id номинаций заранее (сигнатура сузилась до `tournamentId` — он не
+ * нужен, сервер сам резолвит список), поэтому при отказе всего запроса карта
+ * возвращается пустой: `NominationsTable`/`SchemaCell` читают
+ * `schemas.get(id)` как `undefined` и показывают тот же вид «—», что и до
+ * первого ответа, а не отдельное «схема недоступна» на каждой строке. Флаг
+ * `isError` на `NominationSchema` сохранён в типе ради сигнатуры (вызывающий
+ * код её не меняет) — при успехе запроса он всегда `false`, поскольку записи
+ * в карте появляются только вместе с успешным ответом целиком.
  */
-export function useNominationSchemas(nominationIds: string[]): Map<string, NominationSchema> {
-  const results = useQueries({
-    queries: nominationIds.map((id) => ({
-      queryKey: nominationManagementKeys.stages(id),
-      queryFn: () => listNominationStagesRequest(id),
-      staleTime: 60_000,
-      retry: false,
-    })),
+export function useNominationSchemas(tournamentId: string): Map<string, NominationSchema> {
+  const query = useQuery({
+    queryKey: nominationManagementKeys.schemas(tournamentId),
+    queryFn: async () => {
+      const res = await listNominationSchemasRequest(tournamentId);
+      if (!res.ok) throw new Error(res.error);
+      return res.entries;
+    },
+    staleTime: 60_000,
+    retry: false,
   });
 
   const map = new Map<string, NominationSchema>();
-  nominationIds.forEach((id, i) => {
-    const result = results[i]?.data;
-    if (result?.ok) {
-      map.set(id, { stages: result.stages, issues: result.issues, isError: false });
-    } else {
-      map.set(id, { stages: [], issues: [], isError: Boolean(results[i]?.isError) });
-    }
-  });
+  for (const entry of query.data ?? []) {
+    map.set(entry.nominationId, { stages: entry.stages, issues: entry.issues, isError: false });
+  }
   return map;
 }

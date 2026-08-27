@@ -66,7 +66,7 @@ export function NominationsScreen({
 }) {
   const nominationsQuery = useNominations(tournamentId);
   const nominations = nominationsQuery.data ?? [];
-  const schemas = useNominationSchemas(nominations.map((n) => n.id));
+  const schemas = useNominationSchemas(tournamentId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
