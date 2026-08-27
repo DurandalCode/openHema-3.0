@@ -130,16 +130,32 @@ func (h *Handler) GetFighter(
 	return connect.NewResponse(&hemav1.GetFighterResponse{Fighter: toProtoFighterAdmin(f)}), nil
 }
 
-// ListRoster возвращает ростер турнира.
+// ListRoster возвращает страницу ростера турнира: отфильтрованную по
+// статусу/номинации (активное участие)/клубу и найденную по подстроке
+// имени/клуба (спека 0041, FR-1..FR-3), с total_count для постраничной
+// навигации (FR-5) и status_counts независимыми от фильтра/поиска (FR-4).
+// Видимость ростера не меняется этим RPC (в т.ч. Status=StatusMerged
+// по-прежнему возвращается, если Statuses не сужает выборку) — добавляется
+// только явная фильтрация/поиск/постраничность поверх неё.
 func (h *Handler) ListRoster(
 	ctx context.Context,
 	req *connect.Request[hemav1.ListRosterRequest],
 ) (*connect.Response[hemav1.ListRosterResponse], error) {
+	m := req.Msg
 	var tournamentID string
-	if req.Msg.TournamentId != nil {
-		tournamentID = *req.Msg.TournamentId
+	if m.TournamentId != nil {
+		tournamentID = *m.TournamentId
 	}
-	fighters, err := h.svc.ListRoster(ctx, tournamentID)
+
+	fighters, total, statusCounts, err := h.svc.ListRoster(ctx, tournamentID, domain.RosterFilter{
+		Statuses:      fromProtoStatuses(m.Statuses),
+		NominationIDs: m.NominationIds,
+		Clubs:         m.Clubs,
+		IncludeNoClub: m.IncludeNoClub,
+		Search:        m.Search,
+		Limit:         m.Limit,
+		Offset:        m.Offset,
+	})
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -147,7 +163,11 @@ func (h *Handler) ListRoster(
 	for _, f := range fighters {
 		out = append(out, toProtoFighterAdmin(f))
 	}
-	return connect.NewResponse(&hemav1.ListRosterResponse{Fighters: out}), nil
+	return connect.NewResponse(&hemav1.ListRosterResponse{
+		Fighters:     out,
+		TotalCount:   int32(total),
+		StatusCounts: toProtoStatusCounts(statusCounts),
+	}), nil
 }
 
 // FindFighterByAccount ищет бойца турнира по учётке пользователя (спека
@@ -292,6 +312,53 @@ func toProtoStatus(s domain.Status) hemav1.FighterStatus {
 	default:
 		return hemav1.FighterStatus_FIGHTER_STATUS_UNSPECIFIED
 	}
+}
+
+// fromProtoStatus мапит proto FighterStatus в domain.Status.
+// FIGHTER_STATUS_UNSPECIFIED (в т.ч. неизвестное будущее значение) не имеет
+// доменного эквивалента — ok=false, вызывающий код (fromProtoStatuses)
+// пропускает такие значения, не превращая их в ложный фильтр.
+func fromProtoStatus(s hemav1.FighterStatus) (domain.Status, bool) {
+	switch s {
+	case hemav1.FighterStatus_FIGHTER_STATUS_ACTIVE:
+		return domain.StatusActive, true
+	case hemav1.FighterStatus_FIGHTER_STATUS_WITHDRAWN:
+		return domain.StatusWithdrawn, true
+	case hemav1.FighterStatus_FIGHTER_STATUS_MERGED:
+		return domain.StatusMerged, true
+	default:
+		return "", false
+	}
+}
+
+// fromProtoStatuses мапит repeated FighterStatus запроса ListRoster в
+// domain.RosterFilter.Statuses (спека 0041).
+func fromProtoStatuses(statuses []hemav1.FighterStatus) []domain.Status {
+	out := make([]domain.Status, 0, len(statuses))
+	for _, s := range statuses {
+		if ds, ok := fromProtoStatus(s); ok {
+			out = append(out, ds)
+		}
+	}
+	return out
+}
+
+// rosterStatusOrder — порядок FighterStatusCount в ответе ListRoster:
+// детерминированный (не порядок итерации по map), все три статуса всегда
+// присутствуют (count=0, если бойцов с этим статусом нет).
+var rosterStatusOrder = []domain.Status{domain.StatusActive, domain.StatusWithdrawn, domain.StatusMerged}
+
+// toProtoStatusCounts мапит счётчики по статусу (спека 0041, FR-4) в
+// стабильном порядке rosterStatusOrder.
+func toProtoStatusCounts(counts map[domain.Status]int) []*hemav1.FighterStatusCount {
+	out := make([]*hemav1.FighterStatusCount, 0, len(rosterStatusOrder))
+	for _, s := range rosterStatusOrder {
+		out = append(out, &hemav1.FighterStatusCount{
+			Status: toProtoStatus(s),
+			Count:  int32(counts[s]),
+		})
+	}
+	return out
 }
 
 func toProtoReason(r domain.Reason) hemav1.WithdrawalReason {

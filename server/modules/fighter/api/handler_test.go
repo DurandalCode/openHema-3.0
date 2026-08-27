@@ -278,7 +278,7 @@ func TestListRoster_ResolvesActiveTournament(t *testing.T) {
 		t.Fatalf("CreateFighter: %v", err)
 	}
 
-	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{}, adminUserID, "admin"))
+	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{Limit: 100}, adminUserID, "admin"))
 	if err != nil {
 		t.Fatalf("ListRoster: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestListRoster_FromApplication(t *testing.T) {
 		t.Fatalf("CreateFighter: %v", err)
 	}
 
-	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{}, adminUserID, "admin"))
+	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{Limit: 100}, adminUserID, "admin"))
 	if err != nil {
 		t.Fatalf("ListRoster: %v", err)
 	}
@@ -336,6 +336,148 @@ func TestListRoster_FromApplication(t *testing.T) {
 	if manual.FromApplication {
 		t.Fatalf("expected FromApplication=false for manually created fighter")
 	}
+}
+
+// TestListRoster_FilterPaginationAndStatusCounts проверяет маппинг новых
+// полей ListRosterRequest/ListRosterResponse (спека 0041, T11): фильтр по
+// клубу и поиск сужают fighters/total_count, status_counts считаются по
+// ВСЕМ бойцам турнира независимо от фильтра/поиска (FR-4) и включают
+// Status=StatusMerged — видимость ростера не меняется этим RPC: бойца,
+// объединённого через MergeFighters, ListRoster без фильтра по статусу
+// по-прежнему возвращает (тот же приём, что и до инкремента 0041).
+func TestListRoster_FilterPaginationAndStatusCounts(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	active, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan Petrov",
+		Club:         "Club A",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(active): %v", err)
+	}
+	_, err = c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Petr Sidorov",
+		Club:         "Club B",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(other): %v", err)
+	}
+	withdrawn, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Oleg Withdrawn",
+		Club:         "Club A",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(withdrawn): %v", err)
+	}
+	if _, err := c.admin.WithdrawFighter(ctx, authedReq(t, &hemav1.WithdrawFighterRequest{
+		FighterId: withdrawn.Msg.Fighter.Id,
+		Reason:    hemav1.WithdrawalReason_WITHDRAWAL_REASON_INJURY,
+	}, adminUserID, "admin")); err != nil {
+		t.Fatalf("WithdrawFighter: %v", err)
+	}
+	dupSource, err := c.admin.CreateFighter(ctx, authedReq(t, &hemav1.CreateFighterRequest{
+		TournamentId: tournamentID,
+		Name:         "Ivan Dup",
+		Club:         "Club A",
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("CreateFighter(dupSource): %v", err)
+	}
+	if _, err := c.admin.MergeFighters(ctx, authedReq(t, &hemav1.MergeFightersRequest{
+		SourceFighterId: dupSource.Msg.Fighter.Id,
+		TargetFighterId: active.Msg.Fighter.Id,
+	}, adminUserID, "admin")); err != nil {
+		t.Fatalf("MergeFighters: %v", err)
+	}
+
+	t.Run("club filter narrows fighters and total_count, status_counts stay full", func(t *testing.T) {
+		resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{
+			Clubs: []string{"Club A"},
+			Limit: 100,
+		}, adminUserID, "admin"))
+		if err != nil {
+			t.Fatalf("ListRoster: %v", err)
+		}
+		// Club A: active target, withdrawn fighter, and the merged dup
+		// source (club is a snapshot — merge doesn't change it, and no
+		// Statuses filter is set, so the merged record still matches).
+		if len(resp.Msg.Fighters) != 3 || resp.Msg.TotalCount != 3 {
+			t.Fatalf("expected 3 Club A fighters (active+withdrawn+merged), got %d fighters, total=%d",
+				len(resp.Msg.Fighters), resp.Msg.TotalCount)
+		}
+		counts := map[hemav1.FighterStatus]int32{}
+		for _, sc := range resp.Msg.StatusCounts {
+			counts[sc.Status] = sc.Count
+		}
+		if counts[hemav1.FighterStatus_FIGHTER_STATUS_ACTIVE] != 2 {
+			t.Fatalf("expected status_counts.active=2 (unaffected by club filter), got %+v", counts)
+		}
+		if counts[hemav1.FighterStatus_FIGHTER_STATUS_WITHDRAWN] != 1 {
+			t.Fatalf("expected status_counts.withdrawn=1, got %+v", counts)
+		}
+		if counts[hemav1.FighterStatus_FIGHTER_STATUS_MERGED] != 1 {
+			t.Fatalf("expected status_counts.merged=1, got %+v", counts)
+		}
+	})
+
+	t.Run("search by name narrows to matching fighters", func(t *testing.T) {
+		search := "petr"
+		resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{
+			Search: &search,
+			Limit:  100,
+		}, adminUserID, "admin"))
+		if err != nil {
+			t.Fatalf("ListRoster: %v", err)
+		}
+		// "Ivan Petrov" + "Petr Sidorov".
+		if resp.Msg.TotalCount != 2 {
+			t.Fatalf("expected total_count=2 for search %q, got %d: %+v", search, resp.Msg.TotalCount, resp.Msg.Fighters)
+		}
+	})
+
+	t.Run("default (no status filter) still returns merged fighter — visibility unchanged", func(t *testing.T) {
+		resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{Limit: 100}, adminUserID, "admin"))
+		if err != nil {
+			t.Fatalf("ListRoster: %v", err)
+		}
+		if resp.Msg.TotalCount != 4 {
+			t.Fatalf("expected total_count=4 (incl. merged, unfiltered), got %d", resp.Msg.TotalCount)
+		}
+		var sawMerged bool
+		for _, f := range resp.Msg.Fighters {
+			if f.Status == hemav1.FighterStatus_FIGHTER_STATUS_MERGED {
+				sawMerged = true
+			}
+		}
+		if !sawMerged {
+			t.Fatalf("expected merged fighter present in unfiltered roster, got %+v", resp.Msg.Fighters)
+		}
+	})
+
+	t.Run("pagination: limit/offset slice total_count-consistent pages", func(t *testing.T) {
+		page1, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{
+			Limit: 2, Offset: 0,
+		}, adminUserID, "admin"))
+		if err != nil {
+			t.Fatalf("ListRoster page1: %v", err)
+		}
+		page2, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{
+			Limit: 2, Offset: 2,
+		}, adminUserID, "admin"))
+		if err != nil {
+			t.Fatalf("ListRoster page2: %v", err)
+		}
+		if len(page1.Msg.Fighters) != 2 || len(page2.Msg.Fighters) != 2 {
+			t.Fatalf("expected 2 fighters per page, got %d and %d", len(page1.Msg.Fighters), len(page2.Msg.Fighters))
+		}
+		if page1.Msg.TotalCount != 4 || page2.Msg.TotalCount != 4 {
+			t.Fatalf("expected total_count=4 on every page, got %d and %d", page1.Msg.TotalCount, page2.Msg.TotalCount)
+		}
+	})
 }
 
 func TestListNominationRoster_Public_NoAuthRequired(t *testing.T) {
@@ -686,7 +828,7 @@ func TestListRoster_IncludesLinkedAccount_AdminOnly(t *testing.T) {
 		t.Fatalf("RegisterFromApplication: %v", err)
 	}
 
-	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{}, adminUserID, "admin"))
+	resp, err := c.admin.ListRoster(ctx, authedReq(t, &hemav1.ListRosterRequest{Limit: 100}, adminUserID, "admin"))
 	if err != nil {
 		t.Fatalf("ListRoster: %v", err)
 	}
