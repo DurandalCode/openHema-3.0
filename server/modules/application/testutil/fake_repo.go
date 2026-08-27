@@ -5,6 +5,7 @@ package testutil
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/hema/server/modules/application/domain"
@@ -136,27 +137,130 @@ func (r *FakeRepo) ListByNomination(_ context.Context, nominationID string) ([]d
 	return out, nil
 }
 
-// ListByTournament — сводный экран с опциональными фильтрами по статусу и/или
-// номинации.
-func (r *FakeRepo) ListByTournament(_ context.Context, tournamentID string, status *domain.State, nominationID *string) ([]domain.ApplicationView, error) {
+// ListByTournament — сводный экран заявок турнира: статус/номинация/
+// экипировка + Limit/Offset «в памяти», как SQL-путь ListByTournament у
+// реального репозитория (используется, когда f.Search пуст). total — число
+// заявок, подходящих под фильтр без учёта Limit/Offset (FR-5).
+func (r *FakeRepo) ListByTournament(_ context.Context, tournamentID string, f domain.ListFilter) ([]domain.ApplicationView, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	var matched []domain.ApplicationView
+	for _, v := range r.views {
+		if !matchesTournamentFilter(v, tournamentID, f) {
+			continue
+		}
+		matched = append(matched, v)
+	}
+	sortViews(matched)
+	total := len(matched)
+	return paginateViews(matched, f.Limit, f.Offset), total, nil
+}
+
+// SearchCandidates возвращает кандидатов для досева по имени в service — все
+// заявки турнира, подходящие под статус/номинацию/экипировку, у которых клуб
+// или ApplicantNameOverride уже совпадает с search (без учёта регистра), ЛИБО
+// override пуст (имя ещё не известно на этом уровне, резолвится из auth —
+// строка обязана остаться кандидатом, иначе service не сможет её досеять по
+// резолвленному имени). Без Limit/Offset — та же семантика, что у реального
+// SQL-запроса SearchCandidatesByTournament (см. repo/repo.go).
+func (r *FakeRepo) SearchCandidates(_ context.Context, tournamentID string, f domain.ListFilter) ([]domain.ApplicationView, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	search := ""
+	if f.Search != nil {
+		search = strings.ToLower(*f.Search)
+	}
+
 	var out []domain.ApplicationView
+	for _, v := range r.views {
+		if !matchesTournamentFilter(v, tournamentID, f) {
+			continue
+		}
+		if v.ApplicantNameOverride == "" ||
+			strings.Contains(strings.ToLower(v.Club), search) ||
+			strings.Contains(strings.ToLower(v.ApplicantNameOverride), search) {
+			out = append(out, v)
+		}
+	}
+	sortViews(out)
+	return out, nil
+}
+
+// CountByTournamentStatus — счётчик заявок по каждому статусу турнира, не
+// зависящий от фильтров/поиска запроса (FR-4, спека 0041).
+func (r *FakeRepo) CountByTournamentStatus(_ context.Context, tournamentID string) (map[domain.State]int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make(map[domain.State]int)
 	for _, v := range r.views {
 		if v.TournamentID != tournamentID {
 			continue
 		}
-		if status != nil && v.State != *status {
-			continue
-		}
-		if nominationID != nil && v.NominationID != *nominationID {
-			continue
-		}
-		out = append(out, v)
+		out[v.State]++
 	}
-	sortViews(out)
 	return out, nil
+}
+
+// matchesTournamentFilter — статус/номинация/экипировка, общая часть
+// ListByTournament и SearchCandidates (поиск по имени/клубу — отдельная
+// логика в каждом методе, см. выше).
+func matchesTournamentFilter(v domain.ApplicationView, tournamentID string, f domain.ListFilter) bool {
+	if v.TournamentID != tournamentID {
+		return false
+	}
+	if len(f.Statuses) > 0 && !containsState(f.Statuses, v.State) {
+		return false
+	}
+	if len(f.NominationIDs) > 0 && !containsString(f.NominationIDs, v.NominationID) {
+		return false
+	}
+	if f.NeedsEquipment != nil && v.NeedsEquipment != *f.NeedsEquipment {
+		return false
+	}
+	return true
+}
+
+func containsState(states []domain.State, s domain.State) bool {
+	for _, x := range states {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// paginateViews режет уже отсортированный срез по Limit/Offset — та же
+// семантика, что LIMIT/OFFSET в SQL (никакого «0 = без ограничения»: ровно
+// как у ListUsers/admin.proto — сервис не задаёт свой дефолт/потолок сверх
+// уже принятого в проекте, Limit=0 буквально означает LIMIT 0 = пустая
+// страница; вызывающая сторона отвечает за осмысленный Limit).
+func paginateViews(views []domain.ApplicationView, limit, offset int32) []domain.ApplicationView {
+	start := int(offset)
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(views) || limit <= 0 {
+		return nil
+	}
+	end := start + int(limit)
+	if end > len(views) {
+		end = len(views)
+	}
+	out := make([]domain.ApplicationView, end-start)
+	copy(out, views[start:end])
+	return out
 }
 
 // ParticipantsByNomination возвращает неотозванные заявки номинации.

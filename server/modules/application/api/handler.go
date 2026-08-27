@@ -159,22 +159,30 @@ func (h *AdminHandler) ListNominationApplications(
 	}), nil
 }
 
-// ListApplications — сводный экран заявок турнира с опциональными фильтрами.
+// ListApplications — сводный экран заявок турнира с фильтром/поиском/
+// постраничностью (спека 0041): страница заявок + total_count (для
+// постраничной навигации, FR-5) + status_counts (счётчики по статусу турнира,
+// не зависящие от фильтра/поиска, FR-4).
 func (h *AdminHandler) ListApplications(
 	ctx context.Context,
 	req *connect.Request[hemav1.ListApplicationsRequest],
 ) (*connect.Response[hemav1.ListApplicationsResponse], error) {
-	var status *domain.State
-	if req.Msg.Status != nil {
-		s := fromProtoState(*req.Msg.Status)
-		status = &s
+	filter := domain.ListFilter{
+		Statuses:       fromProtoStates(req.Msg.Statuses),
+		NominationIDs:  req.Msg.NominationIds,
+		NeedsEquipment: req.Msg.NeedsEquipment,
+		Search:         req.Msg.Search,
+		Limit:          req.Msg.Limit,
+		Offset:         req.Msg.Offset,
 	}
-	apps, err := h.svc.ListApplications(ctx, req.Msg.TournamentId, status, req.Msg.NominationId)
+	apps, total, statusCounts, err := h.svc.ListApplications(ctx, req.Msg.TournamentId, filter)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.ListApplicationsResponse{
 		Applications: toProtoApplications(apps),
+		TotalCount:   int32(total),
+		StatusCounts: toProtoStatusCounts(statusCounts),
 	}), nil
 }
 
@@ -321,6 +329,30 @@ func toProtoState(s domain.State) hemav1.ApplicationState {
 	default:
 		return hemav1.ApplicationState_APPLICATION_STATE_UNSPECIFIED
 	}
+}
+
+// toProtoStatusCounts сериализует statusCounts (карта — не заботится о
+// порядке, FR-4) в repeated ApplicationStatusCount ответа.
+func toProtoStatusCounts(counts map[domain.State]int) []*hemav1.ApplicationStatusCount {
+	out := make([]*hemav1.ApplicationStatusCount, 0, len(counts))
+	for state, count := range counts {
+		out = append(out, &hemav1.ApplicationStatusCount{
+			Status: toProtoState(state),
+			Count:  int32(count),
+		})
+	}
+	return out
+}
+
+func fromProtoStates(states []hemav1.ApplicationState) []domain.State {
+	if states == nil {
+		return nil
+	}
+	out := make([]domain.State, len(states))
+	for i, s := range states {
+		out[i] = fromProtoState(s)
+	}
+	return out
 }
 
 func fromProtoState(s hemav1.ApplicationState) domain.State {

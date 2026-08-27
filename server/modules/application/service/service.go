@@ -332,18 +332,117 @@ func (s *Service) ListByNomination(ctx context.Context, nominationID string) ([]
 	return s.enrichViews(ctx, views)
 }
 
-// ListApplications — сводный экран заявок турнира с опциональными фильтрами
-// по статусу и/или номинации (комбинируются).
-func (s *Service) ListApplications(ctx context.Context, tournamentID string, status *domain.State, nominationID *string) ([]Application, error) {
+// ListApplications — сводный экран заявок турнира с фильтром/поиском/
+// постраничностью (спека 0041). Возвращает страницу, total (число заявок,
+// подходящих под фильтр, без Limit/Offset — FR-5) и statusCounts (счётчик по
+// каждому статусу турнира, не зависящий ни от одного из полей фильтра, кроме
+// tournamentID — FR-4).
+//
+// Search — особый случай (см. domain.ListFilter, «Риски» plan.md 0041):
+// отображаемое имя заявителя не хранится в read-модели заявки — это
+// ApplicantNameOverride (локально), если задан, иначе имя резолвится через
+// UserProvider (auth), кросс-модульно. Поэтому при активном Search сервис не
+// может отдать фильтрацию по имени целиком в SQL:
+//   - repo.SearchCandidates возвращает всех заявок турнира, подходящих под
+//     статус/номинацию/экипировку (без Limit/Offset) — те, чей override уже
+//     точно не совпадает с search, отсеяны в SQL; те, чей override пуст,
+//     остаются кандидатами, т.к. их итоговое имя ещё не известно;
+//   - здесь имена кандидатов резолвятся батчем (как в enrichViews) и
+//     досеиваются по подстроке в эффективном имени (override ИЛИ
+//     резолвленное) или по клубу; total и Limit/Offset — уже над этим
+//     отфильтрованным в Go срезом.
+//
+// Без активного Search путь целиком в SQL: repo.ListByTournament уже
+// применяет Limit/Offset и считает total отдельным COUNT(*) — это и есть
+// путь, снимающий NFR-1 (не растёт с общим числом записей турнира).
+func (s *Service) ListApplications(ctx context.Context, tournamentID string, f domain.ListFilter) ([]Application, int, map[domain.State]int, error) {
 	tournamentID = strings.TrimSpace(tournamentID)
 	if tournamentID == "" {
-		return nil, domain.ErrInvalidTransition
+		return nil, 0, nil, domain.ErrInvalidTransition
 	}
-	views, err := s.repo.ListByTournament(ctx, tournamentID, status, nominationID)
+
+	statusCounts, err := s.repo.CountByTournamentStatus(ctx, tournamentID)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
-	return s.enrichViews(ctx, views)
+
+	search := f.Search
+	if search != nil && strings.TrimSpace(*search) == "" {
+		search = nil
+	}
+
+	if search == nil {
+		views, total, err := s.repo.ListByTournament(ctx, tournamentID, f)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		items, err := s.enrichViews(ctx, views)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		return items, total, statusCounts, nil
+	}
+
+	candidates, err := s.repo.SearchCandidates(ctx, tournamentID, f)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	names, err := s.users.DisplayNames(ctx, uniqueApplicantIDs(candidates))
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	needle := strings.ToLower(strings.TrimSpace(*search))
+	matched := make([]domain.ApplicationView, 0, len(candidates))
+	for _, v := range candidates {
+		name := effectiveName(v.ApplicantNameOverride, names[v.ApplicantUserID])
+		if strings.Contains(strings.ToLower(name), needle) || strings.Contains(strings.ToLower(v.Club), needle) {
+			matched = append(matched, v)
+		}
+	}
+
+	total := len(matched)
+	page := paginateViews(matched, f.Limit, f.Offset)
+	items := make([]Application, 0, len(page))
+	for _, v := range page {
+		items = append(items, Application{
+			ID:                    v.ID,
+			NominationID:          v.NominationID,
+			TournamentID:          v.TournamentID,
+			ApplicantUserID:       v.ApplicantUserID,
+			ApplicantDisplayName:  effectiveName(v.ApplicantNameOverride, names[v.ApplicantUserID]),
+			State:                 v.State,
+			Club:                  v.Club,
+			NeedsEquipment:        v.NeedsEquipment,
+			ApplicantNameOverride: v.ApplicantNameOverride,
+			CreatedAt:             v.CreatedAt,
+			UpdatedAt:             v.UpdatedAt,
+		})
+	}
+	return items, total, statusCounts, nil
+}
+
+// paginateViews режет уже отфильтрованный/отсортированный (по created_at —
+// views приходят из repo.SearchCandidates, который сохраняет тот же
+// ORDER BY, что и repo.ListByTournament) срез по Limit/Offset — та же
+// семантика, что LIMIT/OFFSET в SQL (Limit<=0 → пустая страница, как
+// ListUsers/admin.proto: сервис не задаёт свой дефолт/потолок поверх уже
+// принятого в проекте).
+func paginateViews(views []domain.ApplicationView, limit, offset int32) []domain.ApplicationView {
+	start := int(offset)
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(views) || limit <= 0 {
+		return nil
+	}
+	end := start + int(limit)
+	if end > len(views) {
+		end = len(views)
+	}
+	out := make([]domain.ApplicationView, end-start)
+	copy(out, views[start:end])
+	return out
 }
 
 // NominationParticipants возвращает публичный стартовый лист номинации:
