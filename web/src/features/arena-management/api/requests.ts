@@ -19,6 +19,12 @@ export type ArenaBoardResult =
   | { ok: true; board: BoutBoard | null }
   | { ok: false; error: string };
 
+export type ArenaBoardEntry = { arenaId: string; board: BoutBoard | null };
+
+export type ArenaBoardsResult =
+  | { ok: true; entries: ArenaBoardEntry[] }
+  | { ok: false; error: string };
+
 /** listArenasRequest — GET /api/admin/arenas?tournamentId=... (только admin). */
 export async function listArenasRequest(tournamentId: string): Promise<ArenaListResult> {
   const res = await apiFetch<{ arenas?: Arena[] }>(
@@ -92,6 +98,22 @@ export async function getArenaBoardRequest(arenaId: string): Promise<ArenaBoardR
   );
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true, board: res.data.board ?? null };
+}
+
+/**
+ * getArenaBoardsRequest — GET /api/tournaments/[id]/arena-boards (только
+ * admin, спека 0041, FR-7/FR-9): доска ведения боёв каждой неархивной
+ * площадки турнира за одно обращение — заменяет N вызовов
+ * `getArenaBoardRequest` за цикл обновления одним агрегирующим запросом
+ * (источник `useArenaBoards`).
+ */
+export async function getArenaBoardsRequest(tournamentId: string): Promise<ArenaBoardsResult> {
+  const res = await apiFetch<{ entries?: ArenaBoardEntry[] }>(
+    `/api/tournaments/${encodeURIComponent(tournamentId)}/arena-boards`,
+    { method: "GET" },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, entries: res.data.entries ?? [] };
 }
 
 /**

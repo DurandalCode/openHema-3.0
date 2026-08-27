@@ -4,6 +4,7 @@ import {
   archiveArenaRequest,
   createArenaRequest,
   getArenaBoardRequest,
+  getArenaBoardsRequest,
   getArenaRequest,
   listArenasRequest,
   reorderArenasRequest,
@@ -256,6 +257,65 @@ describe("features/arena-management/api/requests", () => {
       const result = await getArenaBoardRequest("a1");
 
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("getArenaBoardsRequest", () => {
+    it("GETs /api/tournaments/[id]/arena-boards and returns entries", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          entries: [
+            { arenaId: "a1", board: { pool: { id: "p1" }, bouts: [], currentBoutId: "b1" } },
+            { arenaId: "a2", board: null },
+          ],
+        }),
+      });
+
+      const result = await getArenaBoardsRequest("t1");
+
+      expect(result).toEqual({
+        ok: true,
+        entries: [
+          { arenaId: "a1", board: { pool: { id: "p1" }, bouts: [], currentBoutId: "b1" } },
+          { arenaId: "a2", board: null },
+        ],
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/t1/arena-boards", {
+        method: "GET",
+      });
+    });
+
+    it("defaults entries to [] when absent", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const result = await getArenaBoardsRequest("t1");
+
+      expect(result).toEqual({ ok: true, entries: [] });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "unauthenticated" }) });
+
+      const result = await getArenaBoardsRequest("t1");
+
+      expect(result).toEqual({ ok: false, error: "unauthenticated" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await getArenaBoardsRequest("t1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("encodes tournamentId", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ entries: [] }) });
+      await getArenaBoardsRequest("t 1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/t%201/arena-boards", {
+        method: "GET",
+      });
     });
   });
 
