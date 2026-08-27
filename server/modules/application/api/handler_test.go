@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -347,16 +348,133 @@ func TestListApplications_AdminOverviewWithFilters(t *testing.T) {
 		t.Fatalf("SubmitApplication 2: %v", err)
 	}
 
-	filterNominationID := nominationID
 	listResp, err := c.admin.ListApplications(ctx, authedReq(t, &hemav1.ListApplicationsRequest{
-		TournamentId: tournamentID,
-		NominationId: &filterNominationID,
+		TournamentId:  tournamentID,
+		NominationIds: []string{nominationID},
+		Limit:         100,
 	}, adminUserID, "admin"))
 	if err != nil {
 		t.Fatalf("ListApplications: %v", err)
 	}
 	if len(listResp.Msg.Applications) != 1 || listResp.Msg.Applications[0].Id != submitResp.Msg.Application.Id {
 		t.Fatalf("expected filtered result to contain only app1, got %+v", listResp.Msg.Applications)
+	}
+	if listResp.Msg.TotalCount != 1 {
+		t.Fatalf("expected total_count=1 for the nomination filter, got %d", listResp.Msg.TotalCount)
+	}
+
+	// FR-4: status_counts не зависит от фильтра — обе заявки в статусе
+	// SUBMITTED учтены, хотя фильтр по номинации отсеял одну из ответа.
+	var submittedCount int32
+	for _, sc := range listResp.Msg.StatusCounts {
+		if sc.Status == hemav1.ApplicationState_APPLICATION_STATE_SUBMITTED {
+			submittedCount = sc.Count
+		}
+	}
+	if submittedCount != 2 {
+		t.Fatalf("expected status_counts[SUBMITTED]=2 independent of nomination filter, got %d (%+v)", submittedCount, listResp.Msg.StatusCounts)
+	}
+}
+
+// AC-1/FR-5: постраничность (limit/offset) через RPC.
+func TestListApplications_Pagination_E2E(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		userID := fmt.Sprintf("00000000-0000-0000-0000-0000000000d%d", i)
+		c.users.Set(userID, fmt.Sprintf("Fighter %d", i))
+		if _, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
+			NominationId: nominationID,
+		}, userID, "user")); err != nil {
+			t.Fatalf("SubmitApplication %d: %v", i, err)
+		}
+	}
+
+	page1, err := c.admin.ListApplications(ctx, authedReq(t, &hemav1.ListApplicationsRequest{
+		TournamentId: tournamentID,
+		Limit:        2,
+		Offset:       0,
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("ListApplications (page 1): %v", err)
+	}
+	if len(page1.Msg.Applications) != 2 || page1.Msg.TotalCount != 3 {
+		t.Fatalf("expected page of 2, total 3, got %d applications, total=%d", len(page1.Msg.Applications), page1.Msg.TotalCount)
+	}
+
+	page2, err := c.admin.ListApplications(ctx, authedReq(t, &hemav1.ListApplicationsRequest{
+		TournamentId: tournamentID,
+		Limit:        2,
+		Offset:       2,
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("ListApplications (page 2): %v", err)
+	}
+	if len(page2.Msg.Applications) != 1 || page2.Msg.TotalCount != 3 {
+		t.Fatalf("expected last page of 1, total 3, got %d applications, total=%d", len(page2.Msg.Applications), page2.Msg.TotalCount)
+	}
+}
+
+// AC-2/AC-3: поиск по имени/клубу не тянет весь список; счётчики по статусу
+// независимы от поиска.
+func TestListApplications_Search_E2E(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+
+	const otherNomination = "00000000-0000-0000-0000-00000000b003"
+	c.nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
+	c.users.Set(otherUserID, "Other Name")
+
+	if _, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationID,
+	}, applicantUserID, "user")); err != nil {
+		t.Fatalf("SubmitApplication 1: %v", err)
+	}
+	if _, err := c.app.SubmitApplication(ctx, authedReq(t, &hemav1.SubmitApplicationRequest{
+		NominationId: otherNomination,
+	}, otherUserID, "user")); err != nil {
+		t.Fatalf("SubmitApplication 2: %v", err)
+	}
+
+	search := "applicant"
+	resp, err := c.admin.ListApplications(ctx, authedReq(t, &hemav1.ListApplicationsRequest{
+		TournamentId: tournamentID,
+		Search:       &search,
+		Limit:        100,
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("ListApplications (search): %v", err)
+	}
+	if len(resp.Msg.Applications) != 1 || resp.Msg.TotalCount != 1 {
+		t.Fatalf("expected exactly 1 matched application, got %+v (total=%d)", resp.Msg.Applications, resp.Msg.TotalCount)
+	}
+	if resp.Msg.Applications[0].ApplicantDisplayName != "Applicant Name" {
+		t.Fatalf("expected matched application to be the applicant, got %+v", resp.Msg.Applications[0])
+	}
+
+	var submittedCount int32
+	for _, sc := range resp.Msg.StatusCounts {
+		if sc.Status == hemav1.ApplicationState_APPLICATION_STATE_SUBMITTED {
+			submittedCount = sc.Count
+		}
+	}
+	if submittedCount != 2 {
+		t.Fatalf("expected status_counts[SUBMITTED]=2 independent of search, got %d", submittedCount)
+	}
+
+	// поиск без совпадений
+	noMatch := "no-such-substring"
+	emptyResp, err := c.admin.ListApplications(ctx, authedReq(t, &hemav1.ListApplicationsRequest{
+		TournamentId: tournamentID,
+		Search:       &noMatch,
+		Limit:        100,
+	}, adminUserID, "admin"))
+	if err != nil {
+		t.Fatalf("ListApplications (search no match): %v", err)
+	}
+	if len(emptyResp.Msg.Applications) != 0 || emptyResp.Msg.TotalCount != 0 {
+		t.Fatalf("expected no matches, got %+v (total=%d)", emptyResp.Msg.Applications, emptyResp.Msg.TotalCount)
 	}
 }
 

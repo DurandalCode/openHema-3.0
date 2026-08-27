@@ -484,3 +484,94 @@ func TestIntegration_EditApplication_TransferToDuplicate_PartialUniqueIndex(t *t
 		t.Fatalf("expected CodeAlreadyExists on transfer into duplicate, got %v (%v)", connect.CodeOf(err), err)
 	}
 }
+
+// TestIntegration_ListApplications_FilterSearchPagination — сквозной тест
+// сводного экрана заявок турнира (спека 0041) на реальной PostgreSQL: фильтр
+// по номинации/экипировке, поиск по имени, резолвленному из auth (не
+// override), постраничность и независимость status_counts от фильтра/поиска
+// (FR-4/FR-5, AC-1..AC-4). Не покрывается юнит-тестами на fake-репо (ADR
+// 0003) — реальные SQL-запросы ListByTournament/CountByTournamentFiltered/
+// SearchCandidatesByTournament/CountByTournamentStatus (repo/repo.go).
+func TestIntegration_ListApplications_FilterSearchPagination(t *testing.T) {
+	c := setup(t)
+	nominationA := createNomination(t, c, "Overview A")
+	nominationB := createNomination(t, c, "Overview B")
+
+	_, bearerIvan := registerApplicant(t, c, "ivan-overview@example.com", "Ivan Petrov")
+	appIvan, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
+		NominationId:   nominationA,
+		Club:           "Sokol",
+		NeedsEquipment: true,
+	}, bearerIvan))
+	if err != nil {
+		t.Fatalf("SubmitApplication Ivan: %v", err)
+	}
+
+	_, bearerAnna := registerApplicant(t, c, "anna-overview@example.com", "Anna Volkova")
+	if _, err := c.app.SubmitApplication(context.Background(), authed(t, &hemav1.SubmitApplicationRequest{
+		NominationId: nominationB,
+		Club:         "Falcon",
+	}, bearerAnna)); err != nil {
+		t.Fatalf("SubmitApplication Anna: %v", err)
+	}
+
+	// Фильтр по номинации + экипировке (AND) — только Ivan.
+	byNominationAndEquipment, err := c.admin.ListApplications(context.Background(), authed(t, &hemav1.ListApplicationsRequest{
+		TournamentId:   seedTournamentID,
+		NominationIds:  []string{nominationA},
+		NeedsEquipment: boolPtr(true),
+		Limit:          100,
+	}, adminBearer(t)))
+	if err != nil {
+		t.Fatalf("ListApplications (nomination+equipment): %v", err)
+	}
+	if len(byNominationAndEquipment.Msg.Applications) != 1 || byNominationAndEquipment.Msg.Applications[0].Id != appIvan.Msg.Application.Id {
+		t.Fatalf("expected only Ivan's application, got %+v", byNominationAndEquipment.Msg.Applications)
+	}
+	if byNominationAndEquipment.Msg.TotalCount != 1 {
+		t.Fatalf("expected total_count=1, got %d", byNominationAndEquipment.Msg.TotalCount)
+	}
+
+	// Поиск по имени, резолвленному из auth (Ivan не задавал override).
+	search := "ivan petrov"
+	searchResp, err := c.admin.ListApplications(context.Background(), authed(t, &hemav1.ListApplicationsRequest{
+		TournamentId: seedTournamentID,
+		Search:       &search,
+		Limit:        100,
+	}, adminBearer(t)))
+	if err != nil {
+		t.Fatalf("ListApplications (search): %v", err)
+	}
+	if len(searchResp.Msg.Applications) != 1 || searchResp.Msg.Applications[0].Id != appIvan.Msg.Application.Id {
+		t.Fatalf("expected only Ivan matched by resolved auth name, got %+v", searchResp.Msg.Applications)
+	}
+	if searchResp.Msg.TotalCount != 1 {
+		t.Fatalf("expected total_count=1 for search, got %d", searchResp.Msg.TotalCount)
+	}
+
+	// Постраничность: страница размера 1 без фильтра возвращает 1 из 2, total=2.
+	page1, err := c.admin.ListApplications(context.Background(), authed(t, &hemav1.ListApplicationsRequest{
+		TournamentId: seedTournamentID,
+		Limit:        1,
+		Offset:       0,
+	}, adminBearer(t)))
+	if err != nil {
+		t.Fatalf("ListApplications (page 1): %v", err)
+	}
+	if len(page1.Msg.Applications) != 1 || page1.Msg.TotalCount != 2 {
+		t.Fatalf("expected page of 1, total 2, got %d applications, total=%d", len(page1.Msg.Applications), page1.Msg.TotalCount)
+	}
+
+	// FR-4: status_counts не зависит от фильтра (все SUBMITTED, обе заявки).
+	var submittedCount int32
+	for _, sc := range byNominationAndEquipment.Msg.StatusCounts {
+		if sc.Status == hemav1.ApplicationState_APPLICATION_STATE_SUBMITTED {
+			submittedCount = sc.Count
+		}
+	}
+	if submittedCount != 2 {
+		t.Fatalf("expected status_counts[SUBMITTED]=2 independent of the nomination/equipment filter, got %d", submittedCount)
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }

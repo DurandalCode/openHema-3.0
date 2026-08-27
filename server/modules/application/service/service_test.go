@@ -591,7 +591,12 @@ func TestConcurrency_ExhaustedThenAborted(t *testing.T) {
 	}
 }
 
-func TestListApplications_Filters(t *testing.T) {
+// bigPage — заведомо избыточный Limit, чтобы получить «весь» отфильтрованный
+// набор одной страницей (сервис не задаёт дефолт/потолок сам — см.
+// paginateViews/ListByTournament, политика ListUsers/admin.proto).
+const bigPage = int32(1000)
+
+func TestListApplications_EmptyFilter_AllApplicationsPaginated(t *testing.T) {
 	svc, _, nominations, users := newTestService()
 	ctx := context.Background()
 
@@ -603,38 +608,280 @@ func TestListApplications_Filters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit 1: %v", err)
 	}
+	if _, err := svc.DeclarePayment(ctx, applicantID, app1.ID); err != nil {
+		t.Fatalf("DeclarePayment: %v", err)
+	}
+	if _, err := svc.Submit(ctx, otherUserID, otherNomination, "", false); err != nil {
+		t.Fatalf("Submit 2: %v", err)
+	}
+
+	// Пустой фильтр = как раньше «все заявки», но теперь постранично: без
+	// достаточного Limit страница не покрывает весь список (LIMIT/OFFSET —
+	// как у ListUsers, сервис не задаёт свой дефолт).
+	items, total, counts, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (empty filter): %v", err)
+	}
+	if len(items) != 2 || total != 2 {
+		t.Fatalf("expected 2 applications (items=%d, total=%d)", len(items), total)
+	}
+	if counts[domain.StateAwaitingPaymentConfirmation] != 1 || counts[domain.StateSubmitted] != 1 {
+		t.Fatalf("expected status counts by state, got %+v", counts)
+	}
+}
+
+// AC-1: постраничность — страница размера N возвращает срез, а не весь
+// список; total не зависит от Limit/Offset (FR-5).
+func TestListApplications_Pagination(t *testing.T) {
+	svc, _, _, _ := newTestService()
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		if _, err := svc.Submit(ctx, applicantID+string(rune('a'+i)), nominationID, "", false); err != nil {
+			t.Fatalf("Submit %d: %v", i, err)
+		}
+	}
+
+	page1, total1, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListApplications (page 1): %v", err)
+	}
+	if len(page1) != 2 || total1 != 3 {
+		t.Fatalf("expected page of 2, total 3, got items=%d total=%d", len(page1), total1)
+	}
+
+	page2, total2, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListApplications (page 2): %v", err)
+	}
+	if len(page2) != 1 || total2 != 3 {
+		t.Fatalf("expected last page of 1, total 3, got items=%d total=%d", len(page2), total2)
+	}
+}
+
+// Фильтр по каждому измерению отдельно и в комбинации (логическое И).
+func TestListApplications_FilterDimensions(t *testing.T) {
+	svc, _, nominations, users := newTestService()
+	ctx := context.Background()
+
+	const otherNomination = "nomination-2"
+	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
+	users.Set(otherUserID, "Other Name")
+
+	app1, err := svc.Submit(ctx, applicantID, nominationID, "", true)
+	if err != nil {
+		t.Fatalf("Submit 1: %v", err)
+	}
 	app1, err = svc.DeclarePayment(ctx, applicantID, app1.ID)
 	if err != nil {
 		t.Fatalf("DeclarePayment: %v", err)
 	}
-	_, err = svc.Submit(ctx, otherUserID, otherNomination, "", false)
+	app2, err := svc.Submit(ctx, otherUserID, otherNomination, "", false)
 	if err != nil {
 		t.Fatalf("Submit 2: %v", err)
 	}
 
-	all, err := svc.ListApplications(ctx, tournamentID, nil, nil)
-	if err != nil {
-		t.Fatalf("ListApplications (no filter): %v", err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("expected 2 applications, got %d", len(all))
-	}
-
-	byNomination, err := svc.ListApplications(ctx, tournamentID, nil, ptr(nominationID))
+	// по номинации
+	byNomination, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{
+		NominationIDs: []string{nominationID}, Limit: bigPage,
+	})
 	if err != nil {
 		t.Fatalf("ListApplications (by nomination): %v", err)
 	}
-	if len(byNomination) != 1 || byNomination[0].ID != app1.ID {
-		t.Fatalf("expected only app1 filtered by nomination, got %+v", byNomination)
+	if len(byNomination) != 1 || byNomination[0].ID != app1.ID || total != 1 {
+		t.Fatalf("expected only app1 filtered by nomination, got %+v (total=%d)", byNomination, total)
 	}
 
+	// по статусу
 	awaiting := domain.StateAwaitingPaymentConfirmation
-	byStatus, err := svc.ListApplications(ctx, tournamentID, &awaiting, nil)
+	byStatus, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{
+		Statuses: []domain.State{awaiting}, Limit: bigPage,
+	})
 	if err != nil {
 		t.Fatalf("ListApplications (by status): %v", err)
 	}
-	if len(byStatus) != 1 || byStatus[0].ID != app1.ID {
-		t.Fatalf("expected only app1 filtered by status, got %+v", byStatus)
+	if len(byStatus) != 1 || byStatus[0].ID != app1.ID || total != 1 {
+		t.Fatalf("expected only app1 filtered by status, got %+v (total=%d)", byStatus, total)
+	}
+
+	// по признаку экипировки
+	needsEquipment := true
+	byEquipment, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{
+		NeedsEquipment: &needsEquipment, Limit: bigPage,
+	})
+	if err != nil {
+		t.Fatalf("ListApplications (by needs_equipment): %v", err)
+	}
+	if len(byEquipment) != 1 || byEquipment[0].ID != app1.ID || total != 1 {
+		t.Fatalf("expected only app1 filtered by needs_equipment, got %+v (total=%d)", byEquipment, total)
+	}
+
+	// комбинация (И): статус + номинация другой заявки — пусто
+	mismatch, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{
+		Statuses:      []domain.State{awaiting},
+		NominationIDs: []string{otherNomination},
+		Limit:         bigPage,
+	})
+	if err != nil {
+		t.Fatalf("ListApplications (combo mismatch): %v", err)
+	}
+	if len(mismatch) != 0 || total != 0 {
+		t.Fatalf("expected empty combo result, got %+v (total=%d)", mismatch, total)
+	}
+
+	// комбинация (И): статус + номинация той же заявки — совпадает
+	match, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{
+		Statuses:      []domain.State{awaiting},
+		NominationIDs: []string{nominationID},
+		Limit:         bigPage,
+	})
+	if err != nil {
+		t.Fatalf("ListApplications (combo match): %v", err)
+	}
+	if len(match) != 1 || match[0].ID != app1.ID || total != 1 {
+		t.Fatalf("expected app1 in combo match, got %+v (total=%d)", match, total)
+	}
+	_ = app2
+}
+
+// FR-4: status_counts не зависит от Search/NeedsEquipment/NominationIDs/
+// Limit/Offset — только от tournament_id.
+func TestListApplications_StatusCountsIndependentOfFilter(t *testing.T) {
+	svc, _, nominations, users := newTestService()
+	ctx := context.Background()
+
+	const otherNomination = "nomination-2"
+	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
+	users.Set(otherUserID, "Other Name")
+
+	app1, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if err != nil {
+		t.Fatalf("Submit 1: %v", err)
+	}
+	if _, err := svc.DeclarePayment(ctx, applicantID, app1.ID); err != nil {
+		t.Fatalf("DeclarePayment: %v", err)
+	}
+	if _, err := svc.Submit(ctx, otherUserID, otherNomination, "", false); err != nil {
+		t.Fatalf("Submit 2: %v", err)
+	}
+
+	_, _, baseline, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (baseline): %v", err)
+	}
+
+	needsEquipment := true
+	needle := "nomatch-search-term"
+	_, filteredTotal, filteredCounts, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{
+		NominationIDs:  []string{nominationID},
+		NeedsEquipment: &needsEquipment,
+		Search:         &needle,
+		Limit:          1,
+		Offset:         0,
+	})
+	if err != nil {
+		t.Fatalf("ListApplications (heavily filtered): %v", err)
+	}
+	if filteredTotal != 0 {
+		t.Fatalf("expected filtered total to reflect the (non-matching) filter, got %d", filteredTotal)
+	}
+	if len(filteredCounts) != len(baseline) {
+		t.Fatalf("expected statusCounts unaffected by filter, got %+v vs baseline %+v", filteredCounts, baseline)
+	}
+	for state, count := range baseline {
+		if filteredCounts[state] != count {
+			t.Fatalf("expected statusCounts[%s]=%d unaffected by filter, got %d", state, count, filteredCounts[state])
+		}
+	}
+}
+
+// Поиск по имени заявителя: и по ApplicantNameOverride (локальное поле,
+// решается в SQL/памяти репозитория), и по имени, резолвленному через
+// UserProvider (auth) — досев по подстроке выполняется в service (см.
+// комментарий Service.ListApplications и domain.Repository.SearchCandidates).
+func TestListApplications_SearchByName(t *testing.T) {
+	svc, _, nominations, users := newTestService()
+	ctx := context.Background()
+
+	const otherNomination = "nomination-2"
+	nominations.Set(otherNomination, domain.NominationInfo{TournamentID: tournamentID, RegistrationOpen: true})
+	users.Set(otherUserID, "Other Name")
+	users.Set(adminID, "Admin Name")
+
+	// app1: заявитель без override — имя резолвится из auth ("Applicant Name").
+	app1, err := svc.Submit(ctx, applicantID, nominationID, "Sokol", false)
+	if err != nil {
+		t.Fatalf("Submit 1: %v", err)
+	}
+	// app2: другой пользователь, другой клуб — не должен совпасть по "applicant".
+	if _, err := svc.Submit(ctx, otherUserID, otherNomination, "Falcon", false); err != nil {
+		t.Fatalf("Submit 2: %v", err)
+	}
+
+	// поиск по имени, резолвленному из auth (не override)
+	byAuthName := "applicant"
+	found, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Search: &byAuthName, Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (search by auth name): %v", err)
+	}
+	if len(found) != 1 || found[0].ID != app1.ID || total != 1 {
+		t.Fatalf("expected only app1 matched by resolved auth name, got %+v (total=%d)", found, total)
+	}
+
+	// поиск по клубу
+	byClub := "falcon"
+	foundByClub, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Search: &byClub, Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (search by club): %v", err)
+	}
+	if len(foundByClub) != 1 || total != 1 {
+		t.Fatalf("expected one application matched by club, got %+v (total=%d)", foundByClub, total)
+	}
+
+	// без совпадений
+	noMatch := "no-such-substring"
+	empty, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Search: &noMatch, Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (search no match): %v", err)
+	}
+	if len(empty) != 0 || total != 0 {
+		t.Fatalf("expected no matches, got %+v (total=%d)", empty, total)
+	}
+}
+
+// Search матчит и по ApplicantNameOverride (когда задан) — override
+// приоритетнее auth-имени (effectiveName), поэтому поиск по имени из auth
+// после Amend с override не находит заявку, а поиск по override находит.
+func TestListApplications_SearchByOverride(t *testing.T) {
+	svc, _, _, _ := newTestService()
+	ctx := context.Background()
+
+	app1, err := svc.Submit(ctx, applicantID, nominationID, "", false)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := svc.EditApplication(ctx, adminID, app1.ID, service.EditInput{
+		ApplicantNameOverride: "Zzz Override",
+	}); err != nil {
+		t.Fatalf("EditApplication: %v", err)
+	}
+
+	byOverride := "zzz"
+	found, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Search: &byOverride, Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (search by override): %v", err)
+	}
+	if len(found) != 1 || found[0].ID != app1.ID || total != 1 {
+		t.Fatalf("expected app1 matched by override, got %+v (total=%d)", found, total)
+	}
+
+	byOriginalAuthName := "applicant name"
+	notFound, total, _, err := svc.ListApplications(ctx, tournamentID, domain.ListFilter{Search: &byOriginalAuthName, Limit: bigPage})
+	if err != nil {
+		t.Fatalf("ListApplications (search by superseded auth name): %v", err)
+	}
+	if len(notFound) != 0 || total != 0 {
+		t.Fatalf("expected override to take priority over auth name, got %+v (total=%d)", notFound, total)
 	}
 }
 
