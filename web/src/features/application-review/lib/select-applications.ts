@@ -32,57 +32,31 @@ export function sortApplications(apps: Application[]): Application[] {
   });
 }
 
-export type ApplicationFilters = {
-  statuses?: Set<ApplicationState>;
-  nominationIds?: Set<string>;
-  needsEquipment?: boolean;
-  query?: string;
-};
-
-/**
- * filterApplications — статусы/номинации: пустой набор = без фильтра, иначе
- * множественный выбор внутри измерения (ИЛИ); `needsEquipment` — точечный
- * флаг; `query` — регистронезависимая подстрока по имени заявителя ИЛИ
- * клубу. Все измерения объединяются логическим И (spec FR-8/FR-9/FR-10).
- */
-export function filterApplications(
-  apps: Application[],
-  { statuses, nominationIds, needsEquipment, query }: ApplicationFilters,
-): Application[] {
-  const q = (query ?? "").trim().toLowerCase();
-  return apps.filter((app) => {
-    if (statuses && statuses.size > 0 && !statuses.has(app.state)) return false;
-    if (nominationIds && nominationIds.size > 0 && !nominationIds.has(app.nominationId)) return false;
-    if (needsEquipment && !app.needsEquipment) return false;
-    if (
-      q !== "" &&
-      !app.applicantDisplayName.toLowerCase().includes(q) &&
-      !app.club.toLowerCase().includes(q)
-    ) {
-      return false;
-    }
-    return true;
-  });
-}
+export type ApplicationStatusCount = { status: ApplicationState; count: number };
 
 export type StatusCounts = Record<ApplicationState, number>;
 
+const EMPTY_STATUS_COUNTS: StatusCounts = {
+  APPLICATION_STATE_UNSPECIFIED: 0,
+  APPLICATION_STATE_SUBMITTED: 0,
+  APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION: 0,
+  APPLICATION_STATE_PAID: 0,
+  APPLICATION_STATE_REGISTERED: 0,
+  APPLICATION_STATE_WITHDRAWN: 0,
+};
+
 /**
- * statusCounts — счётчики по ВСЕМУ списку (spec FR-7/AC-2): вызывающая
- * сторона обязана передавать полный, не отфильтрованный по поиску/фильтрам
- * список — иначе счётчики чипов начнут зависеть от собственного же выбора.
+ * toStatusCountsRecord — приводит счётчики по статусу, посчитанные сервером
+ * по ВСЕМ заявкам турнира вне зависимости от фильтра/поиска (спека 0041,
+ * FR-4, `ListApplicationsResponse.status_counts`), к `Record`, который ждёт
+ * `ApplicationsFilters`. Замена клиентской `statusCounts` (спека 0025) —
+ * подсчёт по полному списку переехал на сервер вместе с фильтрацией/поиском
+ * (план 0041, «Web»); эта функция только меняет форму уже готового счёта.
  */
-export function statusCounts(apps: Application[]): StatusCounts {
-  const counts: StatusCounts = {
-    APPLICATION_STATE_UNSPECIFIED: 0,
-    APPLICATION_STATE_SUBMITTED: 0,
-    APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION: 0,
-    APPLICATION_STATE_PAID: 0,
-    APPLICATION_STATE_REGISTERED: 0,
-    APPLICATION_STATE_WITHDRAWN: 0,
-  };
-  for (const app of apps) counts[app.state] += 1;
-  return counts;
+export function toStatusCountsRecord(counts: ApplicationStatusCount[]): StatusCounts {
+  const result = { ...EMPTY_STATUS_COUNTS };
+  for (const c of counts) result[c.status] = c.count;
+  return result;
 }
 
 /**
@@ -90,9 +64,15 @@ export function statusCounts(apps: Application[]): StatusCounts {
  * бойцов не меньше лимита (spec FR-4). Зеркалит серверное правило
  * `capacityExceeded` (`server/modules/application/service/service.go`):
  * сравнение `>=`, не `>`; лимит не задан (`null`) → номинация пропускается.
- * Считается по уже загруженному списку заявок — известный предел (см.
- * plan.md «Риски»): деградация безопасная (признак может не появиться, но
- * не появится ложно).
+ *
+ * Считается по уже загруженному списку заявок — с переносом поиска/фильтра
+ * на сервер (спека 0041) вызывающая сторона (`ApplicationsScreen`) передаёт
+ * сюда только текущую СТРАНИЦУ, не весь список турнира (полный список больше
+ * не загружается на клиент — в этом и цель 0041/NFR-1). Деградация та же,
+ * что была задокументирована и раньше, только шире: признак «переполнена»
+ * может не появиться, если зарегистрированные заявки номинации не попали на
+ * текущую страницу (false negative), но не появится ложно (false positive
+ * невозможен — считаем только по тому, что реально видим).
  */
 export function overfullNominationIds(
   apps: Application[],
