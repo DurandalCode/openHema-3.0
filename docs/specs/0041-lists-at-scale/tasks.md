@@ -38,7 +38,7 @@
 
 ## Контракты
 
-- [ ] T1. `proto/hema/v1/application.proto`, `fighter.proto`, `stage.proto` —
+- [x] T1. `proto/hema/v1/application.proto`, `fighter.proto`, `stage.proto` —
       поля фильтра/постраничности `ListApplicationsRequest`/`ListRosterRequest`,
       `total_count`/`status_counts` в ответах, новые сообщения
       `ApplicationStatusCount`/`FighterStatusCount`/`ArenaBoardEntry`/
@@ -47,44 +47,44 @@
 
 ## Server — трек A: `application`
 
-- [ ] T2. **domain** — `domain/domain.go`: `ListFilter{Statuses,
+- [x] T2. **domain** — `domain/domain.go`: `ListFilter{Statuses,
       NominationIDs, NeedsEquipment, Search, Limit, Offset}`.
-- [ ] T3. **service (red→green)** — `service/service_test.go`: фильтр по
+- [x] T3. **service (red→green)** — `service/service_test.go`: фильтр по
       каждому измерению и в комбинации, `status_counts`/`total_count` не
       зависят от `Search`/`NeedsEquipment`/`NominationIDs` (fake-репо) →
       `service/service.go`.
-- [ ] T4. **fake repo** — `testutil/fake_repo.go`: поддержать фильтрацию в
+- [x] T4. **fake repo** — `testutil/fake_repo.go`: поддержать фильтрацию в
       памяти для тестов T3 (счастливый путь + пустой результат).
-- [ ] T5. **repo (red→green)** — `repo/queries/application.sql`: `WHERE`/
+- [x] T5. **repo (red→green)** — `repo/queries/application.sql`: `WHERE`/
       `ILIKE`/`LIMIT`/`OFFSET` + `CountByTournamentStatus`; `make sqlc`;
       `repo/repo.go` — реализация; интеграционный тест на testcontainers
       (существующий стенд `internal/testdb`) на реальных данных.
-- [ ] T6. **api (red→green)** — `api/handler_test.go`: маппинг новых полей
+- [x] T6. **api (red→green)** — `api/handler_test.go`: маппинг новых полей
       запроса/ответа → `api/handler.go`.
 
 ## Server — трек B: `fighter`
 
-- [ ] T7. **domain** — `domain/domain.go`: `RosterFilter{Statuses,
+- [x] T7. **domain** — `domain/domain.go`: `RosterFilter{Statuses,
       NominationIDs, Clubs, IncludeNoClub, Search, Limit, Offset}`.
-- [ ] T8. **service (red→green)** — `service/service_test.go`: то же
+- [x] T8. **service (red→green)** — `service/service_test.go`: то же
       покрытие, что T3, плюс клуб/«без клуба» → `service/service.go`.
-- [ ] T9. **fake repo** — `testutil/fake_repo.go`: фильтрация в памяти.
-- [ ] T10. **repo (red→green)** — `repo/queries/fighter.sql` + `CountByTournamentStatus`;
+- [x] T9. **fake repo** — `testutil/fake_repo.go`: фильтрация в памяти.
+- [x] T10. **repo (red→green)** — `repo/queries/fighter.sql` + `CountByTournamentStatus`;
       `make sqlc`; `repo/repo.go`; интеграционный тест testcontainers.
-- [ ] T11. **api (red→green)** — `api/handler_test.go` → `api/handler.go`.
+- [x] T11. **api (red→green)** — `api/handler_test.go` → `api/handler.go`.
 
 ## Server — трек C: `stage` (агрегирующие RPC)
 
-- [ ] T12. **service, вынос общей логики (если размазана по хендлеру,
+- [x] T12. **service, вынос общей логики (если размазана по хендлеру,
       план «Риски»)** — `service/service.go`: убедиться, что логика
       одиночного `GetBoutBoard`/`ListStages` доступна как метод сервиса,
       вызываемый в цикле.
-- [ ] T13. **service (red→green)** — `service/service_test.go` с
+- [x] T13. **service (red→green)** — `service/service_test.go` с
       fake `ArenaProvider`/`NominationProvider`: `GetArenaBoards` — запись
       на каждую активную площадку, `ListStagesForTournament` — запись на
       каждую номинацию турнира, ошибка резолва одной не роняет остальные →
       `service/service.go`.
-- [ ] T14. **api (red→green)** — `api/handler_test.go`: новые хендлеры
+- [x] T14. **api (red→green)** — `api/handler_test.go`: новые хендлеры
       `GetArenaBoards`/`ListStagesForTournament` (httptest + Connect,
       fake-сервис) → `api/handler.go`.
 
