@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 
 	hemav1 "github.com/hema/server/gen/hema/v1"
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
@@ -21,6 +22,7 @@ import (
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/auth"
 	"github.com/hema/server/modules/fighter"
+	fighterdomain "github.com/hema/server/modules/fighter/domain"
 	fighterrepo "github.com/hema/server/modules/fighter/repo"
 	fighterservice "github.com/hema/server/modules/fighter/service"
 	"github.com/hema/server/modules/nomination"
@@ -184,7 +186,7 @@ func TestIntegration_DedupRace(t *testing.T) {
 		}
 	}
 
-	roster, err := svc.ListRoster(ctx, seedTournamentID)
+	roster, _, _, err := svc.ListRoster(ctx, seedTournamentID, fighterdomain.RosterFilter{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListRoster: %v", err)
 	}
@@ -202,6 +204,180 @@ func TestIntegration_DedupRace(t *testing.T) {
 	if participations != 2 {
 		t.Fatalf("expected 2 participations (both nominations), got %d", participations)
 	}
+}
+
+// TestIntegration_RosterRepo_FilterPaginationIncludeNoClub — сквозной
+// регресс-тест серверного поиска/фильтра/постраничности ростера (спека
+// 0041, T10) на реальном PostgreSQL, напрямую через repo.Repo (не через
+// Connect/internal/platform — composition root сейчас собирает ВСЕ модули
+// вместе, а трек-соседи application/stage этой же фичи 0041 ещё не
+// обновили свои handler.go под уже смержённый в базу volume proto, из-за
+// чего internal/platform как единый пакет не компилируется до их мержа;
+// repo-уровневый тест не зависит от этого и проверяет ровно то, что
+// принадлежит этому треку — SQL модуля fighter): JOIN/EXISTS по активному
+// участию в номинации, клуб (`= ANY` + `include_no_club` отдельным
+// условием ИЛИ), ILIKE-поиск по имени/клубу без учёта регистра,
+// status_counts/total_count независимы от фильтра, LIMIT/OFFSET.
+// Юнит-покрытие тех же измерений — service/service_test.go (fake-репо);
+// этот тест проверяет, что реальный SQL (cardinality/ANY/EXISTS/ILIKE)
+// ведёт себя так же. Номинации — произвольные UUID без FK (participations
+// не ссылается на схему nomination, ADR 0002), нужен только сам модуль
+// fighter.
+func TestIntegration_RosterRepo_FilterPaginationIncludeNoClub(t *testing.T) {
+	pool := testdb.Postgres(t)
+	ctx := context.Background()
+	repo := fighterrepo.New(pool)
+
+	tournamentID := uuid.NewString()
+	nomA := uuid.NewString()
+	nomB := uuid.NewString()
+
+	create := func(name, club string, nominationIDs []string) fighterdomain.Fighter {
+		t.Helper()
+		f, err := fighterdomain.NewManual(tournamentID, name, club, nominationIDs)
+		if err != nil {
+			t.Fatalf("NewManual(%q): %v", name, err)
+		}
+		created, err := repo.Create(ctx, f)
+		if err != nil {
+			t.Fatalf("Create(%q): %v", name, err)
+		}
+		return created
+	}
+
+	alphaA := create("Ivan Alpha", "Alpha Club", []string{nomA})
+	betaB := create("Petr Beta", "Beta Club", []string{nomB})
+	noClub := create("Anna Noclub", "", []string{nomA})
+
+	withdrawn, err := repo.GetByID(ctx, betaB.ID)
+	if err != nil {
+		t.Fatalf("GetByID(betaB): %v", err)
+	}
+	if err := withdrawn.Withdraw(fighterdomain.ReasonInjury); err != nil {
+		t.Fatalf("Withdraw(betaB): %v", err)
+	}
+	if _, err := repo.Update(ctx, withdrawn); err != nil {
+		t.Fatalf("Update(betaB): %v", err)
+	}
+
+	t.Run("filters by active nomination participation via EXISTS", func(t *testing.T) {
+		filter := fighterdomain.RosterFilter{NominationIDs: []string{nomA}, Limit: 100}
+		items, err := repo.ListByTournament(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("ListByTournament: %v", err)
+		}
+		total, err := repo.CountRoster(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("CountRoster: %v", err)
+		}
+		if total != 2 || len(items) != 2 {
+			t.Fatalf("expected 2 fighters with active participation in nomA, got %d items, total=%d", len(items), total)
+		}
+		for _, f := range items {
+			if f.ID != alphaA.ID && f.ID != noClub.ID {
+				t.Fatalf("unexpected fighter in nomA filter: %+v", f)
+			}
+		}
+	})
+
+	t.Run("club filter plus include_no_club combines with OR", func(t *testing.T) {
+		filter := fighterdomain.RosterFilter{Clubs: []string{"Beta Club"}, IncludeNoClub: true, Limit: 100}
+		items, err := repo.ListByTournament(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("ListByTournament: %v", err)
+		}
+		total, err := repo.CountRoster(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("CountRoster: %v", err)
+		}
+		if total != 2 {
+			t.Fatalf("expected 2 fighters (Beta Club + no club), got %d: %+v", total, items)
+		}
+		var gotBeta, gotNoClub bool
+		for _, f := range items {
+			if f.ID == betaB.ID {
+				gotBeta = true
+			}
+			if f.ID == noClub.ID {
+				gotNoClub = true
+			}
+		}
+		if !gotBeta || !gotNoClub {
+			t.Fatalf("expected both Beta Club and no-club fighters, got %+v", items)
+		}
+	})
+
+	t.Run("club filter without include_no_club excludes no-club fighters", func(t *testing.T) {
+		filter := fighterdomain.RosterFilter{Clubs: []string{"Alpha Club"}, Limit: 100}
+		items, err := repo.ListByTournament(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("ListByTournament: %v", err)
+		}
+		if len(items) != 1 || items[0].ID != alphaA.ID {
+			t.Fatalf("expected only Alpha Club fighter, got %+v", items)
+		}
+	})
+
+	t.Run("search matches name or club case-insensitively", func(t *testing.T) {
+		search := "BETA"
+		filter := fighterdomain.RosterFilter{Search: &search, Limit: 100}
+		items, err := repo.ListByTournament(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("ListByTournament: %v", err)
+		}
+		if len(items) != 1 || items[0].ID != betaB.ID {
+			t.Fatalf("expected only Petr Beta (club match, case-insensitive), got %+v", items)
+		}
+	})
+
+	t.Run("status_counts and total_count independent of filter", func(t *testing.T) {
+		filter := fighterdomain.RosterFilter{Clubs: []string{"Alpha Club"}, Limit: 100}
+		total, err := repo.CountRoster(ctx, tournamentID, filter)
+		if err != nil {
+			t.Fatalf("CountRoster: %v", err)
+		}
+		if total != 1 {
+			t.Fatalf("expected filtered total_count=1, got %d", total)
+		}
+		counts, err := repo.CountRosterByStatus(ctx, tournamentID)
+		if err != nil {
+			t.Fatalf("CountRosterByStatus: %v", err)
+		}
+		if counts[fighterdomain.StatusActive] != 2 {
+			t.Fatalf("expected status_counts.active=2 across the whole tournament, got %+v", counts)
+		}
+		if counts[fighterdomain.StatusWithdrawn] != 1 {
+			t.Fatalf("expected status_counts.withdrawn=1 across the whole tournament, got %+v", counts)
+		}
+	})
+
+	t.Run("pagination via limit/offset", func(t *testing.T) {
+		page1, err := repo.ListByTournament(ctx, tournamentID, fighterdomain.RosterFilter{Limit: 2, Offset: 0})
+		if err != nil {
+			t.Fatalf("ListByTournament page1: %v", err)
+		}
+		page2, err := repo.ListByTournament(ctx, tournamentID, fighterdomain.RosterFilter{Limit: 2, Offset: 2})
+		if err != nil {
+			t.Fatalf("ListByTournament page2: %v", err)
+		}
+		if len(page1) != 2 || len(page2) != 1 {
+			t.Fatalf("expected pages of 2 and 1 (3 fighters total), got %d and %d", len(page1), len(page2))
+		}
+		total, err := repo.CountRoster(ctx, tournamentID, fighterdomain.RosterFilter{})
+		if err != nil {
+			t.Fatalf("CountRoster: %v", err)
+		}
+		if total != 3 {
+			t.Fatalf("expected total_count=3, got %d", total)
+		}
+		seen := map[string]bool{}
+		for _, f := range append(page1, page2...) {
+			if seen[f.ID] {
+				t.Fatalf("fighter %s appears on both pages", f.ID)
+			}
+			seen[f.ID] = true
+		}
+	})
 }
 
 func createNomination(t *testing.T, ctx context.Context, client hemav1connect.NominationAdminServiceClient, title string) string {

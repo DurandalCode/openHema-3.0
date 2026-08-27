@@ -331,25 +331,47 @@ func (s *Service) GetFighter(ctx context.Context, fighterID string) (domain.Figh
 	return enriched[0], nil
 }
 
-// ListRoster возвращает ростер турнира: бойцов с их участиями и статусами,
-// обогащённых LinkedAccountID/LinkedAccountDisplayName (спека 0040, FR-8) —
-// один батч-вызов AccountDirectory на весь ростер, не N+1 (тот же приём,
-// что application.Service.Get). Пустой tournamentID резолвится в активный
-// турнир (MVP — единственный способ существования турнира).
-func (s *Service) ListRoster(ctx context.Context, tournamentID string) ([]domain.Fighter, error) {
+// ListRoster возвращает страницу ростера турнира (спека 0041): бойцов с их
+// участиями и статусами, отфильтрованных/найденных по filter и обогащённых
+// LinkedAccountID/LinkedAccountDisplayName (спека 0040, FR-8) — один
+// батч-вызов AccountDirectory на страницу, не N+1 (тот же приём, что
+// application.Service.Get). Пустой tournamentID резолвится в активный
+// турнир (MVP — единственный способ существования турнира). total —
+// число бойцов, подходящих под filter, без Limit/Offset (FR-5). statusCounts
+// — счётчики по всем бойцам турнира, не зависят от filter (FR-4). Пустой
+// filter = «весь ростер турнира», как до инкремента 0041, но постранично —
+// видимость (включая Status=StatusMerged) не меняется, только явная
+// фильтрация/поиск/постраничность поверх неё.
+func (s *Service) ListRoster(ctx context.Context, tournamentID string, filter domain.RosterFilter) ([]domain.Fighter, int, map[domain.Status]int, error) {
 	tournamentID = strings.TrimSpace(tournamentID)
 	if tournamentID == "" {
 		activeID, err := s.tournaments.ActiveTournamentID(ctx)
 		if err != nil {
-			return nil, domain.ErrNotFound
+			return nil, 0, nil, domain.ErrNotFound
 		}
 		tournamentID = activeID
 	}
-	fighters, err := s.repo.ListByTournament(ctx, tournamentID)
+
+	fighters, err := s.repo.ListByTournament(ctx, tournamentID, filter)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
-	return s.enrichLinkedAccounts(ctx, fighters)
+	fighters, err = s.enrichLinkedAccounts(ctx, fighters)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	total, err := s.repo.CountRoster(ctx, tournamentID, filter)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	statusCounts, err := s.repo.CountRosterByStatus(ctx, tournamentID)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	return fighters, total, statusCounts, nil
 }
 
 // enrichLinkedAccounts заполняет LinkedAccountID/LinkedAccountDisplayName у

@@ -179,15 +179,30 @@ func (r *Repo) FindByOrigin(ctx context.Context, tournamentID, originUserID stri
 	return out, nil
 }
 
-// ListByTournament возвращает ростер турнира: бойцов с их участиями.
-func (r *Repo) ListByTournament(ctx context.Context, tournamentID string) ([]domain.Fighter, error) {
+// ListByTournament возвращает страницу ростера турнира: бойцов с их
+// участиями, отфильтрованных/упорядоченных/нарезанных по filter (спека
+// 0041, FR-1..FR-3).
+func (r *Repo) ListByTournament(ctx context.Context, tournamentID string, filter domain.RosterFilter) ([]domain.Fighter, error) {
 	tid, err := uuid.Parse(tournamentID)
 	if err != nil {
 		return nil, fmt.Errorf("parse tournament id: %w", err)
 	}
-	rows, err := r.q.ListFightersByTournament(ctx, tid)
+	statuses, clubs, nominationIDs, err := rosterFilterSlices(filter)
 	if err != nil {
-		return nil, fmt.Errorf("list fighters by tournament: %w", err)
+		return nil, err
+	}
+	rows, err := r.q.ListRosterByTournament(ctx, sqlc.ListRosterByTournamentParams{
+		TournamentID:  tid,
+		Statuses:      statuses,
+		Clubs:         clubs,
+		IncludeNoClub: filter.IncludeNoClub,
+		NominationIds: nominationIDs,
+		Search:        filter.Search,
+		RowLimit:      filter.Limit,
+		RowOffset:     filter.Offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list roster by tournament: %w", err)
 	}
 	if len(rows) == 0 {
 		return []domain.Fighter{}, nil
@@ -216,6 +231,76 @@ func (r *Repo) ListByTournament(ctx context.Context, tournamentID string) ([]dom
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+// CountRoster возвращает число бойцов турнира, подходящих под filter, без
+// Limit/Offset — для постраничной навигации (спека 0041, FR-5). Тот же
+// WHERE, что ListByTournament.
+func (r *Repo) CountRoster(ctx context.Context, tournamentID string, filter domain.RosterFilter) (int, error) {
+	tid, err := uuid.Parse(tournamentID)
+	if err != nil {
+		return 0, fmt.Errorf("parse tournament id: %w", err)
+	}
+	statuses, clubs, nominationIDs, err := rosterFilterSlices(filter)
+	if err != nil {
+		return 0, err
+	}
+	count, err := r.q.CountRosterByTournament(ctx, sqlc.CountRosterByTournamentParams{
+		TournamentID:  tid,
+		Statuses:      statuses,
+		Clubs:         clubs,
+		IncludeNoClub: filter.IncludeNoClub,
+		NominationIds: nominationIDs,
+		Search:        filter.Search,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count roster by tournament: %w", err)
+	}
+	return int(count), nil
+}
+
+// CountRosterByStatus возвращает счётчики бойцов по статусу для всего
+// турнира вне зависимости от фильтра/поиска (спека 0041, FR-4) — только
+// tournament_id.
+func (r *Repo) CountRosterByStatus(ctx context.Context, tournamentID string) (map[domain.Status]int, error) {
+	tid, err := uuid.Parse(tournamentID)
+	if err != nil {
+		return nil, fmt.Errorf("parse tournament id: %w", err)
+	}
+	rows, err := r.q.CountByTournamentStatus(ctx, tid)
+	if err != nil {
+		return nil, fmt.Errorf("count by tournament status: %w", err)
+	}
+	out := make(map[domain.Status]int, len(rows))
+	for _, row := range rows {
+		out[domain.Status(row.Status)] = int(row.Count)
+	}
+	return out, nil
+}
+
+// rosterFilterSlices преобразует срезы RosterFilter в SQL-параметры.
+// Statuses/Clubs всегда возвращаются non-nil (пустой, но не NULL) срезом —
+// иначе pgx закодирует их как SQL NULL, а cardinality(NULL::text[]) не
+// равен 0, и условие "пустой фильтр = без ограничения" в
+// repo/queries/fighter.sql перестанет работать (NULL OR ... даёт NULL/false,
+// а не true).
+func rosterFilterSlices(filter domain.RosterFilter) (statuses, clubs []string, nominationIDs []uuid.UUID, err error) {
+	statuses = make([]string, len(filter.Statuses))
+	for i, s := range filter.Statuses {
+		statuses[i] = string(s)
+	}
+	clubs = make([]string, len(filter.Clubs))
+	copy(clubs, filter.Clubs)
+
+	nominationIDs = make([]uuid.UUID, 0, len(filter.NominationIDs))
+	for _, id := range filter.NominationIDs {
+		nid, parseErr := uuid.Parse(id)
+		if parseErr != nil {
+			return nil, nil, nil, fmt.Errorf("parse nomination id: %w", parseErr)
+		}
+		nominationIDs = append(nominationIDs, nid)
+	}
+	return statuses, clubs, nominationIDs, nil
 }
 
 // RosterByNomination возвращает публичный состав номинации.
