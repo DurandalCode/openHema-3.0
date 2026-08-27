@@ -181,16 +181,37 @@ message ListNominationApplicationsResponse {
   repeated Application applications = 1;
 }
 
-// ListApplicationsRequest — сводный экран заявок турнира. Фильтры опциональны
-// и комбинируются; отсутствие фильтра = без ограничения по нему.
+// ListApplicationsRequest — сводный экран заявок турнира (спека 0041).
+// Фильтры опциональны и комбинируются логическим И; пустое поле = без
+// ограничения по нему. search — подстрока по имени заявителя и клубу, без
+// учёта регистра. limit/offset — постраничность в стиле ListUsersRequest
+// (admin.proto).
 message ListApplicationsRequest {
   string tournament_id = 1;
-  optional ApplicationState status = 2;
-  optional string nomination_id = 3;
+  repeated ApplicationState statuses = 2;
+  repeated string nomination_ids = 3;
+  optional bool needs_equipment = 4;
+  optional string search = 5;
+  int32 limit = 6;
+  int32 offset = 7;
+}
+
+// ApplicationStatusCount — счётчик заявок по статусу, посчитанный по всем
+// заявкам турнира вне зависимости от фильтров/поиска запроса (спека 0041,
+// FR-4) — «сколько в турнире», а не «сколько нашлось».
+message ApplicationStatusCount {
+  ApplicationState status = 1;
+  int32 count = 2;
 }
 
 message ListApplicationsResponse {
+  // applications — страница, отфильтрованная и упорядоченная согласно
+  // запросу, не весь список турнира (спека 0041).
   repeated Application applications = 1;
+  // total_count — число заявок, подходящих под фильтр (без limit/offset) —
+  // для постраничной навигации (спека 0041, FR-5).
+  int32 total_count = 2;
+  repeated ApplicationStatusCount status_counts = 3;
 }
 
 // EditApplicationRequest — правка заявки админом (FR-3..FR-9, спека 0006).

@@ -210,14 +210,42 @@ message GetFighterResponse {
   Fighter fighter = 1;
 }
 
-// ListRosterRequest — ростер турнира; tournament_id опционален (при пустом —
-// используется активный турнир, MVP с единственным активным турниром).
+// ListRosterRequest — ростер турнира (спека 0041); tournament_id опционален
+// (при пустом — используется активный турнир, MVP с единственным активным
+// турниром). Остальные фильтры опциональны и комбинируются логическим И;
+// пустое поле = без ограничения по нему. nomination_ids фильтрует по
+// активному участию бойца. clubs без include_no_club не включает бойцов с
+// незаполненным клубом — include_no_club добавляет их отдельно (клуб —
+// свободный текст, «пусто» не значение, которое можно положить в clubs).
+// search — подстрока по имени и клубу, без учёта регистра. limit/offset —
+// постраничность в стиле ListUsersRequest (admin.proto).
 message ListRosterRequest {
   optional string tournament_id = 1;
+  repeated FighterStatus statuses = 2;
+  repeated string nomination_ids = 3;
+  repeated string clubs = 4;
+  bool include_no_club = 5;
+  optional string search = 6;
+  int32 limit = 7;
+  int32 offset = 8;
+}
+
+// FighterStatusCount — счётчик бойцов по статусу, посчитанный по всему
+// ростеру турнира вне зависимости от фильтров/поиска запроса (спека 0041,
+// FR-4).
+message FighterStatusCount {
+  FighterStatus status = 1;
+  int32 count = 2;
 }
 
 message ListRosterResponse {
+  // fighters — страница, отфильтрованная и упорядоченная согласно запросу,
+  // не весь ростер турнира (спека 0041).
   repeated Fighter fighters = 1;
+  // total_count — число бойцов, подходящих под фильтр (без limit/offset) —
+  // для постраничной навигации (спека 0041, FR-5).
+  int32 total_count = 2;
+  repeated FighterStatusCount status_counts = 3;
 }
 
 // FindFighterByAccountRequest — tournament_id опционален: пустой — активный
