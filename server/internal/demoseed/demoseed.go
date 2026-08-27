@@ -58,6 +58,21 @@ const (
 	AdminPassword   = "admin12345"
 )
 
+// fullRosterLimit — демо-сиды читают весь ростер турнира разом, без
+// постраничной навигации UI (спека 0041 не заводит для ListRoster
+// собственного дефолта/потолка Limit — см. domain.RosterFilter). Демо-данные
+// заведомо укладываются на порядки меньше этого числа.
+const fullRosterLimit = 1 << 20
+
+// FullRoster — весь ростер турнира одним вызовом ListRoster, без фильтра и
+// постраничности (спека 0041 сделала Limit/Offset обязательными параметрами
+// запроса). Используется демо-сидами, которым нужен список целиком, а не
+// страница экрана.
+func FullRoster(ctx context.Context, svc *fighterservice.Service, tournamentID string) ([]fighterdomain.Fighter, error) {
+	roster, _, _, err := svc.ListRoster(ctx, tournamentID, fighterdomain.RosterFilter{Limit: fullRosterLimit})
+	return roster, err
+}
+
 // Fighter — сид-данные заявителя. Club — клуб бойца для заявок (спека 0006,
 // FR-1); «» намеренно у части бойцов — демонстрирует подачу без клуба (AC-2).
 type Fighter struct {
@@ -825,7 +840,7 @@ func groupsStageID(ctx context.Context, svc *stageservice.Service, nominationID 
 // пулов нужно» соответствовала реальному числу бойцов, которых распределит
 // AutoDistribute.
 func activeFighterCountsByNomination(ctx context.Context, svc *fighterservice.Service, tournamentID string) (map[string]int, error) {
-	roster, err := svc.ListRoster(ctx, tournamentID)
+	roster, err := FullRoster(ctx, svc, tournamentID)
 	if err != nil {
 		return nil, err
 	}
