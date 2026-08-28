@@ -1,4 +1,4 @@
-import type { Fighter, FighterStatus } from "@/entities/fighter/lib/types";
+import type { Fighter } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 
 /**
@@ -14,57 +14,13 @@ export function sortFighters(fighters: Fighter[]): Fighter[] {
   });
 }
 
-export type FighterFilters = {
-  statuses?: Set<FighterStatus>;
-  /** Боец подходит, если у него есть АКТИВНОЕ участие хотя бы в одной (spec AC-4). */
-  nominationIds?: Set<string>;
-  /** "" представляет пункт «Без клуба» (spec FR-9). */
-  clubs?: Set<string>;
-  query?: string;
-};
-
 /**
- * filterFighters — статусы/номинации/клубы: пустой набор = без фильтра,
- * иначе множественный выбор внутри измерения (ИЛИ); измерения объединяются
- * логическим И (spec FR-8..FR-10).
+ * StatusCounts — счётчики по ВСЕМУ ростеру турнира (spec FR-7/AC-2), не
+ * зависят от активного фильтра/поиска. С спеки 0041 (T20) считаются на
+ * сервере (`ListRoster.status_counts`, FR-4) — здесь остаётся только тип,
+ * которым пользуется UI (`fighters-filters.tsx`).
  */
-export function filterFighters(
-  fighters: Fighter[],
-  { statuses, nominationIds, clubs, query }: FighterFilters,
-): Fighter[] {
-  const q = (query ?? "").trim().toLowerCase();
-  return fighters.filter((f) => {
-    if (statuses && statuses.size > 0 && !statuses.has(f.status)) return false;
-    if (nominationIds && nominationIds.size > 0) {
-      const hasActiveIn = f.participations.some(
-        (p) => p.status === "PARTICIPATION_STATUS_ACTIVE" && nominationIds.has(p.nominationId),
-      );
-      if (!hasActiveIn) return false;
-    }
-    if (clubs && clubs.size > 0 && !clubs.has(f.club.trim())) return false;
-    if (q !== "" && !f.name.toLowerCase().includes(q) && !f.club.toLowerCase().includes(q)) {
-      return false;
-    }
-    return true;
-  });
-}
-
 export type StatusCounts = { active: number; withdrawn: number };
-
-/**
- * statusCounts — счётчики по ВСЕМУ ростеру (spec FR-7/AC-2): вызывающая
- * сторона обязана передавать полный, не отфильтрованный по поиску/фильтрам
- * список.
- */
-export function statusCounts(fighters: Fighter[]): StatusCounts {
-  let active = 0;
-  let withdrawn = 0;
-  for (const f of fighters) {
-    if (f.status === "FIGHTER_STATUS_ACTIVE") active += 1;
-    else if (f.status === "FIGHTER_STATUS_WITHDRAWN") withdrawn += 1;
-  }
-  return { active, withdrawn };
-}
 
 export type ClubOptions = { clubs: string[]; hasNoClub: boolean };
 
