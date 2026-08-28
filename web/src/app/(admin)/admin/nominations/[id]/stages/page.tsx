@@ -25,6 +25,11 @@ type PageProps = { params: Promise<{ id: string }> };
  * (BFF-эквивалент `GetNominationResults`, T11/T12); живой канал (0014) здесь
  * не нужен — организатор сам обновляет страницу. Вне скоупа 0031 (см.
  * spec.md «Вне скоупа») — сохраняется без изменений под конструктором.
+ *
+ * `canExport` (спека 0041, FR-11..FR-16) — единственное место, где включена
+ * кнопка «Экспорт» протокола в CSV: экспорт доступен только admin, хотя
+ * сам RPC публичный (см. `widgets/nomination-results/nomination-results.tsx`
+ * — «Важный нюанс»). Публичная страница номинации проп не передаёт.
  */
 export default async function AdminNominationStagesPage({ params }: PageProps) {
   const { id } = await params;
@@ -39,7 +44,7 @@ export default async function AdminNominationStagesPage({ params }: PageProps) {
     <Col gap={0}>
       <NominationSchemaScreen nomination={nomination} />
       <div className="mx-auto w-full max-w-6xl px-4 py-8">
-        <NominationResults results={results} showUnfinished />
+        <NominationResults results={results} showUnfinished canExport />
       </div>
     </Col>
   );

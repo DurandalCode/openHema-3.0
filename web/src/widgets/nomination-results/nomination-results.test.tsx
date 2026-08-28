@@ -132,4 +132,52 @@ describe("widgets/nomination-results NominationResults", () => {
     render(<NominationResults results={results} />);
     expect(screen.getByText(/без нормировки/i)).toBeInTheDocument();
   });
+
+  // Спека 0041 (FR-11..FR-16): экспорт CSV — только admin, флаг `canExport`.
+  describe("canExport (спека 0041)", () => {
+    it("does not render an export action when canExport is not passed (public screen)", () => {
+      const results: NominationResultsDto = {
+        nominationId: "n1",
+        nominationFinished: true,
+        sections: [finishedBracket],
+      };
+      render(<NominationResults results={results} />);
+      expect(screen.queryByText("Экспорт")).not.toBeInTheDocument();
+    });
+
+    it("renders an enabled export link pointing at the export route when a section has places", () => {
+      const results: NominationResultsDto = {
+        nominationId: "n42",
+        nominationFinished: true,
+        sections: [finishedBracket],
+      };
+      render(<NominationResults results={results} canExport />);
+      const link = screen.getByRole("link", { name: /экспорт/i });
+      expect(link).toHaveAttribute("href", "/api/nominations/n42/results/export");
+      expect(link).not.toHaveAttribute("aria-disabled");
+    });
+
+    it("renders a disabled export action with a clear reason when no section has places yet (FR-13)", () => {
+      const results: NominationResultsDto = {
+        nominationId: "n1",
+        nominationFinished: false,
+        sections: [unfinishedGroups],
+      };
+      render(<NominationResults results={results} showUnfinished canExport />);
+      const button = screen.getByRole("button", { name: /экспорт/i });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", expect.stringMatching(/протокол появится/i));
+    });
+
+    it("keeps export enabled when at least one section has places even if another is unfinished (FR-12)", () => {
+      const results: NominationResultsDto = {
+        nominationId: "n1",
+        nominationFinished: false,
+        sections: [finishedBracket, unfinishedGroups],
+      };
+      render(<NominationResults results={results} showUnfinished canExport />);
+      const link = screen.getByRole("link", { name: /экспорт/i });
+      expect(link).toHaveAttribute("href", "/api/nominations/n1/results/export");
+    });
+  });
 });
