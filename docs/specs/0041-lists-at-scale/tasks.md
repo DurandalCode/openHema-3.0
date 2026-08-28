@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-08-27
 - План: `./plan.md`
 
@@ -90,20 +90,20 @@
 
 ## Web — join: общий CSV-хелпер
 
-- [ ] T15. **shared/lib/csv.ts (red→green)** — `csv.test.ts`: экранирование
+- [x] T15. **shared/lib/csv.ts (red→green)** — `csv.test.ts`: экранирование
       запятой/кавычки/переноса строки, UTF-8 → `csv.ts`.
 
 ## Web — трек D: заявки (поиск/фильтр/постраничность)
 
-- [ ] T16. **BFF (red→green)** — роут `ListApplications`: query-параметры
+- [x] T16. **BFF (red→green)** — роут `ListApplications`: query-параметры
       фильтра/страницы → gRPC; `*.test.ts` (мок транспорта) → код роута.
-- [ ] T17. **api/requests+keys** — `features/application-review/api/requests.ts`,
+- [x] T17. **api/requests+keys** — `features/application-review/api/requests.ts`,
       `keys.ts`: новая сигнатура фетчера с полным фильтром и страницей;
       тесты фетчера (мок `fetch`).
-- [ ] T18. **use-applications-overview** — `use-applications-overview.ts`:
+- [x] T18. **use-applications-overview** — `use-applications-overview.ts`:
       query key включает все фильтры и страницу; возвращает
       `{applications, totalCount, statusCounts}`.
-- [ ] T19. **ui** — `applications-filters.tsx`, `applications-table.tsx`:
+- [x] T19. **ui** — `applications-filters.tsx`, `applications-table.tsx`:
       переключение с локальной фильтрации/пагинации (`select-applications.ts`)
       на серверную; `select-applications.ts` — оставить только пере-сортировку
       уже полученной страницы, если она не выражена `ORDER BY` (план,
@@ -111,16 +111,16 @@
 
 ## Web — трек E: ростер (поиск/фильтр/постраничность + экспорт)
 
-- [ ] T20. **BFF (red→green)** — роут `ListRoster`: query-параметры фильтра/
+- [x] T20. **BFF (red→green)** — роут `ListRoster`: query-параметры фильтра/
       страницы → gRPC; `*.test.ts` → код роута.
-- [ ] T21. **api/requests+keys** — `features/fighter-management/api/requests.ts`,
+- [x] T21. **api/requests+keys** — `features/fighter-management/api/requests.ts`,
       `keys.ts`: новая сигнатура фетчера; тесты.
-- [ ] T22. **use-roster** — `use-roster.ts`: query key с фильтрами/страницей,
+- [x] T22. **use-roster** — `use-roster.ts`: query key с фильтрами/страницей,
       `{fighters, totalCount, statusCounts}`.
-- [ ] T23. **ui** — `fighters-filters.tsx`, `fighters-table.tsx`: серверная
+- [x] T23. **ui** — `fighters-filters.tsx`, `fighters-table.tsx`: серверная
       фильтрация/пагинация; `select-fighters.ts` — только пере-сортировка
       страницы (см. T19); тесты компонентов.
-- [ ] T24. **экспорт (red→green)** — BFF `app/api/fighters/export/route.ts`
+- [x] T24. **экспорт (red→green)** — BFF `app/api/fighters/export/route.ts`
       (принимает те же фильтры, что T20, вызывает `ListRoster`, форматирует
       CSV через `shared/lib/csv.ts`) — `*.e2e.test.ts` (реальный CSV из
       мок-ответа gRPC, заголовки `Content-Type`/`Content-Disposition`) →
@@ -129,50 +129,50 @@
 
 ## Web — трек F: агрегирующая доска площадок
 
-- [ ] T25. **BFF (red→green)** — `app/api/tournaments/[id]/arena-boards/route.ts`:
+- [x] T25. **BFF (red→green)** — `app/api/tournaments/[id]/arena-boards/route.ts`:
       вызывает `getArenaBoards`; `*.test.ts` → код роута.
-- [ ] T26. **requests** — `features/arena-management/api/requests.ts`: новый
+- [x] T26. **requests** — `features/arena-management/api/requests.ts`: новый
       fetcher `getArenaBoardsRequest(tournamentId)`; тест.
-- [ ] T27. **use-arena-boards (red→green)** — переписать с `useQueries` (N)
+- [x] T27. **use-arena-boards (red→green)** — переписать с `useQueries` (N)
       на один `useQuery` поверх T26, тот же `refetchInterval`/сигнатура
       возврата (`Map<string, ArenaBoardState>`); обновить тест.
-- [ ] T28. **проверка вызывающего кода** — `arena-management/ui/*`,
+- [x] T28. **проверка вызывающего кода** — `arena-management/ui/*`,
       `widgets/arena-console/*`: сигнатура хука не изменилась, значит правок
       не требуется — прогнать существующие тесты компонентов без изменений.
 
 ## Web — трек G: агрегирующая сводка номинаций
 
-- [ ] T29. **BFF (red→green)** — `app/api/tournaments/[id]/nomination-schemas/route.ts`:
+- [x] T29. **BFF (red→green)** — `app/api/tournaments/[id]/nomination-schemas/route.ts`:
       вызывает `listStagesForTournament`; `*.test.ts` → код роута.
-- [ ] T30. **requests** — `features/nomination-management/api/requests.ts`:
+- [x] T30. **requests** — `features/nomination-management/api/requests.ts`:
       новый fetcher `listNominationSchemasRequest(tournamentId)`; тест.
-- [ ] T31. **use-nomination-schemas (red→green)** — переписать с `useQueries`
+- [x] T31. **use-nomination-schemas (red→green)** — переписать с `useQueries`
       (N) на один `useQuery` без `refetchInterval` поверх T30, та же
       сигнатура (`Map<string, NominationSchema>`); обновить тест.
-- [ ] T32. **проверка вызывающего кода** — `nominations-screen.tsx`:
+- [x] T32. **проверка вызывающего кода** — `nominations-screen.tsx`:
       сигнатура не меняется, прогнать существующие тесты без изменений.
 
 ## Web — трек H: экспорт протокола номинации
 
-- [ ] T33. **BFF (red→green)** — `app/api/nominations/[id]/results/export/route.ts`:
+- [x] T33. **BFF (red→green)** — `app/api/nominations/[id]/results/export/route.ts`:
       вызывает `GetNominationResults`, 409 при отсутствии протокола (0021
       FR-15), иначе CSV-секции по терминальным этапам через
       `shared/lib/csv.ts`; `*.e2e.test.ts` (реальный CSV из мок-ответа,
       кейс «протокола ещё нет») → код роута.
-- [ ] T34. **requests** — fetcher/ссылка на роут экспорта в
+- [x] T34. **requests** — fetcher/ссылка на роут экспорта в
       `widgets/nomination-results/` (или соответствующем `features/`, если
       там уже есть слой api); тест.
-- [ ] T35. **ui** — кнопка «Экспорт» в `widgets/nomination-results/
+- [x] T35. **ui** — кнопка «Экспорт» в `widgets/nomination-results/
       nomination-results.tsx`, задизейблена без завершённого терминального
       этапа с понятной причиной (FR-13); тест.
 
 ## Проверка
 
-- [ ] T36. `make test-all` зелёный.
-- [ ] T37. `pnpm exec tsc --noEmit`.
-- [ ] T38. `go build ./...` + `pnpm build`; ручная проверка в браузере
+- [x] T36. `make test-all` зелёный.
+- [x] T37. `pnpm exec tsc --noEmit`.
+- [x] T38. `go build ./...` + `pnpm build`; ручная проверка в браузере
       скачивания CSV из T24/T33 (заголовки `Content-Disposition` через
       реальный Next.js Route Handler, план «Риски» — нет прецедента в
       проекте).
-- [ ] T39. Обновить статус спеки/плана/индекс в `docs/specs/README.md`
+- [x] T39. Обновить статус спеки/плана/индекс в `docs/specs/README.md`
       (`0041` → `done`).
