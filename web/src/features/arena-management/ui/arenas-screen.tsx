@@ -58,7 +58,7 @@ export function ArenasScreen({
   const arenasQuery = useArenas(tournamentId);
   const arenas = arenasQuery.data ?? [];
   const activeArenas = arenas.filter((a) => a.status !== "ARENA_STATUS_ARCHIVED");
-  const boardStates = useArenaBoards(activeArenas);
+  const boardStates = useArenaBoards(tournamentId, activeArenas);
 
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
