@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hema/server/modules/application/domain"
@@ -185,30 +184,129 @@ func (r *Repo) ListByNomination(ctx context.Context, nominationID string) ([]dom
 	return toViews(rows), nil
 }
 
-// ListByTournament — сводный экран с опциональными фильтрами по статусу и/или
-// номинации.
-func (r *Repo) ListByTournament(ctx context.Context, tournamentID string, status *domain.State, nominationID *string) ([]domain.ApplicationView, error) {
+// ListByTournament — сводный экран заявок турнира: статус/номинация/
+// экипировка + LIMIT/OFFSET целиком в SQL, total — отдельный COUNT(*) с теми
+// же WHERE. Вызывающая сторона (service) использует этот метод только когда
+// f.Search пуст — при активном поиске по имени используется SearchCandidates
+// (см. domain.Repository).
+func (r *Repo) ListByTournament(ctx context.Context, tournamentID string, f domain.ListFilter) ([]domain.ApplicationView, int, error) {
+	tid, err := uuid.Parse(tournamentID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("parse tournament id: %w", err)
+	}
+	statuses, err := statesToStrings(f.Statuses)
+	if err != nil {
+		return nil, 0, err
+	}
+	nominationIDs, err := parseUUIDs(f.NominationIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.q.ListByTournament(ctx, sqlc.ListByTournamentParams{
+		TournamentID:   tid,
+		Statuses:       statuses,
+		NominationIds:  nominationIDs,
+		NeedsEquipment: f.NeedsEquipment,
+		LimitRows:      f.Limit,
+		OffsetRows:     f.Offset,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list by tournament: %w", err)
+	}
+
+	total, err := r.q.CountByTournamentFiltered(ctx, sqlc.CountByTournamentFilteredParams{
+		TournamentID:   tid,
+		Statuses:       statuses,
+		NominationIds:  nominationIDs,
+		NeedsEquipment: f.NeedsEquipment,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("count by tournament filtered: %w", err)
+	}
+
+	return toViews(rows), int(total), nil
+}
+
+// SearchCandidates возвращает кандидатов для поиска по имени заявителя (без
+// LIMIT/OFFSET) — см. domain.Repository.SearchCandidates и комментарий к
+// -- name: SearchCandidatesByTournament в queries/application.sql.
+func (r *Repo) SearchCandidates(ctx context.Context, tournamentID string, f domain.ListFilter) ([]domain.ApplicationView, error) {
 	tid, err := uuid.Parse(tournamentID)
 	if err != nil {
 		return nil, fmt.Errorf("parse tournament id: %w", err)
 	}
-	params := sqlc.ListByTournamentParams{TournamentID: tid}
-	if status != nil {
-		s := string(*status)
-		params.Status = &s
+	statuses, err := statesToStrings(f.Statuses)
+	if err != nil {
+		return nil, err
 	}
-	if nominationID != nil {
-		nid, err := uuid.Parse(*nominationID)
+	nominationIDs, err := parseUUIDs(f.NominationIDs)
+	if err != nil {
+		return nil, err
+	}
+	var search string
+	if f.Search != nil {
+		search = *f.Search
+	}
+
+	rows, err := r.q.SearchCandidatesByTournament(ctx, sqlc.SearchCandidatesByTournamentParams{
+		TournamentID:   tid,
+		Statuses:       statuses,
+		NominationIds:  nominationIDs,
+		NeedsEquipment: f.NeedsEquipment,
+		Search:         &search,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search candidates by tournament: %w", err)
+	}
+	return toViews(rows), nil
+}
+
+// CountByTournamentStatus — счётчик заявок по каждому статусу турнира, не
+// зависящий от фильтров/поиска (FR-4, спека 0041).
+func (r *Repo) CountByTournamentStatus(ctx context.Context, tournamentID string) (map[domain.State]int, error) {
+	tid, err := uuid.Parse(tournamentID)
+	if err != nil {
+		return nil, fmt.Errorf("parse tournament id: %w", err)
+	}
+	rows, err := r.q.CountByTournamentStatus(ctx, tid)
+	if err != nil {
+		return nil, fmt.Errorf("count by tournament status: %w", err)
+	}
+	out := make(map[domain.State]int, len(rows))
+	for _, row := range rows {
+		out[domain.State(row.State)] = int(row.Count)
+	}
+	return out, nil
+}
+
+// statesToStrings конвертирует доменные статусы в строки для repeated-параметра
+// SQL-запроса. Всегда непустой (не nil) срез — pgx биндит Go nil как SQL NULL,
+// а не пустой массив, и cardinality(NULL::text[]) — NULL, а не 0: конструкция
+// `cardinality(...) = 0 OR ...` в этом случае молча отфильтровала бы все
+// строки вместо «без ограничения» (проверено интеграционным тестом на
+// реальном PG — баг с nil-срезом ловится только там, fake-репозиторий на
+// nil-семантику Go не завязан).
+func statesToStrings(states []domain.State) ([]string, error) {
+	out := make([]string, len(states))
+	for i, s := range states {
+		out[i] = string(s)
+	}
+	return out, nil
+}
+
+// parseUUIDs парсит доменные id номинаций в uuid.UUID для repeated-параметра
+// SQL-запроса. Всегда непустой (не nil) срез — см. комментарий statesToStrings.
+func parseUUIDs(ids []string) ([]uuid.UUID, error) {
+	out := make([]uuid.UUID, len(ids))
+	for i, id := range ids {
+		parsed, err := uuid.Parse(id)
 		if err != nil {
 			return nil, fmt.Errorf("parse nomination id: %w", err)
 		}
-		params.NominationID = pgtype.UUID{Bytes: [16]byte(nid), Valid: true}
+		out[i] = parsed
 	}
-	rows, err := r.q.ListByTournament(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("list by tournament: %w", err)
-	}
-	return toViews(rows), nil
+	return out, nil
 }
 
 // ParticipantsByNomination возвращает неотозванные заявки номинации.

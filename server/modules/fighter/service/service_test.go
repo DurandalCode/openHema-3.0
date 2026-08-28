@@ -85,7 +85,7 @@ func TestRegisterFromApplication(t *testing.T) {
 		if len(second.Participations) != 2 {
 			t.Fatalf("expected 2 participations, got %+v", second.Participations)
 		}
-		all, _ := repo.ListByTournament(ctx, "t1")
+		all, _ := repo.ListByTournament(ctx, "t1", domain.RosterFilter{Limit: 100})
 		if len(all) != 1 {
 			t.Fatalf("expected exactly 1 fighter in tournament, got %d", len(all))
 		}
@@ -105,7 +105,7 @@ func TestRegisterFromApplication(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		all, _ := repo.ListByTournament(ctx, "t1")
+		all, _ := repo.ListByTournament(ctx, "t1", domain.RosterFilter{Limit: 100})
 		if len(all) != 2 {
 			t.Fatalf("expected 2 distinct fighters (namesakes), got %d", len(all))
 		}
@@ -125,8 +125,8 @@ func TestRegisterFromApplication(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		all1, _ := repo.ListByTournament(ctx, "t1")
-		all2, _ := repo.ListByTournament(ctx, "t2")
+		all1, _ := repo.ListByTournament(ctx, "t1", domain.RosterFilter{Limit: 100})
+		all2, _ := repo.ListByTournament(ctx, "t2", domain.RosterFilter{Limit: 100})
 		if len(all1) != 1 || len(all2) != 1 {
 			t.Fatalf("expected 1 fighter per tournament, got %d/%d", len(all1), len(all2))
 		}
@@ -367,12 +367,15 @@ func TestListRosterAndNominationRoster(t *testing.T) {
 		_, _ = svc.CreateManual(ctx, "t1", "Petr", "Club Y", nil)
 		_, _ = svc.CreateManual(ctx, "t2", "Other Tournament Guy", "", nil)
 
-		roster, err := svc.ListRoster(ctx, "t1")
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{Limit: 100})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(roster) != 2 {
 			t.Fatalf("expected 2 fighters in t1 roster, got %d", len(roster))
+		}
+		if total != 2 {
+			t.Fatalf("expected total_count=2, got %d", total)
 		}
 	})
 
@@ -380,12 +383,217 @@ func TestListRosterAndNominationRoster(t *testing.T) {
 		svc, _, _ := newService() // active tournament is "t1"
 		_, _ = svc.CreateManual(ctx, "t1", "Ivan", "Club X", nil)
 
-		roster, err := svc.ListRoster(ctx, "")
+		roster, _, _, err := svc.ListRoster(ctx, "", domain.RosterFilter{Limit: 100})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(roster) != 1 {
 			t.Fatalf("expected 1 fighter resolved via active tournament, got %d", len(roster))
+		}
+	})
+}
+
+// TestListRoster_FilterAndPagination покрывает серверный поиск/фильтр/
+// постраничность ростера (спека 0041, FR-1..FR-6): каждое измерение по
+// отдельности и в комбинации (И), status_counts/total_count независимы от
+// фильтра и поиска (только tournament_id, FR-4/FR-7), пустой фильтр = как
+// раньше «весь ростер», но постранично.
+func TestListRoster_FilterAndPagination(t *testing.T) {
+	ctx := context.Background()
+
+	setupRoster := func() (*service.Service, *testutil.FakeNominationProvider) {
+		svc, _, noms := newService()
+		noms.Set("n1", domain.NominationInfo{TournamentID: "t1"})
+		noms.Set("n2", domain.NominationInfo{TournamentID: "t1"})
+
+		active1, _ := svc.CreateManual(ctx, "t1", "Ivan Petrov", "Alpha", []string{"n1"})
+		active2, _ := svc.CreateManual(ctx, "t1", "Petr Sidorov", "Beta", []string{"n2"})
+		noClub, _ := svc.CreateManual(ctx, "t1", "Anna Noclub", "", []string{"n1"})
+		withdrawn, _ := svc.CreateManual(ctx, "t1", "Oleg Withdrawn", "Alpha", []string{"n1"})
+		if _, err := svc.WithdrawFighter(ctx, withdrawn.ID, domain.ReasonInjury); err != nil {
+			t.Fatalf("WithdrawFighter: %v", err)
+		}
+		_ = active1
+		_ = active2
+		_ = noClub
+		return svc, noms
+	}
+
+	t.Run("empty filter returns all fighters of tournament, paginated", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		roster, total, counts, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{Limit: 100})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(roster) != 4 || total != 4 {
+			t.Fatalf("expected 4 fighters/total, got %d items, total=%d", len(roster), total)
+		}
+		if counts[domain.StatusActive] != 3 || counts[domain.StatusWithdrawn] != 1 {
+			t.Fatalf("unexpected status counts: %+v", counts)
+		}
+	})
+
+	t.Run("filters by status", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			Statuses: []domain.Status{domain.StatusWithdrawn},
+			Limit:    100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(roster) != 1 || total != 1 || roster[0].Name != "Oleg Withdrawn" {
+			t.Fatalf("expected only withdrawn fighter, got %+v (total=%d)", roster, total)
+		}
+	})
+
+	t.Run("filters by nomination — active participation only", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			NominationIDs: []string{"n2"},
+			Limit:         100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(roster) != 1 || total != 1 || roster[0].Name != "Petr Sidorov" {
+			t.Fatalf("expected only fighter with active participation in n2, got %+v (total=%d)", roster, total)
+		}
+	})
+
+	t.Run("filters by club, multi-select plus include_no_club", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			Clubs:         []string{"Beta"},
+			IncludeNoClub: true,
+			Limit:         100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if total != 2 {
+			t.Fatalf("expected 2 fighters (Beta + no club), got %d: %+v", total, roster)
+		}
+		var gotBeta, gotNoClub bool
+		for _, f := range roster {
+			if f.Club == "Beta" {
+				gotBeta = true
+			}
+			if f.Club == "" {
+				gotNoClub = true
+			}
+		}
+		if !gotBeta || !gotNoClub {
+			t.Fatalf("expected both Beta and no-club fighters, got %+v", roster)
+		}
+	})
+
+	t.Run("club filter without include_no_club excludes no-club fighters", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			Clubs: []string{"Alpha"},
+			Limit: 100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if total != 2 {
+			t.Fatalf("expected 2 Alpha fighters (active+withdrawn), got %d: %+v", total, roster)
+		}
+		for _, f := range roster {
+			if f.Club != "Alpha" {
+				t.Fatalf("expected only Alpha club fighters, got %+v", roster)
+			}
+		}
+	})
+
+	t.Run("search by name or club, case-insensitive", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		search := "petr"
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			Search: &search,
+			Limit:  100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// "Ivan Petrov" (name substring) + "Petr Sidorov" (name prefix).
+		if total != 2 {
+			t.Fatalf("expected 2 fighters matching %q, got %d: %+v", search, total, roster)
+		}
+	})
+
+	t.Run("combines filters with AND", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		roster, total, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			Statuses: []domain.Status{domain.StatusActive},
+			Clubs:    []string{"Alpha"},
+			Search:   strPtr("ivan"),
+			Limit:    100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if total != 1 || len(roster) != 1 || roster[0].Name != "Ivan Petrov" {
+			t.Fatalf("expected exactly Ivan Petrov, got %+v (total=%d)", roster, total)
+		}
+	})
+
+	t.Run("status_counts and total_count independent of filter/search", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		search := "petr"
+		roster, total, counts, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{
+			Statuses: []domain.Status{domain.StatusActive},
+			Search:   &search,
+			Limit:    100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(roster) == 0 {
+			t.Fatalf("expected at least one filtered fighter, got 0")
+		}
+		if total != len(roster) {
+			t.Fatalf("expected total_count to match filtered page here, got total=%d len=%d", total, len(roster))
+		}
+		// status_counts всегда по ВСЕМ бойцам турнира (3 active + 1 withdrawn),
+		// вне зависимости от Statuses/Search выше (спека 0041, FR-4).
+		if counts[domain.StatusActive] != 3 || counts[domain.StatusWithdrawn] != 1 {
+			t.Fatalf("expected status counts unaffected by filter, got %+v", counts)
+		}
+	})
+
+	t.Run("pagination via limit/offset", func(t *testing.T) {
+		svc, _ := setupRoster()
+
+		page1, total1, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{Limit: 2, Offset: 0})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		page2, total2, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{Limit: 2, Offset: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page1) != 2 || len(page2) != 2 {
+			t.Fatalf("expected 2 items per page, got %d and %d", len(page1), len(page2))
+		}
+		if total1 != 4 || total2 != 4 {
+			t.Fatalf("expected total_count=4 regardless of page, got %d and %d", total1, total2)
+		}
+		seen := map[string]bool{}
+		for _, f := range append(page1, page2...) {
+			if seen[f.ID] {
+				t.Fatalf("fighter %s appears on both pages", f.ID)
+			}
+			seen[f.ID] = true
 		}
 	})
 }
@@ -568,7 +776,7 @@ func TestListRosterAndGetFighter_EnrichLinkedAccount(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		roster, err := svc.ListRoster(ctx, "t1")
+		roster, _, _, err := svc.ListRoster(ctx, "t1", domain.RosterFilter{Limit: 100})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -806,3 +1014,5 @@ func TestMergeFighters(t *testing.T) {
 		}
 	})
 }
+
+func strPtr(s string) *string { return &s }

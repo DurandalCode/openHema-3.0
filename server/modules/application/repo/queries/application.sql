@@ -52,13 +52,66 @@ WHERE nomination_id = $1
 ORDER BY created_at;
 
 -- name: ListByTournament :many
+-- Сводный экран заявок турнира (спека 0041): фильтр по статусу/номинации/
+-- экипировке + LIMIT/OFFSET целиком в SQL. Используется, когда поиск по
+-- имени (search) не активен — путь, реально снимающий предел NFR-1 (не тянет
+-- весь список турнира). cardinality(...) = 0 — пустой repeated-параметр
+-- (Go nil/[]string{}) значит «без ограничения по этому измерению».
 SELECT application_id, nomination_id, tournament_id, applicant_user_id, state, version, created_at, updated_at,
        club, needs_equipment, applicant_name_override
 FROM application.application_current
 WHERE tournament_id = sqlc.arg('tournament_id')
-  AND (sqlc.narg('status')::text IS NULL OR state = sqlc.narg('status'))
-  AND (sqlc.narg('nomination_id')::uuid IS NULL OR nomination_id = sqlc.narg('nomination_id'))
+  AND (cardinality(sqlc.arg('statuses')::text[]) = 0 OR state = ANY(sqlc.arg('statuses')::text[]))
+  AND (cardinality(sqlc.arg('nomination_ids')::uuid[]) = 0 OR nomination_id = ANY(sqlc.arg('nomination_ids')::uuid[]))
+  AND (sqlc.narg('needs_equipment')::bool IS NULL OR needs_equipment = sqlc.narg('needs_equipment'))
+ORDER BY created_at
+LIMIT sqlc.arg('limit_rows') OFFSET sqlc.arg('offset_rows');
+
+-- name: CountByTournamentFiltered :one
+-- total_count для постраничной навигации (FR-5, спека 0041): тот же WHERE,
+-- что и ListByTournament, без LIMIT/OFFSET.
+SELECT count(*)::int AS total
+FROM application.application_current
+WHERE tournament_id = sqlc.arg('tournament_id')
+  AND (cardinality(sqlc.arg('statuses')::text[]) = 0 OR state = ANY(sqlc.arg('statuses')::text[]))
+  AND (cardinality(sqlc.arg('nomination_ids')::uuid[]) = 0 OR nomination_id = ANY(sqlc.arg('nomination_ids')::uuid[]))
+  AND (sqlc.narg('needs_equipment')::bool IS NULL OR needs_equipment = sqlc.narg('needs_equipment'));
+
+-- name: SearchCandidatesByTournament :many
+-- Кандидаты для поиска по имени заявителя (спека 0041, план «Server»/
+-- «Риски»): отображаемое имя — ApplicantNameOverride, если задан, иначе
+-- имя резолвится в service через UserProvider (auth) и не читается этим
+-- запросом. Строка проходит дальше в SQL-кандидаты, если:
+--   - её клуб уже совпадает с search (ILIKE), ИЛИ
+--   - её override непуст и совпадает с search (ILIKE) — override и есть
+--     финальное отображаемое имя, résolve auth не нужен, безопасно решить
+--     здесь и не тащить в Go-досев, ИЛИ
+--   - override пуст — тогда отображаемое имя ещё не известно на этом
+--     уровне (резолвится из auth), и строка обязана остаться кандидатом,
+--     иначе service не сможет досеять её по резолвленному имени.
+-- Без LIMIT/OFFSET — постраничность режется в Go после досева по имени.
+SELECT application_id, nomination_id, tournament_id, applicant_user_id, state, version, created_at, updated_at,
+       club, needs_equipment, applicant_name_override
+FROM application.application_current
+WHERE tournament_id = sqlc.arg('tournament_id')
+  AND (cardinality(sqlc.arg('statuses')::text[]) = 0 OR state = ANY(sqlc.arg('statuses')::text[]))
+  AND (cardinality(sqlc.arg('nomination_ids')::uuid[]) = 0 OR nomination_id = ANY(sqlc.arg('nomination_ids')::uuid[]))
+  AND (sqlc.narg('needs_equipment')::bool IS NULL OR needs_equipment = sqlc.narg('needs_equipment'))
+  AND (
+        club ILIKE '%' || sqlc.arg('search') || '%'
+        OR applicant_name_override ILIKE '%' || sqlc.arg('search') || '%'
+        OR applicant_name_override = ''
+      )
 ORDER BY created_at;
+
+-- name: CountByTournamentStatus :many
+-- status_counts (FR-4, спека 0041): счётчик по каждому статусу турнира,
+-- не зависящий от фильтров/поиска запроса — «сколько всего», а не «сколько
+-- нашлось».
+SELECT state, count(*)::int AS count
+FROM application.application_current
+WHERE tournament_id = sqlc.arg('tournament_id')
+GROUP BY state;
 
 -- name: ParticipantsByNomination :many
 SELECT application_id, nomination_id, tournament_id, applicant_user_id, state, version, created_at, updated_at,

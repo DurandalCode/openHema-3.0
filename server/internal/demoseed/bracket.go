@@ -328,7 +328,7 @@ func bracketSizeFor(n int) int {
 // activeFighterCountsByNomination, но список id, а не счётчик — нужен, чтобы
 // реально посеять кого-то в слоты сетки.
 func activeFighterIDsForNomination(ctx context.Context, svc *fighterservice.Service, tournamentID, nominationID string) ([]string, error) {
-	roster, err := svc.ListRoster(ctx, tournamentID)
+	roster, err := FullRoster(ctx, svc, tournamentID)
 	if err != nil {
 		return nil, err
 	}

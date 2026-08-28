@@ -43,10 +43,15 @@ describe("app/api/admin/fighters route", () => {
       expect(fighterAdminClient.listRoster).not.toHaveBeenCalled();
     });
 
-    it("returns roster JSON on ok, including fromApplication", async () => {
+    it("returns roster JSON on ok, including fromApplication, with default page/pageSize (spec 0041)", async () => {
       vi.mocked(getAccessToken).mockResolvedValue("token");
       vi.mocked(fighterAdminClient.listRoster).mockResolvedValue({
         fighters: [{ id: "f1", name: "Ivan" }],
+        totalCount: 1,
+        statusCounts: [
+          { status: 1, count: 1 },
+          { status: 2, count: 0 },
+        ],
       } as never);
       vi.mocked(fightersToJson).mockReturnValue([
         { id: "f1", name: "Ivan", fromApplication: true },
@@ -55,10 +60,81 @@ describe("app/api/admin/fighters route", () => {
       const res = await GET(getReq("http://localhost/api/admin/fighters?tournamentId=t1"));
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data).toEqual({ fighters: [{ id: "f1", name: "Ivan", fromApplication: true }] });
+      expect(data).toEqual({
+        fighters: [{ id: "f1", name: "Ivan", fromApplication: true }],
+        totalCount: 1,
+        statusCounts: { active: 1, withdrawn: 0 },
+      });
       expect(fighterAdminClient.listRoster).toHaveBeenCalledWith(
-        { tournamentId: "t1" },
+        {
+          tournamentId: "t1",
+          statuses: [],
+          nominationIds: [],
+          clubs: [],
+          includeNoClub: false,
+          search: undefined,
+          limit: 20,
+          offset: 0,
+        },
         { headers: { Authorization: "Bearer token" } },
+      );
+    });
+
+    it("maps statuses[]/nominationIds[]/clubs[]/includeNoClub/search/page/pageSize onto the gRPC filter (spec 0041, FR-1..FR-3)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("token");
+      vi.mocked(fighterAdminClient.listRoster).mockResolvedValue({
+        fighters: [],
+        totalCount: 0,
+        statusCounts: [],
+      } as never);
+      vi.mocked(fightersToJson).mockReturnValue([] as never);
+
+      const url =
+        "http://localhost/api/admin/fighters" +
+        "?tournamentId=t1" +
+        "&statuses=FIGHTER_STATUS_ACTIVE&statuses=FIGHTER_STATUS_WITHDRAWN" +
+        "&nominationIds=n1" +
+        "&clubs=Клинок+Севера" +
+        "&includeNoClub=1" +
+        "&search=иван" +
+        "&page=2&pageSize=50";
+      const res = await GET(getReq(url));
+      expect(res.status).toBe(200);
+      expect(fighterAdminClient.listRoster).toHaveBeenCalledWith(
+        {
+          tournamentId: "t1",
+          statuses: [1, 2],
+          nominationIds: ["n1"],
+          clubs: ["Клинок Севера"],
+          includeNoClub: true,
+          search: "иван",
+          limit: 50,
+          offset: 50, // (page - 1) * pageSize = (2 - 1) * 50
+        },
+        { headers: { Authorization: "Bearer token" } },
+      );
+    });
+
+    it("returns 400 on an unknown status label", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("token");
+      const res = await GET(getReq("http://localhost/api/admin/fighters?statuses=NOT_A_STATUS"));
+      expect(res.status).toBe(400);
+      expect(fighterAdminClient.listRoster).not.toHaveBeenCalled();
+    });
+
+    it("falls back to page 1 / default pageSize on invalid page/pageSize", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("token");
+      vi.mocked(fighterAdminClient.listRoster).mockResolvedValue({
+        fighters: [],
+        totalCount: 0,
+        statusCounts: [],
+      } as never);
+      vi.mocked(fightersToJson).mockReturnValue([] as never);
+
+      await GET(getReq("http://localhost/api/admin/fighters?tournamentId=t1&page=0&pageSize=-5"));
+      expect(fighterAdminClient.listRoster).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 20, offset: 0 }),
+        expect.anything(),
       );
     });
 

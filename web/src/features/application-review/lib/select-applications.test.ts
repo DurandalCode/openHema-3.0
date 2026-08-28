@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Application, ApplicationState } from "@/entities/application/lib/types";
+import type { Application } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import {
-  filterApplications,
   overfullNominationIds,
   rowAction,
   sortApplications,
-  statusCounts,
+  toStatusCountsRecord,
 } from "./select-applications";
 
 function app(overrides: Partial<Application>): Application {
@@ -74,75 +73,34 @@ describe("sortApplications", () => {
   });
 });
 
-describe("filterApplications", () => {
-  const submitted = app({ id: "s1", state: "APPLICATION_STATE_SUBMITTED", applicantDisplayName: "Анна Кораблёва", club: "Клинок Севера" });
-  const paid = app({ id: "p1", state: "APPLICATION_STATE_PAID", applicantDisplayName: "Борис Волков", club: "Стальной Клуб" });
-  const registeredNeedsEquipment = app({
-    id: "r1",
-    state: "APPLICATION_STATE_REGISTERED",
-    nominationId: "n2",
-    applicantDisplayName: "Виктор Орлов",
-    club: "Клинок Севера",
-    needsEquipment: true,
-  });
-  const all = [submitted, paid, registeredNeedsEquipment];
-
-  it("returns everything when no filter dimension is set", () => {
-    expect(filterApplications(all, {})).toEqual(all);
-  });
-
-  it("filters by a set of statuses (empty set = no filter)", () => {
-    expect(filterApplications(all, { statuses: new Set() })).toEqual(all);
+describe("toStatusCountsRecord", () => {
+  it("converts server status_counts into a Record, defaulting missing states to 0 (FR-4)", () => {
     expect(
-      filterApplications(all, {
-        statuses: new Set<ApplicationState>(["APPLICATION_STATE_SUBMITTED", "APPLICATION_STATE_PAID"]),
-      }),
-    ).toEqual([submitted, paid]);
-  });
-
-  it("filters by a set of nomination ids", () => {
-    expect(filterApplications(all, { nominationIds: new Set(["n2"]) })).toEqual([registeredNeedsEquipment]);
-  });
-
-  it("filters by needsEquipment", () => {
-    expect(filterApplications(all, { needsEquipment: true })).toEqual([registeredNeedsEquipment]);
-    expect(filterApplications(all, { needsEquipment: false })).toEqual(all);
-  });
-
-  it("filters by case-insensitive substring on applicant name or club", () => {
-    expect(filterApplications(all, { query: "кораб" })).toEqual([submitted]);
-    expect(filterApplications(all, { query: "СЕВЕРА" })).toEqual([submitted, registeredNeedsEquipment]);
-    expect(filterApplications(all, { query: "no-match" })).toEqual([]);
-  });
-
-  it("combines every dimension with AND", () => {
-    const result = filterApplications(all, {
-      statuses: new Set<ApplicationState>(["APPLICATION_STATE_REGISTERED"]),
-      needsEquipment: true,
-      query: "клинок",
-    });
-    expect(result).toEqual([registeredNeedsEquipment]);
-  });
-});
-
-describe("statusCounts", () => {
-  it("counts every state across the full list, independent of any filter (FR-7/AC-2)", () => {
-    const apps = [
-      app({ id: "1", state: "APPLICATION_STATE_SUBMITTED" }),
-      app({ id: "2", state: "APPLICATION_STATE_SUBMITTED" }),
-      app({ id: "3", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
-      app({ id: "4", state: "APPLICATION_STATE_PAID" }),
-      app({ id: "5", state: "APPLICATION_STATE_REGISTERED" }),
-      app({ id: "6", state: "APPLICATION_STATE_WITHDRAWN" }),
-    ];
-
-    expect(statusCounts(apps)).toEqual({
+      toStatusCountsRecord([
+        { status: "APPLICATION_STATE_SUBMITTED", count: 31 },
+        { status: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION", count: 6 },
+        { status: "APPLICATION_STATE_PAID", count: 1 },
+        { status: "APPLICATION_STATE_REGISTERED", count: 124 },
+        { status: "APPLICATION_STATE_WITHDRAWN", count: 2 },
+      ]),
+    ).toEqual({
       APPLICATION_STATE_UNSPECIFIED: 0,
-      APPLICATION_STATE_SUBMITTED: 2,
-      APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION: 1,
+      APPLICATION_STATE_SUBMITTED: 31,
+      APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION: 6,
       APPLICATION_STATE_PAID: 1,
-      APPLICATION_STATE_REGISTERED: 1,
-      APPLICATION_STATE_WITHDRAWN: 1,
+      APPLICATION_STATE_REGISTERED: 124,
+      APPLICATION_STATE_WITHDRAWN: 2,
+    });
+  });
+
+  it("returns all-zero counts for an empty list", () => {
+    expect(toStatusCountsRecord([])).toEqual({
+      APPLICATION_STATE_UNSPECIFIED: 0,
+      APPLICATION_STATE_SUBMITTED: 0,
+      APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION: 0,
+      APPLICATION_STATE_PAID: 0,
+      APPLICATION_STATE_REGISTERED: 0,
+      APPLICATION_STATE_WITHDRAWN: 0,
     });
   });
 });

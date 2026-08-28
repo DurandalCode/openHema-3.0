@@ -1188,3 +1188,36 @@ type TournamentSnapshot struct {
 	Nominations     []LiveNominationView
 	ServerNowUnixMS int64
 }
+
+// ---------------------------------------------------------------------
+// Спека 0041: агрегирующие RPC живого статуса турнира (FR-7/FR-8) — доска
+// всех неархивных площадок и схема+диагностика всех номинаций турнира одним
+// обращением вместо одного на площадку/номинацию за цикл обновления (0027
+// NFR-3, 0028 NFR-2, отложено и теперь реализовано). Не меняют модель данных
+// площадок/этапов, не вводят новых состояний (NFR-2) — только форма выдачи.
+// ---------------------------------------------------------------------
+
+// ArenaBoardEntry — доска ведения боёв одной площадки в составе агрегирующего
+// ответа GetArenaBoards (спека 0041, FR-7): та же проекция, что у одиночного
+// GetBoutBoard (service.BoutBoard, arena_id + board), на каждую неархивную
+// площадку турнира (ArenaProvider.ActiveArenas). Board — нулевое значение
+// (Pool.ID пуст), если на площадке никто не стоит — не ошибка, ровно та же
+// семантика, что у одиночного GetBoutBoard. Отдельного флага ошибки на
+// запись нет (см. комментарий у service.Service.GetArenaBoards) — как и
+// GetBoutBoardResponse.board, форма ответа этой спекой не меняется.
+type ArenaBoardEntry struct {
+	ArenaID string
+	Board   BoutBoard
+}
+
+// NominationStagesEntry — этапы и диагностика схемы одной номинации в
+// составе агрегирующего ответа ListStagesForTournament (спека 0041, FR-8):
+// та же проекция, что у одиночного ListStages (nomination_id + stages +
+// issues), на каждую номинацию турнира (NominationProvider.
+// NominationsByTournament). Как и у ArenaBoardEntry, отдельного флага
+// ошибки на запись нет.
+type NominationStagesEntry struct {
+	NominationID string
+	Stages       []Stage
+	Issues       []SchemaIssue
+}

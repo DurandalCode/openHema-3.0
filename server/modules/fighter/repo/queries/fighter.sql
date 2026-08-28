@@ -13,11 +13,81 @@ SELECT id, tournament_id, name, club, origin_user_id, status, withdrawal_reason,
 FROM fighter.fighters
 WHERE tournament_id = $1 AND origin_user_id = $2;
 
--- name: ListFightersByTournament :many
+-- ListRosterByTournament — страница ростера турнира с фильтром/поиском
+-- (спека 0041, FR-1..FR-3): статус, активное участие в одной из перечисленных
+-- номинаций (JOIN/EXISTS на fighter.participations, статус участия должен
+-- быть 'active' — не любое историческое), клуб (точное совпадение,
+-- include_no_club отдельно добавляет club=''), подстрока по имени/клубу без
+-- учёта регистра (ILIKE). Пустой statuses/nomination_ids/clubs (и
+-- include_no_club=false) = без ограничения по этому измерению — семантика
+-- "пустой фильтр = всё". LIMIT/OFFSET — постраничность (спека 0041, FR-1).
+-- name: ListRosterByTournament :many
 SELECT id, tournament_id, name, club, origin_user_id, status, withdrawal_reason, created_at, updated_at, merged_into_id
+FROM fighter.fighters f
+WHERE f.tournament_id = sqlc.arg(tournament_id)
+  AND (
+    cardinality(sqlc.arg(statuses)::text[]) = 0
+    OR f.status = ANY(sqlc.arg(statuses)::text[])
+  )
+  AND (
+    (cardinality(sqlc.arg(clubs)::text[]) = 0 AND NOT sqlc.arg(include_no_club)::bool)
+    OR f.club = ANY(sqlc.arg(clubs)::text[])
+    OR (sqlc.arg(include_no_club)::bool AND f.club = '')
+  )
+  AND (
+    cardinality(sqlc.arg(nomination_ids)::uuid[]) = 0
+    OR EXISTS (
+      SELECT 1 FROM fighter.participations p
+      WHERE p.fighter_id = f.id
+        AND p.status = 'active'
+        AND p.nomination_id = ANY(sqlc.arg(nomination_ids)::uuid[])
+    )
+  )
+  AND (
+    sqlc.narg(search)::text IS NULL
+    OR f.name ILIKE '%' || sqlc.narg(search)::text || '%'
+    OR f.club ILIKE '%' || sqlc.narg(search)::text || '%'
+  )
+ORDER BY f.created_at
+LIMIT sqlc.arg(row_limit) OFFSET sqlc.arg(row_offset);
+
+-- CountRosterByTournament — total_count для постраничной навигации: тот же
+-- WHERE, что ListRosterByTournament, без LIMIT/OFFSET (спека 0041, FR-5).
+-- name: CountRosterByTournament :one
+SELECT count(*) FROM fighter.fighters f
+WHERE f.tournament_id = sqlc.arg(tournament_id)
+  AND (
+    cardinality(sqlc.arg(statuses)::text[]) = 0
+    OR f.status = ANY(sqlc.arg(statuses)::text[])
+  )
+  AND (
+    (cardinality(sqlc.arg(clubs)::text[]) = 0 AND NOT sqlc.arg(include_no_club)::bool)
+    OR f.club = ANY(sqlc.arg(clubs)::text[])
+    OR (sqlc.arg(include_no_club)::bool AND f.club = '')
+  )
+  AND (
+    cardinality(sqlc.arg(nomination_ids)::uuid[]) = 0
+    OR EXISTS (
+      SELECT 1 FROM fighter.participations p
+      WHERE p.fighter_id = f.id
+        AND p.status = 'active'
+        AND p.nomination_id = ANY(sqlc.arg(nomination_ids)::uuid[])
+    )
+  )
+  AND (
+    sqlc.narg(search)::text IS NULL
+    OR f.name ILIKE '%' || sqlc.narg(search)::text || '%'
+    OR f.club ILIKE '%' || sqlc.narg(search)::text || '%'
+  );
+
+-- CountByTournamentStatus — счётчики бойцов по статусу для шапки экрана
+-- (спека 0041, FR-4): только tournament_id, независимо от фильтра/поиска
+-- ListRosterByTournament.
+-- name: CountByTournamentStatus :many
+SELECT status, count(*) AS count
 FROM fighter.fighters
-WHERE tournament_id = $1
-ORDER BY created_at;
+WHERE tournament_id = sqlc.arg(tournament_id)
+GROUP BY status;
 
 -- name: UpdateFighter :one
 UPDATE fighter.fighters

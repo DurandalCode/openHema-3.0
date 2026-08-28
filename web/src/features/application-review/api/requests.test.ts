@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ApplicationState } from "@/entities/application/lib/types";
 
 import {
   confirmPaymentRequest,
@@ -22,28 +23,69 @@ describe("features/application-review/api/requests", () => {
   });
 
   describe("listApplicationsOverviewRequest", () => {
-    it("GETs overview with only tournamentId when no filters", async () => {
+    it("GETs overview with only tournamentId + limit/offset when no filters (page 1)", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
-        json: async () => ({ applications: [{ id: "a1" }] }),
+        json: async () => ({ applications: [{ id: "a1" }], totalCount: 1, statusCounts: [] }),
       });
 
-      const result = await listApplicationsOverviewRequest("t1", {});
+      const result = await listApplicationsOverviewRequest("t1", { page: 1, pageSize: 20 });
 
-      expect(result).toEqual({ ok: true, applications: [{ id: "a1" }] });
+      expect(result).toEqual({
+        ok: true,
+        applications: [{ id: "a1" }],
+        totalCount: 1,
+        statusCounts: [],
+      });
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/applications/overview?tournamentId=t1",
+        "/api/applications/overview?tournamentId=t1&limit=20&offset=0",
         { method: "GET" },
       );
     });
 
-    it("includes status and nominationId filters when provided", async () => {
+    it("translates page/pageSize into limit/offset (page 3, size 20 -> offset 40)", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ applications: [] }) });
 
-      await listApplicationsOverviewRequest("t1", { status: 3, nominationId: "n1" });
+      await listApplicationsOverviewRequest("t1", { page: 3, pageSize: 20 });
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/applications/overview?tournamentId=t1&status=3&nominationId=n1",
+        "/api/applications/overview?tournamentId=t1&limit=20&offset=40",
+        { method: "GET" },
+      );
+    });
+
+    it("includes repeated statuses/nominationIds, needsEquipment and search when provided", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ applications: [] }) });
+
+      await listApplicationsOverviewRequest("t1", {
+        statuses: new Set<ApplicationState>(["APPLICATION_STATE_PAID", "APPLICATION_STATE_SUBMITTED"]),
+        nominationIds: new Set(["n1"]),
+        needsEquipment: true,
+        search: "  Ivan  ",
+        page: 1,
+        pageSize: 20,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/applications/overview?tournamentId=t1&statuses=APPLICATION_STATE_PAID" +
+          "&statuses=APPLICATION_STATE_SUBMITTED&nominationIds=n1&needsEquipment=true" +
+          "&search=Ivan&limit=20&offset=0",
+        { method: "GET" },
+      );
+    });
+
+    it("omits needsEquipment and search when falsy/blank", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ applications: [] }) });
+
+      await listApplicationsOverviewRequest("t1", {
+        needsEquipment: false,
+        search: "   ",
+        page: 1,
+        pageSize: 20,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/applications/overview?tournamentId=t1&limit=20&offset=0",
         { method: "GET" },
       );
     });
@@ -51,7 +93,7 @@ describe("features/application-review/api/requests", () => {
     it("returns ok:false with server error", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "bad" }) });
 
-      const result = await listApplicationsOverviewRequest("t1", {});
+      const result = await listApplicationsOverviewRequest("t1", { page: 1, pageSize: 20 });
 
       expect(result).toEqual({ ok: false, error: "bad" });
     });
@@ -59,7 +101,9 @@ describe("features/application-review/api/requests", () => {
     it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
 
-      await expect(listApplicationsOverviewRequest("t1", {})).rejects.toBeInstanceOf(UnauthorizedError);
+      await expect(
+        listApplicationsOverviewRequest("t1", { page: 1, pageSize: 20 }),
+      ).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

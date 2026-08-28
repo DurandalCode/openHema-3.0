@@ -273,6 +273,38 @@ func (f *Fighter) Edit(name, club string) error {
 	return nil
 }
 
+// RosterFilter — фильтр и постраничность серверного поиска ростера (спека
+// 0041, FR-1..FR-3). Измерения (статус/номинация/клуб/поиск) комбинируются
+// логическим И; внутри измерения множественный выбор — ИЛИ. Пустой фильтр
+// (все срезы nil/пустые, Search=nil) — «без ограничения по этому
+// измерению», как у сегодняшнего ListRoster без фильтра: ничего не
+// исключается, в том числе бойцы со Status=StatusMerged (видимость ростера
+// не меняется этим инкрементом — добавляется только явная фильтрация,
+// поиск и постраничность поверх неё).
+type RosterFilter struct {
+	// Statuses — пусто = без ограничения по статусу.
+	Statuses []Status
+	// NominationIDs — боец подходит, если у него есть АКТИВНОЕ участие хотя
+	// бы в одной из перечисленных номинаций (не любое историческое, спека
+	// 0041, FR-3).
+	NominationIDs []string
+	// Clubs — точное совпадение клуба, множественный выбор. Пусто и
+	// IncludeNoClub=false — без ограничения по клубу.
+	Clubs []string
+	// IncludeNoClub — отдельно включает бойцов с пустым клубом (клуб
+	// «пусто» — не строка, которую можно положить в Clubs и перепутать с
+	// реальным именем клуба).
+	IncludeNoClub bool
+	// Search — подстрока по имени ИЛИ клубу, без учёта регистра. nil — без
+	// поиска.
+	Search *string
+	// Limit/Offset — постраничность в стиле auth.ListParams
+	// (ListUsersRequest, admin.proto): без собственного дефолта/потолка
+	// сверх уже принятой в проекте политики.
+	Limit  int32
+	Offset int32
+}
+
 // Repository — порт доступа к хранилищу бойцов. Реализуется в слое repo;
 // service зависит от этого интерфейса, не от pg.
 type Repository interface {
@@ -287,8 +319,17 @@ type Repository interface {
 	// FindByOrigin ищет бойца по ключу происхождения в пределах турнира
 	// (дедупликация, FR-5). ErrNotFound — такого бойца ещё нет.
 	FindByOrigin(ctx context.Context, tournamentID, originUserID string) (Fighter, error)
-	// ListByTournament возвращает ростер турнира: бойцов с их участиями.
-	ListByTournament(ctx context.Context, tournamentID string) ([]Fighter, error)
+	// ListByTournament возвращает страницу ростера турнира (бойцов с их
+	// участиями), отфильтрованную/упорядоченную/нарезанную по filter (спека
+	// 0041). Пустой filter — «весь ростер турнира», как до инкремента 0041,
+	// но постранично (Limit/Offset применяются в SQL).
+	ListByTournament(ctx context.Context, tournamentID string, filter RosterFilter) ([]Fighter, error)
+	// CountRoster возвращает число бойцов турнира, подходящих под filter,
+	// без Limit/Offset — для постраничной навигации (спека 0041, FR-5).
+	CountRoster(ctx context.Context, tournamentID string, filter RosterFilter) (int, error)
+	// CountRosterByStatus возвращает счётчики бойцов по статусу для всего
+	// турнира вне зависимости от фильтра/поиска (спека 0041, FR-4).
+	CountRosterByStatus(ctx context.Context, tournamentID string) (map[Status]int, error)
 	// RosterByNomination возвращает публичный состав номинации: по каждому
 	// бойцу, у которого есть (или было) участие в этой номинации — имя, клуб
 	// и признак «в составе» (выведенные/снятые не скрываются, FR-12).

@@ -1,9 +1,6 @@
 import type { Application, ApplicationEvent, ApplicationState } from "@/entities/application/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
-
-export type ApplicationListResult =
-  | { ok: true; applications: Application[] }
-  | { ok: false; error: string };
+import type { ApplicationStatusCount } from "../lib/select-applications";
 
 export type ApplicationResult =
   | { ok: true; application: Application }
@@ -13,30 +10,69 @@ export type RegisterFighterResult =
   | { ok: true; application: Application; capacityExceeded: boolean }
   | { ok: false; error: string };
 
+/**
+ * OverviewFilters — фильтр+постраничность сводного экрана заявок (спека
+ * 0041, FR-1..FR-6): статусы/номинации — множественный выбор (пусто = без
+ * ограничения по измерению), `needsEquipment` — точечный флаг,
+ * `search` — подстрока по имени заявителя и клубу без учёта регистра.
+ * `page`/`pageSize` — постраничность на языке экрана (1-based номер
+ * страницы); фетчер сам переводит их в `limit`/`offset` на проводе.
+ */
 export type OverviewFilters = {
-  status?: number;
-  nominationId?: string;
+  statuses?: Set<ApplicationState> | ApplicationState[];
+  nominationIds?: Set<string> | string[];
+  needsEquipment?: boolean;
+  search?: string;
+  page: number;
+  pageSize: number;
 };
+
+export type ApplicationsOverviewResult =
+  | {
+      ok: true;
+      applications: Application[];
+      totalCount: number;
+      statusCounts: ApplicationStatusCount[];
+    }
+  | { ok: false; error: string };
 
 /**
  * listApplicationsOverviewRequest — GET /api/applications/overview (admin).
- * Сводный экран заявок турнира с опциональными фильтрами по статусу и/или
- * номинации (FR-14).
+ * Сводный экран заявок турнира: фильтр/поиск/постраничность выполняются на
+ * сервере (спека 0041) — этот фетчер только строит query-строку и
+ * распаковывает ответ, сам список/срез больше не режется на клиенте.
+ *
+ * `statuses`/`nominationIds` — повторяющиеся query-параметры
+ * (`?statuses=X&statuses=Y`), симметрично тому, что читает BFF-роут
+ * (`app/api/applications/overview/route.ts`, `getAll`). `page`/`pageSize`
+ * переводятся в `limit`/`offset` здесь, а не на экране — постраничность на
+ * проводе везде в проекте выражена этим стилем (`GET /api/admin/users`).
  */
 export async function listApplicationsOverviewRequest(
   tournamentId: string,
   filters: OverviewFilters,
-): Promise<ApplicationListResult> {
+): Promise<ApplicationsOverviewResult> {
   const params = new URLSearchParams({ tournamentId });
-  if (filters.status !== undefined) params.set("status", String(filters.status));
-  if (filters.nominationId) params.set("nominationId", filters.nominationId);
+  for (const status of filters.statuses ?? []) params.append("statuses", status);
+  for (const nominationId of filters.nominationIds ?? []) params.append("nominationIds", nominationId);
+  if (filters.needsEquipment) params.set("needsEquipment", "true");
+  const search = filters.search?.trim();
+  if (search) params.set("search", search);
+  params.set("limit", String(filters.pageSize));
+  params.set("offset", String((filters.page - 1) * filters.pageSize));
 
-  const res = await apiFetch<{ applications?: Application[] }>(
-    `/api/applications/overview?${params.toString()}`,
-    { method: "GET" },
-  );
+  const res = await apiFetch<{
+    applications?: Application[];
+    totalCount?: number;
+    statusCounts?: ApplicationStatusCount[];
+  }>(`/api/applications/overview?${params.toString()}`, { method: "GET" });
   if (!res.ok) return { ok: false, error: res.error };
-  return { ok: true, applications: res.data.applications ?? [] };
+  return {
+    ok: true,
+    applications: res.data.applications ?? [],
+    totalCount: res.data.totalCount ?? 0,
+    statusCounts: res.data.statusCounts ?? [],
+  };
 }
 
 /** confirmPaymentRequest — POST /api/applications/[id]/confirm-payment (admin). */

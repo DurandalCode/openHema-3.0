@@ -10,6 +10,7 @@ import {
   moveFighterRequest,
   removeFromNominationRequest,
   returnFighterRequest,
+  rosterExportUrl,
   withdrawFighterRequest,
 } from "./requests";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
@@ -27,30 +28,108 @@ describe("features/fighter-management/api/requests", () => {
   });
 
   describe("listRosterRequest", () => {
-    it("GETs roster by tournamentId", async () => {
+    it("GETs the roster page for tournamentId/page/pageSize with no filters set", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ fighters: [{ id: "f1" }], totalCount: 1, statusCounts: { active: 1, withdrawn: 0 } }),
+      });
+      const result = await listRosterRequest("t1", { page: 1, pageSize: 20 });
+      expect(result).toEqual({
+        ok: true,
+        fighters: [{ id: "f1" }],
+        totalCount: 1,
+        statusCounts: { active: 1, withdrawn: 0 },
+      });
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(init).toEqual({ method: "GET" });
+      const params = new URL(url, "http://localhost").searchParams;
+      expect(params.get("tournamentId")).toBe("t1");
+      expect(params.get("page")).toBe("1");
+      expect(params.get("pageSize")).toBe("20");
+      expect(params.getAll("statuses")).toEqual([]);
+    });
+
+    it("sends the combined filter (statuses/nominationIds/clubs/includeNoClub/search) as query params", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ fighters: [], totalCount: 0, statusCounts: { active: 0, withdrawn: 0 } }),
+      });
+      await listRosterRequest("t1", {
+        statuses: ["FIGHTER_STATUS_ACTIVE", "FIGHTER_STATUS_WITHDRAWN"],
+        nominationIds: ["n1"],
+        clubs: ["Клинок Севера"],
+        includeNoClub: true,
+        search: "иван",
+        page: 2,
+        pageSize: 50,
+      });
+      const [url] = fetchMock.mock.calls[0] as [string];
+      const params = new URL(url, "http://localhost").searchParams;
+      expect(params.getAll("statuses")).toEqual(["FIGHTER_STATUS_ACTIVE", "FIGHTER_STATUS_WITHDRAWN"]);
+      expect(params.getAll("nominationIds")).toEqual(["n1"]);
+      expect(params.getAll("clubs")).toEqual(["Клинок Севера"]);
+      expect(params.get("includeNoClub")).toBe("1");
+      expect(params.get("search")).toBe("иван");
+      expect(params.get("page")).toBe("2");
+      expect(params.get("pageSize")).toBe("50");
+    });
+
+    it("defaults totalCount/statusCounts when the response omits them", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ fighters: [{ id: "f1" }] }) });
-      const result = await listRosterRequest("t1");
-      expect(result).toEqual({ ok: true, fighters: [{ id: "f1" }] });
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/fighters?tournamentId=t1", {
-        method: "GET",
+      const result = await listRosterRequest("t1", { page: 1, pageSize: 20 });
+      expect(result).toEqual({
+        ok: true,
+        fighters: [{ id: "f1" }],
+        totalCount: 0,
+        statusCounts: { active: 0, withdrawn: 0 },
       });
     });
 
     it("returns ok:false on non-ok response", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "boom" }) });
-      const result = await listRosterRequest("t1");
+      const result = await listRosterRequest("t1", { page: 1, pageSize: 20 });
       expect(result).toEqual({ ok: false, error: "boom" });
     });
 
     it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
-      await expect(listRosterRequest("t1")).rejects.toBeInstanceOf(UnauthorizedError);
+      await expect(listRosterRequest("t1", { page: 1, pageSize: 20 })).rejects.toBeInstanceOf(
+        UnauthorizedError,
+      );
     });
 
     it("returns ok:false on network failure", async () => {
       fetchMock.mockRejectedValue(new Error("network down"));
-      const result = await listRosterRequest("t1");
+      const result = await listRosterRequest("t1", { page: 1, pageSize: 20 });
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("rosterExportUrl", () => {
+    it("builds the export URL with the filter, without page/pageSize (spec 0041, FR-14)", () => {
+      const url = rosterExportUrl("t1", {
+        statuses: ["FIGHTER_STATUS_ACTIVE"],
+        clubs: ["Клинок Севера"],
+        includeNoClub: true,
+        search: "иван",
+      });
+      const params = new URL(url, "http://localhost").searchParams;
+      expect(new URL(url, "http://localhost").pathname).toBe("/api/admin/fighters/export");
+      expect(params.get("tournamentId")).toBe("t1");
+      expect(params.getAll("statuses")).toEqual(["FIGHTER_STATUS_ACTIVE"]);
+      expect(params.getAll("clubs")).toEqual(["Клинок Севера"]);
+      expect(params.get("includeNoClub")).toBe("1");
+      expect(params.get("search")).toBe("иван");
+      expect(params.has("page")).toBe(false);
+      expect(params.has("pageSize")).toBe(false);
+    });
+
+    it("omits empty dimensions", () => {
+      const url = rosterExportUrl("t1", {});
+      const params = new URL(url, "http://localhost").searchParams;
+      expect(params.getAll("statuses")).toEqual([]);
+      expect(params.has("includeNoClub")).toBe(false);
+      expect(params.has("search")).toBe(false);
     });
   });
 

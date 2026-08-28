@@ -5,6 +5,7 @@ import {
   createNominationRequest,
   deleteNominationRequest,
   getNominationRequest,
+  listNominationSchemasRequest,
   listNominationStagesRequest,
   listNominationsRequest,
   reopenRegistrationRequest,
@@ -211,6 +212,63 @@ describe("features/nomination-management/api/requests", () => {
       fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
 
       await expect(listNominationStagesRequest("n1")).rejects.toBeInstanceOf(UnauthorizedError);
+    });
+  });
+
+  describe("listNominationSchemasRequest", () => {
+    it("GETs /api/tournaments/[id]/nomination-schemas and returns entries on 2xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          entries: [
+            { nominationId: "n1", stages: [{ id: "s1", title: "Группы" }], issues: [] },
+            { nominationId: "n2", stages: [], issues: [{ severity: "SCHEMA_ISSUE_SEVERITY_ERROR", message: "bad" }] },
+          ],
+        }),
+      });
+
+      const result = await listNominationSchemasRequest("t1");
+
+      expect(result).toEqual({
+        ok: true,
+        entries: [
+          { nominationId: "n1", stages: [{ id: "s1", title: "Группы" }], issues: [] },
+          { nominationId: "n2", stages: [], issues: [{ severity: "SCHEMA_ISSUE_SEVERITY_ERROR", message: "bad" }] },
+        ],
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/t1/nomination-schemas", {
+        method: "GET",
+      });
+    });
+
+    it("defaults entries to an empty array when the field is missing", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      const result = await listNominationSchemasRequest("t1");
+
+      expect(result).toEqual({ ok: true, entries: [] });
+    });
+
+    it("returns ok:false with server error on 4xx", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "forbidden" }) });
+
+      const result = await listNominationSchemasRequest("t1");
+
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+
+      const result = await listNominationSchemasRequest("t1");
+
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+
+    it("throws UnauthorizedError on a 401 (spec 0039, FR-17)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "unauthenticated" }) });
+
+      await expect(listNominationSchemasRequest("t1")).rejects.toBeInstanceOf(UnauthorizedError);
     });
   });
 

@@ -53,6 +53,22 @@ func (h *AdminHandler) ListStages(
 	return connect.NewResponse(&hemav1.ListStagesResponse{Stages: toProtoStages(stages), Issues: toProtoSchemaIssues(issues)}), nil
 }
 
+// ListStagesForTournament возвращает схему этапов и диагностику каждой
+// номинации турнира за одно обращение (спека 0041, FR-8/FR-10) — тонкая
+// обёртка вокруг service.ListStagesForTournament, которая сама переиспользует
+// ListStages в цикле по резолвленному списку номинаций (включая
+// материализацию авто-этапа, 0017 FR-4).
+func (h *AdminHandler) ListStagesForTournament(
+	ctx context.Context,
+	req *connect.Request[hemav1.ListStagesForTournamentRequest],
+) (*connect.Response[hemav1.ListStagesForTournamentResponse], error) {
+	entries, err := h.svc.ListStagesForTournament(ctx, req.Msg.TournamentId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ListStagesForTournamentResponse{Entries: toProtoNominationStagesEntries(entries)}), nil
+}
+
 // CreateStage добавляет номинации новый этап — сетку (0018, FR-2) либо
 // групповой этап (спека 0019, FR-7). UNSPECIFIED отклоняется с
 // InvalidArgument до вызова сервиса; остальные гейты по типу (валидный
@@ -430,6 +446,21 @@ func (h *AdminHandler) GetBoutBoard(
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.GetBoutBoardResponse{Board: toProtoBoard(board)}), nil
+}
+
+// GetArenaBoards возвращает доску ведения боёв каждой неархивной площадки
+// турнира за одно обращение (спека 0041, FR-7/FR-9) — тонкая обёртка вокруг
+// service.GetArenaBoards, которая сама переиспользует GetBoutBoard в цикле
+// по резолвленному списку площадок.
+func (h *AdminHandler) GetArenaBoards(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetArenaBoardsRequest],
+) (*connect.Response[hemav1.GetArenaBoardsResponse], error) {
+	entries, err := h.svc.GetArenaBoards(ctx, req.Msg.TournamentId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetArenaBoardsResponse{Entries: toProtoArenaBoardEntries(entries)}), nil
 }
 
 // GetArenaJournal возвращает журнал боёв пула, стоящего на площадке (спека
@@ -1097,6 +1128,33 @@ func toProtoStages(stages []domain.Stage) []*hemav1.Stage {
 	out := make([]*hemav1.Stage, 0, len(stages))
 	for _, s := range stages {
 		out = append(out, toProtoStage(s))
+	}
+	return out
+}
+
+// toProtoArenaBoardEntries маппит агрегирующий ответ GetArenaBoards (спека
+// 0041, FR-7): одна запись на каждую неархивную площадку турнира, board —
+// той же формы, что у одиночного GetBoutBoardResponse.board (toProtoBoard).
+func toProtoArenaBoardEntries(entries []domain.ArenaBoardEntry) []*hemav1.ArenaBoardEntry {
+	out := make([]*hemav1.ArenaBoardEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, &hemav1.ArenaBoardEntry{ArenaId: e.ArenaID, Board: toProtoBoard(e.Board)})
+	}
+	return out
+}
+
+// toProtoNominationStagesEntries маппит агрегирующий ответ
+// ListStagesForTournament (спека 0041, FR-8): одна запись на каждую
+// номинацию турнира, stages/issues — той же формы, что у одиночного
+// ListStagesResponse (toProtoStages/toProtoSchemaIssues).
+func toProtoNominationStagesEntries(entries []domain.NominationStagesEntry) []*hemav1.NominationStagesEntry {
+	out := make([]*hemav1.NominationStagesEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, &hemav1.NominationStagesEntry{
+			NominationId: e.NominationID,
+			Stages:       toProtoStages(e.Stages),
+			Issues:       toProtoSchemaIssues(e.Issues),
+		})
 	}
 	return out
 }

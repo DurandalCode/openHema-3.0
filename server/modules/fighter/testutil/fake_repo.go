@@ -4,6 +4,8 @@ package testutil
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,18 +105,138 @@ func (r *FakeRepo) FindByOrigin(_ context.Context, tournamentID, originUserID st
 	return domain.Fighter{}, domain.ErrNotFound
 }
 
-// ListByTournament возвращает ростер турнира.
-func (r *FakeRepo) ListByTournament(_ context.Context, tournamentID string) ([]domain.Fighter, error) {
+// ListByTournament возвращает страницу ростера турнира: бойцов с их
+// участиями, отфильтрованных/упорядоченных/нарезанных по filter (спека
+// 0041). Сортировка — по CreatedAt (тай-брейк по ID) — тот же порядок, что
+// реальный `ORDER BY created_at` в repo/queries/fighter.sql, нужен для
+// детерминированного LIMIT/OFFSET в тестах.
+func (r *FakeRepo) ListByTournament(_ context.Context, tournamentID string, filter domain.RosterFilter) ([]domain.Fighter, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	out := make([]domain.Fighter, 0)
+	out := r.filteredRoster(tournamentID, filter)
+	sortFightersByCreatedAt(out)
+
+	if filter.Offset >= int32(len(out)) {
+		return []domain.Fighter{}, nil
+	}
+	end := filter.Offset + filter.Limit
+	if end > int32(len(out)) {
+		end = int32(len(out))
+	}
+	return out[filter.Offset:end], nil
+}
+
+// CountRoster возвращает число бойцов турнира, подходящих под filter, без
+// Limit/Offset (спека 0041, FR-5).
+func (r *FakeRepo) CountRoster(_ context.Context, tournamentID string, filter domain.RosterFilter) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.filteredRoster(tournamentID, filter)), nil
+}
+
+// CountRosterByStatus возвращает счётчики бойцов по статусу для всего
+// турнира вне зависимости от фильтра/поиска (спека 0041, FR-4).
+func (r *FakeRepo) CountRosterByStatus(_ context.Context, tournamentID string) (map[domain.Status]int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make(map[domain.Status]int)
 	for _, f := range r.fighters {
-		if f.TournamentID == tournamentID {
-			out = append(out, f)
+		if f.TournamentID != tournamentID {
+			continue
 		}
+		out[f.Status]++
 	}
 	return out, nil
+}
+
+// filteredRoster возвращает бойцов турнира, подходящих под filter (все
+// измерения — логическое И, вызывающий блокирует мьютекс сам).
+func (r *FakeRepo) filteredRoster(tournamentID string, filter domain.RosterFilter) []domain.Fighter {
+	out := make([]domain.Fighter, 0)
+	for _, f := range r.fighters {
+		if f.TournamentID != tournamentID {
+			continue
+		}
+		if !rosterFilterMatches(f, filter) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// rosterFilterMatches проверяет один RosterFilter (спека 0041, FR-3):
+// статус, активное участие в одной из номинаций, клуб (включая
+// «без клуба»), подстрока по имени/клубу без учёта регистра. Пустое
+// измерение (и IncludeNoClub=false для клуба) — без ограничения.
+func rosterFilterMatches(f domain.Fighter, filter domain.RosterFilter) bool {
+	if len(filter.Statuses) > 0 {
+		match := false
+		for _, s := range filter.Statuses {
+			if f.Status == s {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	if len(filter.NominationIDs) > 0 {
+		match := false
+	participations:
+		for _, p := range f.Participations {
+			if p.Status != domain.ParticipationActive {
+				continue
+			}
+			for _, nomID := range filter.NominationIDs {
+				if p.NominationID == nomID {
+					match = true
+					break participations
+				}
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	if len(filter.Clubs) > 0 || filter.IncludeNoClub {
+		match := filter.IncludeNoClub && f.Club == ""
+		if !match {
+			for _, c := range filter.Clubs {
+				if f.Club == c {
+					match = true
+					break
+				}
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	if filter.Search != nil {
+		q := strings.ToLower(*filter.Search)
+		if !strings.Contains(strings.ToLower(f.Name), q) && !strings.Contains(strings.ToLower(f.Club), q) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sortFightersByCreatedAt(fighters []domain.Fighter) {
+	sort.Slice(fighters, func(i, j int) bool {
+		if fighters[i].CreatedAt.Equal(fighters[j].CreatedAt) {
+			return fighters[i].ID < fighters[j].ID
+		}
+		return fighters[i].CreatedAt.Before(fighters[j].CreatedAt)
+	})
 }
 
 // RosterByNomination возвращает публичный состав номинации: по каждому

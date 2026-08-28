@@ -353,9 +353,31 @@ type Repository interface {
 	ListByApplicant(ctx context.Context, userID string) ([]ApplicationView, error)
 	// ListByNomination возвращает все заявки номинации.
 	ListByNomination(ctx context.Context, nominationID string) ([]ApplicationView, error)
-	// ListByTournament — сводный экран заявок турнира с опциональными
-	// фильтрами по статусу и/или номинации. nil-фильтр = без ограничения.
-	ListByTournament(ctx context.Context, tournamentID string, status *State, nominationID *string) ([]ApplicationView, error)
+	// ListByTournament — сводный экран заявок турнира: статус/номинация/
+	// экипировка + LIMIT/OFFSET целиком в SQL, total — COUNT(*) с теми же
+	// WHERE (без limit/offset). Используется, когда f.Search пуст — это
+	// путь, снимающий NFR-1 (не тянет весь список турнира), самый частый
+	// сценарий (постраничная навигация без поиска по имени). f.Search,
+	// если задан здесь, применяется репозиторием как ILIKE по клубу и
+	// ApplicantNameOverride — этого достаточно только когда вызывающему не
+	// нужен резолв имени из auth; сервис для активного поиска использует
+	// SearchCandidates, не этот метод (см. ListFilter, service.go).
+	ListByTournament(ctx context.Context, tournamentID string, f ListFilter) (views []ApplicationView, total int, err error)
+	// SearchCandidates возвращает ВСЕ заявки турнира (без LIMIT/OFFSET),
+	// подходящие под статус/номинацию/экипировку и ILIKE по клубу ИЛИ
+	// ApplicantNameOverride — кандидатов для досева по подстроке в
+	// эффективном отображаемом имени (override ИЛИ имя, резолвленное через
+	// UserProvider из модуля auth). Используется service.ListApplications,
+	// когда f.Search непуст: имя заявителя — не поле read-модели заявки,
+	// поэтому полная фильтрация по нему не выражается одним SQL-запросом
+	// этого модуля (ADR 0002 — нет join через границу модуля). f.Limit/
+	// f.Offset игнорируются этим методом — постраничность режется в Go
+	// после досева по имени.
+	SearchCandidates(ctx context.Context, tournamentID string, f ListFilter) ([]ApplicationView, error)
+	// CountByTournamentStatus — счётчик заявок по каждому статусу турнира,
+	// не зависящий от фильтров/поиска запроса (FR-4, спека 0041) — «сколько
+	// всего в турнире», а не «сколько нашлось».
+	CountByTournamentStatus(ctx context.Context, tournamentID string) (map[State]int, error)
 	// ParticipantsByNomination возвращает неотозванные заявки номинации
 	// (стартовый лист).
 	ParticipantsByNomination(ctx context.Context, nominationID string) ([]ApplicationView, error)
@@ -365,6 +387,24 @@ type Repository interface {
 	// CountsByNomination возвращает «заявлено» (неотозванные) и
 	// «подтверждено» (оплачена + зарегистрирована) для счётчика номинации.
 	CountsByNomination(ctx context.Context, nominationID string) (applied int, confirmed int, err error)
+}
+
+// ListFilter — параметры сводного экрана заявок турнира (спека 0041):
+// фильтры по статусу/номинации/экипировке, поиск подстрокой (имя/клуб) и
+// постраничность в стиле auth.ListParams (limit/offset, int32). Пустые
+// срезы/nil-поля = без ограничения по этому измерению (как сегодня
+// «все заявки»). Search матчится без учёта регистра по клубу и по
+// эффективному отображаемому имени заявителя (ApplicantNameOverride либо
+// имя, резолвленное через UserProvider — имя не хранится в read-модели
+// заявки, поэтому фильтрация по нему частично выполняется в service, не
+// целиком в SQL, см. repo.go/service.go).
+type ListFilter struct {
+	Statuses       []State
+	NominationIDs  []string
+	NeedsEquipment *bool
+	Search         *string
+	Limit          int32
+	Offset         int32
 }
 
 // NominationInfo — сведения о номинации, нужные модулю application.

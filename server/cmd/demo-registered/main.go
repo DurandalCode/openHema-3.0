@@ -75,7 +75,7 @@ func main() {
 		"overflow_warnings", advanced.OverflowWarnings,
 	)
 
-	roster, err := svc.Fighter.ListRoster(ctx, result.TournamentID)
+	roster, err := demoseed.FullRoster(ctx, svc.Fighter, result.TournamentID)
 	if err != nil {
 		log.Error("list roster", "err", err)
 		os.Exit(1)

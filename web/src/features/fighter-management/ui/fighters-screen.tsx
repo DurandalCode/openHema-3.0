@@ -4,12 +4,14 @@ import { useMemo, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Pagination } from "@/shared/ui/pagination";
-import { clampPage, pageSlice } from "@/shared/lib/paginate";
+import { clampPage } from "@/shared/lib/paginate";
 import { toastSuccess } from "@/shared/lib/toast";
 import type { Fighter, FighterStatus } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { rosterExportUrl, type RosterFilterQuery } from "../api/requests";
+import { useFullRoster } from "../api/use-full-roster";
 import { useRoster } from "../api/use-roster";
-import { clubOptions, filterFighters, sortFighters, statusCounts } from "../lib/select-fighters";
+import { clubOptions } from "../lib/select-fighters";
 import { CreateFighterDialog } from "./create-fighter-dialog";
 import { FighterCardDialog } from "./fighter-card-dialog";
 import { countWord, FightersFilters } from "./fighters-filters";
@@ -17,8 +19,11 @@ import { FightersTable } from "./fighters-table";
 import { FindFighterByAccountDialog } from "./find-fighter-by-account-dialog";
 import { MergeFightersDialog } from "./merge-fighters-dialog";
 
-/** PAGE_SIZE — фиксированный размер клиентской страницы (spec FR-11). */
+/** PAGE_SIZE — размер серверной страницы ростера (spec 0026 FR-11). */
 export const PAGE_SIZE = 20;
+
+/** NO_CLUB — значение в `clubs`-фильтре, представляющее пункт «Без клуба» (spec 0026 FR-9). */
+const NO_CLUB = "";
 
 function fightersCountWord(n: number): string {
   return countWord(n, ["боец", "бойца", "бойцов"]);
@@ -29,11 +34,20 @@ function nominationsCountWord(n: number): string {
 }
 
 /**
- * FightersScreen — корень экрана «Бойцы» (spec FR-1…FR-25): ростер
- * таблицей с детерминированным порядком, чипы статусов со счётчиками по
- * всему ростеру, выпадающие фильтры номинации/клуба, поиск, клиентская
- * пагинация, карточка бойца (перевод/вывод/возврат/правка/участия) и
- * модалка ручного заведения из шапки раздела.
+ * FightersScreen — корень экрана «Бойцы» (spec FR-1…FR-25, спека 0041
+ * T20-T24): ростер таблицей с детерминированным порядком, чипы статусов со
+ * счётчиками по всему ростеру, выпадающие фильтры номинации/клуба, поиск,
+ * серверная пагинация, экспорт в CSV под текущий фильтр (FR-14), карточка
+ * бойца (перевод/вывод/возврат/правка/участия) и модалка ручного заведения
+ * из шапки раздела.
+ *
+ * Фильтр/поиск/постраничность выполняются на сервере (`useRoster`, спека
+ * 0041) — `select-fighters.ts` больше не фильтрует массив. `useFullRoster`
+ * — отдельный незафильтрованный запрос (план «Риски»), источник для
+ * выпадающего списка клубов, счётчика в шапке и полного списка бойцов,
+ * который читают `MergeFightersDialog`/`FighterCardDialog`, открытая по id
+ * из «Найти по учётке» (эти id могут не входить в текущую отфильтрованную
+ * страницу).
  *
  * Владеет UI-состоянием (фильтры/поиск/страница/id открытой карточки/
  * открытость модалки создания) через `useState` (ADR 0006). Заголовок
@@ -48,8 +62,6 @@ export function FightersScreen({
   nominations: Nomination[];
   tournamentName?: string | null;
 }) {
-  const rosterQuery = useRoster(tournamentId);
-
   const [statuses, setStatuses] = useState<Set<FighterStatus>>(new Set());
   const [nominationIds, setNominationIds] = useState<Set<string>>(new Set());
   const [clubs, setClubs] = useState<Set<string>>(new Set());
@@ -60,19 +72,35 @@ export function FightersScreen({
   const [findByAccountOpen, setFindByAccountOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
 
-  const all = useMemo(() => rosterQuery.data ?? [], [rosterQuery.data]);
-  // statusCounts не зависит от фильтров/поиска намеренно (FR-7/AC-2).
-  const counts = useMemo(() => statusCounts(all), [all]);
-  const clubOpts = useMemo(() => clubOptions(all), [all]);
-  const filtered = useMemo(
-    () => filterFighters(all, { statuses, nominationIds, clubs, query }),
-    [all, statuses, nominationIds, clubs, query],
+  // "" в clubs представляет пункт «Без клуба» (spec FR-9) — на сервере это
+  // отдельный флаг includeNoClub, не элемент clubs[] (ListRosterRequest).
+  const filters: RosterFilterQuery = useMemo(
+    () => ({
+      statuses: [...statuses],
+      nominationIds: [...nominationIds],
+      clubs: [...clubs].filter((c) => c !== NO_CLUB),
+      includeNoClub: clubs.has(NO_CLUB),
+      search: query,
+    }),
+    [statuses, nominationIds, clubs, query],
   );
-  const sorted = useMemo(() => sortFighters(filtered), [filtered]);
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const rosterQuery = useRoster(tournamentId, { ...filters, page, pageSize: PAGE_SIZE });
+  const fullRosterQuery = useFullRoster(tournamentId);
+
+  const fighters = rosterQuery.data?.fighters ?? [];
+  const totalCount = rosterQuery.data?.totalCount ?? 0;
+  // statusCounts не зависит от фильтров/поиска намеренно (FR-7/AC-2) —
+  // сервер считает их без фильтра при каждом ответе useRoster.
+  const counts = rosterQuery.data?.statusCounts ?? { active: 0, withdrawn: 0 };
+
+  const all = useMemo(() => fullRosterQuery.data ?? [], [fullRosterQuery.data]);
+  const clubOpts = useMemo(() => clubOptions(all), [all]);
+
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = clampPage(page, pageCount);
-  const pageItems = pageSlice(sorted, currentPage, PAGE_SIZE);
+
+  const exportUrl = rosterExportUrl(tournamentId, filters);
 
   const crumb = tournamentName ? `БОЙЦЫ · ${tournamentName.toUpperCase()}` : "БОЙЦЫ";
   const meta = `${all.length} ${fightersCountWord(all.length)} · ${nominations.length} ${nominationsCountWord(nominations.length)}`;
@@ -113,6 +141,12 @@ export function FightersScreen({
         meta={meta}
         action={
           <div className="flex items-center gap-2">
+            {/* Экспорт ростера под текущий фильтр экрана в CSV (спека 0041, FR-11/FR-14/FR-16
+                0026 FR-23) — обычная ссылка на BFF-роут, навигация браузера, не fetch+blob
+                (план «Риски»). */}
+            <Button type="button" variant="outline" asChild>
+              <a href={exportUrl}>Экспорт</a>
+            </Button>
             {/* Обратная проекция «учётка ↔ боец» — admin-only (спека 0040, FR-9/FR-10). */}
             <Button type="button" variant="outline" onClick={() => setFindByAccountOpen(true)}>
               Найти по учётке
@@ -144,7 +178,7 @@ export function FightersScreen({
         />
 
         <FightersTable
-          fighters={pageItems}
+          fighters={fighters}
           nominations={nominations}
           isLoading={rosterQuery.isLoading}
           error={rosterQuery.error}

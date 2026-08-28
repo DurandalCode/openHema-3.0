@@ -15,6 +15,13 @@ service StageAdminService {
   // групповой этап, если строки ещё нет (0017, FR-4) — единственное место,
   // где виртуальный этап получает постоянный id.
   rpc ListStages(ListStagesRequest) returns (ListStagesResponse);
+  // ListStagesForTournament возвращает схему этапов + диагностику (как
+  // ListStages) для всех номинаций турнира одним обращением (спека 0041,
+  // FR-8) — вместо одного запроса на номинацию у экрана списка номинаций
+  // (0028, NFR-2). Охват — NominationProvider.NominationsByTournament (тот
+  // же, что у GetTournamentLive, спека 0034). Холодные данные, без живого
+  // опроса (спека 0041, FR-10).
+  rpc ListStagesForTournament(ListStagesForTournamentRequest) returns (ListStagesForTournamentResponse);
   // CreateStage добавляет номинации новый этап — сетку (спека 0018, FR-2)
   // либо групповой этап (спека 0019, FR-7): параметры (размер сетки/бой за
   // 3-е место, либо число групп) задаются один раз и не редактируются
@@ -112,6 +119,13 @@ service StageAdminService {
   // стоящий на арене пул, его бои по порядку (0010) и текущий бой. board
   // не заполнен, если на арене никто не стоит.
   rpc GetBoutBoard(GetBoutBoardRequest) returns (GetBoutBoardResponse);
+  // GetArenaBoards возвращает доску ведения боёв (как GetBoutBoard) для всех
+  // неархивных площадок турнира одним обращением (спека 0041, FR-7) —
+  // вместо одного запроса на площадку за цикл обновления у доски площадок
+  // (0027, NFR-3). Охват — ArenaProvider.ActiveArenas (тот же, что у
+  // GetTournamentLive, спека 0034). Частота обновления не меняется (спека
+  // 0041, FR-9) — меняется число обращений за цикл.
+  rpc GetArenaBoards(GetArenaBoardsRequest) returns (GetArenaBoardsResponse);
   // GetArenaJournal возвращает журнал боёв пула, стоящего на площадке
   // (спека 0033, FR-33): начат/введён счёт/завершён/переоткрыт/сброшен,
   // новыми записями вперёд. Читает существующий event-sourced журнал боя
@@ -801,6 +815,23 @@ message ListStagesResponse {
   repeated SchemaIssue issues = 2;
 }
 
+message ListStagesForTournamentRequest {
+  string tournament_id = 1;
+}
+
+// NominationStagesEntry — та же форма, что ListStagesResponse, для одной
+// номинации в составе агрегирующего ответа (спека 0041).
+message NominationStagesEntry {
+  string nomination_id = 1;
+  repeated Stage stages = 2;
+  repeated SchemaIssue issues = 3;
+}
+
+message ListStagesForTournamentResponse {
+  // entries — одна запись на каждую номинацию турнира (спека 0041, FR-8).
+  repeated NominationStagesEntry entries = 1;
+}
+
 // CreateStageRequest — type = BRACKET (0018, FR-2) либо GROUPS (спека 0019,
 // FR-7: явное создание, в отличие от авто-этапа 0017 FR-4). bracket
 // заполняется только у BRACKET, groups — только у GROUPS. rule — опциональное
@@ -1191,6 +1222,24 @@ message GetBoutBoardRequest {
 
 message GetBoutBoardResponse {
   BoutBoard board = 1;
+}
+
+message GetArenaBoardsRequest {
+  string tournament_id = 1;
+}
+
+// ArenaBoardEntry — та же форма, что GetBoutBoardResponse, для одной
+// площадки в составе агрегирующего ответа (спека 0041). board не заполнен,
+// если на площадке никто не стоит (та же семантика, что у GetBoutBoard).
+message ArenaBoardEntry {
+  string arena_id = 1;
+  BoutBoard board = 2;
+}
+
+message GetArenaBoardsResponse {
+  // entries — одна запись на каждую неархивную площадку турнира (спека
+  // 0041, FR-7).
+  repeated ArenaBoardEntry entries = 1;
 }
 
 // BoutEventKind — вид записи журнала площадки (спека 0033, FR-33/FR-36).

@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Fighter, FighterStatus, Participation } from "@/entities/fighter/lib/types";
+import type { Fighter, Participation } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
-import {
-  addableNominations,
-  clubOptions,
-  filterFighters,
-  sortFighters,
-  statusCounts,
-} from "./select-fighters";
+import { addableNominations, clubOptions, sortFighters } from "./select-fighters";
 
 function participation(nominationId: string, status: Participation["status"] = "PARTICIPATION_STATUS_ACTIVE"): Participation {
   return { nominationId, status };
@@ -72,82 +66,6 @@ describe("sortFighters", () => {
     const copy = [...list];
     sortFighters(list);
     expect(list).toEqual(copy);
-  });
-});
-
-describe("filterFighters", () => {
-  const activeSabre = fighter({
-    id: "f1",
-    name: "Анна Кораблёва",
-    club: "Клинок Севера",
-    status: "FIGHTER_STATUS_ACTIVE",
-    participations: [participation("sabre")],
-  });
-  const withdrawnFighter = fighter({
-    id: "f2",
-    name: "Борис Волков",
-    club: "Стальной Клуб",
-    status: "FIGHTER_STATUS_WITHDRAWN",
-    withdrawalReason: "WITHDRAWAL_REASON_INJURY",
-  });
-  const removedFromSabre = fighter({
-    id: "f3",
-    name: "Виктор Орлов",
-    club: "",
-    status: "FIGHTER_STATUS_ACTIVE",
-    participations: [
-      participation("sabre", "PARTICIPATION_STATUS_REMOVED"),
-      participation("longsword"),
-    ],
-  });
-  const all = [activeSabre, withdrawnFighter, removedFromSabre];
-
-  it("returns everything when no filter dimension is set", () => {
-    expect(filterFighters(all, {})).toEqual(all);
-  });
-
-  it("filters by a set of statuses (empty set = no filter)", () => {
-    expect(filterFighters(all, { statuses: new Set() })).toEqual(all);
-    expect(
-      filterFighters(all, { statuses: new Set<FighterStatus>(["FIGHTER_STATUS_WITHDRAWN"]) }),
-    ).toEqual([withdrawnFighter]);
-  });
-
-  it("filters by nomination — only counts ACTIVE participation, not removed (AC-4)", () => {
-    expect(filterFighters(all, { nominationIds: new Set(["sabre"]) })).toEqual([activeSabre]);
-    expect(filterFighters(all, { nominationIds: new Set(["longsword"]) })).toEqual([removedFromSabre]);
-  });
-
-  it("filters by club, with '' representing 'no club'", () => {
-    expect(filterFighters(all, { clubs: new Set(["Клинок Севера"]) })).toEqual([activeSabre]);
-    expect(filterFighters(all, { clubs: new Set([""]) })).toEqual([removedFromSabre]);
-  });
-
-  it("filters by case-insensitive substring on name or club", () => {
-    expect(filterFighters(all, { query: "кораб" })).toEqual([activeSabre]);
-    expect(filterFighters(all, { query: "СТАЛЬНОЙ" })).toEqual([withdrawnFighter]);
-    expect(filterFighters(all, { query: "no-match" })).toEqual([]);
-  });
-
-  it("combines every dimension with AND", () => {
-    const result = filterFighters(all, {
-      statuses: new Set<FighterStatus>(["FIGHTER_STATUS_ACTIVE"]),
-      nominationIds: new Set(["longsword"]),
-      query: "виктор",
-    });
-    expect(result).toEqual([removedFromSabre]);
-  });
-});
-
-describe("statusCounts", () => {
-  it("counts active/withdrawn across the full roster, independent of any filter (FR-7/AC-2)", () => {
-    const fighters = [
-      fighter({ id: "1", status: "FIGHTER_STATUS_ACTIVE" }),
-      fighter({ id: "2", status: "FIGHTER_STATUS_ACTIVE" }),
-      fighter({ id: "3", status: "FIGHTER_STATUS_WITHDRAWN" }),
-    ];
-
-    expect(statusCounts(fighters)).toEqual({ active: 2, withdrawn: 1 });
   });
 });
 

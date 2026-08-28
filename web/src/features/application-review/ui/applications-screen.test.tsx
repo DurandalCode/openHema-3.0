@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Application } from "@/entities/application/lib/types";
+import type { Application, ApplicationState } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { ApplicationsScreen, PAGE_SIZE } from "./applications-screen";
 
@@ -48,15 +48,78 @@ function nomination(overrides: Partial<Nomination>): Nomination {
   };
 }
 
-let overviewState: { data: Application[]; isLoading: boolean; error: Error | null } = {
-  data: [],
-  isLoading: false,
-  error: null,
-};
+// overviewFixture — весь список заявок «турнира» на стороне тестового
+// double'а (спека 0041 переносит фильтр/поиск/постраничность/счётчики на
+// сервер — мок `useApplicationsOverview` ниже симулирует этот сервер поверх
+// фикстуры, чтобы тесты экрана проверяли поведение сквозь тот же контракт,
+// каким его видит компонент: applications/totalCount/statusCounts как
+// функция от переданного фильтра, а не готовый массив).
+let overviewFixture: Application[] = [];
+let overviewLoading = false;
+let overviewError: Error | null = null;
 const overviewRefetch = vi.fn();
 
+type MockFilters = {
+  statuses?: Set<ApplicationState>;
+  nominationIds?: Set<string>;
+  needsEquipment?: boolean;
+  search?: string;
+  page: number;
+  pageSize: number;
+};
+
+function simulateServerOverview(all: Application[], filters: MockFilters) {
+  const statuses = filters.statuses ?? new Set<ApplicationState>();
+  const nominationIds = filters.nominationIds ?? new Set<string>();
+  const needsEquipment = filters.needsEquipment ?? false;
+  const q = (filters.search ?? "").trim().toLowerCase();
+
+  const filtered = all.filter((a) => {
+    if (statuses.size > 0 && !statuses.has(a.state)) return false;
+    if (nominationIds.size > 0 && !nominationIds.has(a.nominationId)) return false;
+    if (needsEquipment && !a.needsEquipment) return false;
+    if (q !== "" && !a.applicantDisplayName.toLowerCase().includes(q) && !a.club.toLowerCase().includes(q)) {
+      return false;
+    }
+    return true;
+  });
+
+  const start = (filters.page - 1) * filters.pageSize;
+  const applications = filtered.slice(start, start + filters.pageSize);
+
+  // statusCounts — по ВСЕМУ списку, не зависит от фильтра/поиска (FR-4/AC-2).
+  const countsMap = new Map<ApplicationState, number>();
+  for (const a of all) countsMap.set(a.state, (countsMap.get(a.state) ?? 0) + 1);
+  const statusCounts = Array.from(countsMap.entries()).map(([status, count]) => ({ status, count }));
+
+  return { applications, totalCount: filtered.length, statusCounts };
+}
+
 vi.mock("../api/use-applications-overview", () => ({
-  useApplicationsOverview: () => ({ ...overviewState, refetch: overviewRefetch }),
+  useApplicationsOverview: (_tournamentId: string, filters: MockFilters) => {
+    if (overviewError) {
+      return {
+        applications: [],
+        totalCount: 0,
+        statusCounts: [],
+        isLoading: false,
+        error: overviewError,
+        refetch: overviewRefetch,
+      };
+    }
+    if (overviewLoading) {
+      return {
+        applications: [],
+        totalCount: 0,
+        statusCounts: [],
+        isLoading: true,
+        error: null,
+        refetch: overviewRefetch,
+      };
+    }
+    const result = simulateServerOverview(overviewFixture, filters);
+    return { ...result, isLoading: false, error: null, refetch: overviewRefetch };
+  },
 }));
 
 type MutateOpts = {
@@ -94,7 +157,9 @@ vi.mock("@/shared/lib/toast", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  overviewState = { data: [], isLoading: false, error: null };
+  overviewFixture = [];
+  overviewLoading = false;
+  overviewError = null;
   confirmResult = { ok: true };
   registerResult = { ok: true, capacityExceeded: false };
 });
@@ -107,16 +172,12 @@ function rowLabels(): string[] {
 
 describe("ApplicationsScreen", () => {
   it("shows the queue in deterministic order: secretary-pending first, then applicant-pending, then terminal (AC-1)", () => {
-    overviewState = {
-      data: [
-        app({ id: "reg", applicantDisplayName: "Терминальный", state: "APPLICATION_STATE_REGISTERED" }),
-        app({ id: "sub", applicantDisplayName: "Ждём бойца", state: "APPLICATION_STATE_SUBMITTED" }),
-        app({ id: "paid", applicantDisplayName: "Оплачена", state: "APPLICATION_STATE_PAID" }),
-        app({ id: "await", applicantDisplayName: "Ждёт секретаря", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
-      ],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [
+      app({ id: "reg", applicantDisplayName: "Терминальный", state: "APPLICATION_STATE_REGISTERED" }),
+      app({ id: "sub", applicantDisplayName: "Ждём бойца", state: "APPLICATION_STATE_SUBMITTED" }),
+      app({ id: "paid", applicantDisplayName: "Оплачена", state: "APPLICATION_STATE_PAID" }),
+      app({ id: "await", applicantDisplayName: "Ждёт секретаря", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
+    ];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 
@@ -124,19 +185,15 @@ describe("ApplicationsScreen", () => {
   });
 
   it("keeps status-chip counts independent of the search query (AC-2)", () => {
-    overviewState = {
-      data: [
-        ...Array.from({ length: 31 }, (_, i) => app({ id: `s${i}`, state: "APPLICATION_STATE_SUBMITTED" })),
-        ...Array.from({ length: 6 }, (_, i) =>
-          app({ id: `w${i}`, state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
-        ),
-        ...Array.from({ length: 124 }, (_, i) =>
-          app({ id: `r${i}`, applicantDisplayName: `Uniq ${i}`, state: "APPLICATION_STATE_REGISTERED" }),
-        ),
-      ],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [
+      ...Array.from({ length: 31 }, (_, i) => app({ id: `s${i}`, state: "APPLICATION_STATE_SUBMITTED" })),
+      ...Array.from({ length: 6 }, (_, i) =>
+        app({ id: `w${i}`, state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
+      ),
+      ...Array.from({ length: 124 }, (_, i) =>
+        app({ id: `r${i}`, applicantDisplayName: `Uniq ${i}`, state: "APPLICATION_STATE_REGISTERED" }),
+      ),
+    ];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 
@@ -148,15 +205,11 @@ describe("ApplicationsScreen", () => {
   });
 
   it("supports multi-select of statuses (AC-3)", () => {
-    overviewState = {
-      data: [
-        app({ id: "a", applicantDisplayName: "Первый", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
-        app({ id: "b", applicantDisplayName: "Второй", state: "APPLICATION_STATE_PAID" }),
-        app({ id: "c", applicantDisplayName: "Третий", state: "APPLICATION_STATE_SUBMITTED" }),
-      ],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [
+      app({ id: "a", applicantDisplayName: "Первый", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" }),
+      app({ id: "b", applicantDisplayName: "Второй", state: "APPLICATION_STATE_PAID" }),
+      app({ id: "c", applicantDisplayName: "Третий", state: "APPLICATION_STATE_SUBMITTED" }),
+    ];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 
@@ -170,14 +223,10 @@ describe("ApplicationsScreen", () => {
 
   it("preselects the nomination filter and combines multiple selections (AC-4)", () => {
     const nominations = [nomination({ id: "n1", title: "Лонгсворд" }), nomination({ id: "n2", title: "Сабля" })];
-    overviewState = {
-      data: [
-        app({ id: "a", nominationId: "n1", applicantDisplayName: "Из Лонгсворда" }),
-        app({ id: "b", nominationId: "n2", applicantDisplayName: "Из Сабли" }),
-      ],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [
+      app({ id: "a", nominationId: "n1", applicantDisplayName: "Из Лонгсворда" }),
+      app({ id: "b", nominationId: "n2", applicantDisplayName: "Из Сабли" }),
+    ];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={nominations} initialNominationId="n1" />);
 
@@ -197,14 +246,10 @@ describe("ApplicationsScreen", () => {
   });
 
   it("combines equipment filter and search (AC-5)", () => {
-    overviewState = {
-      data: [
-        app({ id: "a", applicantDisplayName: "С экипировкой", club: "Клинок", needsEquipment: true, state: "APPLICATION_STATE_PAID" }),
-        app({ id: "b", applicantDisplayName: "Без экипировки", club: "Клинок", needsEquipment: false, state: "APPLICATION_STATE_PAID" }),
-      ],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [
+      app({ id: "a", applicantDisplayName: "С экипировкой", club: "Клинок", needsEquipment: true, state: "APPLICATION_STATE_PAID" }),
+      app({ id: "b", applicantDisplayName: "Без экипировки", club: "Клинок", needsEquipment: false, state: "APPLICATION_STATE_PAID" }),
+    ];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 
@@ -219,11 +264,7 @@ describe("ApplicationsScreen", () => {
   });
 
   it("confirming payment shows a success toast (AC-6)", () => {
-    overviewState = {
-      data: [app({ id: "a1", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" })],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [app({ id: "a1", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" })];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 
@@ -235,14 +276,10 @@ describe("ApplicationsScreen", () => {
 
   it("registering an overfull-nomination application warns beforehand and confirms with the warning in the toast (AC-7)", () => {
     registerResult = { ok: true, capacityExceeded: true };
-    overviewState = {
-      data: [
-        app({ id: "a1", nominationId: "n1", state: "APPLICATION_STATE_PAID" }),
-        app({ id: "reg1", nominationId: "n1", state: "APPLICATION_STATE_REGISTERED", applicantDisplayName: "Другой" }),
-      ],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [
+      app({ id: "a1", nominationId: "n1", state: "APPLICATION_STATE_PAID" }),
+      app({ id: "reg1", nominationId: "n1", state: "APPLICATION_STATE_REGISTERED", applicantDisplayName: "Другой" }),
+    ];
 
     render(
       <ApplicationsScreen
@@ -263,11 +300,7 @@ describe("ApplicationsScreen", () => {
 
   it("a rejected action shows a toastError without a retry action (AC-8)", () => {
     confirmResult = { ok: false, error: "Нельзя подтвердить оплату" };
-    overviewState = {
-      data: [app({ id: "a1", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" })],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [app({ id: "a1", state: "APPLICATION_STATE_AWAITING_PAYMENT_CONFIRMATION" })];
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 
@@ -280,11 +313,7 @@ describe("ApplicationsScreen", () => {
   });
 
   it("fills the section header: crumb with tournament name, title, and a count (AC-13)", () => {
-    overviewState = {
-      data: Array.from({ length: 187 }, (_, i) => app({ id: `a${i}`, applicantDisplayName: `Заявитель ${i}` })),
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = Array.from({ length: 187 }, (_, i) => app({ id: `a${i}`, applicantDisplayName: `Заявитель ${i}` }));
     const nominations = Array.from({ length: 5 }, (_, i) => nomination({ id: `n${i}`, title: `Ном ${i}` }));
 
     render(
@@ -307,45 +336,39 @@ describe("ApplicationsScreen", () => {
   });
 
   it("shows loading skeleton, retryable error, and distinct empty states (AC-14)", () => {
-    overviewState = { data: [], isLoading: true, error: null };
+    overviewLoading = true;
     const { unmount } = render(<ApplicationsScreen tournamentId="t1" nominations={[]} />);
     expect(document.querySelectorAll('[data-slot="skeleton-row"]').length).toBeGreaterThan(0);
     unmount();
 
-    overviewState = { data: [], isLoading: false, error: new Error("Сеть недоступна") };
+    overviewLoading = false;
+    overviewError = new Error("Сеть недоступна");
     const { unmount: unmount2 } = render(<ApplicationsScreen tournamentId="t1" nominations={[]} />);
     expect(screen.getByText("Сеть недоступна")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     expect(overviewRefetch).toHaveBeenCalledTimes(1);
     unmount2();
 
-    overviewState = { data: [], isLoading: false, error: null };
+    overviewError = null;
+    overviewFixture = [];
     const { unmount: unmount3 } = render(<ApplicationsScreen tournamentId="t1" nominations={[]} />);
     expect(screen.getByText("Заявок в турнире нет")).toBeInTheDocument();
     unmount3();
 
-    overviewState = {
-      data: [app({ id: "a1", applicantDisplayName: "Единственный" })],
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = [app({ id: "a1", applicantDisplayName: "Единственный" })];
     render(<ApplicationsScreen tournamentId="t1" nominations={[]} />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "нет такого" } });
     expect(screen.getByText("По выбранным фильтрам ничего не найдено")).toBeInTheDocument();
   });
 
   it("resets pagination to page 1 when a filter changes (AC-15)", () => {
-    overviewState = {
-      data: Array.from({ length: PAGE_SIZE + 3 }, (_, i) =>
-        app({
-          id: `a${i}`,
-          applicantDisplayName: `Заявитель ${String(i + 1).padStart(2, "0")}`,
-          state: "APPLICATION_STATE_SUBMITTED",
-        }),
-      ),
-      isLoading: false,
-      error: null,
-    };
+    overviewFixture = Array.from({ length: PAGE_SIZE + 3 }, (_, i) =>
+      app({
+        id: `a${i}`,
+        applicantDisplayName: `Заявитель ${String(i + 1).padStart(2, "0")}`,
+        state: "APPLICATION_STATE_SUBMITTED",
+      }),
+    );
 
     render(<ApplicationsScreen tournamentId="t1" nominations={[nomination({})]} />);
 

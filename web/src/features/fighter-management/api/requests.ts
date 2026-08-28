@@ -1,20 +1,91 @@
-import type { Fighter, WithdrawalReason } from "@/entities/fighter/lib/types";
+import type { Fighter, FighterStatus, WithdrawalReason } from "@/entities/fighter/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
-
-export type FighterListResult =
-  | { ok: true; fighters: Fighter[] }
-  | { ok: false; error: string };
+import type { StatusCounts } from "../lib/select-fighters";
 
 export type FighterResult = { ok: true; fighter: Fighter } | { ok: false; error: string };
 
-/** listRosterRequest — GET /api/admin/fighters?tournamentId=... (admin). */
-export async function listRosterRequest(tournamentId: string): Promise<FighterListResult> {
-  const res = await apiFetch<{ fighters?: Fighter[] }>(
-    `/api/admin/fighters?${new URLSearchParams({ tournamentId })}`,
+/**
+ * RosterFilterQuery — фильтр/поиск ростера (спека 0041, FR-1..FR-3): пустое/
+ * отсутствующее измерение = без ограничения по нему, как и на сервере
+ * (`ListRoster`). `clubs` — только реальные названия клубов; «Без клуба»
+ * (0026 FR-9) — отдельный флаг `includeNoClub`, не элемент `clubs`.
+ */
+export type RosterFilterQuery = {
+  statuses?: FighterStatus[];
+  nominationIds?: string[];
+  clubs?: string[];
+  includeNoClub?: boolean;
+  search?: string;
+};
+
+export type RosterListQuery = RosterFilterQuery & { page: number; pageSize: number };
+
+export type RosterListResult =
+  | { ok: true; fighters: Fighter[]; totalCount: number; statusCounts: StatusCounts }
+  | { ok: false; error: string };
+
+/**
+ * FULL_ROSTER_LIMIT — «весь ростер турнира одним запросом» (спека 0041,
+ * план «Риски»): `ListRosterResponse` не отдаёт отдельный список уникальных
+ * клубов — вместо правки контракта (зафиксирован, не наш трек) выпадающий
+ * список клубов (0026 FR-9) и полный список бойцов для
+ * `MergeFightersDialog`/карточки, открытой из «Найти по учётке», читают
+ * отдельный незафильтрованный запрос с большим `limit`. Компромисс: этот
+ * запрос НЕ разделяет цель NFR-1 (ответ не растёт с числом записей) — он
+ * растёт, как раньше до инкремента 0041, — но остаётся единственным таким
+ * запросом экрана, а не на каждый рендер/фильтр.
+ */
+export const FULL_ROSTER_LIMIT = 10_000;
+
+/** buildRosterFilterParams — query-параметры фильтра/поиска, без page/pageSize (переиспользуется экспортом). */
+export function buildRosterFilterParams(
+  tournamentId: string,
+  filters: RosterFilterQuery,
+): URLSearchParams {
+  const params = new URLSearchParams({ tournamentId });
+  for (const status of filters.statuses ?? []) params.append("statuses", status);
+  for (const nominationId of filters.nominationIds ?? []) params.append("nominationIds", nominationId);
+  for (const club of filters.clubs ?? []) params.append("clubs", club);
+  if (filters.includeNoClub) params.set("includeNoClub", "1");
+  const search = filters.search?.trim();
+  if (search) params.set("search", search);
+  return params;
+}
+
+/**
+ * listRosterRequest — GET /api/admin/fighters?tournamentId=...&... (admin,
+ * спека 0041): постраничный ростер под текущий фильтр/поиск/страницу.
+ */
+export async function listRosterRequest(
+  tournamentId: string,
+  query: RosterListQuery,
+): Promise<RosterListResult> {
+  const params = buildRosterFilterParams(tournamentId, query);
+  params.set("page", String(query.page));
+  params.set("pageSize", String(query.pageSize));
+  const res = await apiFetch<{ fighters?: Fighter[]; totalCount?: number; statusCounts?: StatusCounts }>(
+    `/api/admin/fighters?${params}`,
     { method: "GET" },
   );
   if (!res.ok) return { ok: false, error: res.error };
-  return { ok: true, fighters: res.data.fighters ?? [] };
+  return {
+    ok: true,
+    fighters: res.data.fighters ?? [],
+    totalCount: res.data.totalCount ?? 0,
+    statusCounts: res.data.statusCounts ?? { active: 0, withdrawn: 0 },
+  };
+}
+
+/**
+ * rosterExportUrl — URL `GET /api/admin/fighters/export` под текущий
+ * фильтр/поиск экрана (спека 0041, FR-14), БЕЗ page/pageSize —
+ * экспортируется весь отфильтрованный набор. Обычная ссылка для навигации
+ * браузера (план «Риски»: скачивание файла — не `fetch`+blob), не
+ * `apiFetch`.
+ */
+export function rosterExportUrl(tournamentId: string, filters: RosterFilterQuery): string {
+  const params = buildRosterFilterParams(tournamentId, filters);
+  return `/api/admin/fighters/export?${params}`;
 }
 
 export type CreateFighterInput = {
