@@ -1,5 +1,6 @@
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { ForecastTime } from "@/shared/ui/forecast-time";
 import { Col, Row } from "@/shared/ui/stack";
 import type { LiveArenaDto, LiveArenaState } from "@/entities/tournament-live/lib/types";
 import { arenaStateLabel, arenaSubtitle } from "@/entities/tournament-live/lib/arena";
@@ -63,6 +64,12 @@ export function ArenaCard({ arena }: { arena: LiveArenaDto }) {
             <span className="text-xs text-muted-foreground">
               Бой {bout.sequenceNumber} из {bout.poolBoutTotal}
             </span>
+            {arena.nextBoutForecast?.expectedStartAt && (
+              <span className="text-xs">
+                <span className="text-muted-foreground">следующий бой: </span>
+                <ForecastTime forecast={arena.nextBoutForecast} />
+              </span>
+            )}
           </Col>
         </CardContent>
       )}

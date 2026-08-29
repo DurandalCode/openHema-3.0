@@ -1,4 +1,5 @@
 import { boutStateLabel } from "@/entities/pool/lib/types";
+import { ForecastTime } from "@/shared/ui/forecast-time";
 import type { LiveFeedBoutDto } from "@/entities/tournament-live/lib/types";
 import { boutOutcomeLabel, boutTimeLabel } from "@/entities/tournament-live/lib/feed";
 
@@ -6,16 +7,20 @@ import { boutOutcomeLabel, boutTimeLabel } from "@/entities/tournament-live/lib/
  * BoutFeedRow — одна строка ленты боёв дня (спека 0034, FR-15..FR-18,
  * AC-11..AC-14): время (фактическое, `boutTimeLabel`), площадка, пара,
  * номинация+этап, счёт, состояние, а для завершённого — итог
- * (`boutOutcomeLabel`).
+ * (`boutOutcomeLabel`). Не начатый бой с прогнозом (спека 0043, ADR 0020,
+ * FR-20) показывает `<ForecastTime>` вместо прочерка — прогноз есть только
+ * у боёв поставленного пула (горизонт оценки, FR-9), у остальных
+ * `forecast` отсутствует и ячейка остаётся прочерком, как раньше.
  */
 export function BoutFeedRow({ bout }: { bout: LiveFeedBoutDto }) {
   const outcome = boutOutcomeLabel(bout);
   const nominationLabel = [bout.nominationName, bout.stageTitle].filter(Boolean).join(" · ");
+  const forecast = bout.state === "BOUT_STATE_NOT_STARTED" ? bout.forecast : undefined;
 
   return (
     <tr className="border-b border-border/60 text-sm">
       <td className="py-2 pr-4 whitespace-nowrap font-mono text-xs text-muted-foreground">
-        {boutTimeLabel(bout)}
+        {forecast?.expectedStartAt ? <ForecastTime forecast={forecast} /> : boutTimeLabel(bout)}
       </td>
       <td className="py-2 pr-4 whitespace-nowrap">{bout.arenaName}</td>
       <td className="py-2 pr-4">
