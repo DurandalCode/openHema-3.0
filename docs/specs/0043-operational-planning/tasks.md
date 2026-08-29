@@ -43,7 +43,7 @@
       стоящий пул; чего модель заведомо не знает (перерывы, награждения —
       спека NFR-5); **почему у прогноза пока нет почтового канала** и что
       п. 5.4 ADR 0017 при этом отложен, а не отменён. _(документ — не TDD-шаг)_
-- [ ] T2. **Контракты** — `proto/hema/v1/stage.proto` (единственный
+- [x] T2. **Контракты** — `proto/hema/v1/stage.proto` (единственный
       затронутый файл): `PaceEstimate`, `BoutForecast`, `ArenaIdleState`,
       `ConsoleAlertKind`, `ConsoleArena`, `ConsoleNomination`,
       `ConsoleQueueItem`, `ConsoleAlert`, `TournamentConsoleSnapshot`, RPC
