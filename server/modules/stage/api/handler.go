@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -461,6 +462,66 @@ func (h *AdminHandler) GetArenaBoards(
 		return nil, mapError(err)
 	}
 	return connect.NewResponse(&hemav1.GetArenaBoardsResponse{Entries: toProtoArenaBoardEntries(entries)}), nil
+}
+
+// GetTournamentConsole возвращает пульт турнира целиком (спека 0043,
+// FR-8/FR-9/FR-19) — тонкая обёртка вокруг service.GetTournamentConsole.
+func (h *AdminHandler) GetTournamentConsole(
+	ctx context.Context,
+	req *connect.Request[hemav1.GetTournamentConsoleRequest],
+) (*connect.Response[hemav1.GetTournamentConsoleResponse], error) {
+	snap, err := h.svc.GetTournamentConsole(ctx, req.Msg.TournamentId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.GetTournamentConsoleResponse{Snapshot: toProtoConsoleSnapshot(snap)}), nil
+}
+
+// WatchTournamentConsole — server-streaming живой канал пульта (спека
+// 0043, FR-18): первый кадр — текущий снапшот (как GetTournamentConsole),
+// далее — по одному кадру на каждый сигнал топика турнира. Переиспользует
+// тот же топик, что WatchTournamentLive (0034, SubscribeTournament) — все
+// мутации, влияющие на пульт (постановка/снятие пула, лайфсайкл боя),
+// уже публикуют PublishTournamentChanged рядом с сигналом номинации
+// (service.notifyNominationChanged) — заводить отдельную тему `console:*`
+// означало бы вести второй, синхронный с первым, канал сигналов без
+// дополнительной пользы. Завершается без ошибки по отмене контекста
+// клиентом (зеркалит WatchTournamentLive).
+func (h *AdminHandler) WatchTournamentConsole(
+	ctx context.Context,
+	req *connect.Request[hemav1.WatchTournamentConsoleRequest],
+	stream *connect.ServerStream[hemav1.WatchTournamentConsoleResponse],
+) error {
+	tournamentID := strings.TrimSpace(req.Msg.TournamentId)
+	if tournamentID == "" {
+		return mapError(domain.ErrInvalidInput)
+	}
+
+	snap, err := h.svc.GetTournamentConsole(ctx, tournamentID)
+	if err != nil {
+		return mapError(err)
+	}
+	if err := stream.Send(&hemav1.WatchTournamentConsoleResponse{Snapshot: toProtoConsoleSnapshot(snap)}); err != nil {
+		return err
+	}
+
+	ch, cancel := h.svc.SubscribeTournament()
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ch:
+			snap, err := h.svc.GetTournamentConsole(ctx, tournamentID)
+			if err != nil {
+				return mapError(err)
+			}
+			if err := stream.Send(&hemav1.WatchTournamentConsoleResponse{Snapshot: toProtoConsoleSnapshot(snap)}); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 // GetArenaJournal возвращает журнал боёв пула, стоящего на площадке (спека
@@ -1138,7 +1199,15 @@ func toProtoStages(stages []domain.Stage) []*hemav1.Stage {
 func toProtoArenaBoardEntries(entries []domain.ArenaBoardEntry) []*hemav1.ArenaBoardEntry {
 	out := make([]*hemav1.ArenaBoardEntry, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, &hemav1.ArenaBoardEntry{ArenaId: e.ArenaID, Board: toProtoBoard(e.Board)})
+		entry := &hemav1.ArenaBoardEntry{
+			ArenaId:   e.ArenaID,
+			Board:     toProtoBoard(e.Board),
+			IdleState: toProtoArenaIdleState(e.IdleState),
+		}
+		if e.FreeSince != nil {
+			entry.FreeSince = timestamppb.New(*e.FreeSince)
+		}
+		out = append(out, entry)
 	}
 	return out
 }
@@ -1443,6 +1512,50 @@ func toProtoBoardBout(b domain.BoutRef) *hemav1.BoardBout {
 		State:          toProtoBoutState(b.State),
 		ScoreA:         int32(b.ScoreA),
 		ScoreB:         int32(b.ScoreB),
+		Forecast:       toProtoBoutForecast(b.Forecast),
+	}
+}
+
+// toProtoBoutForecast маппит ориентировочное время боя (спека 0043, ADR
+// 0020). nil — прогноза нет (не начатый бой без стоящего на площадке пула
+// либо бой уже идёт/завершён, FR-24) — не заполненное proto-сообщение, та
+// же семантика, что у LiveFeedBout.StartedAt/FinishedAt.
+func toProtoBoutForecast(f *domain.BoutForecast) *hemav1.BoutForecast {
+	if f == nil {
+		return nil
+	}
+	return &hemav1.BoutForecast{
+		ExpectedStartAt: timestamppb.New(f.ExpectedStartAt),
+		BoutsAhead:      int32(f.BoutsAhead),
+		Provisional:     f.Provisional,
+		Imminent:        f.Imminent,
+	}
+}
+
+// toProtoPaceEstimate маппит темп площадки (спека 0043, ADR 0020, п.5):
+// Tick — time.Duration домена — переводится в целые секунды (proto несёт
+// tick_seconds, не наносекундную точность — темп площадки не нуждается в
+// ней).
+func toProtoPaceEstimate(p domain.PaceEstimate) *hemav1.PaceEstimate {
+	return &hemav1.PaceEstimate{
+		TickSeconds: int32(p.Tick / time.Second),
+		SampleCount: int32(p.SampleCount),
+		Provisional: p.Provisional,
+	}
+}
+
+// toProtoArenaIdleState маппит состояние простоя площадки (спека 0043,
+// FR-26/FR-28).
+func toProtoArenaIdleState(s domain.ArenaIdleState) hemav1.ArenaIdleState {
+	switch s {
+	case domain.ArenaIdleOccupied:
+		return hemav1.ArenaIdleState_ARENA_IDLE_STATE_OCCUPIED
+	case domain.ArenaIdleWaitingFirstPool:
+		return hemav1.ArenaIdleState_ARENA_IDLE_STATE_WAITING_FIRST_POOL
+	case domain.ArenaIdleFree:
+		return hemav1.ArenaIdleState_ARENA_IDLE_STATE_FREE
+	default:
+		return hemav1.ArenaIdleState_ARENA_IDLE_STATE_UNSPECIFIED
 	}
 }
 
@@ -1794,6 +1907,7 @@ func toProtoLiveArena(a domain.LiveArenaView) *hemav1.LiveArena {
 		StageTitle:       a.StageTitle,
 		PoolBoutTotal:    int32(a.PoolBoutTotal),
 		PoolBoutFinished: int32(a.PoolBoutFinished),
+		NextBoutForecast: toProtoBoutForecast(a.NextBoutForecast),
 	}
 	if a.CurrentBout != nil {
 		out.CurrentBout = toProtoFeedBout(*a.CurrentBout)
@@ -1820,6 +1934,7 @@ func toProtoFeedBout(b domain.FeedBout) *hemav1.LiveFeedBout {
 		State:          toProtoBoutState(b.State),
 		ScoreA:         int32(b.ScoreA),
 		ScoreB:         int32(b.ScoreB),
+		Forecast:       toProtoBoutForecast(b.Forecast),
 	}
 	if b.StartedAt != nil {
 		out.StartedAt = timestamppb.New(*b.StartedAt)
@@ -1869,5 +1984,138 @@ func toProtoLiveNominationPhase(p domain.NominationPhase) hemav1.LiveNominationP
 		return hemav1.LiveNominationPhase_LIVE_NOMINATION_PHASE_FINISHED
 	default:
 		return hemav1.LiveNominationPhase_LIVE_NOMINATION_PHASE_UNSPECIFIED
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0043: пульт турнира (ADR 0020).
+// ---------------------------------------------------------------------
+
+// toProtoConsoleSnapshot маппит пульт турнира целиком (FR-8/FR-9/FR-19).
+func toProtoConsoleSnapshot(s domain.ConsoleSnapshot) *hemav1.TournamentConsoleSnapshot {
+	out := &hemav1.TournamentConsoleSnapshot{
+		TournamentId:    s.TournamentID,
+		Arenas:          make([]*hemav1.ConsoleArena, 0, len(s.Arenas)),
+		Nominations:     make([]*hemav1.ConsoleNomination, 0, len(s.Nominations)),
+		Queue:           make([]*hemav1.ConsoleQueueItem, 0, len(s.Queue)),
+		Alerts:          make([]*hemav1.ConsoleAlert, 0, len(s.Alerts)),
+		ServerNowUnixMs: s.ServerNowUnixMS,
+	}
+	for _, a := range s.Arenas {
+		out.Arenas = append(out.Arenas, toProtoConsoleArena(a))
+	}
+	for _, n := range s.Nominations {
+		out.Nominations = append(out.Nominations, toProtoConsoleNomination(n))
+	}
+	for _, q := range s.Queue {
+		out.Queue = append(out.Queue, toProtoConsoleQueueItem(q))
+	}
+	for _, al := range s.Alerts {
+		out.Alerts = append(out.Alerts, toProtoConsoleAlert(al))
+	}
+	return out
+}
+
+// toProtoConsoleArena маппит карточку площадки пульта (FR-11). CurrentBout/
+// Pace/PoolExpectedFinishAt заполнены, только когда площадка занята
+// (IdleState == occupied) — см. service.buildConsoleArena.
+func toProtoConsoleArena(a domain.ConsoleArena) *hemav1.ConsoleArena {
+	out := &hemav1.ConsoleArena{
+		ArenaId:        a.ArenaID,
+		ArenaName:      a.ArenaName,
+		Position:       int32(a.Position),
+		IdleState:      toProtoArenaIdleState(a.IdleState),
+		NominationId:   a.NominationID,
+		NominationName: a.NominationName,
+		StageTitle:     a.StageTitle,
+		PoolId:         a.PoolID,
+		PoolName:       a.PoolName,
+		BoutTotal:      int32(a.BoutTotal),
+		BoutFinished:   int32(a.BoutFinished),
+	}
+	if a.FreeSince != nil {
+		out.FreeSince = timestamppb.New(*a.FreeSince)
+	}
+	if a.CurrentBout != nil {
+		out.CurrentBout = toProtoBoardBout(*a.CurrentBout)
+	}
+	if a.PoolID != "" {
+		out.Pace = toProtoPaceEstimate(a.Pace)
+	}
+	if a.PoolExpectedFinishAtOK {
+		out.PoolExpectedFinishAt = timestamppb.New(a.PoolExpectedFinishAt)
+	}
+	return out
+}
+
+// toProtoConsoleNomination маппит строку номинации пульта (FR-12).
+// ExpectedFinishAt не заполняется (nil), если ExpectedFinishAtOK=false —
+// та же семантика «нет прогноза», что у BoutForecast (FR-24).
+func toProtoConsoleNomination(n domain.ConsoleNomination) *hemav1.ConsoleNomination {
+	out := &hemav1.ConsoleNomination{
+		NominationId:          n.NominationID,
+		Title:                 n.Title,
+		Position:              int32(n.Position),
+		Phase:                 toProtoLiveNominationPhase(n.Phase),
+		CurrentStageTitle:     n.CurrentStageTitle,
+		BoutTotal:             int32(n.BoutTotal),
+		BoutFinished:          int32(n.BoutFinished),
+		BoutRemainingUnseated: int32(n.BoutRemainingUnseated),
+		Provisional:           n.Provisional,
+	}
+	if n.ExpectedFinishAtOK {
+		out.ExpectedFinishAt = timestamppb.New(n.ExpectedFinishAt)
+	}
+	return out
+}
+
+// toProtoConsoleQueueItem маппит готовый к постановке пул в очереди пульта
+// (FR-13).
+func toProtoConsoleQueueItem(q domain.ConsoleQueueItem) *hemav1.ConsoleQueueItem {
+	return &hemav1.ConsoleQueueItem{
+		PoolId:           q.PoolID,
+		NominationId:     q.NominationID,
+		NominationName:   q.NominationName,
+		StageTitle:       q.StageTitle,
+		PoolName:         q.PoolName,
+		BoutCount:        int32(q.BoutCount),
+		EstimatedSeconds: int32(q.EstimatedSeconds),
+	}
+}
+
+// toProtoConsoleAlert маппит одну запись ленты «требует внимания»
+// (FR-14/FR-15).
+func toProtoConsoleAlert(a domain.ConsoleAlert) *hemav1.ConsoleAlert {
+	return &hemav1.ConsoleAlert{
+		Kind:           toProtoConsoleAlertKind(a.Kind),
+		Since:          timestamppb.New(a.Since),
+		ArenaId:        a.ArenaID,
+		ArenaName:      a.ArenaName,
+		NominationId:   a.NominationID,
+		NominationName: a.NominationName,
+		PoolId:         a.PoolID,
+		PoolName:       a.PoolName,
+		BoutId:         a.BoutID,
+	}
+}
+
+// toProtoConsoleAlertKind маппит вид записи ленты внимания (спека 0043,
+// FR-15) — шесть видов, см. domain.ConsoleAlertKind.
+func toProtoConsoleAlertKind(k domain.ConsoleAlertKind) hemav1.ConsoleAlertKind {
+	switch k {
+	case domain.ConsoleAlertArenaIdle:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_ARENA_IDLE
+	case domain.ConsoleAlertBoutStuck:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_BOUT_STUCK
+	case domain.ConsoleAlertPoolNotStarted:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_POOL_NOT_STARTED
+	case domain.ConsoleAlertPoolDoneNotUnseated:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_POOL_DONE_NOT_UNSEATED
+	case domain.ConsoleAlertNextStageNotBuilt:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_NEXT_STAGE_NOT_BUILT
+	case domain.ConsoleAlertNominationStalled:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_NOMINATION_STALLED
+	default:
+		return hemav1.ConsoleAlertKind_CONSOLE_ALERT_KIND_UNSPECIFIED
 	}
 }
