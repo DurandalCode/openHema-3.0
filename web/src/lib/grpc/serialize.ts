@@ -39,9 +39,11 @@ import {
   BoutJournalEntrySchema,
   TournamentLiveSnapshotSchema,
   TournamentConsoleSnapshotSchema,
+  ArenaBoardEntrySchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
+  type ArenaBoardEntry as ArenaBoardEntryProto,
   type BoutJournalEntry,
   type NominationLiveSnapshot,
   type ArenaLiveSnapshot,
@@ -934,16 +936,62 @@ function boardBoutRawToDto(
  * JSON-объект (спека 0013, FR-14): доска ведения боёв арены. `pool` — `null`,
  * если на арене никто не стоит (собственная проекция pool, не entities/bout).
  */
+function boutBoardRawToDto(
+  raw: (Partial<BoutBoardDto> & { pool?: Partial<PoolDto> }) | undefined,
+): BoutBoardDto {
+  return {
+    pool: raw?.pool ? poolRawToDto(raw.pool) : null,
+    bouts: Array.isArray(raw?.bouts) ? raw.bouts.map((b) => boardBoutRawToDto(b as never)) : [],
+    currentBoutId: raw?.currentBoutId ?? "",
+  };
+}
+
 export function boutBoardToJson(board: BoutBoard | undefined): BoutBoardDto | null {
   if (!board) return null;
   const raw = toJson(BoutBoardSchema, board) as Partial<BoutBoardDto> & {
     pool?: Partial<PoolDto>;
   };
-  return {
-    pool: raw.pool ? poolRawToDto(raw.pool) : null,
-    bouts: Array.isArray(raw.bouts) ? raw.bouts.map(boardBoutRawToDto) : [],
-    currentBoutId: raw.currentBoutId ?? "",
-  };
+  return boutBoardRawToDto(raw);
+}
+
+/**
+ * ArenaBoardEntryDto — доска ведения одной площадки в составе
+ * агрегирующего ответа GetArenaBoards (спека 0041), обогащённая простоем
+ * площадки (спека 0043, FR-26/FR-28). Определена здесь (не в
+ * `entities/*`), потому что читающая сторона — `features/arena-management`
+ * (а не отдельная entity), а `lib/grpc` не импортирует типы из `features`
+ * (границы FSD, AGENTS.md).
+ */
+export type ArenaBoardEntryDto = {
+  arenaId: string;
+  board: BoutBoardDto | null;
+  idleState: ArenaIdleStateDto;
+  freeSince: string | null;
+};
+
+/**
+ * arenaBoardEntriesToJson превращает `ArenaBoardEntry[]` в
+ * `ArenaBoardEntryDto[]` (спека 0041/0043). Сериализует КАЖДУЮ запись
+ * целиком через `toJson` (а не поле-в-поле с прокидыванием вложенного
+ * proto-сообщения `board` в отдельный `boutBoardToJson`) — `idle_state`
+ * (proto-enum) и `free_since` (proto-`Timestamp`) не имеют смысла вне
+ * JSON-сериализации, в отличие от `arena_id`, который совпадает что в
+ * proto-объекте, что в JSON.
+ */
+export function arenaBoardEntriesToJson(entries: ArenaBoardEntryProto[] | undefined): ArenaBoardEntryDto[] {
+  if (!entries) return [];
+  return entries.map((e) => {
+    const raw = toJson(ArenaBoardEntrySchema, e) as Partial<ArenaBoardEntryDto> & {
+      board?: Partial<BoutBoardDto> & { pool?: Partial<PoolDto> };
+      idleState?: string;
+    };
+    return {
+      arenaId: raw.arenaId ?? "",
+      board: raw.board ? boutBoardRawToDto(raw.board) : null,
+      idleState: arenaIdleStateToDto(raw.idleState),
+      freeSince: raw.freeSince ?? null,
+    };
+  });
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { Arena } from "@/entities/arena/lib/types";
 import type { BoutBoard } from "@/entities/pool/lib/types";
+import type { ArenaIdleState } from "@/entities/tournament-console/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
 
 export type ArenaInput = {
@@ -19,7 +20,18 @@ export type ArenaBoardResult =
   | { ok: true; board: BoutBoard | null }
   | { ok: false; error: string };
 
-export type ArenaBoardEntry = { arenaId: string; board: BoutBoard | null };
+/**
+ * ArenaBoardEntry — доска одной площадки в составе GetArenaBoards (спека
+ * 0041), обогащённая простоем (спека 0043, FR-26/FR-28): `idleState`/
+ * `freeSince` — см. `entities/tournament-console/lib/types.ArenaIdleState`
+ * (тот же тип, что несёт пульт — единая ось для обоих экранов).
+ */
+export type ArenaBoardEntry = {
+  arenaId: string;
+  board: BoutBoard | null;
+  idleState: ArenaIdleState;
+  freeSince: string | null;
+};
 
 export type ArenaBoardsResult =
   | { ok: true; entries: ArenaBoardEntry[] }

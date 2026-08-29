@@ -24,6 +24,26 @@ import { emptyForecast, type ForecastDto, type PaceEstimateDto } from "@/shared/
 export type ArenaIdleState = "occupied" | "waiting_first_pool" | "free";
 
 /**
+ * idleLabel — подпись простоя площадки (FR-26/FR-28), общая для пульта
+ * (`ConsoleArenaCard`) и доски площадок (`entities/arena-live`, AC-16/
+ * AC-17): «Ждёт первый пул» / «Свободна» / «Свободна · N мин». Не вызывать
+ * для `idleState === "occupied"` — там подпись решает вызывающий (занятая
+ * карточка не показывает эту строку вовсе).
+ */
+export function idleLabel(
+  idleState: ArenaIdleState,
+  freeSince: string | null,
+  now: Date = new Date(),
+): string {
+  if (idleState === "waiting_first_pool") return "Ждёт первый пул";
+  if (idleState === "free" && freeSince) {
+    const minutes = Math.max(0, Math.round((now.getTime() - new Date(freeSince).getTime()) / 60000));
+    return `Свободна · ${minutes} мин`;
+  }
+  return "Свободна";
+}
+
+/**
  * ConsoleAlertKind — вид записи ленты «требует внимания» (спека 0043,
  * FR-15). Ровно шесть видов, пороги — константы сервера.
  */

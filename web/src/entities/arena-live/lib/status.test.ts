@@ -173,4 +173,36 @@ describe("arenaLiveStatus", () => {
     expect(status.detail).toBe("Длинный меч · Пул A · бой 2 из 2");
     expect(status.pulse).toBe(false);
   });
+
+  // Спека 0043, FR-26/FR-28: простой площадки.
+  describe("idle state (спека 0043)", () => {
+    it("AC-16: waiting_first_pool — «Ждёт первый пул», без счётчика", () => {
+      const status = arenaLiveStatus(null, { idleState: "waiting_first_pool", freeSince: null });
+      expect(status).toEqual({ kind: "free", title: "Ждёт первый пул", detail: null, pulse: false });
+    });
+
+    it("AC-17: free с freeSince — «Свободна · N мин»", () => {
+      const now = new Date(2026, 7, 29, 12, 0, 0);
+      const status = arenaLiveStatus(
+        null,
+        { idleState: "free", freeSince: new Date(2026, 7, 29, 11, 48, 0).toISOString() },
+        now,
+      );
+      expect(status).toEqual({ kind: "free", title: "Свободна · 12 мин", detail: null, pulse: false });
+    });
+
+    it("occupied — идущий/готовящийся/доигранный пул не затрагивается idle-параметром", () => {
+      const board: BoutBoard = {
+        pool,
+        bouts: [bout({ id: "b1", sequenceNumber: 1, state: "BOUT_STATE_FINISHED", scoreA: 5, scoreB: 3 })],
+        currentBoutId: "b1",
+      };
+      const status = arenaLiveStatus(board, { idleState: "occupied", freeSince: null });
+      expect(status.kind).toBe("finished");
+    });
+
+    it("без idle-параметра ведёт себя как раньше (обратная совместимость)", () => {
+      expect(arenaLiveStatus(null)).toEqual({ kind: "free", title: "Свободна", detail: null, pulse: false });
+    });
+  });
 });

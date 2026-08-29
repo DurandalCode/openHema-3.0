@@ -9,6 +9,7 @@
  */
 
 import type { BoutBoard, BoardBout } from "@/entities/pool/lib/types";
+import { idleLabel, type ArenaIdleState } from "@/entities/tournament-console/lib/types";
 import { boutNumber, nextBout } from "./types";
 
 /**
@@ -55,8 +56,26 @@ function firstUnfinishedBySequence(board: BoutBoard): BoardBout | null {
   return sorted.find((b) => b.state !== "BOUT_STATE_FINISHED") ?? null;
 }
 
-export function arenaLiveStatus(board: BoutBoard | null): ArenaLiveStatus {
-  if (!board || !board.pool) return FREE_STATUS;
+/**
+ * freeStatusFor — статус свободной площадки (спека 0043, FR-26/FR-28):
+ * без `idle` (обратная совместимость вызывающих, которым простой не
+ * нужен) — просто «Свободна»; иначе — общая с пультом подпись `idleLabel`
+ * (AC-16/AC-17).
+ */
+function freeStatusFor(
+  idle: { idleState: ArenaIdleState; freeSince: string | null } | undefined,
+  now: Date,
+): ArenaLiveStatus {
+  if (!idle) return FREE_STATUS;
+  return { kind: "free", title: idleLabel(idle.idleState, idle.freeSince, now), detail: null, pulse: false };
+}
+
+export function arenaLiveStatus(
+  board: BoutBoard | null,
+  idle?: { idleState: ArenaIdleState; freeSince: string | null },
+  now: Date = new Date(),
+): ArenaLiveStatus {
+  if (!board || !board.pool) return freeStatusFor(idle, now);
 
   const context = poolContext(board);
 

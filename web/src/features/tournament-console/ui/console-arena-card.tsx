@@ -3,24 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { ForecastTime } from "@/shared/ui/forecast-time";
 import { boutScoreLabel } from "@/entities/pool/lib/types";
-import type { ConsoleArena } from "@/entities/tournament-console/lib/types";
-
-/**
- * idleLabel — подпись простоя площадки (спека 0043, FR-26/FR-28): «ждёт
- * первый пул» / «Свободна · N мин» (AC-16/AC-17). Простой считается от
- * `freeSince` до текущего момента (`now` — момент рендера, не
- * `serverNowUnixMs`: секундная точность здесь не критична, а компонент не
- * держит собственных таймеров).
- */
-function idleLabel(arena: ConsoleArena, now: Date): string {
-  if (arena.idleState === "waiting_first_pool") return "Ждёт первый пул";
-  if (arena.idleState === "free") {
-    if (!arena.freeSince) return "Свободна";
-    const minutes = Math.max(0, Math.round((now.getTime() - new Date(arena.freeSince).getTime()) / 60000));
-    return `Свободна · ${minutes} мин`;
-  }
-  return "Занята";
-}
+import { idleLabel, type ConsoleArena } from "@/entities/tournament-console/lib/types";
 
 /**
  * ConsoleArenaCard — карточка площадки пульта (спека 0043, FR-11): что на
@@ -40,7 +23,7 @@ export function ConsoleArenaCard({ arena, now = new Date() }: { arena: ConsoleAr
           </Link>
           {!occupied && (
             <Badge variant="outline" className="font-normal">
-              {idleLabel(arena, now)}
+              {idleLabel(arena.idleState, arena.freeSince, now)}
             </Badge>
           )}
         </CardTitle>
