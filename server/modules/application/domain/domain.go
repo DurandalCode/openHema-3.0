@@ -453,3 +453,35 @@ type RegisteredFighter struct {
 type FighterRegistrationSink interface {
 	OnRegistered(ctx context.Context, in RegisteredFighter) error
 }
+
+// ApplicationNotice — данные для письма о смене состояния заявки не её
+// автором (спека 0042, FR-23).
+//
+// Несёт идентификаторы (NominationID/TournamentID), а не человекочитаемые
+// названия. Решение спеки/плана этого трека (0042, «Модуль application —
+// точка уведомления») исходило из того, что NominationName/TournamentTitle
+// сервису уже известны, но это не так: NominationProvider.NominationInfo
+// (см. выше) отдаёт только TournamentID — ни названия номинации, ни
+// названия турнира сервис сегодня не резолвит нигде в этом модуле. Заводить
+// для одного лишь письма новый межмодульный вызов (расширять
+// NominationProvider или добавлять TournamentProvider) — за пределами этого
+// трека (только порт уведомления, не реализация письма). Адаптер-нотификатор
+// в internal/platform (join-волна) и так уже обращается к tournament (за
+// глобальным переключателем, план «Межмодульные зависимости») — там и
+// дорезолвит человекочитаемые названия для текста письма.
+type ApplicationNotice struct {
+	ApplicantUserID string
+	NominationID    string
+	TournamentID    string
+	NewState        State
+}
+
+// Notifier — межмодульный порт уведомлений (ADR 0002, ADR 0011 п.5:
+// кроссдоменный эффект фиксируется через явный порт модуля-источника, не
+// через шину). Не возвращает ошибку — почта необязательный побочный
+// эффект доменной операции (FR-27), сбой отправки не должен и не может
+// откатить уже свершившийся факт. Nil — уведомления отключены (например,
+// в существующих тестах сервиса, которые про уведомления не думают).
+type Notifier interface {
+	ApplicationStateChanged(ctx context.Context, n ApplicationNotice)
+}
