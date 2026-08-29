@@ -21,16 +21,22 @@ import (
 )
 
 // defaultPolicies — запасные пороги/типы файлов, если Deps.Policies не
-// задан. AllowedTypes — константа политики модуля (ADR 0019 п.4, не
-// переопределяется конфигурацией). Значения MaxBytes здесь — плейсхолдер:
-// ADR 0019 отдаёт реальные пороги конфигурации
-// (REGULATIONS_MAX_BYTES/EMBLEM_MAX_BYTES), но её проброс сюда — задача
-// composition root (internal/platform), вне трека B этой фичи. Модуль
-// остаётся рабочим и без этого провода: Deps.Policies кастомизируется
-// извне тем же способом, каким Deps.Files подключает реальное хранилище.
-var defaultPolicies = map[domain.FileKind]domain.FilePolicy{
-	domain.FileKindRegulations: {AllowedTypes: []string{"application/pdf"}, MaxBytes: 10 << 20},
-	domain.FileKindEmblem:      {AllowedTypes: []string{"image/png", "image/jpeg", "image/webp"}, MaxBytes: 5 << 20},
+// задан (напр. модуль собран в тесте без composition root). Composition
+// root (internal/platform) обычно зовёт DefaultPolicies с реальными
+// порогами из конфигурации (REGULATIONS_MAX_BYTES/EMBLEM_MAX_BYTES).
+var defaultPolicies = DefaultPolicies(10<<20, 5<<20)
+
+// DefaultPolicies строит политики файлов регламента/эмблемы с допустимыми
+// типами модуля (ADR 0019 п.4: белый список — константа политики, не
+// конфигурация) и порогами размера, переданными вызывающим. Composition
+// root (internal/platform) зовёт её с cfg.RegulationsMaxBytes/
+// cfg.EmblemMaxBytes; без явного вызова используется defaultPolicies этого
+// пакета (плейсхолдер тех же типов с зашитыми порогами).
+func DefaultPolicies(regulationsMaxBytes, emblemMaxBytes int64) map[domain.FileKind]domain.FilePolicy {
+	return map[domain.FileKind]domain.FilePolicy{
+		domain.FileKindRegulations: {AllowedTypes: []string{"application/pdf"}, MaxBytes: regulationsMaxBytes},
+		domain.FileKindEmblem:      {AllowedTypes: []string{"image/png", "image/jpeg", "image/webp"}, MaxBytes: emblemMaxBytes},
+	}
 }
 
 // Deps — явные зависимости модуля tournament (DI через конструктор).

@@ -115,7 +115,7 @@ func setup(t *testing.T) clients {
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(adminUserID, "admin")
+	pair, err := tokens.Issue(adminUserID, "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}

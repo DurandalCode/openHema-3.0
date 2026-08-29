@@ -59,7 +59,7 @@ func setup(t *testing.T, arenas ...domain.Arena) (hemav1connect.ArenaAdminServic
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(adminUserID, "admin")
+	pair, err := tokens.Issue(adminUserID, "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
@@ -69,7 +69,7 @@ func adminBearer(t *testing.T) string {
 func userBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue("user-id", "user")
+	pair, err := tokens.Issue("user-id", "user", "")
 	if err != nil {
 		t.Fatalf("issue user token: %v", err)
 	}

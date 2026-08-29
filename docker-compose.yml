@@ -57,6 +57,20 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-no-reply@hema-tournament.example}
+      EMAIL_TOKEN_TTL: ${EMAIL_TOKEN_TTL:-24h}
+      FILE_STORAGE_DIR: /app/data/files
+      REGULATIONS_MAX_BYTES: ${REGULATIONS_MAX_BYTES:-10485760}
+      EMBLEM_MAX_BYTES: ${EMBLEM_MAX_BYTES:-5242880}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-20}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-1m}
+      # BFF (сервис web) — единственный сетевой клиент сервера (ADR 0001) в
+      # этом стеке, поэтому доверие к X-Forwarded-For здесь безопасно
+      # включить явно (NFR-6 спеки 0042).
+      RATE_LIMIT_TRUST_PROXY: ${RATE_LIMIT_TRUST_PROXY:-true}
+    volumes:
+      # Локальный том файлового хранилища (регламент/эмблема турнира, ADR
+      # 0019) — переживает пересборку и перезапуск контейнера.
+      - files:/app/data/files
     ports:
       - "8080:8080"
     depends_on:
@@ -78,3 +92,4 @@ services:
 
 volumes:
   pgdata:
+  files:

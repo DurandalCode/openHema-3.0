@@ -197,16 +197,17 @@ func NewServices(pool *pgxpool.Pool, tokens *jwt.Manager) Services {
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
 	fighterNominations := platform.NewFighterNominationProvider(pool, activeTournaments)
 
-	// Демо-сценарии не отправляют реальную почту — восстановление пароля
-	// вне их сценариев, лог-адаптер (NFR-3) с дефолтами `pkg/config`.
-	demoMailer := authmailer.New(mail.NewLogger(slog.Default()), 30*time.Minute)
+	// Демо-сценарии не отправляют реальную почту — восстановление пароля и
+	// подтверждение адреса (спека 0042) вне их сценариев, лог-адаптер
+	// (NFR-3) с дефолтами `pkg/config`.
+	demoMailer := authmailer.New(mail.NewLogger(slog.Default()), 30*time.Minute, 24*time.Hour)
 
 	return Services{
 		Auth: authservice.New(
 			authrepo.New(pool), tokens, demoMailer,
-			"http://localhost:3000", 30*time.Minute, time.Now,
+			"http://localhost:3000", 30*time.Minute, 24*time.Hour, 720*time.Hour, time.Now,
 		),
-		Tournament: tournamentservice.New(tournamentrepo.New(pool)),
+		Tournament: tournamentservice.New(tournamentrepo.New(pool), nil, nil),
 		// Pools/Bouts (спека 0040) — nil: демо-сидинг не удаляет номинации
 		// через гейт, ему не нужны межмодульные чекеры occupancy.
 		Nomination: nomservice.New(nomrepo.New(pool), activeTournaments, nil, nil),

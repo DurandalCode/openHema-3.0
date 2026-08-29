@@ -7,6 +7,7 @@ package integration
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,11 +21,13 @@ import (
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/auth"
+	authmailer "github.com/hema/server/modules/auth/mailer"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/modules/tournament/domain"
 	tournamentrepo "github.com/hema/server/modules/tournament/repo"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
+	"github.com/hema/server/pkg/mail"
 )
 
 const (
@@ -55,7 +58,22 @@ func setup(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1connect.T
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	auth.Register(mux, auth.Deps{Pool: pool, Tokens: tokens}, baseOpts, adminOpts)
+	// Мейлер и TTL email/сессий (спека 0042): Register теперь заводит
+	// сессию и шлёт письмо подтверждения — без рабочего Mailer/TTL это
+	// падало бы на CHECK-констрейнтах (expires_at > created_at при TTL=0)
+	// либо паникой на nil-Mailer. Лог-адаптер, TTL — с запасом, тесты этого
+	// модуля не проверяют содержимое письма.
+	authSender := mail.NewLogger(slog.Default())
+	authMailer := authmailer.New(authSender, 30*time.Minute, 30*time.Minute)
+	auth.Register(mux, auth.Deps{
+		Pool:             pool,
+		Tokens:           tokens,
+		Mailer:           authMailer,
+		PublicAppURL:     "http://localhost:3000",
+		PasswordResetTTL: 30 * time.Minute,
+		EmailTokenTTL:    30 * time.Minute,
+		SessionTTL:       720 * time.Hour,
+	}, baseOpts, adminOpts)
 	tournament.Register(mux, tournament.Deps{Pool: pool}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -70,7 +88,7 @@ func setup(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1connect.T
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(adminUserID, "admin")
+	pair, err := tokens.Issue(adminUserID, "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
@@ -248,6 +266,7 @@ func TestIntegration_UpdateActiveTournament_NoToken(t *testing.T) {
 		t.Errorf("expected CodeUnauthenticated without token, got %v", connect.CodeOf(err))
 	}
 }
+
 // TestIntegration_UpdateActiveTournament_ProfileExtras_RoundTrip — спека
 // 0037 (T22): судья/регламент/место/взнос сохраняются через реальный
 // Connect-путь и переживают повторное чтение из БД, включая presence

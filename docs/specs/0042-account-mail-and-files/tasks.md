@@ -174,21 +174,21 @@
 
 ## Волна 2, join — composition root и интеграция
 
-- [ ] T26. **адаптеры уведомлений** —
+- [x] T26. **адаптеры уведомлений** —
       `internal/platform/notification_adapters.go` (+тест): глобальный
       переключатель выключен → писем нет; включён, но лично не подписан
       или адрес не подтверждён → писем нет; все условия выполнены →
       письмо в диспетчер (FR-21); `NewFighterAccountProvider` — резолв
       связанной учётки бойца, боец без учётки пропускается (FR-25).
-- [ ] T27. **отдача файла** — HTTP-хендлер `GET /files/…` на общем
+- [x] T27. **отдача файла** — HTTP-хендлер `GET /files/…` на общем
       `ServeMux` (+тест): 200 на PDF и на картинку, 404 на
       неизвестный id, публичный доступ без токена, `nosniff` и тип из
       метаданных объекта (FR-35, NFR-9).
-- [ ] T28. **wiring** — `internal/platform/platform.go`: `filestore`,
+- [x] T28. **wiring** — `internal/platform/platform.go`: `filestore`,
       `notify.Dispatcher` (дренаж в `App.Close`), интерцептор
       `RateLimit`, новые `Deps` модулей; `.env.example` и
       `docker-compose` (том под `FILE_STORAGE_DIR`).
-- [ ] T29. **интеграционные с БД (testcontainers, ADR 0010)** — миграции
+- [x] T29. **интеграционные с БД (testcontainers, ADR 0010)** — миграции
       `auth/00003` и `tournament/00005` вверх и вниз; grandfather проставил
       `email_verified_at`; `chk_regulations_one_of` и
       `chk_email_tokens_new_email` реально ловят нарушения; отзыв сессии
