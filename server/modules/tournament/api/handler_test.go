@@ -36,7 +36,7 @@ func setup(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1connect.T
 		},
 	})
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo)
+	svc := service.New(repo, nil, nil)
 	pubHandler := NewHandler(svc)
 	adminHandler := NewAdminHandler(svc)
 
@@ -69,7 +69,7 @@ func setupEmptyRepo(t *testing.T) (hemav1connect.TournamentServiceClient, hemav1
 
 	repo := testutil.NewFakeRepo()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo)
+	svc := service.New(repo, nil, nil)
 	pubHandler := NewHandler(svc)
 	adminHandler := NewAdminHandler(svc)
 
@@ -159,8 +159,8 @@ func TestUpdateActiveTournament_E2E(t *testing.T) {
 
 	start := timestamppb.Now()
 	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
-		Title:         "Updated Title",
-		EmblemUrl:     "https://cdn.example.com/logo.png",
+		Title:        "Updated Title",
+		EmblemUrl:    "https://cdn.example.com/logo.png",
 		EventStartAt: start,
 		Contacts: []*hemav1.ContactInput{
 			{Type: hemav1.ContactType_CONTACT_TYPE_TELEGRAM, Value: "@org"},
@@ -190,7 +190,7 @@ func TestUpdateActiveTournament_E2E_MultiDay(t *testing.T) {
 	start := timestamppb.New(time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC))
 	end := timestamppb.New(time.Date(2026, 12, 3, 18, 0, 0, 0, time.UTC))
 	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
-		Title:         "Multi-day Cup",
+		Title:        "Multi-day Cup",
 		EventStartAt: start,
 		EventEndAt:   end,
 	})
@@ -217,7 +217,7 @@ func TestUpdateActiveTournament_E2E_EventEndWithoutStart_InvalidArgument(t *test
 
 	end := timestamppb.Now()
 	req := connect.NewRequest(&hemav1.UpdateActiveTournamentRequest{
-		Title:       "T",
+		Title:      "T",
 		EventEndAt: end,
 	})
 	req.Header().Set("Authorization", adminBearer(t))
@@ -312,7 +312,7 @@ func TestGetActiveTournament_E2E_ProfileExtras(t *testing.T) {
 		VenueAddress:   "г. Санкт-Петербург",
 	})
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo)
+	svc := service.New(repo, nil, nil)
 	pubHandler := NewHandler(svc)
 	baseOpts := []connect.HandlerOption{connect.WithInterceptors(connectutil.Auth(tokens))}
 	pubPath, pubH := hemav1connect.NewTournamentServiceHandler(pubHandler, baseOpts...)
@@ -353,7 +353,7 @@ func TestGetActiveTournament_E2E_EntryFeeZeroDiffersFromUnset(t *testing.T) {
 		EntryFeeCurrency: "RUB",
 	})
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo)
+	svc := service.New(repo, nil, nil)
 	pubHandler := NewHandler(svc)
 	baseOpts := []connect.HandlerOption{connect.WithInterceptors(connectutil.Auth(tokens))}
 	pubPath, pubH := hemav1connect.NewTournamentServiceHandler(pubHandler, baseOpts...)
@@ -470,7 +470,7 @@ func TestGetActiveTournament_E2E_Program(t *testing.T) {
 		},
 	})
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo)
+	svc := service.New(repo, nil, nil)
 	pubHandler := NewHandler(svc)
 	baseOpts := []connect.HandlerOption{connect.WithInterceptors(connectutil.Auth(tokens))}
 	pubPath, pubH := hemav1connect.NewTournamentServiceHandler(pubHandler, baseOpts...)

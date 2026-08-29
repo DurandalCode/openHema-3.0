@@ -82,6 +82,7 @@ func (h *AdminHandler) UpdateActiveTournament(
 		EntryFeeMinor:    m.EntryFeeMinor,
 		EntryFeeCurrency: m.EntryFeeCurrency,
 		Program:          program,
+		Notifications:    fromProtoNotifications(m.Notifications),
 	}
 	if m.EventStartAt != nil {
 		in.EventStartAt = m.EventStartAt.AsTime()
@@ -100,6 +101,64 @@ func (h *AdminHandler) UpdateActiveTournament(
 	}), nil
 }
 
+// filesBaseURL — путь публичного HTTP-хендлера отдачи файла (ADR 0019 п.6,
+// см. plan.md: `mux.Handle("GET /files/", ...)`, регистрируется composition
+// root вне трека B). Здесь — только сборка адреса из id объекта для поля
+// TournamentFile.Url в ответе.
+const filesBaseURL = "/files/"
+
+// UploadTournamentFile загружает файл регламента или эмблемы турнира
+// (спека 0042, FR-30/FR-31/FR-32).
+func (h *AdminHandler) UploadTournamentFile(
+	ctx context.Context,
+	req *connect.Request[hemav1.UploadTournamentFileRequest],
+) (*connect.Response[hemav1.UploadTournamentFileResponse], error) {
+	kind, err := fromProtoFileKind(req.Msg.Kind)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	t, err := h.svc.UploadFile(ctx, kind, req.Msg.Content, req.Msg.FileName)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.UploadTournamentFileResponse{
+		Tournament: toProtoTournament(t),
+	}), nil
+}
+
+// DeleteTournamentFile удаляет загруженный файл регламента или эмблемы
+// турнира (FR-36).
+func (h *AdminHandler) DeleteTournamentFile(
+	ctx context.Context,
+	req *connect.Request[hemav1.DeleteTournamentFileRequest],
+) (*connect.Response[hemav1.DeleteTournamentFileResponse], error) {
+	kind, err := fromProtoFileKind(req.Msg.Kind)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	t, err := h.svc.DeleteFile(ctx, kind)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.DeleteTournamentFileResponse{
+		Tournament: toProtoTournament(t),
+	}), nil
+}
+
+// fromProtoFileKind мапит proto-enum в domain.FileKind. UNSPECIFIED и любое
+// нераспознанное значение — domain.ErrInvalidInput (→ CodeInvalidArgument
+// в mapError), а не паника/тихая заглушка.
+func fromProtoFileKind(k hemav1.TournamentFileKind) (domain.FileKind, error) {
+	switch k {
+	case hemav1.TournamentFileKind_TOURNAMENT_FILE_KIND_REGULATIONS:
+		return domain.FileKindRegulations, nil
+	case hemav1.TournamentFileKind_TOURNAMENT_FILE_KIND_EMBLEM:
+		return domain.FileKindEmblem, nil
+	default:
+		return "", domain.ErrInvalidInput
+	}
+}
+
 // mapError переводит доменные ошибки в connect.Code.
 func mapError(err error) error {
 	switch {
@@ -107,6 +166,10 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, domain.ErrInvalidInput):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrFileTooLarge), errors.Is(err, domain.ErrUnsupportedFileType):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrStorageUnavailable):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -129,6 +192,9 @@ func toProtoTournament(t domain.Tournament) *hemav1.Tournament {
 		EntryFeeMinor:    t.EntryFeeMinor,
 		EntryFeeCurrency: t.EntryFeeCurrency,
 		Program:          toProtoProgram(t.Program),
+		RegulationsFile:  toProtoFile(t.RegulationsFile),
+		EmblemFile:       toProtoFile(t.EmblemFile),
+		Notifications:    toProtoNotifications(t.Notifications),
 	}
 	if t.HasEventStartAt {
 		out.EventStartAt = timestamppb.New(t.EventStartAt)
@@ -137,6 +203,46 @@ func toProtoTournament(t domain.Tournament) *hemav1.Tournament {
 		out.EventEndAt = timestamppb.New(t.EventEndAt)
 	}
 	return out
+}
+
+// toProtoFile отображает StoredFile в proto TournamentFile. Пустой ID —
+// файла нет — nil (не пустое сообщение): так клиенту не нужно отдельно
+// проверять Url == "", хватает обычной проверки на nil, как и с
+// EventStartAt/EventEndAt выше.
+//
+// Url собирается как путь на публичный HTTP-хендлер отдачи файла (ADR 0019
+// п.6): `filesBaseURL + id`. Сам хендлер регистрируется в composition root
+// вне трека B этой фичи (см. plan.md), но формат его адреса — часть
+// контракта ответа этого RPC, поэтому строится здесь.
+func toProtoFile(f domain.StoredFile) *hemav1.TournamentFile {
+	if f.ID == "" {
+		return nil
+	}
+	return &hemav1.TournamentFile{
+		Url:  filesBaseURL + f.ID,
+		Name: f.Name,
+		Size: f.Size,
+	}
+}
+
+func toProtoNotifications(n domain.NotificationSettings) *hemav1.NotificationSettings {
+	return &hemav1.NotificationSettings{
+		ApplicationState: n.ApplicationState,
+		PoolSeated:       n.PoolSeated,
+	}
+}
+
+// fromProtoNotifications отображает proto NotificationSettings в domain.
+// nil (клиент не прислал поле) — оба переключателя выключены, то же самое
+// нулевое значение, что и дефолт нового турнира.
+func fromProtoNotifications(n *hemav1.NotificationSettings) domain.NotificationSettings {
+	if n == nil {
+		return domain.NotificationSettings{}
+	}
+	return domain.NotificationSettings{
+		ApplicationState: n.ApplicationState,
+		PoolSeated:       n.PoolSeated,
+	}
 }
 
 func toProtoContacts(contacts []domain.Contact) []*hemav1.Contact {
@@ -200,7 +306,6 @@ func fromProtoContactType(t hemav1.ContactType) domain.ContactType {
 		return ""
 	}
 }
-
 
 // toProtoProgram отображает программу турнира по дням в proto (FR-15).
 func toProtoProgram(days []domain.ProgramDay) []*hemav1.TournamentProgramDay {
