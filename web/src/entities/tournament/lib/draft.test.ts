@@ -56,6 +56,7 @@ function draftFrom(saved: Tournament): TournamentDraft {
       date: d.date,
       items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
     })),
+    notifications: { ...saved.notifications },
   };
 }
 
@@ -434,6 +435,47 @@ describe("entities/tournament/lib/draft program by days (spec 0040, FR-14/FR-14a
     const draft = draftFrom(saved);
     draft.program = [{ date: "2026-12-01", items: [{ timeLabel: "", text: "" }] }];
 
+    expect(tournamentDraftChanges(saved, draft)).toEqual([]);
+  });
+});
+
+// spec 0042 (T40): переключатели уведомлений — обычное поле черновика
+// формы (как chiefJudge), не проброс из saved (в отличие от
+// regulationsFile/emblemFile, которые остаются отдельным действием
+// загрузки, T39).
+describe("entities/tournament/lib/draft notifications (spec 0042, FR-19)", () => {
+  it("draftFrom seeds notifications from the saved tournament", () => {
+    const saved = tournament({
+      notifications: { applicationState: true, poolSeated: false },
+    });
+    const draft = draftFrom(saved);
+    expect(draft.notifications).toEqual({ applicationState: true, poolSeated: false });
+  });
+
+  it("draftToTournament takes notifications from the draft, not from saved", () => {
+    const saved = tournament({
+      notifications: { applicationState: false, poolSeated: false },
+    });
+    const draft = draftFrom(saved);
+    draft.notifications = { applicationState: true, poolSeated: true };
+
+    const preview = draftToTournament(saved, draft);
+    expect(preview.notifications).toEqual({ applicationState: true, poolSeated: true });
+  });
+
+  it("reports a notifications change by name", () => {
+    const saved = tournament();
+    const draft = draftFrom(saved);
+    draft.notifications = { applicationState: true, poolSeated: false };
+
+    expect(tournamentDraftChanges(saved, draft)).toEqual(["уведомления"]);
+  });
+
+  it("returns no changes when notifications are untouched", () => {
+    const saved = tournament({
+      notifications: { applicationState: true, poolSeated: true },
+    });
+    const draft = draftFrom(saved);
     expect(tournamentDraftChanges(saved, draft)).toEqual([]);
   });
 });

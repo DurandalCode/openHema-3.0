@@ -244,6 +244,36 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(input.entryFeeCurrency).toBe("RUB");
   });
 
+  // spec 0042 (T39, FR-34): сервер трактует непустой regulationsUrl/
+  // emblemUrl в UpdateActiveTournament как «организатор задаёт ссылку» и
+  // освобождает загруженный файл того же вида. Регрессия, которую боится
+  // это исправление: поле ссылки хранит "устаревшее" значение (сервер не
+  // трогает его при загрузке файла) — сохранение НЕсвязанного поля не
+  // должно молча стереть только что загруженный файл, отправив это
+  // устаревшее значение.
+  it("does not resend a stale regulationsUrl/emblemUrl once a file is uploaded, protecting it from being cleared (spec 0042, FR-34)", () => {
+    render(
+      <TournamentScreen
+        tournament={tournament({
+          regulationsUrl: "https://cdn.example.com/old-rules.pdf",
+          emblemUrl: "https://cdn.example.com/old-logo.png",
+          regulationsFile: { url: "/api/files/r1", name: "rules.pdf", size: 100 },
+          emblemFile: { url: "/api/files/e1", name: "logo.png", size: 100 },
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Описание"), {
+      target: { value: "Новое описание" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const input = updateMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(input.regulationsUrl).toBe("");
+    expect(input.emblemUrl).toBe("");
+  });
+
   // spec 0039, T20 (FR-13, FR-15, AC-9/AC-10): экран копит несохранённый
   // ввод до явного «Сохранить» — guard должен знать об этом.
   it("marks the unsaved-guard store dirty once a field is edited (spec 0039, AC-9)", () => {

@@ -286,5 +286,40 @@ describe("app/api/tournament route", () => {
         .mock.calls[0][0];
       expect(reqMsg.program).toEqual([]);
     });
+
+    // spec 0042 (T40): переключатели уведомлений сохраняются той же
+    // full-replace семантикой, что contacts/program (FR-19).
+    it("forwards notifications (spec 0042, FR-19)", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(
+        putReq({
+          title: "Cup",
+          notifications: { applicationState: true, poolSeated: false },
+        }),
+      );
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.notifications).toEqual({ applicationState: true, poolSeated: false });
+    });
+
+    it("defaults notifications to both false when absent", async () => {
+      vi.mocked(getAccessToken).mockResolvedValue("tok");
+      vi.mocked(tournamentAdminClient.updateActiveTournament).mockResolvedValue({
+        tournament: { id: "t1" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1" } as never);
+
+      await PUT(putReq({ title: "Cup" }));
+
+      const reqMsg = vi.mocked(tournamentAdminClient.updateActiveTournament)
+        .mock.calls[0][0];
+      expect(reqMsg.notifications).toEqual({ applicationState: false, poolSeated: false });
+    });
   });
 });
