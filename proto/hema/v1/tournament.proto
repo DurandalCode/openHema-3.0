@@ -3,6 +3,7 @@ syntax = "proto3";
 package hema.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hema/v1/common.proto";
 
 option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
 
@@ -19,6 +20,21 @@ service TournamentAdminService {
   // UpdateActiveTournament обновляет поля активного турнира целиком, включая
   // список контактов (полная замена набора контактов).
   rpc UpdateActiveTournament(UpdateActiveTournamentRequest) returns (UpdateActiveTournamentResponse);
+  // UploadTournamentFile загружает файл регламента или эмблемы турнира
+  // (спека 0042, FR-30/FR-31). Вид передаётся параметром kind — путь
+  // валидации и хранения общий, политика (тип/порог) различается по виду.
+  // Загруженный файл вытесняет соответствующую ссылку (FR-34).
+  rpc UploadTournamentFile(UploadTournamentFileRequest) returns (UploadTournamentFileResponse);
+  // DeleteTournamentFile удаляет загруженный файл регламента или эмблемы
+  // (FR-36), освобождая объект в хранилище.
+  rpc DeleteTournamentFile(DeleteTournamentFileRequest) returns (DeleteTournamentFileResponse);
+}
+
+// TournamentFileKind — вид файла профиля турнира (спека 0042).
+enum TournamentFileKind {
+  TOURNAMENT_FILE_KIND_UNSPECIFIED = 0;
+  TOURNAMENT_FILE_KIND_REGULATIONS = 1;
+  TOURNAMENT_FILE_KIND_EMBLEM = 2;
 }
 
 // ContactType — канал связи с организаторами турнира.
@@ -71,6 +87,30 @@ message Tournament {
   // задаются organizer вручную, без жёсткой привязки к event_start_at/
   // event_end_at (FR-14a).
   repeated TournamentProgramDay program = 17;
+  // regulations_file — загруженный файл регламента (спека 0042, FR-30).
+  // Пустой url — файла нет, регламент (если задан) — по regulations_url.
+  // Источник ровно один: непустой url здесь означает, что
+  // regulations_url игнорируется (FR-34).
+  TournamentFile regulations_file = 18;
+  // emblem_file — загруженный файл эмблемы (FR-31), та же семантика
+  // относительно emblem_url.
+  TournamentFile emblem_file = 19;
+  // notifications — глобальные переключатели уведомлений турнира (FR-19).
+  // Оба выключены по умолчанию; письмо уходит только когда и этот, и
+  // личный переключатель получателя разрешают один вид (FR-21).
+  NotificationSettings notifications = 20;
+}
+
+// TournamentFile — загруженный файл профиля турнира (регламент или
+// эмблема, спека 0042). Одна форма на оба поля — набор атрибутов
+// одинаковый.
+message TournamentFile {
+  // url — публичный адрес скачивания. Пустая строка — файл не загружен.
+  string url = 1;
+  // name — исходное имя файла на момент загрузки.
+  string name = 2;
+  // size — размер файла в байтах.
+  int64 size = 3;
 }
 
 // TournamentProgramItem — один пункт программы дня (спека 0040, FR-14):
@@ -129,6 +169,9 @@ message UpdateActiveTournamentRequest {
   // program — полная замена программы по дням (спека 0040, FR-14), тем же
   // приёмом, что contacts.
   repeated TournamentProgramDay program = 13;
+  // notifications — глобальные переключатели уведомлений (спека 0042,
+  // FR-19). Правится тем же экраном профиля, что и остальные поля.
+  NotificationSettings notifications = 14;
 }
 
 // ContactInput — контакт при вводе (без id и без position; позиция
@@ -139,5 +182,30 @@ message ContactInput {
 }
 
 message UpdateActiveTournamentResponse {
+  Tournament tournament = 1;
+}
+
+message UploadTournamentFileRequest {
+  TournamentFileKind kind = 1;
+  // content — файл целиком. Порог размера зависит от kind (FR-32) и
+  // проверяется сервером; стриминг не нужен при разумных лимитах (PDF до
+  // 10 МБ, картинка до 5 МБ).
+  bytes content = 2;
+  string file_name = 3;
+  // content_type — заявленный загружающим MIME-тип. Только для ранней
+  // отбраковки на BFF; итоговый тип сервер определяет по содержимому
+  // файла (NFR-9), не по этому полю.
+  string content_type = 4;
+}
+
+message UploadTournamentFileResponse {
+  Tournament tournament = 1;
+}
+
+message DeleteTournamentFileRequest {
+  TournamentFileKind kind = 1;
+}
+
+message DeleteTournamentFileResponse {
   Tournament tournament = 1;
 }

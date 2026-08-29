@@ -25,6 +25,21 @@ var (
 	// ErrInvalidEmail — email не проходит валидацию формата (в т.ч. CR/LF —
 	// вектор SMTP header injection через письмо восстановления пароля).
 	ErrInvalidEmail = errors.New("auth: invalid email")
+	// ErrInvalidEmailToken — токен подтверждения/смены адреса не найден,
+	// просрочен или уже использован. Один код на все три случая — тем же
+	// приёмом, что ErrInvalidResetToken (спека 0042).
+	ErrInvalidEmailToken = errors.New("auth: invalid email token")
+	// ErrEmailTaken — запрошенный новый адрес уже занят другой учёткой
+	// (проверяется и при запросе смены, и повторно при подтверждении, FR-8).
+	ErrEmailTaken = errors.New("auth: email already taken")
+	// ErrEmailNotVerified — попытка включить вид уведомлений при
+	// неподтверждённом адресе учётки (FR-21).
+	ErrEmailNotVerified = errors.New("auth: email not verified")
+	// ErrSessionNotFound — сессия с таким id не существует.
+	ErrSessionNotFound = errors.New("auth: session not found")
+	// ErrThrottled — повторный запрос (письмо подтверждения/смены адреса)
+	// раньше минимального интервала (FR-4/FR-6).
+	ErrThrottled = errors.New("auth: throttled")
 )
 
 // Role — роль пользователя. Хранится в БД как TEXT с CHECK-ограничением.
@@ -49,6 +64,83 @@ type User struct {
 	// сверяет с ним iat токена, чтобы оборвать продление старых сессий
 	// после смены пароля (FR-12).
 	PasswordChangedAt time.Time
+	// EmailVerifiedAt — момент подтверждения текущего адреса. nil — адрес
+	// не подтверждён (спека 0042, FR-1). Учётки, существующие на момент
+	// внедрения фичи, считаются подтверждёнными (grandfather, миграция 00003).
+	EmailVerifiedAt *time.Time
+	// PendingEmail — новый адрес, ожидающий подтверждения по ссылке из
+	// письма (FR-6). Пустая строка — запроса смены нет.
+	PendingEmail string
+	// Notifications — личные переключатели уведомлений (FR-20). Оба
+	// выключены по умолчанию у новых учёток.
+	Notifications NotificationSettings
+}
+
+// NotificationSettings — виды уведомлений, зеркалит proto
+// hema.v1.NotificationSettings. Используется и для личных переключателей
+// (auth.users), и для глобальных (модуль tournament) — набор видов один и
+// тот же (спека 0042, решение из plan.md).
+type NotificationSettings struct {
+	// ApplicationState — о состоянии моей заявки, изменённом не мной (FR-23).
+	ApplicationState bool
+	// PoolSeated — о постановке моего пула на площадку (FR-24).
+	PoolSeated bool
+}
+
+// EmailTokenPurpose различает назначение одноразового токена: подтверждение
+// текущего адреса или подтверждение смены на новый.
+type EmailTokenPurpose string
+
+const (
+	EmailTokenVerify EmailTokenPurpose = "verify"
+	EmailTokenChange EmailTokenPurpose = "change"
+)
+
+// EmailToken — одноразовый токен подтверждения/смены адреса. Хранится
+// только sha256-хеш сырого токена (NFR-1) — сам токен живёт лишь в письме.
+// Отдельный тип и таблица от ResetToken: другой жизненный цикл (два
+// назначения) и другая полезная нагрузка (NewEmail у purpose=change).
+type EmailToken struct {
+	ID        string
+	UserID    string
+	Purpose   EmailTokenPurpose
+	TokenHash string
+	// NewEmail — заполнен только у Purpose == EmailTokenChange.
+	NewEmail  string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	// UsedAt — момент погашения (использован либо вытеснен новым запросом).
+	// nil — токен активен.
+	UsedAt *time.Time
+}
+
+// NewEmailToken — данные для создания токена подтверждения/смены адреса.
+type NewEmailToken struct {
+	UserID    string
+	Purpose   EmailTokenPurpose
+	TokenHash string
+	NewEmail  string
+	ExpiresAt time.Time
+}
+
+// Session — одна выданная refresh-сессия пользователя (ADR 0018, FR-10..
+// FR-17). Без устройства/браузера/IP (решение 2 спеки 0042, NFR-8) —
+// только времена.
+type Session struct {
+	ID         string
+	UserID     string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	ExpiresAt  time.Time
+	// RevokedAt — момент отзыва (поштучно, «выйти со всех устройств»,
+	// смена/сброс пароля). nil — сессия активна.
+	RevokedAt *time.Time
+}
+
+// NewSession — данные для создания сессии.
+type NewSession struct {
+	UserID    string
+	ExpiresAt time.Time
 }
 
 // ResetToken — одноразовый токен восстановления пароля. Хранится только
@@ -75,6 +167,14 @@ type NewResetToken struct {
 // ссылку восстановления», не знает про SMTP (спека 0037, решение 3).
 type Mailer interface {
 	SendPasswordReset(ctx context.Context, to, link string) error
+	// SendEmailVerification — письмо подтверждения адреса (FR-3).
+	SendEmailVerification(ctx context.Context, to, link string) error
+	// SendEmailChangeConfirmation — письмо со ссылкой подтверждения на
+	// НОВЫЙ адрес (FR-6).
+	SendEmailChangeConfirmation(ctx context.Context, newAddr, link string) error
+	// SendEmailChangeNotice — письмо-предупреждение на ПРЕЖНИЙ адрес, без
+	// ссылки (FR-7): просто уведомляет, что запрошена смена на newAddr.
+	SendEmailChangeNotice(ctx context.Context, oldAddr, newAddr string) error
 }
 
 // NewUser — данные для создания пользователя.
@@ -132,4 +232,50 @@ type Repository interface {
 	GetActiveResetToken(ctx context.Context, tokenHash string) (ResetToken, error)
 	// MarkResetTokenUsed погашает токен после успешной смены пароля (FR-4).
 	MarkResetTokenUsed(ctx context.Context, id string) error
+
+	// MarkEmailVerified проставляет EmailVerifiedAt (FR-3).
+	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
+	// CreateEmailToken сохраняет новый токен подтверждения/смены адреса.
+	CreateEmailToken(ctx context.Context, t NewEmailToken) (EmailToken, error)
+	// GetActiveEmailToken ищет активный (не погашенный, не просроченный)
+	// токен по хешу и назначению. Не найден/просрочен/погашен →
+	// ErrInvalidEmailToken.
+	GetActiveEmailToken(ctx context.Context, tokenHash string, purpose EmailTokenPurpose) (EmailToken, error)
+	// MarkEmailTokenUsed погашает токен после успешного использования.
+	MarkEmailTokenUsed(ctx context.Context, id string) error
+	// InvalidateActiveEmailTokens гасит все активные токены пользователя
+	// данного назначения (новый запрос обесценивает прежние
+	// неиспользованные ссылки).
+	InvalidateActiveEmailTokens(ctx context.Context, userID string, purpose EmailTokenPurpose) error
+	// LastEmailTokenAt возвращает время выдачи последнего токена данного
+	// назначения (в т.ч. погашенного) — троттлинг FR-4/FR-6. Нулевое время —
+	// токенов не было.
+	LastEmailTokenAt(ctx context.Context, userID string, purpose EmailTokenPurpose) (time.Time, error)
+	// SetPendingEmail проставляет запрошенный новый адрес (FR-6).
+	SetPendingEmail(ctx context.Context, userID, newEmail string) error
+	// ApplyEmailChange меняет email пользователя на newEmail, сбрасывает
+	// EmailVerifiedAt в nil (новый адрес ещё не подтверждён — но раз мы
+	// сюда попали по токену purpose=change, значит подтверждение как раз
+	// произошло — см. ConfirmEmailChange) и очищает PendingEmail.
+	ApplyEmailChange(ctx context.Context, userID, newEmail string, at time.Time) (User, error)
+	// IsEmailTaken проверяет занятость адреса другой учёткой.
+	IsEmailTaken(ctx context.Context, email string) (bool, error)
+
+	// CreateSession создаёт новую строку реестра сессий (ADR 0018).
+	CreateSession(ctx context.Context, s NewSession) (Session, error)
+	// GetSession возвращает сессию по id. Не найдена → ErrSessionNotFound.
+	GetSession(ctx context.Context, id string) (Session, error)
+	// TouchSession обновляет LastSeenAt (на каждом Refresh, FR-11).
+	TouchSession(ctx context.Context, id string, at time.Time) error
+	// ListActiveSessions возвращает активные (не отозванные, не
+	// просроченные) сессии пользователя.
+	ListActiveSessions(ctx context.Context, userID string) ([]Session, error)
+	// RevokeSession отзывает одну сессию по id (идемпотентно).
+	RevokeSession(ctx context.Context, id string, at time.Time) error
+	// RevokeUserSessions отзывает все активные сессии пользователя, кроме
+	// exceptID (пустая строка — отзывает все). Возвращает число отозванных.
+	RevokeUserSessions(ctx context.Context, userID, exceptID string, at time.Time) (int, error)
+
+	// SetNotificationSettings правит личные переключатели уведомлений (FR-20).
+	SetNotificationSettings(ctx context.Context, userID string, s NotificationSettings) (User, error)
 }

@@ -45,6 +45,9 @@ type Deps struct {
 	// (GetArenaJournal). Реальный адаптер (auth.NewDisplayNameProvider) —
 	// тот же объект, что уже получает модуль application (internal/platform).
 	Users domain.UserProvider
+	// Notifier — почтовое уведомление о постановке пула на площадку (спека
+	// 0042, FR-24). nil — уведомления отключены (no-op).
+	Notifier domain.Notifier
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
@@ -53,7 +56,7 @@ type Deps struct {
 // StagePublicService — только baseOpts, без adminOpts (публичный доступ).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Fighters, deps.Bouts, deps.Arenas, deps.Nominations, deps.LiveBus, deps.Users)
+	svc := service.New(r, deps.Fighters, deps.Bouts, deps.Arenas, deps.Nominations, deps.LiveBus, deps.Users, deps.Notifier)
 
 	adminHandler := api.NewAdminHandler(svc)
 	publicHandler := api.NewPublicHandler(svc)

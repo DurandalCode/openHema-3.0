@@ -40,20 +40,35 @@ function draftFromTournament(t: Tournament): TournamentDraft {
       date: d.date,
       items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
     })),
+    // notifications (спека 0042, T40) — обычное поле черновика, как
+    // chiefJudge: правится и сохраняется тем же сабмитом формы.
+    notifications: t.notifications,
   };
 }
 
-function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
+/**
+ * draftToUpdateInput — `saved` нужен не только для чтения (не редактируется
+ * этой формой), но и чтобы защитить только что загруженный файл (спека
+ * 0042, FR-30/FR-31): сервер трактует непустой `regulationsUrl`/`emblemUrl`
+ * в `UpdateActiveTournament` как «организатор явно задаёт ссылку» и
+ * освобождает файл того же вида (FR-34, `service.UpdateActive`). Пока файл
+ * загружен, `file-or-link-field.tsx` прячет поле ссылки из UI, но
+ * `draft.regulationsUrl`/`draft.emblemUrl` при этом может всё ещё нести
+ * значение, введённое ДО загрузки файла — без этой защиты первое же
+ * сохранение НЕсвязанного поля (например, судьи) молча стёрло бы только что
+ * загруженный файл.
+ */
+function draftToUpdateInput(saved: Tournament, draft: TournamentDraft): UpdateTournamentInput {
   const entryFeeMinor = entryFeeAmountToMinor(draft.entryFeeAmount);
   return {
     title: draft.title,
     description: draft.description,
-    emblemUrl: draft.emblemUrl,
+    emblemUrl: saved.emblemFile.url ? "" : draft.emblemUrl,
     eventStartAt: draft.eventStartAt,
     eventEndAt: draft.eventEndAt,
     contacts: draft.contacts.filter((c) => c.value.trim() !== ""),
     chiefJudge: draft.chiefJudge,
-    regulationsUrl: draft.regulationsUrl,
+    regulationsUrl: saved.regulationsFile.url ? "" : draft.regulationsUrl,
     venueName: draft.venueName,
     venueAddress: draft.venueAddress,
     entryFeeMinor,
@@ -71,6 +86,7 @@ function draftToUpdateInput(draft: TournamentDraft): UpdateTournamentInput {
         items: d.items.filter((it) => it.text.trim() !== ""),
       }))
       .filter((d) => d.items.length > 0),
+    notifications: draft.notifications,
   };
 }
 
@@ -115,7 +131,7 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
     // данными несмотря на видимую ошибку.
     if (Object.keys(validationErrors).length > 0) return;
 
-    update.mutate(draftToUpdateInput(draft), {
+    update.mutate(draftToUpdateInput(saved, draft), {
       onSuccess: (nextTournament) => {
         setSaved(nextTournament);
         setDraft(draftFromTournament(nextTournament));
@@ -158,7 +174,13 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
         <UnsavedChangesBar changes={changes} />
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <TournamentSettingsForm value={draft} onChange={setDraft} errors={errors} />
+          <TournamentSettingsForm
+            value={draft}
+            onChange={setDraft}
+            errors={errors}
+            savedTournament={saved}
+            onSavedTournamentChange={setSaved}
+          />
           <TournamentPreview tournament={previewTournament} />
         </div>
       </div>

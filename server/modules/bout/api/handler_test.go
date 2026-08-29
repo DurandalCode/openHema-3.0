@@ -66,7 +66,7 @@ func setupFull(t *testing.T) (hemav1connect.BoutAdminServiceClient, hemav1connec
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue("00000000-0000-0000-0000-000000000aaa", "admin")
+	pair, err := tokens.Issue("00000000-0000-0000-0000-000000000aaa", "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
@@ -76,7 +76,7 @@ func adminBearer(t *testing.T) string {
 func userBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue("user-id", "user")
+	pair, err := tokens.Issue("user-id", "user", "")
 	if err != nil {
 		t.Fatalf("issue user token: %v", err)
 	}

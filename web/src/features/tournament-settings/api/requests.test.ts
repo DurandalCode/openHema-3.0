@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  deleteTournamentFileRequest,
   getActiveTournamentRequest,
   updateTournamentRequest,
+  uploadTournamentFileRequest,
 } from "./requests";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 
@@ -160,6 +162,96 @@ describe("features/tournament-settings/api/requests", () => {
       const call = fetchMock.mock.calls[0];
       const body = JSON.parse(call[1].body as string);
       expect(body.entryFeeMinor).toBeNull();
+    });
+
+    // spec 0042 (T40): переключатели уведомлений сохраняются вместе со
+    // всем профилем, тем же fetcher'ом, что chiefJudge/venueName — своей
+    // мутации у них нет.
+    it("forwards notifications in the request body (spec 0042, FR-19)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ tournament: { id: "t1", title: "Cup" } }),
+      });
+
+      await updateTournamentRequest({
+        title: "Cup",
+        notifications: { applicationState: true, poolSeated: false },
+      });
+
+      const call = fetchMock.mock.calls[0];
+      const body = JSON.parse(call[1].body as string);
+      expect(body.notifications).toEqual({ applicationState: true, poolSeated: false });
+    });
+  });
+
+  describe("uploadTournamentFileRequest (spec 0042, FR-30/FR-31)", () => {
+    it("POSTs multipart/form-data to /api/tournament/files/{kind} on success", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ tournament: { id: "t1", regulationsFile: { url: "/api/files/r1" } } }),
+      });
+      const file = new File(["%PDF"], "rules.pdf", { type: "application/pdf" });
+
+      const result = await uploadTournamentFileRequest("regulations", file);
+
+      expect(result).toEqual({
+        ok: true,
+        tournament: { id: "t1", regulationsFile: { url: "/api/files/r1" } },
+      });
+      const call = fetchMock.mock.calls[0];
+      expect(call[0]).toBe("/api/tournament/files/regulations");
+      expect(call[1].method).toBe("POST");
+      const body = call[1].body as FormData;
+      expect(body).toBeInstanceOf(FormData);
+      expect(body.get("file")).toBe(file);
+      // Content-Type НЕ проставлен явно — браузер сам выставляет boundary
+      // для multipart/form-data.
+      expect(call[1].headers).toBeUndefined();
+    });
+
+    it("returns ok:false with server error and status on 4xx (unsupported type/too large)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: "unsupported file type: image/svg+xml" }),
+      });
+
+      const result = await uploadTournamentFileRequest(
+        "emblem",
+        new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: "unsupported file type: image/svg+xml",
+        status: 400,
+      });
+    });
+  });
+
+  describe("deleteTournamentFileRequest (spec 0042, FR-36)", () => {
+    it("DELETEs /api/tournament/files/{kind} on success", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ tournament: { id: "t1", emblemFile: { url: "" } } }),
+      });
+
+      const result = await deleteTournamentFileRequest("emblem");
+
+      expect(result).toEqual({ ok: true, tournament: { id: "t1", emblemFile: { url: "" } } });
+      expect(fetchMock).toHaveBeenCalledWith("/api/tournament/files/emblem", { method: "DELETE" });
+    });
+
+    it("returns ok:false with server error and status on failure", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: "forbidden" }),
+      });
+
+      const result = await deleteTournamentFileRequest("regulations");
+
+      expect(result).toEqual({ ok: false, error: "forbidden", status: 403 });
     });
   });
 });

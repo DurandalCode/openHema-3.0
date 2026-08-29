@@ -30,6 +30,9 @@ type Deps struct {
 	Nominations domain.NominationProvider
 	Users       domain.UserProvider
 	Fighters    domain.FighterRegistrationSink
+	// Notifier — почтовые уведомления о смене состояния заявки не её
+	// автором (спека 0042, FR-23). nil — уведомления отключены (no-op).
+	Notifier domain.Notifier
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux. baseOpts
@@ -37,7 +40,7 @@ type Deps struct {
 // дополнительно накладываются на ApplicationAdminService (require-admin).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Nominations, deps.Users, deps.Fighters)
+	svc := service.New(r, deps.Nominations, deps.Users, deps.Fighters, deps.Notifier)
 
 	handler := api.NewHandler(svc)
 	adminHandler := api.NewAdminHandler(svc)

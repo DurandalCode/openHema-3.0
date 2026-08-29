@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,16 +22,34 @@ import (
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/config"
 	"github.com/hema/server/pkg/connectutil"
+	"github.com/hema/server/pkg/filestore"
+	"github.com/hema/server/pkg/filestore/local"
 	"github.com/hema/server/pkg/jwt"
 	"github.com/hema/server/pkg/livebus"
 	"github.com/hema/server/pkg/mail"
+	"github.com/hema/server/pkg/notify"
 	"github.com/hema/server/pkg/pgxutil"
 )
 
+// rateLimitedProcedures — RPC, чувствительные к перебору и рассылке (спека
+// 0042, FR-39): вход, регистрация, восстановление/смена пароля,
+// подтверждение/смена email. Явный список — тот же приём, что
+// publicProcedures у интерсептора Auth (auth_interceptor.go): безопаснее
+// умолчания «лимитировать всё».
+var rateLimitedProcedures = map[string]struct{}{
+	"/hema.v1.AuthService/Login":                   {},
+	"/hema.v1.AuthService/Register":                {},
+	"/hema.v1.AuthService/RequestPasswordReset":    {},
+	"/hema.v1.AuthService/ResetPassword":           {},
+	"/hema.v1.AuthService/ResendEmailVerification": {},
+	"/hema.v1.AuthService/RequestEmailChange":      {},
+}
+
 // App — собранное приложение: HTTP-хендлер и ресурсы для graceful shutdown.
 type App struct {
-	Handler http.Handler
-	pool    *pgxpool.Pool
+	Handler    http.Handler
+	pool       *pgxpool.Pool
+	dispatcher *notify.Dispatcher
 }
 
 // New строит приложение: пул БД, менеджер токенов, регистрация модулей.
@@ -48,11 +67,32 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		cfg.JWTRefreshTTL,
 	)
 
+	// Ограничение частоты по адресу источника (спека 0042, FR-39) — общий
+	// интерсептор для всех модулей, набор защищаемых процедур —
+	// rateLimitedProcedures. RATE_LIMIT_TRUST_PROXY по умолчанию false:
+	// без доверенного прокси перед сервером доверять X-Forwarded-For
+	// небезопасно (NFR-6) — в docker-compose, где BFF единственный
+	// сетевой клиент сервера (ADR 0001), включается явно.
+	rateLimiter := connectutil.NewRateLimiter(cfg.RateLimitRequests, cfg.RateLimitWindow)
+	go func() {
+		ticker := time.NewTicker(cfg.RateLimitWindow)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				rateLimiter.Cleanup(now)
+			}
+		}
+	}()
+
 	baseOpts := []connect.HandlerOption{
 		connect.WithInterceptors(
 			connectutil.Recovery(log),
 			connectutil.Logging(log),
 			connectutil.Auth(tokens),
+			rateLimiter.Interceptor(rateLimitedProcedures, cfg.RateLimitTrustProxy),
 		),
 	}
 	adminOpts := []connect.HandlerOption{
@@ -75,20 +115,54 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		sender = mail.NewSMTP(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
 	} else {
 		sender = mail.NewLogger(log)
-		log.Warn("SMTP_HOST not set: password reset emails are logged, not delivered")
+		log.Warn("SMTP_HOST not set: password reset/verification emails are logged, not delivered")
 	}
+
+	// Диспетчер почтовых уведомлений (спека 0042, FR-27/FR-28): очередь +
+	// один фоновый воркер поверх того же sender, что и служебные письма
+	// учётки — канал один, различаются только домен вызова (синхронный
+	// mail.Sender для служебных писем, асинхронный notify.Dispatcher для
+	// уведомлений о событиях турнира). Буфер — 256, с запасом на пул из
+	// нескольких десятков бойцов (см. plan.md, «Риски»); переполнение
+	// логируется и не блокирует вызывающий запрос.
+	dispatcher := notify.New(sender, log, 256)
 
 	deps := auth.Deps{
 		Pool:             pool,
 		Tokens:           tokens,
-		Mailer:           mailer.New(sender, cfg.PasswordResetTTL),
+		Mailer:           mailer.New(sender, cfg.PasswordResetTTL, cfg.EmailTokenTTL),
 		PublicAppURL:     cfg.PublicAppURL,
 		PasswordResetTTL: cfg.PasswordResetTTL,
+		EmailTokenTTL:    cfg.EmailTokenTTL,
+		// SessionTTL — то же значение, что TTL refresh-токена (ADR 0018):
+		// сессия не должна пережить несущий её токен и не должна истечь
+		// раньше него.
+		SessionTTL: cfg.JWTRefreshTTL,
 	}
 	auth.Register(mux, deps, baseOpts, adminOpts)
 
-	tournamentDeps := tournament.Deps{Pool: pool}
+	// Файловое хранилище регламента/эмблемы турнира (спека 0042, ADR 0019):
+	// локальный том при заданном каталоге, иначе nil — легальное состояние
+	// «хранилище не настроено» (NFR-4), профиль турнира остаётся рабочим
+	// на внешних ссылках.
+	var fileStore filestore.Store
+	if cfg.FileStorageDir != "" {
+		fileStore = local.New(cfg.FileStorageDir)
+	} else {
+		log.Warn("FILE_STORAGE_DIR not set: tournament file uploads (regulations/emblem) are disabled")
+	}
+
+	tournamentDeps := tournament.Deps{
+		Pool:     pool,
+		Files:    fileStore,
+		Policies: tournament.DefaultPolicies(cfg.RegulationsMaxBytes, cfg.EmblemMaxBytes),
+	}
 	tournament.Register(mux, tournamentDeps, baseOpts, adminOpts)
+
+	// Отдача загруженных файлов турнира — публичный GET, не Connect (ADR
+	// 0019 п.6). Смонтирован независимо от того, настроено ли хранилище:
+	// при fileStore == nil хендлер сам отвечает 404 на любой id.
+	mux.HandleFunc("GET /files/{id}", filesHandler(fileStore))
 
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
 
@@ -97,6 +171,12 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	// stage (спека 0033, журнал боёв площадки, приём 0025) и fighter (спека
 	// 0040, обратная проекция «учётка↔боец», FR-8).
 	displayNames := auth.NewDisplayNameProvider(pool, tokens)
+
+	// recipients — резолв получателей почтовых уведомлений (спека 0042,
+	// FR-21): личный переключатель + подтверждённый адрес. Переиспользуется
+	// обоими нотификаторами (application, stage) — тот же приём, что
+	// displayNames.
+	recipients := auth.NewRecipientsProvider(pool, tokens)
 
 	// Межмодульные адаптеры спеки 0040 (сценарии 1-3): гейт на удаление
 	// номинации, восстановление посева при возврате бойца, репойнт при
@@ -134,6 +214,9 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		Nominations: NewNominationInfoProvider(pool, activeTournaments),
 		Users:       displayNames,
 		Fighters:    fighter.NewRegistrationSink(pool, fighterNominations),
+		// Notifier — почтовое уведомление о смене состояния заявки не её
+		// автором (спека 0042, FR-23).
+		Notifier: NewApplicationNotifier(pool, dispatcher, recipients, cfg.PublicAppURL, log),
 	}
 	application.Register(mux, applicationDeps, baseOpts, adminOpts)
 
@@ -154,6 +237,9 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		Nominations: NewStageNominationProvider(pool, activeTournaments),
 		LiveBus:     NewStageLiveBus(livebus.New()),
 		Users:       displayNames,
+		// Notifier — почтовое уведомление о постановке пула на площадку
+		// (спека 0042, FR-24).
+		Notifier: NewStageNotifier(pool, dispatcher, recipients, displayNames, cfg.PublicAppURL, log),
 	}
 	stagemodule.Register(mux, stageDeps, baseOpts, adminOpts)
 
@@ -164,11 +250,17 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		cfg.BootstrapAdminDisplayName,
 	)
 
-	return &App{Handler: mux, pool: pool}, nil
+	return &App{Handler: mux, pool: pool, dispatcher: dispatcher}, nil
 }
 
-// Close освобождает ресурсы приложения.
+// Close освобождает ресурсы приложения. Диспетчер уведомлений закрывается
+// первым — дренирует очередь (см. notify.Dispatcher.Close) до того, как
+// закроется пул БД, которым могут пользоваться ещё не отправленные письма
+// (резолв получателей в адаптерах, спека 0042).
 func (a *App) Close() {
+	if a.dispatcher != nil {
+		a.dispatcher.Close()
+	}
 	if a.pool != nil {
 		a.pool.Close()
 	}

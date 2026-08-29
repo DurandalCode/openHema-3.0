@@ -35,6 +35,9 @@ const user: CurrentUser = {
   role: "ROLE_USER",
   createdAt: "2026-01-14T00:00:00.000Z",
   club: "",
+  emailVerified: true,
+  pendingEmail: "",
+  notifications: { applicationState: false, poolSeated: false },
 };
 
 function renderDialog(props: Partial<Parameters<typeof EditProfileDialog>[0]> = {}) {

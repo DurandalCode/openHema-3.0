@@ -24,6 +24,9 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     entryFeeMinor: 150000,
     entryFeeCurrency: "RUB",
     program: [],
+    regulationsFile: { url: "", name: "", size: 0 },
+    emblemFile: { url: "", name: "", size: 0 },
+    notifications: { applicationState: false, poolSeated: false },
     ...overrides,
   };
 }
@@ -90,6 +93,32 @@ describe("widgets/tournament-about TournamentAboutScreen (spec 0038, FR-43..FR-4
       />,
     );
     expect(screen.queryByRole("link", { name: /регламент/i })).not.toBeInTheDocument();
+  });
+
+  // spec 0042 (T41, FR-30/FR-34): загруженный файл вытесняет ссылку.
+  it("links the regulations to the uploaded file when set, proxied through the BFF", () => {
+    render(
+      <TournamentAboutScreen
+        tournament={tournament({
+          regulationsUrl: "https://example.com/rules.pdf",
+          regulationsFile: { url: "/files/r1", name: "rules.pdf", size: 100 },
+        })}
+        nominations={[nomination()]}
+      />,
+    );
+    const link = screen.getByRole("link", { name: /регламент/i });
+    expect(link).toHaveAttribute("href", "/api/files/r1");
+  });
+
+  it("links the regulations to regulationsUrl when no file is uploaded", () => {
+    render(
+      <TournamentAboutScreen
+        tournament={tournament({ regulationsUrl: "https://example.com/rules.pdf" })}
+        nominations={[nomination()]}
+      />,
+    );
+    const link = screen.getByRole("link", { name: /регламент/i });
+    expect(link).toHaveAttribute("href", "https://example.com/rules.pdf");
   });
 
   it("hides the chief judge line when it is empty, keeping contacts", () => {

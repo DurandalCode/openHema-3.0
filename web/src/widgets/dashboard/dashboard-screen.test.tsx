@@ -41,6 +41,19 @@ vi.mock("@/features/my-applications/api/use-my-applications", () => ({
   useMyApplications: () => applicationsQueryResult,
 }));
 
+// SessionsCard (спека 0042) фетчит список сессий через useSessions —
+// мокаем стабильным результатом, реальный сетевой запрос в этом виджет-тесте
+// не нужен и не должен уходить.
+vi.mock("@/features/profile/api/use-sessions", () => ({
+  useSessions: () => ({ data: [], isLoading: false }),
+}));
+vi.mock("@/features/profile/api/use-revoke-session", () => ({
+  useRevokeSession: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock("@/features/profile/api/use-revoke-other-sessions", () => ({
+  useRevokeOtherSessions: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
@@ -54,6 +67,9 @@ function renderScreen(props: Partial<Parameters<typeof DashboardScreen>[0]> = {}
     role: "ROLE_USER",
     createdAt: "2026-01-14T00:00:00.000Z",
     club: "",
+    emailVerified: true,
+    pendingEmail: "",
+    notifications: { applicationState: false, poolSeated: false },
   };
   return render(
     <DashboardScreen

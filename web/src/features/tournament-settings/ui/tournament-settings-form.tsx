@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ImageOff } from "lucide-react";
-import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { Button } from "@/shared/ui/button";
 import {
   Select,
   SelectContent,
@@ -15,9 +13,11 @@ import {
 import { Textarea } from "@/shared/ui/textarea";
 import { DateTimeField } from "@/shared/ui/datetime-field";
 import { Col, Row } from "@/shared/ui/stack";
-import type { ContactType } from "@/entities/tournament/lib/types";
+import type { ContactType, Tournament } from "@/entities/tournament/lib/types";
 import type { ContactDraft, TournamentDraft } from "@/entities/tournament/lib/draft";
 import { TournamentProgramEditor } from "./tournament-program-editor";
+import { FileOrLinkField } from "./file-or-link-field";
+import { NotificationsSection } from "./notifications-section";
 
 const CONTACT_TYPES: { value: ContactType; label: string }[] = [
   { value: "CONTACT_TYPE_TELEGRAM", label: "Telegram" },
@@ -27,6 +27,15 @@ const CONTACT_TYPES: { value: ContactType; label: string }[] = [
   { value: "CONTACT_TYPE_EMAIL", label: "Email" },
   { value: "CONTACT_TYPE_OTHER", label: "Другое" },
 ];
+
+// Пороги локальной пре-проверки загрузки файлов (спека 0042, T39, FR-32):
+// дефолты из спеки, дублируют то же, что BFF (`app/api/tournament/files/
+// [kind]/route.ts`) отклоняет ещё до похода на сервер — сервер остаётся
+// источником истины (реальная сигнатура файла).
+const REGULATIONS_ACCEPT = "application/pdf";
+const REGULATIONS_MAX_BYTES = 10 * 1024 * 1024;
+const EMBLEM_ACCEPT = "image/png,image/jpeg,image/webp";
+const EMBLEM_MAX_BYTES = 5 * 1024 * 1024;
 
 export type TournamentSettingsFormErrors = {
   title?: string;
@@ -39,6 +48,14 @@ export type TournamentSettingsFormProps = {
   value: TournamentDraft;
   onChange: (value: TournamentDraft) => void;
   errors: TournamentSettingsFormErrors;
+  // savedTournament — актуальный турнир (не черновик): нужен файловым
+  // полям (регламент/эмблема) для чтения `regulationsFile`/`emblemFile` —
+  // загрузка/удаление файла (спека 0042, FR-30/FR-31) идёт мимо черновика
+  // формы, своим RPC (`file-or-link-field.tsx`), и результат должен
+  // обновить представление турнира на экране немедленно, не дожидаясь
+  // «Сохранить».
+  savedTournament: Tournament;
+  onSavedTournamentChange: (tournament: Tournament) => void;
 };
 
 /**
@@ -46,12 +63,16 @@ export type TournamentSettingsFormProps = {
  * 0029, A10): **контролируемая** форма — `value`/`onChange`/`errors` в
  * пропсах, своей мутации и кнопки сабмита нет (действия — в шапке экрана,
  * `TournamentScreen`). Поля прежние (FR-10) + превью эмблемы (FR-13) +
- * подписи правил контактов (FR-14).
+ * подписи правил контактов (FR-14). Регламент/эмблема (спека 0042, T39) —
+ * `file-or-link-field.tsx` вместо простого `Input type="url"`: у загрузки/
+ * удаления файла своя мутация, не идущая через `onChange` этой формы.
  */
 export function TournamentSettingsForm({
   value,
   onChange,
   errors,
+  savedTournament,
+  onSavedTournamentChange,
 }: TournamentSettingsFormProps) {
   function set<K extends keyof TournamentDraft>(key: K, next: TournamentDraft[K]) {
     onChange({ ...value, [key]: next });
@@ -132,20 +153,18 @@ export function TournamentSettingsForm({
         </p>
       </Col>
 
-      <Col gap={2}>
-        <Label htmlFor="emblemUrl">URL эмблемы</Label>
-        <Row align="center" gap={3}>
-          <EmblemPreview url={value.emblemUrl} />
-          <Input
-            id="emblemUrl"
-            type="url"
-            placeholder="https://cdn.example.com/logo.png"
-            value={value.emblemUrl}
-            onChange={(e) => set("emblemUrl", e.target.value)}
-            className="flex-1"
-          />
-        </Row>
-      </Col>
+      <FileOrLinkField
+        label="URL эмблемы"
+        urlValue={value.emblemUrl}
+        onUrlChange={(v) => set("emblemUrl", v)}
+        file={savedTournament.emblemFile}
+        kind="emblem"
+        accept={EMBLEM_ACCEPT}
+        maxBytes={EMBLEM_MAX_BYTES}
+        showPreview
+        onUploaded={onSavedTournamentChange}
+        onDeleted={onSavedTournamentChange}
+      />
 
       <Col gap={2}>
         <Label htmlFor="chiefJudge">Главный судья</Label>
@@ -157,14 +176,16 @@ export function TournamentSettingsForm({
       </Col>
 
       <Col gap={2}>
-        <Label htmlFor="regulationsUrl">Ссылка на регламент</Label>
-        <Input
-          id="regulationsUrl"
-          type="url"
-          placeholder="https://cdn.example.com/rules.pdf"
-          value={value.regulationsUrl}
-          onChange={(e) => set("regulationsUrl", e.target.value)}
-          aria-invalid={errors.regulationsUrl ? true : undefined}
+        <FileOrLinkField
+          label="Ссылка на регламент"
+          urlValue={value.regulationsUrl}
+          onUrlChange={(v) => set("regulationsUrl", v)}
+          file={savedTournament.regulationsFile}
+          kind="regulations"
+          accept={REGULATIONS_ACCEPT}
+          maxBytes={REGULATIONS_MAX_BYTES}
+          onUploaded={onSavedTournamentChange}
+          onDeleted={onSavedTournamentChange}
         />
         {errors.regulationsUrl && (
           <p className="text-xs text-destructive">{errors.regulationsUrl}</p>
@@ -236,6 +257,11 @@ export function TournamentSettingsForm({
         />
       </Col>
 
+      <NotificationsSection
+        value={value.notifications}
+        onChange={(notifications) => set("notifications", notifications)}
+      />
+
       <Col gap={2}>
         <Row align="center" justify="between">
           <Label>Контакты</Label>
@@ -289,38 +315,5 @@ export function TournamentSettingsForm({
         )}
       </Col>
     </Col>
-  );
-}
-
-/**
- * EmblemPreview — миниатюра эмблемы рядом с полем URL (spec FR-13, AC-10):
- * пустой или недоступный адрес даёт нейтральную заглушку, а не битую
- * картинку. Состояние «битый адрес» сбрасывается при смене `url`, чтобы
- * заглушка после исправления адреса не залипала.
- */
-function EmblemPreview({ url }: { url: string }) {
-  const [broken, setBroken] = useState(false);
-
-  useEffect(() => {
-    setBroken(false);
-  }, [url]);
-
-  const trimmed = url.trim();
-  const showImage = trimmed !== "" && !broken;
-
-  return (
-    <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
-      {showImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={trimmed}
-          alt="Эмблема турнира"
-          className="size-full object-cover"
-          onError={() => setBroken(true)}
-        />
-      ) : (
-        <ImageOff className="size-5 text-muted-foreground" aria-hidden="true" />
-      )}
-    </div>
   );
 }

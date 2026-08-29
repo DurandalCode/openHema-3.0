@@ -26,7 +26,7 @@ func testServiceWithMailer() (*Service, *testutil.FakeRepo, *testutil.FakeMailer
 	repo := testutil.NewFakeRepo()
 	mailer := testutil.NewFakeMailer()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, time.Now)
+	svc := New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, 30*time.Minute, 720*time.Hour, time.Now)
 	return svc, repo, mailer
 }
 

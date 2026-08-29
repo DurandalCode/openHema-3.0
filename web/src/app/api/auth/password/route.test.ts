@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/session/cookies", () => ({
   getAccessToken: vi.fn(),
+  getRefreshToken: vi.fn(),
   setSessionCookies: vi.fn(),
 }));
 vi.mock("@/lib/grpc/client", () => ({
@@ -11,7 +12,7 @@ vi.mock("@/lib/grpc/client", () => ({
 }));
 
 import { authClient } from "@/lib/grpc/client";
-import { getAccessToken, setSessionCookies } from "@/lib/session/cookies";
+import { getAccessToken, getRefreshToken, setSessionCookies } from "@/lib/session/cookies";
 import { POST } from "./route";
 
 function req(body: unknown) {
@@ -36,8 +37,9 @@ describe("app/api/auth/password route", () => {
     expect(authClient.changePassword).not.toHaveBeenCalled();
   });
 
-  it("calls ChangePassword with the Bearer token and sets new session cookies on success (own session must not break on next refresh)", async () => {
+  it("calls ChangePassword with the Bearer token, X-Refresh-Token, and sets new session cookies on success (FR-14: current session must survive)", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
+    vi.mocked(getRefreshToken).mockResolvedValue("refresh-abc");
     vi.mocked(authClient.changePassword).mockResolvedValue({
       tokens: { accessToken: "new-access", refreshToken: "new-refresh" },
     } as never);
@@ -48,9 +50,27 @@ describe("app/api/auth/password route", () => {
     expect(await res.json()).toEqual({ ok: true });
     expect(authClient.changePassword).toHaveBeenCalledWith(
       { currentPassword: "old12345", newPassword: "new12345" },
-      { headers: { Authorization: "Bearer tok-xyz" } },
+      {
+        headers: {
+          Authorization: "Bearer tok-xyz",
+          "X-Refresh-Token": "refresh-abc",
+        },
+      },
     );
     expect(setSessionCookies).toHaveBeenCalledWith("new-access", "new-refresh");
+  });
+
+  it("forwards an empty X-Refresh-Token when the refresh cookie is missing (server treats current session as unidentified)", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("tok-xyz");
+    vi.mocked(getRefreshToken).mockResolvedValue(undefined);
+    vi.mocked(authClient.changePassword).mockResolvedValue({} as never);
+
+    await POST(req({ currentPassword: "old12345", newPassword: "new12345" }));
+
+    expect(authClient.changePassword).toHaveBeenCalledWith(
+      { currentPassword: "old12345", newPassword: "new12345" },
+      { headers: { Authorization: "Bearer tok-xyz", "X-Refresh-Token": "" } },
+    );
   });
 
   it("does not set cookies when the RPC has no tokens in the response", async () => {

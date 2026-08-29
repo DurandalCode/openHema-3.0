@@ -23,6 +23,9 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     entryFeeMinor: null,
     entryFeeCurrency: "",
     program: [],
+    regulationsFile: { url: "", name: "", size: 0 },
+    emblemFile: { url: "", name: "", size: 0 },
+    notifications: { applicationState: false, poolSeated: false },
     ...overrides,
   };
 }
@@ -188,6 +191,63 @@ describe("entities/tournament/ui TournamentHero facts (spec 0039, FR-1..FR-5)", 
   it("hides the arenas count when arenasCount is zero (nothing to show)", () => {
     render(<TournamentHero tournament={tournament()} now={now} arenasCount={0} />);
     expect(screen.queryByText(/Площадок/)).not.toBeInTheDocument();
+  });
+});
+
+// spec 0042 (T41, FR-30/FR-31/FR-34): загруженный файл вытесняет ссылку —
+// эмблема/регламент читаются через резолверы `emblemSrc`/`regulationsHref`,
+// не напрямую из `emblemUrl`/`regulationsUrl`.
+describe("entities/tournament/ui TournamentHero files (spec 0042, FR-30/FR-31/FR-34)", () => {
+  afterEach(cleanup);
+
+  it("draws the emblem from the uploaded file when set, proxied through the BFF", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({
+          emblemUrl: "https://cdn.example.com/logo.png",
+          emblemFile: { url: "/files/e1", name: "logo.png", size: 100 },
+        })}
+        now={now}
+      />,
+    );
+    const img = screen.getByAltText("Кубок Севера");
+    expect(img).toHaveAttribute("src", "/api/files/e1");
+  });
+
+  it("falls back to emblemUrl when no file is uploaded", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({ emblemUrl: "https://cdn.example.com/logo.png" })}
+        now={now}
+      />,
+    );
+    const img = screen.getByAltText("Кубок Севера");
+    expect(img).toHaveAttribute("src", "https://cdn.example.com/logo.png");
+  });
+
+  it("links the regulations to the uploaded file when set, proxied through the BFF", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({
+          regulationsUrl: "https://example.com/rules.pdf",
+          regulationsFile: { url: "/files/r1", name: "rules.pdf", size: 100 },
+        })}
+        now={now}
+      />,
+    );
+    const link = screen.getByRole("link", { name: /Регламент турнира/ });
+    expect(link).toHaveAttribute("href", "/api/files/r1");
+  });
+
+  it("links the regulations to regulationsUrl when no file is uploaded", () => {
+    render(
+      <TournamentHero
+        tournament={tournament({ regulationsUrl: "https://example.com/rules.pdf" })}
+        now={now}
+      />,
+    );
+    const link = screen.getByRole("link", { name: /Регламент турнира/ });
+    expect(link).toHaveAttribute("href", "https://example.com/rules.pdf");
   });
 });
 

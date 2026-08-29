@@ -9,6 +9,7 @@ package integration
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -23,11 +24,13 @@ import (
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/application"
 	"github.com/hema/server/modules/auth"
+	authmailer "github.com/hema/server/modules/auth/mailer"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
 	"github.com/hema/server/modules/tournament"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
+	"github.com/hema/server/pkg/mail"
 )
 
 const (
@@ -68,7 +71,22 @@ func setup(t *testing.T) clients {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	auth.Register(mux, auth.Deps{Pool: pool, Tokens: tokens}, baseOpts, adminOpts)
+	// Мейлер и TTL email/сессий (спека 0042): Register теперь заводит
+	// сессию и шлёт письмо подтверждения — без рабочего Mailer/TTL это
+	// падало бы на CHECK-констрейнтах (expires_at > created_at при TTL=0)
+	// либо паникой на nil-Mailer. Лог-адаптер, TTL — с запасом, тесты этого
+	// модуля не проверяют содержимое письма.
+	authSender := mail.NewLogger(slog.Default())
+	authMailer := authmailer.New(authSender, 30*time.Minute, 30*time.Minute)
+	auth.Register(mux, auth.Deps{
+		Pool:             pool,
+		Tokens:           tokens,
+		Mailer:           authMailer,
+		PublicAppURL:     "http://localhost:3000",
+		PasswordResetTTL: 30 * time.Minute,
+		EmailTokenTTL:    30 * time.Minute,
+		SessionTTL:       720 * time.Hour,
+	}, baseOpts, adminOpts)
 	tournament.Register(mux, tournament.Deps{Pool: pool}, baseOpts, adminOpts)
 
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
@@ -101,7 +119,7 @@ func setup(t *testing.T) clients {
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(adminUserID, "admin")
+	pair, err := tokens.Issue(adminUserID, "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
@@ -111,7 +129,7 @@ func adminBearer(t *testing.T) string {
 func userBearer(t *testing.T, userID string) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(userID, "user")
+	pair, err := tokens.Issue(userID, "user", "")
 	if err != nil {
 		t.Fatalf("issue user token: %v", err)
 	}

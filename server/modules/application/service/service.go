@@ -9,6 +9,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -77,11 +78,48 @@ type Service struct {
 	nominations domain.NominationProvider
 	users       domain.UserProvider
 	fighters    domain.FighterRegistrationSink
+	notifier    domain.Notifier
 }
 
-// New создаёт сервис application.
-func New(repo domain.Repository, nominations domain.NominationProvider, users domain.UserProvider, fighters domain.FighterRegistrationSink) *Service {
-	return &Service{repo: repo, nominations: nominations, users: users, fighters: fighters}
+// New создаёт сервис application. notifier — домен.Notifier (спека 0042,
+// FR-23), опциональный вариадический параметр (не более одного значения):
+// этот трек (0042, трек D) не трогает module.go/composition root (вне
+// границ трека, см. задание трека), который сегодня вызывает New без
+// пятого аргумента — вариадическая форма оставляет этот вызов рабочим без
+// правки. Join-волна, подключая реальный адаптер уведомлений, передаст его
+// сюда и обновит вызов New в module.go. Отсутствующий/nil notifier — валиден
+// (уведомления выключены, no-op) — так продолжают работать все существующие
+// вызовы New.
+func New(repo domain.Repository, nominations domain.NominationProvider, users domain.UserProvider, fighters domain.FighterRegistrationSink, notifier ...domain.Notifier) *Service {
+	var n domain.Notifier
+	if len(notifier) > 0 {
+		n = notifier[0]
+	}
+	return &Service{repo: repo, nominations: nominations, users: users, fighters: fighters, notifier: n}
+}
+
+// notify уведомляет заявителя о смене состояния заявки, автором которой он
+// не является (FR-23). Вызывается после успешного применения события в
+// хранилище — почта не должна и не может откатить уже свершившийся факт
+// (FR-27). Notifier по контракту порта не возвращает ошибку, но паника
+// внутри чужой реализации — гасится здесь через defer/recover и уходит в
+// журнал, а не наружу вызывающему (FR-27/FR-28): доменная операция уже
+// совершена и не должна зависеть от надёжности уведомления.
+func (s *Service) notify(ctx context.Context, app Application) {
+	if s.notifier == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Default().Error("application: notifier panicked", "err", r, "application_id", app.ID)
+		}
+	}()
+	s.notifier.ApplicationStateChanged(ctx, domain.ApplicationNotice{
+		ApplicantUserID: app.ApplicantUserID,
+		NominationID:    app.NominationID,
+		TournamentID:    app.TournamentID,
+		NewState:        app.State,
+	})
 }
 
 // Submit подаёт заявку callerID в номинацию. Резолвит tournament_id номинации
@@ -138,11 +176,17 @@ func (s *Service) DeclarePayment(ctx context.Context, callerID, appID string) (A
 }
 
 // ConfirmPayment подтверждает оплату (секретарь/admin — доступ проверяется
-// вне домена, интерсептором RequireAdmin).
+// вне домена, интерсептором RequireAdmin). Уведомляет заявителя (FR-23,
+// спека 0042) — подтверждение не его собственное действие.
 func (s *Service) ConfirmPayment(ctx context.Context, actorID, appID string) (Application, error) {
-	return s.act(ctx, appID, func(a domain.Application) (domain.Event, error) {
+	out, err := s.act(ctx, appID, func(a domain.Application) (domain.Event, error) {
 		return a.ConfirmPayment(actorID, time.Now())
 	})
+	if err != nil {
+		return Application{}, err
+	}
+	s.notify(ctx, out)
+	return out, nil
 }
 
 // Withdraw отзывает собственную заявку заявителем из любого нетерминального
@@ -211,6 +255,10 @@ func (s *Service) Register(ctx context.Context, actorID, appID string) (Applicat
 			return Application{}, false, err
 		}
 
+		// Уведомляет заявителя (FR-23, спека 0042) — регистрация секретарём/
+		// admin не его собственное действие.
+		s.notify(ctx, out)
+
 		return out, capacityExceeded, nil
 	}
 	return Application{}, false, lastErr
@@ -272,7 +320,14 @@ func (s *Service) EditApplication(ctx context.Context, actorID, appID string, in
 			}
 			return Application{}, err
 		}
-		return s.enrich(ctx, next)
+		out, err := s.enrich(ctx, next)
+		if err != nil {
+			return Application{}, err
+		}
+		// Уведомляет заявителя (FR-23, спека 0042) — правка организатором не
+		// его собственное действие.
+		s.notify(ctx, out)
+		return out, nil
 	}
 	return Application{}, lastErr
 }

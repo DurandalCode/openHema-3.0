@@ -12,7 +12,7 @@ import (
 
 func testService() (*Service, *testutil.FakeRepo) {
 	repo := testutil.NewFakeRepo()
-	return New(repo), repo
+	return New(repo, nil, nil), repo
 }
 
 func testServiceWithActive() (*Service, *testutil.FakeRepo) {
@@ -27,7 +27,7 @@ func testServiceWithActive() (*Service, *testutil.FakeRepo) {
 		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 	repo := testutil.NewFakeRepoWithActive(t)
-	return New(repo), repo
+	return New(repo, nil, nil), repo
 }
 
 func TestGetActive_HappyPath(t *testing.T) {
@@ -117,7 +117,7 @@ func TestUpdateActive_MultiDayEventRange(t *testing.T) {
 		EventStartAt:    start,
 		HasEventStartAt: true,
 		EventEndAt:      end,
-		HasEventEndAt:  true,
+		HasEventEndAt:   true,
 	})
 	if err != nil {
 		t.Fatalf("UpdateActive: %v", err)
@@ -154,7 +154,7 @@ func TestUpdateActive_EventEndBeforeStart(t *testing.T) {
 		EventStartAt:    start,
 		HasEventStartAt: true,
 		EventEndAt:      end,
-		HasEventEndAt:  true,
+		HasEventEndAt:   true,
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("expected ErrInvalidInput for end before start, got %v", err)

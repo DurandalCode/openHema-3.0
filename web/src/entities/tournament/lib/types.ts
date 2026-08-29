@@ -41,6 +41,24 @@ export type TournamentProgramDay = {
   items: TournamentProgramItem[];
 };
 
+// TournamentFile — загруженный файл профиля турнира (регламент или
+// эмблема, спека 0042). Одна форма на оба поля — набор атрибутов
+// одинаковый. url === "" — файл не загружен.
+export type TournamentFile = {
+  url: string;
+  name: string;
+  size: number;
+};
+
+// NotificationSettings — переключатели видов почтовых уведомлений (спека
+// 0042). Здесь — глобальный уровень (организатор турнира, FR-19); личный
+// уровень — та же форма в entities/user/lib/types.ts. Письмо уходит только
+// когда оба уровня разрешают один и тот же вид (FR-21).
+export type NotificationSettings = {
+  applicationState: boolean;
+  poolSeated: boolean;
+};
+
 export type Tournament = {
   id: string;
   title: string;
@@ -72,4 +90,12 @@ export type Tournament = {
   // program — программа турнира по дням (спека 0040, FR-14/FR-15). Пустой
   // список — программа не задана, раздел не показывается (FR-16).
   program: TournamentProgramDay[];
+  // regulationsFile / emblemFile — загруженные файлы вместо внешних ссылок
+  // (спека 0042, FR-30/FR-31). Источник ровно один на каждое поле: непустой
+  // regulationsFile.url/emblemFile.url означает, что соответствующая
+  // ссылка (regulationsUrl/emblemUrl) игнорируется (FR-34).
+  regulationsFile: TournamentFile;
+  emblemFile: TournamentFile;
+  // notifications — глобальные переключатели уведомлений турнира (FR-19).
+  notifications: NotificationSettings;
 };

@@ -21,7 +21,7 @@ type ActiveTournamentIDProvider struct {
 // NewActiveTournamentIDProvider создаёт провайдер поверх пула соединений.
 func NewActiveTournamentIDProvider(pool *pgxpool.Pool) *ActiveTournamentIDProvider {
 	r := repo.New(pool)
-	return &ActiveTournamentIDProvider{svc: service.New(r)}
+	return &ActiveTournamentIDProvider{svc: service.New(r, nil, nil)}
 }
 
 // ActiveTournamentID возвращает идентификатор активного турнира.

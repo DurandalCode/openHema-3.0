@@ -7,6 +7,7 @@ import { Col } from "@/shared/ui/stack";
 import type { CurrentUser } from "@/entities/user/lib/types";
 import type { Fighter } from "@/entities/fighter/lib/types";
 import type { TournamentLiveSnapshotDto } from "@/entities/tournament-live/lib/types";
+import { NotificationsCard } from "@/features/profile/ui/notifications-card";
 import { NextBoutCard } from "./next-bout-card";
 import { MyNominations } from "./my-nominations";
 import { MyApplicationsPreview } from "./my-applications-preview";
@@ -75,7 +76,8 @@ export function DashboardScreen({
 
         <Col gap={4}>
           <ProfileCard user={user} />
-          <SecurityCard />
+          <SecurityCard user={user} />
+          <NotificationsCard user={user} />
           <LogoutButton />
         </Col>
       </div>

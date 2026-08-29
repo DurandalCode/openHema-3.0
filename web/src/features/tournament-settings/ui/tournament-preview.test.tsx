@@ -28,6 +28,9 @@ function saved(overrides: Partial<Tournament> = {}): Tournament {
     entryFeeMinor: null,
     entryFeeCurrency: "",
     program: [],
+    regulationsFile: { url: "", name: "", size: 0 },
+    emblemFile: { url: "", name: "", size: 0 },
+    notifications: { applicationState: false, poolSeated: false },
     ...overrides,
   };
 }
@@ -50,6 +53,7 @@ function draftFrom(t: Tournament): TournamentDraft {
       date: d.date,
       items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
     })),
+    notifications: t.notifications,
   };
 }
 

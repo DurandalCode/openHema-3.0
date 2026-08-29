@@ -11,6 +11,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -25,12 +26,14 @@ import (
 	"github.com/hema/server/gen/hema/v1/hemav1connect"
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/auth"
+	authmailer "github.com/hema/server/modules/auth/mailer"
 	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/bout/domain"
 	boutrepo "github.com/hema/server/modules/bout/repo"
 	boutservice "github.com/hema/server/modules/bout/service"
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
+	"github.com/hema/server/pkg/mail"
 )
 
 const (
@@ -56,7 +59,22 @@ func setup(t *testing.T) (hemav1connect.BoutAdminServiceClient, *boutservice.Ser
 	}
 
 	mux := http.NewServeMux()
-	auth.Register(mux, auth.Deps{Pool: pool, Tokens: tokens}, baseOpts, adminOpts)
+	// Мейлер и TTL email/сессий (спека 0042): Register теперь заводит
+	// сессию и шлёт письмо подтверждения — без рабочего Mailer/TTL это
+	// падало бы на CHECK-констрейнтах (expires_at > created_at при TTL=0)
+	// либо паникой на nil-Mailer. Лог-адаптер, TTL — с запасом, тесты этого
+	// модуля не проверяют содержимое письма.
+	authSender := mail.NewLogger(slog.Default())
+	authMailer := authmailer.New(authSender, 30*time.Minute, 30*time.Minute)
+	auth.Register(mux, auth.Deps{
+		Pool:             pool,
+		Tokens:           tokens,
+		Mailer:           authMailer,
+		PublicAppURL:     "http://localhost:3000",
+		PasswordResetTTL: 30 * time.Minute,
+		EmailTokenTTL:    30 * time.Minute,
+		SessionTTL:       720 * time.Hour,
+	}, baseOpts, adminOpts)
 	boutmodule.Register(mux, boutmodule.Deps{Pool: pool}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -70,7 +88,7 @@ func setup(t *testing.T) (hemav1connect.BoutAdminServiceClient, *boutservice.Ser
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(adminUserID, "admin")
+	pair, err := tokens.Issue(adminUserID, "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}

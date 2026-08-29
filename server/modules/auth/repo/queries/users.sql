@@ -1,20 +1,24 @@
 -- name: CreateUser :one
 INSERT INTO auth.users (email, password_hash, display_name, role)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at;
+RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated;
 
 -- name: GetUserByEmail :one
-SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at
+SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated
 FROM auth.users
 WHERE email = $1;
 
 -- name: GetUserByID :one
-SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at
+SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated
 FROM auth.users
 WHERE id = $1;
 
 -- name: GetUsersByIDs :many
-SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at
+SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated
 FROM auth.users
 WHERE id = ANY($1::uuid[]);
 
@@ -22,13 +26,15 @@ WHERE id = ANY($1::uuid[]);
 SELECT count(*) FROM auth.users WHERE role = 'admin';
 
 -- name: ListAdmins :many
-SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at
+SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated
 FROM auth.users
 WHERE role = 'admin'
 ORDER BY created_at;
 
 -- name: ListUsers :many
-SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at
+SELECT id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated
 FROM auth.users
 ORDER BY created_at
 LIMIT $1 OFFSET $2;
@@ -37,7 +43,8 @@ LIMIT $1 OFFSET $2;
 UPDATE auth.users
 SET role = $2
 WHERE id = $1
-RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at;
+RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated;
 
 -- name: UpdateUserPassword :exec
 -- Заменяет хеш пароля и ставит password_changed_at в переданное значение
@@ -55,7 +62,8 @@ UPDATE auth.users
 SET display_name = $2,
     club = $3
 WHERE id = $1
-RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at;
+RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated;
 
 -- name: CreateResetToken :one
 -- Сохраняет только хеш токена восстановления (NFR-1) — сырой токен живёт
@@ -97,3 +105,41 @@ WHERE token_hash = $1
 UPDATE auth.password_reset_tokens
 SET used_at = now()
 WHERE id = $1;
+
+-- name: MarkEmailVerified :exec
+-- Проставляет email_verified_at (FR-3). Момент подтверждения приходит от
+-- вызывающего сервиса (s.now), тем же приёмом, что и UpdateUserPassword.
+UPDATE auth.users
+SET email_verified_at = $2
+WHERE id = $1;
+
+-- name: SetPendingEmail :exec
+-- Проставляет запрошенный новый адрес (FR-6). Пустая строка — запроса нет.
+UPDATE auth.users
+SET pending_email = $2
+WHERE id = $1;
+
+-- name: ApplyEmailChange :one
+-- Меняет email на новый, сбрасывает email_verified_at (см. tasks.md T8 —
+-- смена адреса заново требует подтверждения по общей ветке VerifyEmail) и
+-- очищает pending_email (FR-6).
+UPDATE auth.users
+SET email = $2,
+    email_verified_at = NULL,
+    pending_email = ''
+WHERE id = $1
+RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated;
+
+-- name: IsEmailTaken :one
+-- Проверяет занятость адреса другой учёткой (FR-8).
+SELECT EXISTS (SELECT 1 FROM auth.users WHERE email = $1) AS taken;
+
+-- name: SetNotificationSettings :one
+-- Правит личные переключатели уведомлений (FR-20).
+UPDATE auth.users
+SET notify_application_state = $2,
+    notify_pool_seated = $3
+WHERE id = $1
+RETURNING id, email, password_hash, display_name, role, created_at, club, password_changed_at,
+       email_verified_at, pending_email, notify_application_state, notify_pool_seated;

@@ -32,7 +32,7 @@ func setupNoInterceptor(t *testing.T) (hemav1connect.AuthServiceClient, *testuti
 	repo := testutil.NewFakeRepo()
 	mailer := testutil.NewFakeMailer()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := service.New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, time.Now)
+	svc := service.New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, 30*time.Minute, 720*time.Hour, time.Now)
 	handler := NewHandler(svc)
 
 	authPath, authH := hemav1connect.NewAuthServiceHandler(handler)

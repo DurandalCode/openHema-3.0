@@ -20,7 +20,7 @@ func TestChangePassword_HappyPath(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	newPair, err := svc.ChangePassword(ctx, tokens.Access, "old-password", "new-password")
+	newPair, err := svc.ChangePassword(ctx, tokens.Access, "old-password", "new-password", "")
 	if err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	_, err = svc.ChangePassword(ctx, tokens.Access, "wrong-current", "new-password")
+	_, err = svc.ChangePassword(ctx, tokens.Access, "wrong-current", "new-password", "")
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
 	}
@@ -67,7 +67,7 @@ func TestChangePassword_WeakNewPasswordRejected(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	_, err = svc.ChangePassword(ctx, tokens.Access, "old-password", "short")
+	_, err = svc.ChangePassword(ctx, tokens.Access, "old-password", "short", "")
 	if !errors.Is(err, domain.ErrWeakPassword) {
 		t.Errorf("expected ErrWeakPassword, got %v", err)
 	}
@@ -77,7 +77,7 @@ func TestChangePassword_WeakNewPasswordRejected(t *testing.T) {
 func TestChangePassword_InvalidAccessToken(t *testing.T) {
 	svc, _ := testService()
 
-	_, err := svc.ChangePassword(context.Background(), "garbage", "any", "new-password")
+	_, err := svc.ChangePassword(context.Background(), "garbage", "any", "new-password", "")
 	if !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
 	}
@@ -103,7 +103,7 @@ func TestRefresh_RejectsTokenIssuedBeforePasswordChange(t *testing.T) {
 	// плана 0037).
 	time.Sleep(1100 * time.Millisecond)
 
-	newTokens, err := svc.ChangePassword(ctx, oldTokens.Access, "old-password", "new-password")
+	newTokens, err := svc.ChangePassword(ctx, oldTokens.Access, "old-password", "new-password", "")
 	if err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestChangePassword_PasswordChangedAtUsesServiceClock(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	if _, err := svc.ChangePassword(ctx, tokens.Access, "old-password", "new-password"); err != nil {
+	if _, err := svc.ChangePassword(ctx, tokens.Access, "old-password", "new-password", ""); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
 

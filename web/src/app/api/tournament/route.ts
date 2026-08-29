@@ -7,7 +7,11 @@ import { getAccessToken } from "@/lib/session/cookies";
 import {
   ContactType as ContactTypeProto,
 } from "@/gen/hema/v1/tournament_pb";
-import type { ContactType, TournamentProgramDay } from "@/entities/tournament/lib/types";
+import type {
+  ContactType,
+  NotificationSettings,
+  TournamentProgramDay,
+} from "@/entities/tournament/lib/types";
 
 export const runtime = "nodejs";
 
@@ -33,6 +37,9 @@ type UpdateBody = {
   // full-replace семантика, что contacts (FR-22): не форвардить здесь —
   // обнулить программу на сервере при следующем сохранении любого поля.
   program?: TournamentProgramDay[];
+  // notifications — глобальные переключатели уведомлений турнира (спека
+  // 0042, FR-19). Та же full-replace семантика, что остальные поля выше.
+  notifications?: NotificationSettings;
 };
 
 // UI хранит enum строкой с proto-именем ("CONTACT_TYPE_TELEGRAM"); proto-поле
@@ -126,6 +133,10 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
         entryFeeMinor,
         entryFeeCurrency: body.entryFeeCurrency ?? "",
         program: body.program ?? [],
+        notifications: {
+          applicationState: body.notifications?.applicationState ?? false,
+          poolSeated: body.notifications?.poolSeated ?? false,
+        },
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );

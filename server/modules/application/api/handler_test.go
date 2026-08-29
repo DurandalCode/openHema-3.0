@@ -83,7 +83,7 @@ func setup(t *testing.T) clients {
 func bearer(t *testing.T, userID, role string) string {
 	t.Helper()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(userID, role)
+	pair, err := tokens.Issue(userID, role, "")
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}

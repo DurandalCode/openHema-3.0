@@ -7,6 +7,7 @@ package integration
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/hema/server/internal/testdb"
 	"github.com/hema/server/modules/arena"
 	"github.com/hema/server/modules/auth"
+	authmailer "github.com/hema/server/modules/auth/mailer"
 	boutmodule "github.com/hema/server/modules/bout"
 	"github.com/hema/server/modules/fighter"
 	"github.com/hema/server/modules/nomination"
@@ -28,6 +30,7 @@ import (
 	"github.com/hema/server/pkg/connectutil"
 	"github.com/hema/server/pkg/jwt"
 	"github.com/hema/server/pkg/livebus"
+	"github.com/hema/server/pkg/mail"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -68,7 +71,22 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 
 	mux := http.NewServeMux()
 
-	auth.Register(mux, auth.Deps{Pool: pool, Tokens: tokens}, baseOpts, adminOpts)
+	// Мейлер и TTL email/сессий (спека 0042): Register теперь заводит
+	// сессию и шлёт письмо подтверждения — без рабочего Mailer/TTL это
+	// падало бы на CHECK-констрейнтах (expires_at > created_at при TTL=0)
+	// либо паникой на nil-Mailer. Лог-адаптер, TTL — с запасом, тесты этого
+	// модуля не проверяют содержимое письма.
+	authSender := mail.NewLogger(slog.Default())
+	authMailer := authmailer.New(authSender, 30*time.Minute, 30*time.Minute)
+	auth.Register(mux, auth.Deps{
+		Pool:             pool,
+		Tokens:           tokens,
+		Mailer:           authMailer,
+		PublicAppURL:     "http://localhost:3000",
+		PasswordResetTTL: 30 * time.Minute,
+		EmailTokenTTL:    30 * time.Minute,
+		SessionTTL:       720 * time.Hour,
+	}, baseOpts, adminOpts)
 	tournament.Register(mux, tournament.Deps{Pool: pool}, baseOpts, adminOpts)
 	activeTournaments := tournament.NewActiveTournamentIDProvider(pool)
 	nomination.Register(mux, nomination.Deps{Pool: pool, Tournaments: activeTournaments}, baseOpts, adminOpts)
@@ -89,10 +107,10 @@ func setup(t *testing.T) (clients, *pgxpool.Pool) {
 	stagemodule.Register(mux, stagemodule.Deps{
 		Pool:        pool,
 		Fighters:    platform.NewStageActiveFightersProvider(pool),
-		Bouts:       platform.NewStageBoutConductor(pool),                            // real adapter, not fake (spec 0010/0013)
-		Arenas:      platform.NewStageArenaProvider(pool, activeTournaments),         // real adapter, spec 0011
-		Nominations: platform.NewStageNominationProvider(pool, activeTournaments),   // real adapter, FR-9 (имя номинации пула)
-		LiveBus:     platform.NewStageLiveBus(livebus.New()),                        // real adapter, spec 0014
+		Bouts:       platform.NewStageBoutConductor(pool),                         // real adapter, not fake (spec 0010/0013)
+		Arenas:      platform.NewStageArenaProvider(pool, activeTournaments),      // real adapter, spec 0011
+		Nominations: platform.NewStageNominationProvider(pool, activeTournaments), // real adapter, FR-9 (имя номинации пула)
+		LiveBus:     platform.NewStageLiveBus(livebus.New()),                      // real adapter, spec 0014
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)
@@ -134,7 +152,7 @@ func stageIDFor(t *testing.T, c clients, nominationID string) string {
 func adminBearer(t *testing.T) string {
 	t.Helper()
 	tokens := jwt.NewManager(accessKey, refreshKey, 15*time.Minute, 720*time.Hour)
-	pair, err := tokens.Issue(adminUserID, "admin")
+	pair, err := tokens.Issue(adminUserID, "admin", "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}

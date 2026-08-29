@@ -20,6 +20,11 @@ var publicProcedures = map[string]struct{}{
 	// (FR-1/FR-7).
 	"/hema.v1.AuthService/RequestPasswordReset": {},
 	"/hema.v1.AuthService/ResetPassword":        {},
+	// Спека 0042: подтверждение email и подтверждение смены email —
+	// переход по ссылке из письма может случиться без активной сессии в
+	// этом браузере (FR-3/FR-6).
+	"/hema.v1.AuthService/VerifyEmail":         {},
+	"/hema.v1.AuthService/ConfirmEmailChange":  {},
 	"/hema.v1.TournamentService/GetActiveTournament":               {},
 	"/hema.v1.NominationService/ListNominations":                   {},
 	"/hema.v1.NominationService/GetNomination":                     {},

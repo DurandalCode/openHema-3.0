@@ -1,4 +1,4 @@
-import type { ContactType, Tournament } from "./types";
+import type { ContactType, NotificationSettings, Tournament } from "./types";
 
 /**
  * TournamentDraft — состояние формы «Профиль турнира» (spec 0029): те же
@@ -38,6 +38,12 @@ export type TournamentDraft = {
   // program — программа турнира по дням (спека 0040, FR-14/FR-14a): дни
   // задаются admin вручную, без привязки к eventStartAt/eventEndAt.
   program: ProgramDayDraft[];
+  // notifications — глобальные переключатели уведомлений турнира (спека
+  // 0042, FR-19/T40): часть обычного сохраняемого профиля, как chiefJudge —
+  // правится и сохраняется тем же экраном/сабмитом формы, в отличие от
+  // regulationsFile/emblemFile (файлы — отдельное действие загрузки,
+  // FR-30/FR-31, не часть черновика).
+  notifications: NotificationSettings;
 };
 
 function contactWord(n: number): string {
@@ -188,6 +194,13 @@ export function tournamentDraftChanges(
     changes.push("программа");
   }
 
+  if (
+    draft.notifications.applicationState !== saved.notifications.applicationState ||
+    draft.notifications.poolSeated !== saved.notifications.poolSeated
+  ) {
+    changes.push("уведомления");
+  }
+
   return changes;
 }
 
@@ -267,6 +280,15 @@ export function draftToTournament(
     updatedAt: saved.updatedAt,
     chiefJudge: draft.chiefJudge,
     regulationsUrl: draft.regulationsUrl,
+    // regulationsFile/emblemFile (спека 0042) не редактируются этой формой
+    // напрямую — файлы остаются отдельным действием загрузки (FR-30/FR-31),
+    // не частью черновика формы — превью несёт их из saved как есть.
+    // notifications, напротив, — обычное поле черновика (T40, как
+    // chiefJudge): превью отражает текущее состояние переключателей формы,
+    // а не то, что уже сохранено.
+    regulationsFile: saved.regulationsFile,
+    emblemFile: saved.emblemFile,
+    notifications: draft.notifications,
     venueName: draft.venueName,
     venueAddress: draft.venueAddress,
     entryFeeMinor,

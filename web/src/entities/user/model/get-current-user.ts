@@ -57,6 +57,13 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       role: toRoleSafe(u.role),
       createdAt: timestampToIso(u.createdAt),
       club: u.club,
+      // emailVerified/pendingEmail/notifications — спека 0042, FR-1/FR-6/FR-20.
+      emailVerified: u.emailVerified,
+      pendingEmail: u.pendingEmail,
+      notifications: {
+        applicationState: u.notifications?.applicationState ?? false,
+        poolSeated: u.notifications?.poolSeated ?? false,
+      },
     };
   } catch {
     return null;
