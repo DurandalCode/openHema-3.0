@@ -54,13 +54,13 @@
 
 ## Волна 1, трек A — доменная модель оценки
 
-- [ ] T3. **pace (red→green)** — `modules/stage/domain/pace_test.go`:
+- [x] T3. **pace (red→green)** — `modules/stage/domain/pace_test.go`:
       таблицы на медиану (нечётное/чётное окно, окно длиннее истории,
       ровно порог 3), каскад «пул → турнир → дефолт+пауза», `Provisional`
       на каждом уровне, устойчивость к одному выбросу → затем
       `domain/pace.go` (`PaceEstimate`, `BoutForecast`, `ComputePace`,
       `ForecastPool`, константы окон и паузы).
-- [ ] T4. **alerts (red→green)** — `modules/stage/domain/alerts_test.go`:
+- [x] T4. **alerts (red→green)** — `modules/stage/domain/alerts_test.go`:
       на каждый из шести видов FR-15 — «порог не достигнут → пусто»,
       «порог перейдён → запись с верным `since`», «условие снято → пусто»
       (AC-15) → затем `domain/alerts.go` (`ConsoleAlert`, `DetectAlerts`,
@@ -68,15 +68,16 @@
 
 ## Волна 1, трек B — провайдеры данных
 
-- [ ] T5. **arena: миграция** — `modules/arena/migrations/00003_last_freed_at.sql`
+- [x] T5. **arena: миграция** — `modules/arena/migrations/00003_last_freed_at.sql`
       (`last_freed_at TIMESTAMPTZ NULL`, комментарий по образцу плана).
       Единственная миграция всей спеки.
-- [ ] T6. **arena: домен→repo (red→green)** — `service/service_test.go`:
+- [x] T6. **arena: домен→repo (red→green)** — `service/service_test.go`:
       `MarkFreed` проставляет момент, повторный вызов идемпотентен, `Get`
       отдаёт `LastFreedAt` → затем `domain.Arena.LastFreedAt`,
-      `Repository.MarkFreed`, `service.MarkFreed`,
-      `repo/queries/arenas.sql` (`MarkArenaFreed :exec`), `make sqlc`.
-- [ ] T7. **bout: отметки начала (red→green)** — тест repo/сервиса:
+      `Repository.MarkFreed`, `service.MarkFreed`, запрос `MarkArenaFreed`
+      (добавлен в существующий `repo/queries/arena.sql`, не в отдельный
+      `arenas.sql`), `make sqlc`.
+- [x] T7. **bout: отметки начала (red→green)** — тест repo/сервиса:
       `StartedAtByBouts` отдаёт **первый** `started` у боя с несколькими
       событиями (переоткрытие), пропускает бои без `started` → затем
       `domain.Repository.StartedAtByBouts`, `repo/queries/pace.sql`,
