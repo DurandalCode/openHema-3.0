@@ -12,6 +12,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/hema/server/modules/stage/domain"
 )
@@ -38,6 +39,13 @@ import (
 // специфичное для площадки. Поэтому ошибка чтения доски любой площадки
 // возвращается как ошибка всего запроса — как и ошибка резолва списка
 // площадок целиком.
+//
+// idle_state/free_since (спека 0043, FR-26/FR-28) и forecast каждого не
+// начатого боя доски (ADR 0020, FR-9/FR-24) — обогащение ПОВЕРХ уже
+// собранной GetBoutBoard доски (см. applyForecast ниже), не вторая логика
+// сборки: домен доски (Pool/Standings/Status) остаётся единственным
+// источником истины GetBoutBoard, прогноз накладывается отдельным
+// проходом, посчитанным один раз на весь турнир (не на площадку).
 func (s *Service) GetArenaBoards(ctx context.Context, tournamentID string) ([]domain.ArenaBoardEntry, error) {
 	tournamentID = strings.TrimSpace(tournamentID)
 	if tournamentID == "" {
@@ -47,15 +55,83 @@ func (s *Service) GetArenaBoards(ctx context.Context, tournamentID string) ([]do
 	if err != nil {
 		return nil, err
 	}
+
+	forecasts, err := s.tournamentForecasts(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]domain.ArenaBoardEntry, 0, len(arenas))
 	for _, arena := range arenas {
 		board, err := s.GetBoutBoard(ctx, arena.ID)
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, domain.ArenaBoardEntry{ArenaID: arena.ID, Board: board})
+		applyForecastToBoard(&board, forecasts)
+		idleState, freeSince := domain.IdleStateOf(board.Pool.ID != "", arena.LastFreedAt)
+		entries = append(entries, domain.ArenaBoardEntry{
+			ArenaID:   arena.ID,
+			Board:     board,
+			IdleState: idleState,
+			FreeSince: freeSince,
+		})
 	}
 	return entries, nil
+}
+
+// tournamentForecasts собирает прогноз каждого стоящего на площадке
+// контейнера турнира разом (ADR 0020) — общий шаг для GetArenaBoards и
+// GetTournamentConsole (спека 0043), не завязанный на форму итогового
+// ответа. now — единственная точка отсчёта «текущего момента» на весь
+// вызов (не пересчитывается для каждой площадки отдельно).
+func (s *Service) tournamentForecasts(ctx context.Context, tournamentID string) (map[string]containerForecast, error) {
+	groups, err := s.gatherNominationContainers(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	containers := make([]tournamentContainer, 0)
+	for _, g := range groups {
+		containers = append(containers, g.containers...)
+	}
+
+	poolIDs := make([]string, 0, len(containers))
+	allBoutIDs := make([]string, 0, len(containers))
+	for _, c := range containers {
+		if c.pool.ID != "" {
+			poolIDs = append(poolIDs, c.pool.ID)
+		}
+		for _, b := range c.bouts {
+			allBoutIDs = append(allBoutIDs, b.ID)
+		}
+	}
+	times, err := s.bouts.BoutTimesForPools(ctx, poolIDs)
+	if err != nil {
+		return nil, err
+	}
+	startedAt, err := s.bouts.StartedAtByBouts(ctx, allBoutIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildForecasts(ctx, containers, startedAt, times, time.Now())
+}
+
+// applyForecastToBoard накладывает прогноз (по id пула доски) на каждый бой
+// board.Bouts — мутирует срез на месте, только Forecast; остальные поля боя
+// (уже собранные GetBoutBoard) не трогает.
+func applyForecastToBoard(board *domain.BoutBoard, forecasts map[string]containerForecast) {
+	if board.Pool.ID == "" {
+		return
+	}
+	cf, ok := forecasts[board.Pool.ID]
+	if !ok {
+		return
+	}
+	for i := range board.Bouts {
+		if f, ok := cf.byBout[board.Bouts[i].ID]; ok {
+			forecast := f
+			board.Bouts[i].Forecast = &forecast
+		}
+	}
 }
 
 // ListStagesForTournament возвращает схему этапов и диагностику каждой

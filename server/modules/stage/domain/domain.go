@@ -1300,13 +1300,13 @@ const (
 	ArenaIdleFree             ArenaIdleState = "free"
 )
 
-// idleStateOf вычисляет ArenaIdleState площадки (спека 0043, FR-28) из
+// IdleStateOf вычисляет ArenaIdleState площадки (спека 0043, FR-28) из
 // того, стоит ли на ней пул сейчас (occupied) и момента последнего
 // освобождения (arena.LastFreedAt, спека 0043 FR-26) — единственного
 // нового персистентного факта фичи. Используется и доской площадок
 // (GetArenaBoards), и пультом (GetTournamentConsole) — одна точка правды
 // для обоих экранов.
-func idleStateOf(occupied bool, lastFreedAt *time.Time) (ArenaIdleState, *time.Time) {
+func IdleStateOf(occupied bool, lastFreedAt *time.Time) (ArenaIdleState, *time.Time) {
 	if occupied {
 		return ArenaIdleOccupied, nil
 	}
