@@ -15,12 +15,18 @@ const defaultEntryFeeCurrency = "RUB"
 
 // Service реализует юзкейсы турнира. Зависит от порта, не от pg/proto.
 type Service struct {
-	repo domain.Repository
+	repo     domain.Repository
+	files    domain.FileStore
+	policies map[domain.FileKind]domain.FilePolicy
 }
 
-// New создаёт сервис tournament.
-func New(repo domain.Repository) *Service {
-	return &Service{repo: repo}
+// New создаёт сервис tournament. files может быть nil — «хранилище не
+// настроено» (ADR 0019 п.2); UploadFile тогда возвращает
+// domain.ErrStorageUnavailable вместо паники. policies может быть nil —
+// тогда никакой kind не пройдёт валидацию (domain.ErrUnsupportedFileType),
+// что безопасно эквивалентно «загрузка файлов выключена».
+func New(repo domain.Repository, files domain.FileStore, policies map[domain.FileKind]domain.FilePolicy) *Service {
+	return &Service{repo: repo, files: files, policies: policies}
 }
 
 // GetActive возвращает активный турнир с контактами для главной страницы.
@@ -113,5 +119,53 @@ func (s *Service) UpdateActive(ctx context.Context, in domain.UpdateInput) (doma
 	}
 	in.Program = program
 
-	return s.repo.UpdateActive(ctx, in)
+	// Инвариант «файл ⊕ ссылка» (FR-34, ADR 0019 п.5): если организатор
+	// задаёт непустую ссылку, ранее загруженный файл того же вида
+	// освобождается. repo.UpdateActive обнуляет StoredFile атомарно вместе
+	// с записью новой ссылки (см. domain.Repository.UpdateActive); здесь
+	// же — только определить, какой объект (если был) освободить в
+	// filestore ПОСЛЕ успешного UPDATE (порядок put→update→delete, ADR
+	// 0019 п.5). GetActive вызывается только когда действительно может
+	// понадобиться удаление — обычная правка профиля без URL не платит за
+	// лишний поход в БД.
+	var prevRegulations, prevEmblem domain.StoredFile
+	if in.RegulationsURL != "" || in.EmblemURL != "" {
+		current, err := s.repo.GetActive(ctx)
+		if err != nil {
+			return domain.Tournament{}, err
+		}
+		if in.RegulationsURL != "" {
+			prevRegulations = current.RegulationsFile
+		}
+		if in.EmblemURL != "" {
+			prevEmblem = current.EmblemFile
+		}
+	}
+
+	updated, err := s.repo.UpdateActive(ctx, in)
+	if err != nil {
+		return domain.Tournament{}, err
+	}
+
+	if s.files != nil {
+		if prevRegulations.ID != "" {
+			_ = s.files.Delete(ctx, prevRegulations.ID)
+		}
+		if prevEmblem.ID != "" {
+			_ = s.files.Delete(ctx, prevEmblem.ID)
+		}
+	}
+	return updated, nil
+}
+
+// NotificationsFor возвращает текущие глобальные переключатели уведомлений
+// активного турнира (FR-19). Межмодульная точка входа для
+// адаптера-нотификатора (см. plan.md, `internal/platform`): читается перед
+// отправкой письма — выключенный вид не уходит.
+func (s *Service) NotificationsFor(ctx context.Context) (domain.NotificationSettings, error) {
+	t, err := s.repo.GetActive(ctx)
+	if err != nil {
+		return domain.NotificationSettings{}, err
+	}
+	return t.Notifications, nil
 }

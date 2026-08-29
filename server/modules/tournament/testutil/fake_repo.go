@@ -70,7 +70,18 @@ func (r *FakeRepo) UpdateActive(_ context.Context, in domain.UpdateInput) (domai
 	t.VenueAddress = in.VenueAddress
 	t.EntryFeeMinor = in.EntryFeeMinor
 	t.EntryFeeCurrency = in.EntryFeeCurrency
+	t.Notifications = in.Notifications
 	t.UpdatedAt = now
+
+	// Инвариант «файл ⊕ ссылка» (FR-34): непустая ссылка атомарно
+	// обнуляет файл того же вида — зеркалит SQL CASE в repo.UpdateActive
+	// (см. repo/queries/tournament.sql).
+	if in.RegulationsURL != "" {
+		t.RegulationsFile = domain.StoredFile{}
+	}
+	if in.EmblemURL != "" {
+		t.EmblemFile = domain.StoredFile{}
+	}
 
 	contacts := make([]domain.Contact, 0, len(in.Contacts))
 	for i, c := range in.Contacts {
@@ -93,6 +104,51 @@ func (r *FakeRepo) UpdateActive(_ context.Context, in domain.UpdateInput) (domai
 
 	r.tournament = t
 	return cloneTournament(t), nil
+}
+
+// SetFile записывает новый файл для kind и атомарно очищает ссылку того же
+// вида (FR-34), зеркаля repo.SetRegulationsFile/SetEmblemFile.
+func (r *FakeRepo) SetFile(_ context.Context, kind domain.FileKind, file domain.StoredFile) (domain.Tournament, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.hasActive {
+		return domain.Tournament{}, domain.ErrNotFound
+	}
+
+	switch kind {
+	case domain.FileKindRegulations:
+		r.tournament.RegulationsFile = file
+		r.tournament.RegulationsURL = ""
+	case domain.FileKindEmblem:
+		r.tournament.EmblemFile = file
+		r.tournament.EmblemURL = ""
+	default:
+		return domain.Tournament{}, domain.ErrInvalidInput
+	}
+	r.tournament.UpdatedAt = time.Now().UTC()
+	return cloneTournament(r.tournament), nil
+}
+
+// ClearFile обнуляет файл для kind, не трогая ссылку.
+func (r *FakeRepo) ClearFile(_ context.Context, kind domain.FileKind) (domain.Tournament, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.hasActive {
+		return domain.Tournament{}, domain.ErrNotFound
+	}
+
+	switch kind {
+	case domain.FileKindRegulations:
+		r.tournament.RegulationsFile = domain.StoredFile{}
+	case domain.FileKindEmblem:
+		r.tournament.EmblemFile = domain.StoredFile{}
+	default:
+		return domain.Tournament{}, domain.ErrInvalidInput
+	}
+	r.tournament.UpdatedAt = time.Now().UTC()
+	return cloneTournament(r.tournament), nil
 }
 
 func cloneTournament(t domain.Tournament) domain.Tournament {
