@@ -92,7 +92,7 @@
 - [x] T9. **testutil** — `modules/stage/testutil/`: фейки новых методов
       (`FakeArenaProvider.MarkFreed`, `FakeBoutConductor.StartedAtByBouts`),
       `var _` проверки портов.
-- [ ] T10. **UnseatPool → MarkFreed (red→green)** —
+- [x] T10. **UnseatPool → MarkFreed (red→green)** —
       `service/unseat_test.go`: успешное снятие зовёт `MarkFreed` ровно
       один раз и **до** публикации живого кадра; отказ снятия не зовёт →
       затем правка `service/service.go`.
