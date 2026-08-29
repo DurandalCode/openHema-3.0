@@ -196,47 +196,47 @@
 
 ## Волна 2, трек F — web: учётка
 
-- [ ] T30. **BFF: адрес (red→green)** — `app/api/auth/email/**/route.ts` +
+- [x] T30. **BFF: адрес (red→green)** — `app/api/auth/email/**/route.ts` +
       тесты: подтверждение, повторная отправка, запрос/подтверждение/отмена
       смены; маппинг `connect.Code`→HTTP; проброс `X-Forwarded-For`.
-- [ ] T31. **BFF: сессии и выход (red→green)** —
+- [x] T31. **BFF: сессии и выход (red→green)** —
       `app/api/auth/sessions/**` и правка `app/api/auth/logout/route.ts`
       (серверный `Logout` до стирания cookie, FR-13) + тесты.
-- [ ] T32. **BFF: настройки уведомлений (red→green)** —
+- [x] T32. **BFF: настройки уведомлений (red→green)** —
       `app/api/auth/notifications/route.ts` + тест.
-- [ ] T33. **entities/features** — `entities/user` (типы `Session`, новые
+- [x] T33. **entities/features** — `entities/user` (типы `Session`, новые
       поля `User`), `features/profile/api/*` (хуки RQ) + тесты фетчеров.
-- [ ] T34. **ui кабинета (red→green)** — `email-status-card`,
+- [x] T34. **ui кабинета (red→green)** — `email-status-card`,
       `change-email-dialog`, `sessions-card`, `notifications-card`:
       состояния бейджа адреса, «ожидает подтверждения», отметка текущей
       сессии, блокировка переключателей с объяснением при
       неподтверждённом адресе (FR-21) и при глобальном запрете (FR-22).
-- [ ] T35. **публичные страницы перехода** — `app/verify-email/page.tsx` и
+- [x] T35. **публичные страницы перехода** — `app/verify-email/page.tsx` и
       `app/email-change/confirm/page.tsx` (+тесты): «подтверждаем /
       готово / ссылка недействительна» с предложением запросить новую.
 
 ## Волна 2, трек G — web: файлы турнира и глобальные уведомления
 
-- [ ] T36. **BFF: загрузка (red→green)** —
+- [x] T36. **BFF: загрузка (red→green)** —
       `app/api/tournament/files/[kind]/route.ts` (POST multipart→`bytes`,
       DELETE) + тесты: маппинг `kind`, неизвестный `kind` → 400, отказ по
       типу и размеру до похода на сервер (свой порог у каждого вида),
       маппинг ошибок.
-- [ ] T37. **BFF: отдача (red→green)** — `app/api/files/[id]/route.ts` +
+- [x] T37. **BFF: отдача (red→green)** — `app/api/files/[id]/route.ts` +
       тест: стриминг с Go-сервера, проброс `Content-Type` и `nosniff`,
       404.
-- [ ] T38. **entities/tournament** — типы и черновик (`lib/types.ts`,
+- [x] T38. **entities/tournament** — типы и черновик (`lib/types.ts`,
       `lib/draft.ts`) получают поля файлов; резолв `regulationsHref`/
       `emblemSrc` (файл приоритетнее ссылки) + юнит-тесты обеих веток.
-- [ ] T39. **ui профиля турнира (red→green)** — общий
+- [x] T39. **ui профиля турнира (red→green)** — общий
       `file-or-link-field.tsx`, применённый к регламенту и к эмблеме:
       переключение «ссылка ⇄ файл», загрузка, отказы по типу/размеру,
       удаление, показ имени и размера, превью эмблемы (заменяет нынешний
       `EmblemPreview` по URL).
-- [ ] T40. **ui глобальных уведомлений (red→green)** —
+- [x] T40. **ui глобальных уведомлений (red→green)** —
       `notifications-section.tsx` в профиле турнира: два переключателя,
       выключены по умолчанию, объяснение эффекта (FR-19, FR-22).
-- [ ] T41. **афиша, `/about` и `tournament-hero`** — «Регламент» ведёт на
+- [x] T41. **афиша, `/about` и `tournament-hero`** — «Регламент» ведёт на
       файл, если он задан, иначе на ссылку; эмблема рисуется из файла,
       иначе из `emblemUrl` (+тесты на обе ветки).
 
