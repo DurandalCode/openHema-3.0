@@ -464,6 +464,33 @@ func (r *Repo) BoutTimesForPools(ctx context.Context, poolIDs []string) (map[str
 	return out, nil
 }
 
+// StartedAtByBouts возвращает первый момент начала каждого боя из списка
+// (спека 0043, ADR 0020) — MIN(occurred_at) события 'started', не свёртка
+// по restart-маркерам (в отличие от BoutTimesForPools, здесь нужен ПЕРВЫЙ
+// started, не последний актуальный). Бои без событий 'started' просто
+// отсутствуют в результирующей карте. Пустой boutIDs — no-op: пустая карта
+// без обращения к БД.
+func (r *Repo) StartedAtByBouts(ctx context.Context, boutIDs []string) (map[string]time.Time, error) {
+	if len(boutIDs) == 0 {
+		return map[string]time.Time{}, nil
+	}
+	ids, err := parsePoolIDs(boutIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.q.StartedAtByBouts(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("started at by bouts: %w", err)
+	}
+
+	out := make(map[string]time.Time, len(rows))
+	for _, row := range rows {
+		out[row.BoutID.String()] = row.StartedAt
+	}
+	return out, nil
+}
+
 // Append атомарно вставляет событие (version = expectedVersion+1) и
 // обновляет проекцию в одной транзакции (ADR 0011 п.3/п.4).
 func (r *Repo) Append(ctx context.Context, boutID string, expectedVersion int, ev domain.Event, view domain.BoutView) error {

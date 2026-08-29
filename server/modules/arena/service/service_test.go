@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/hema/server/modules/arena/domain"
 	"github.com/hema/server/modules/arena/testutil"
@@ -506,5 +507,103 @@ func TestSetDefaultDuration_NotFound(t *testing.T) {
 	_, err := svc.SetDefaultDuration(context.Background(), "does-not-exist", 120)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestMarkFreed_HappyPath(t *testing.T) {
+	svc, _ := testService()
+
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Name: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.LastFreedAt != nil {
+		t.Fatalf("fresh arena LastFreedAt = %v, want nil", created.LastFreedAt)
+	}
+
+	before := time.Now()
+	got, err := svc.MarkFreed(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("MarkFreed: %v", err)
+	}
+	if got.LastFreedAt == nil {
+		t.Fatalf("LastFreedAt = nil, want set")
+	}
+	if got.LastFreedAt.Before(before.Add(-time.Second)) || got.LastFreedAt.After(time.Now().Add(time.Second)) {
+		t.Errorf("LastFreedAt = %v, want close to now", got.LastFreedAt)
+	}
+}
+
+func TestMarkFreed_Idempotent(t *testing.T) {
+	svc, _ := testService()
+
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Name: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	first, err := svc.MarkFreed(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("first MarkFreed: %v", err)
+	}
+	second, err := svc.MarkFreed(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("second MarkFreed: %v", err)
+	}
+	if second.LastFreedAt == nil || first.LastFreedAt == nil {
+		t.Fatalf("LastFreedAt should be set after both calls: first=%v second=%v", first.LastFreedAt, second.LastFreedAt)
+	}
+	if second.LastFreedAt.Before(*first.LastFreedAt) {
+		t.Errorf("second LastFreedAt %v before first %v", second.LastFreedAt, first.LastFreedAt)
+	}
+}
+
+func TestMarkFreed_UnknownID_ErrNotFound(t *testing.T) {
+	svc, _ := testService()
+
+	_, err := svc.MarkFreed(context.Background(), "does-not-exist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGet_ReturnsLastFreedAt(t *testing.T) {
+	svc, _ := testService()
+
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Name: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	marked, err := svc.MarkFreed(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("MarkFreed: %v", err)
+	}
+
+	got, err := svc.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.LastFreedAt == nil {
+		t.Fatalf("Get LastFreedAt = nil, want set")
+	}
+	if !got.LastFreedAt.Equal(*marked.LastFreedAt) {
+		t.Errorf("Get LastFreedAt = %v, want %v", got.LastFreedAt, marked.LastFreedAt)
+	}
+}
+
+func TestGet_NeverFreed_LastFreedAtIsNil(t *testing.T) {
+	svc, _ := testService()
+
+	created, err := svc.Create(context.Background(), activeTournamentID, domain.CreateInput{Name: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := svc.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.LastFreedAt != nil {
+		t.Errorf("LastFreedAt = %v, want nil", got.LastFreedAt)
 	}
 }

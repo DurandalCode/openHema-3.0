@@ -1050,3 +1050,127 @@ func TestRepointFighter_DelegatesToRepo(t *testing.T) {
 		t.Fatalf("expected trimmed ids (%q, %q), got (%q, %q)", fighterAIDLC, fighterBIDLC, calls[0].OldID, calls[0].NewID)
 	}
 }
+
+// seedBoutWithTwoStarts заводит бой, начатый, сброшенный и начатый снова —
+// два события started с разным occurred_at (первое раньше второго). Спека
+// 0043/ADR 0020: StartedAtByBouts обязан вернуть ПЕРВОЕ, не последнее.
+func seedBoutWithTwoStarts(t *testing.T, repo *testutil.FakeRepo) (boutID string, firstStartedAt time.Time) {
+	t.Helper()
+	boutID = seedScheduledBout(t, repo)
+
+	load := func() (domain.Bout, []domain.Event) {
+		events, err := repo.Load(context.Background(), boutID)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		b, err := domain.Rebuild(boutID, events)
+		if err != nil {
+			t.Fatalf("Rebuild: %v", err)
+		}
+		return b, events
+	}
+
+	firstStartedAt = time.Unix(1, 0)
+	b, events := load()
+	startEv, err := b.Start(secretaryID, firstStartedAt)
+	if err != nil {
+		t.Fatalf("Start #1: %v", err)
+	}
+	if _, err := repo.SeedEvents(boutID, append(events, startEv)...); err != nil {
+		t.Fatalf("SeedEvents (start #1): %v", err)
+	}
+
+	b, events = load()
+	resetEv, err := b.Reset(secretaryID, time.Unix(2, 0))
+	if err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if _, err := repo.SeedEvents(boutID, append(events, resetEv)...); err != nil {
+		t.Fatalf("SeedEvents (reset): %v", err)
+	}
+
+	b, events = load()
+	secondStartEv, err := b.Start(secretaryID, time.Unix(3, 0))
+	if err != nil {
+		t.Fatalf("Start #2: %v", err)
+	}
+	if _, err := repo.SeedEvents(boutID, append(events, secondStartEv)...); err != nil {
+		t.Fatalf("SeedEvents (start #2): %v", err)
+	}
+
+	return boutID, firstStartedAt
+}
+
+func TestStartedAtByBouts_ReturnsFirstStarted(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID, firstStartedAt := seedBoutWithTwoStarts(t, repo)
+
+	got, err := svc.StartedAtByBouts(context.Background(), []string{boutID})
+	if err != nil {
+		t.Fatalf("StartedAtByBouts: %v", err)
+	}
+
+	startedAt, ok := got[boutID]
+	if !ok {
+		t.Fatalf("expected an entry for bout %q, got %+v", boutID, got)
+	}
+	if !startedAt.Equal(firstStartedAt) {
+		t.Errorf("StartedAt = %v, want first started %v (not the second, later one)", startedAt, firstStartedAt)
+	}
+}
+
+func TestStartedAtByBouts_BoutWithoutStarted_Excluded(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutID := seedScheduledBout(t, repo) // только scheduled, ни одного started
+
+	got, err := svc.StartedAtByBouts(context.Background(), []string{boutID})
+	if err != nil {
+		t.Fatalf("StartedAtByBouts: %v", err)
+	}
+	if _, ok := got[boutID]; ok {
+		t.Errorf("expected bout %q to be absent from the map, got an entry", boutID)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(got))
+	}
+}
+
+func TestStartedAtByBouts_EmptyBoutIDs_NoOpWithoutRepoCall(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+
+	got, err := svc.StartedAtByBouts(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("StartedAtByBouts(empty): %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(got))
+	}
+	if len(repo.StartedAtByBoutsCalls()) != 0 {
+		t.Fatal("repo must not be called with an empty bout list")
+	}
+}
+
+func TestStartedAtByBouts_MultipleBouts_ReturnsAll(t *testing.T) {
+	repo := testutil.NewFakeRepo()
+	svc := service.New(repo)
+	boutA := seedInProgressBout(t, repo) // one started, at time.Unix(1, 0)
+	boutB, firstStartedAtB := seedBoutWithTwoStarts(t, repo)
+
+	got, err := svc.StartedAtByBouts(context.Background(), []string{boutA, boutB})
+	if err != nil {
+		t.Fatalf("StartedAtByBouts: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d: %+v", len(got), got)
+	}
+	if startedA, ok := got[boutA]; !ok || !startedA.Equal(time.Unix(1, 0)) {
+		t.Errorf("bout A StartedAt = %v, ok=%v, want %v", startedA, ok, time.Unix(1, 0))
+	}
+	if startedB, ok := got[boutB]; !ok || !startedB.Equal(firstStartedAtB) {
+		t.Errorf("bout B StartedAt = %v, ok=%v, want %v", startedB, ok, firstStartedAtB)
+	}
+}
