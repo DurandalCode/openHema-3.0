@@ -130,7 +130,9 @@
       «предварительно», прочерк при пустом прогнозе → затем
       `shared/ui/forecast-time.tsx`. Единственное место форматирования
       прогноза (план, «Слои»).
-- [ ] T15. **BFF пульта (red→green)** —
+- [x] T15. **BFF пульта (red→green)** — `/api/tournaments/[id]/console`
+      (не `/api/admin/console`, как в plan.md — путь исправлен под
+      реальную конвенцию `arena-boards`, спека 0041) —
       `app/api/admin/console/route.test.ts` и `stream/route.test.ts`
       (mock connect, маппинг `connect.Code`→HTTP, SSE-кадры) → затем
       `route.ts` обоих маршрутов.
