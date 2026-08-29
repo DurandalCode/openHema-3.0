@@ -145,7 +145,74 @@ func buildContainerForecast(bouts []domain.BoutRef, samples []time.Duration, tou
 // Forecast везде, где вызывающий их читает. Результат ключуется по
 // c.pool.ID контейнера (не по arena.ID) — так его можно использовать и
 // для карточки площадки, и для агрегата по номинации без второго индекса.
-func (s *Service) buildForecasts(ctx context.Context, containers []tournamentContainer, startedAt map[string]time.Time, times map[string]domain.BoutTimes, now time.Time) (map[string]containerForecast, error) {
+// tournamentGathered — весь материал, собранный за один проход по турниру:
+// контейнеры по номинациям, фактические времена/наблюдения боёв, прогноз
+// каждого стоящего на площадке контейнера и резервный темп турнира целиком.
+// Общий вход GetArenaBoards и GetTournamentConsole (спека 0043, NFR-2).
+// TournamentLive (0034) собирает то же самое инлайн — у него другой набор
+// последующих шагов (лента боёв, сайдбар номинаций), заводить здесь общую
+// структуру ради одного места использования избыточно.
+type tournamentGathered struct {
+	groups         []nominationContainers
+	containers     []tournamentContainer
+	times          map[string]domain.BoutTimes
+	forecasts      map[string]containerForecast
+	tournamentPace domain.PaceEstimate
+	now            time.Time
+}
+
+// gatherTournament выполняет единственный проход по турниру: номинации →
+// этапы → готовые контейнеры (gatherNominationContainers), фактические
+// времена и наблюдения боёв разом на все собранные пулы (BoutTimesForPools/
+// StartedAtByBouts — по одному вызову на весь турнир, не на объект), затем
+// прогноз (buildForecasts). now фиксируется один раз на весь результат —
+// единая точка отсчёта «текущего момента» для всех дальнейших вычислений
+// вызывающего (пульт/доска не должны видеть разное now для разных площадок
+// одного и того же ответа).
+func (s *Service) gatherTournament(ctx context.Context, tournamentID string) (tournamentGathered, error) {
+	groups, err := s.gatherNominationContainers(ctx, tournamentID)
+	if err != nil {
+		return tournamentGathered{}, err
+	}
+	containers := make([]tournamentContainer, 0)
+	for _, g := range groups {
+		containers = append(containers, g.containers...)
+	}
+
+	poolIDs := make([]string, 0, len(containers))
+	allBoutIDs := make([]string, 0, len(containers))
+	for _, c := range containers {
+		if c.pool.ID != "" {
+			poolIDs = append(poolIDs, c.pool.ID)
+		}
+		for _, b := range c.bouts {
+			allBoutIDs = append(allBoutIDs, b.ID)
+		}
+	}
+	times, err := s.bouts.BoutTimesForPools(ctx, poolIDs)
+	if err != nil {
+		return tournamentGathered{}, err
+	}
+	startedAt, err := s.bouts.StartedAtByBouts(ctx, allBoutIDs)
+	if err != nil {
+		return tournamentGathered{}, err
+	}
+	now := time.Now()
+	forecasts, tournamentPace, err := s.buildForecasts(ctx, containers, startedAt, times, now)
+	if err != nil {
+		return tournamentGathered{}, err
+	}
+	return tournamentGathered{
+		groups:         groups,
+		containers:     containers,
+		times:          times,
+		forecasts:      forecasts,
+		tournamentPace: tournamentPace,
+		now:            now,
+	}, nil
+}
+
+func (s *Service) buildForecasts(ctx context.Context, containers []tournamentContainer, startedAt map[string]time.Time, times map[string]domain.BoutTimes, now time.Time) (map[string]containerForecast, domain.PaceEstimate, error) {
 	tournamentPace := domain.TournamentPace(tournamentPaceSamples(containers, startedAt))
 
 	out := make(map[string]containerForecast)
@@ -155,12 +222,12 @@ func (s *Service) buildForecasts(ctx context.Context, containers []tournamentCon
 		}
 		arenaDefaultSeconds, err := s.arenas.DefaultDurationSeconds(ctx, c.pool.ArenaID)
 		if err != nil {
-			return nil, err
+			return nil, domain.PaceEstimate{}, err
 		}
 		samples := containerPaceSamples(c.bouts, startedAt)
 		out[c.pool.ID] = buildContainerForecast(c.bouts, samples, tournamentPace, time.Duration(arenaDefaultSeconds)*time.Second, now, times)
 	}
-	return out, nil
+	return out, tournamentPace, nil
 }
 
 // boutForecastFor резолвит прогноз одного боя по id его контейнера (см.

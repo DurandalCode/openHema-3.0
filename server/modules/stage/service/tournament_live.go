@@ -90,7 +90,7 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 		return domain.TournamentSnapshot{}, err
 	}
 	now := time.Now()
-	forecasts, err := s.buildForecasts(ctx, containers, startedAt, times, now)
+	forecasts, _, err := s.buildForecasts(ctx, containers, startedAt, times, now)
 	if err != nil {
 		return domain.TournamentSnapshot{}, err
 	}

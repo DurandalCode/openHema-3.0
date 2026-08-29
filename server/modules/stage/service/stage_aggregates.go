@@ -12,7 +12,6 @@ package service
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/hema/server/modules/stage/domain"
 )
@@ -56,7 +55,7 @@ func (s *Service) GetArenaBoards(ctx context.Context, tournamentID string) ([]do
 		return nil, err
 	}
 
-	forecasts, err := s.tournamentForecasts(ctx, tournamentID)
+	gathered, err := s.gatherTournament(ctx, tournamentID)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +66,7 @@ func (s *Service) GetArenaBoards(ctx context.Context, tournamentID string) ([]do
 		if err != nil {
 			return nil, err
 		}
-		applyForecastToBoard(&board, forecasts)
+		applyForecastToBoard(&board, gathered.forecasts)
 		idleState, freeSince := domain.IdleStateOf(board.Pool.ID != "", arena.LastFreedAt)
 		entries = append(entries, domain.ArenaBoardEntry{
 			ArenaID:   arena.ID,
@@ -77,42 +76,6 @@ func (s *Service) GetArenaBoards(ctx context.Context, tournamentID string) ([]do
 		})
 	}
 	return entries, nil
-}
-
-// tournamentForecasts собирает прогноз каждого стоящего на площадке
-// контейнера турнира разом (ADR 0020) — общий шаг для GetArenaBoards и
-// GetTournamentConsole (спека 0043), не завязанный на форму итогового
-// ответа. now — единственная точка отсчёта «текущего момента» на весь
-// вызов (не пересчитывается для каждой площадки отдельно).
-func (s *Service) tournamentForecasts(ctx context.Context, tournamentID string) (map[string]containerForecast, error) {
-	groups, err := s.gatherNominationContainers(ctx, tournamentID)
-	if err != nil {
-		return nil, err
-	}
-	containers := make([]tournamentContainer, 0)
-	for _, g := range groups {
-		containers = append(containers, g.containers...)
-	}
-
-	poolIDs := make([]string, 0, len(containers))
-	allBoutIDs := make([]string, 0, len(containers))
-	for _, c := range containers {
-		if c.pool.ID != "" {
-			poolIDs = append(poolIDs, c.pool.ID)
-		}
-		for _, b := range c.bouts {
-			allBoutIDs = append(allBoutIDs, b.ID)
-		}
-	}
-	times, err := s.bouts.BoutTimesForPools(ctx, poolIDs)
-	if err != nil {
-		return nil, err
-	}
-	startedAt, err := s.bouts.StartedAtByBouts(ctx, allBoutIDs)
-	if err != nil {
-		return nil, err
-	}
-	return s.buildForecasts(ctx, containers, startedAt, times, time.Now())
 }
 
 // applyForecastToBoard накладывает прогноз (по id пула доски) на каждый бой
