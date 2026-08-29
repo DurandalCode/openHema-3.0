@@ -53,6 +53,7 @@ function draftFrom(t: Tournament): TournamentDraft {
       date: d.date,
       items: d.items.map((it) => ({ timeLabel: it.timeLabel, text: it.text })),
     })),
+    notifications: t.notifications,
   };
 }
 

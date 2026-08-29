@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tournamentErrorMessage } from "./errors";
+import { tournamentErrorMessage, uploadFileErrorMessage } from "./errors";
 
 // spec 0029, обзор п.3 / AC-9: отказ сервера переводится по HTTP-статусу,
 // а не по тексту — `tournament: invalid input` (английская строка Go-домена)
@@ -41,5 +41,26 @@ describe("features/tournament-settings/api/errors tournamentErrorMessage (spec 0
   it("returns a general message when status is missing/0 (network failure)", () => {
     const message = tournamentErrorMessage("Сеть недоступна", 0);
     expect(message.length).toBeGreaterThan(0);
+  });
+});
+
+// spec 0042, T39/FR-32: отказ загрузки/удаления файла профиля турнира по
+// HTTP-статусу.
+describe("features/tournament-settings/api/errors uploadFileErrorMessage (spec 0042, FR-32)", () => {
+  it("explains a type/size mismatch on 400", () => {
+    expect(uploadFileErrorMessage(400)).toMatch(/тип|размер/);
+  });
+
+  it('returns "Недостаточно прав" on 401/403', () => {
+    expect(uploadFileErrorMessage(401)).toBe("Недостаточно прав");
+    expect(uploadFileErrorMessage(403)).toBe("Недостаточно прав");
+  });
+
+  it("explains unavailable storage on 409 (NFR-4)", () => {
+    expect(uploadFileErrorMessage(409)).toMatch(/хранилищ/);
+  });
+
+  it("returns a general message on other statuses", () => {
+    expect(uploadFileErrorMessage(500).length).toBeGreaterThan(0);
   });
 });
