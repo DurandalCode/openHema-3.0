@@ -5,6 +5,7 @@ import { Button } from "@/shared/ui/button";
 import { Col, Row } from "@/shared/ui/stack";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
+import { regulationsHref } from "@/entities/tournament/lib/files";
 import { RegulationsLink } from "@/entities/tournament/ui/regulations-link";
 import { TournamentProgram } from "@/entities/tournament/ui/tournament-program";
 import { AboutFacts } from "./about-facts";
@@ -63,7 +64,7 @@ export function TournamentAboutScreen({
 
       <AboutFacts tournament={tournament} nominationsCount={nominations.length} />
 
-      <RegulationsLink url={tournament.regulationsUrl} />
+      <RegulationsLink url={regulationsHref(tournament)} />
 
       <TournamentProgram program={tournament.program} />
 

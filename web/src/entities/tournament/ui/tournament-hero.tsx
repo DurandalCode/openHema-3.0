@@ -12,6 +12,7 @@ import {
   formatEventRange,
   venueLine,
 } from "../lib/format";
+import { emblemSrc, regulationsHref } from "../lib/files";
 import { RegulationsLink } from "./regulations-link";
 import { TournamentProgram } from "./tournament-program";
 
@@ -116,10 +117,10 @@ export function TournamentHero({
         </Badge>
 
         <Col align="center" gap={4}>
-          {tournament.emblemUrl && (
+          {emblemSrc(tournament) && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={tournament.emblemUrl}
+              src={emblemSrc(tournament)}
               alt={tournament.title}
               className="size-24 rounded-full object-cover ring-1 ring-border/60"
             />
@@ -157,7 +158,7 @@ export function TournamentHero({
           </Row>
         )}
 
-        <RegulationsLink url={tournament.regulationsUrl} />
+        <RegulationsLink url={regulationsHref(tournament)} />
 
         <TournamentProgram program={tournament.program} />
 
