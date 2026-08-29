@@ -27,6 +27,10 @@ type Service struct {
 	// 0025): резолв имён авторов записей журнала боёв площадки на чтении
 	// (GetArenaJournal), без новой персистентности.
 	users domain.UserProvider
+	// notifier — межмодульный порт уведомлений (спека 0042, FR-24): письмо
+	// бойцам о постановке их пула на площадку. nil допустим (no-op) — как и
+	// у application.Service (план «Модуль application — точка уведомления»).
+	notifier domain.Notifier
 	// rooms — реестр живых комнат табло арен (спека 0015, ADR 0013):
 	// недоменный таймер-реле, целиком в памяти процесса (эфемерно, без PG).
 	// Живёт внутри Service — наружу (Deps/module.go) новых зависимостей не
@@ -37,9 +41,18 @@ type Service struct {
 // New создаёт сервис pool. liveBus — порт живой шины (спека 0014, ADR
 // 0012): Service — единственный держатель этой зависимости в модуле, api-
 // слой обращается к подписке через passthrough-метод Service.SubscribeNomination.
-// users — порт имён авторов журнала площадки (спека 0033).
-func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider, liveBus domain.LiveBus, users domain.UserProvider) *Service {
-	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, users: users, rooms: newArenaRooms()}
+// users — порт имён авторов журнала площадки (спека 0033). notifier —
+// вариативный последний параметр (спека 0042): опущен — уведомления
+// выключены (no-op), как у существующих вызовов New (module.go,
+// api/handler_test.go) — им не нужно знать об уведомлениях, чтобы
+// продолжать собираться. Ровно один аргумент — тот самый Notifier сервиса;
+// второй и далее игнорируются (конструктору не нужен список).
+func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts domain.BoutConductor, arenas domain.ArenaProvider, nominations domain.NominationProvider, liveBus domain.LiveBus, users domain.UserProvider, notifier ...domain.Notifier) *Service {
+	var n domain.Notifier
+	if len(notifier) > 0 {
+		n = notifier[0]
+	}
+	return &Service{repo: repo, fighters: fighters, bouts: bouts, arenas: arenas, nominations: nominations, liveBus: liveBus, users: users, notifier: n, rooms: newArenaRooms()}
 }
 
 // notifyNominationChanged — единая точка публикации сигнала «номинация
@@ -53,6 +66,42 @@ func New(repo domain.Repository, fighters domain.ActiveFightersProvider, bouts d
 func (s *Service) notifyNominationChanged(nominationID string) {
 	s.liveBus.PublishNominationChanged(nominationID)
 	s.liveBus.PublishTournamentChanged()
+}
+
+// notifyPoolSeated отправляет письмо-уведомление о постановке пула на
+// площадку (спека 0042, FR-24/FR-29) — вызывается из SeatPoolOnArena сразу
+// после успешного repo.SeatPool, рядом с notifyNominationChanged/
+// signalArenaBoard. pool — снапшот ДО постановки (ArenaID у него ещё пуст,
+// но состав/номер уже актуальны — постановка их не меняет); stage/arena —
+// то, что SeatPoolOnArena уже резолвило для собственных проверок, здесь
+// переиспользуется без новых вызовов портов. Состав бойцов пула читается из
+// pool.Members — тот же источник, что и у всех остальных чтений раскладки
+// в этом сервисе (repo.GetPool/loadLayout), без нового способа узнать
+// состав.
+//
+// Best-effort: nil-notifier — no-op (уведомления не настроены); паника
+// внутри реализации порта гасится здесь же — почта не должна ронять уже
+// совершённую доменную операцию постановки пула (FR-27/FR-28).
+func (s *Service) notifyPoolSeated(ctx context.Context, pool domain.Pool, stage domain.Stage, arena domain.ArenaRef) {
+	if s.notifier == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+
+	fighterIDs := make([]string, len(pool.Members))
+	for i, m := range pool.Members {
+		fighterIDs[i] = m.ID
+	}
+	poolName := groupContainerName(pool.Number)
+	if stage.Type == domain.StageTypeBracket {
+		poolName = domain.ContainerTitle(stage.Bracket, pool.Number)
+	}
+	s.notifier.PoolSeated(ctx, domain.PoolSeatedNotice{
+		FighterIDs:   fighterIDs,
+		NominationID: pool.NominationID,
+		PoolName:     poolName,
+		ArenaName:    arena.Name,
+	})
 }
 
 // GetLayout возвращает раскладку этапа (спека 0018, FR-18 — адресация
@@ -446,6 +495,7 @@ func (s *Service) SeatPoolOnArena(ctx context.Context, poolID, arenaID string) (
 	}
 	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(arenaID)
+	s.notifyPoolSeated(ctx, pool, stage, arena)
 	return s.loadLayout(ctx, pool.StageID)
 }
 
