@@ -694,6 +694,11 @@ type BoutRef struct {
 	State          BoutState
 	ScoreA         int
 	ScoreB         int
+	// Forecast — ориентировочное время этого боя (спека 0043, ADR 0020),
+	// заполняется вызывающим (service.enrichBoutForecasts) поверх уже
+	// собранной доски: nil у боёв, для которых прогноза нет (не not_started
+	// — уже идёт/завершён — либо пул не поставлен на площадку, FR-9/FR-24).
+	Forecast *BoutForecast
 }
 
 // BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
@@ -1200,6 +1205,10 @@ type FeedBout struct {
 	ScoreB         int
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
+	// Forecast — ориентировочное время боя (спека 0043, ADR 0020), см.
+	// комментарий у BoutRef.Forecast: nil, если бой не подходит под
+	// прогноз (не not_started либо пул не поставлен на площадку).
+	Forecast *BoutForecast
 }
 
 // LiveArenaView — карточка площадки публичной сводки турнира (спека 0034,
@@ -1220,6 +1229,13 @@ type LiveArenaView struct {
 	CurrentBout      *FeedBout
 	PoolBoutTotal    int
 	PoolBoutFinished int
+	// NextBoutForecast — ориентировочное время СЛЕДУЮЩЕГО боя площадки
+	// (спека 0043, FR-21): при State == LiveArenaPreparing совпадает по
+	// значению с CurrentBout.Forecast (сам CurrentBout и есть следующий
+	// бой); при LiveArenaBoutInProgress — прогноз бой ПОСЛЕ идущего
+	// (CurrentBout в этом состоянии сам прогноза не несёт — он уже идёт).
+	// nil у LiveArenaFree и когда в контейнере не осталось не начатых боёв.
+	NextBoutForecast *BoutForecast
 }
 
 // LiveNominationView — строка сайдбара «Номинации» публичной сводки турнира
@@ -1266,6 +1282,38 @@ type TournamentSnapshot struct {
 type ArenaBoardEntry struct {
 	ArenaID string
 	Board   BoutBoard
+	// IdleState/FreeSince — простой площадки (спека 0043, FR-26/FR-28):
+	// FreeSince заполнен только у ArenaIdleFree.
+	IdleState ArenaIdleState
+	FreeSince *time.Time
+}
+
+// ArenaIdleState — состояние простоя площадки (спека 0043, FR-26/FR-28).
+// ArenaIdleWaitingFirstPool — на площадку в этом турнире ни разу не ставили
+// пул (LastFreedAt не задан); ArenaIdleFree — пул сняли, FreeSince задан;
+// ArenaIdleOccupied — пул стоит.
+type ArenaIdleState string
+
+const (
+	ArenaIdleOccupied         ArenaIdleState = "occupied"
+	ArenaIdleWaitingFirstPool ArenaIdleState = "waiting_first_pool"
+	ArenaIdleFree             ArenaIdleState = "free"
+)
+
+// idleStateOf вычисляет ArenaIdleState площадки (спека 0043, FR-28) из
+// того, стоит ли на ней пул сейчас (occupied) и момента последнего
+// освобождения (arena.LastFreedAt, спека 0043 FR-26) — единственного
+// нового персистентного факта фичи. Используется и доской площадок
+// (GetArenaBoards), и пультом (GetTournamentConsole) — одна точка правды
+// для обоих экранов.
+func idleStateOf(occupied bool, lastFreedAt *time.Time) (ArenaIdleState, *time.Time) {
+	if occupied {
+		return ArenaIdleOccupied, nil
+	}
+	if lastFreedAt == nil {
+		return ArenaIdleWaitingFirstPool, nil
+	}
+	return ArenaIdleFree, lastFreedAt
 }
 
 // NominationStagesEntry — этапы и диагностика схемы одной номинации в
@@ -1278,4 +1326,84 @@ type NominationStagesEntry struct {
 	NominationID string
 	Stages       []Stage
 	Issues       []SchemaIssue
+}
+
+// ---------------------------------------------------------------------
+// Спека 0043: пульт турнира и прогноз очереди (ADR 0020). ConsoleAlert/
+// ConsoleAlertKind — в alerts.go (чистая доменная модель, без чтений);
+// остальные типы пульта — здесь, по образцу TournamentSnapshot/
+// LiveArenaView (спека 0034).
+// ---------------------------------------------------------------------
+
+// ConsoleArena — карточка площадки на пульте (FR-11): что на ней стоит,
+// идущий/следующий бой (через CurrentBout), темп и прогноз завершения
+// пула, простой. CurrentBout/Pace/PoolExpectedFinishAt заполнены, только
+// когда на площадке сейчас стоит пул (IdleState == ArenaIdleOccupied);
+// PoolExpectedFinishAtOK=false, если стоящий пул уже полностью проведён
+// (доигран, но не снят — сигнал ConsoleAlertPoolDoneNotUnseated, а не
+// прогноз).
+type ConsoleArena struct {
+	ArenaID                string
+	ArenaName              string
+	Position               int
+	IdleState              ArenaIdleState
+	FreeSince              *time.Time
+	NominationID           string
+	NominationName         string
+	StageTitle             string
+	PoolID                 string
+	PoolName               string
+	CurrentBout            *BoutRef
+	BoutTotal              int
+	BoutFinished           int
+	Pace                   PaceEstimate
+	PoolExpectedFinishAt   time.Time
+	PoolExpectedFinishAtOK bool
+}
+
+// ConsoleNomination — строка номинации на пульте (FR-12). ExpectedFinishAt
+// считается только по её ПОСТАВЛЕННЫМ пулам (максимум по ним, ADR 0020) —
+// BoutRemainingUnseated считает остаток непоставленных пулов числом, без
+// времени (горизонт оценки, FR-9): ExpectedFinishAtOK=false, если у
+// номинации сейчас нет ни одного поставленного пула с непроведёнными
+// боями (нечего прогнозировать).
+type ConsoleNomination struct {
+	NominationID          string
+	Title                 string
+	Position              int
+	Phase                 NominationPhase
+	CurrentStageTitle     string
+	BoutTotal             int
+	BoutFinished          int
+	BoutRemainingUnseated int
+	ExpectedFinishAt      time.Time
+	ExpectedFinishAtOK    bool
+	Provisional           bool
+}
+
+// ConsoleQueueItem — готовый к постановке пул в очереди пульта (FR-13):
+// тот же набор, что предлагает SeatPoolOnArena (пулы READY, ни на одной
+// арене). EstimatedSeconds — сколько такой пул займёт при темпе турнира
+// (BoutCount × темп, FR-13) — не при темпе своей будущей площадки: она
+// ещё не выбрана.
+type ConsoleQueueItem struct {
+	PoolID           string
+	NominationID     string
+	NominationName   string
+	StageTitle       string
+	PoolName         string
+	BoutCount        int
+	EstimatedSeconds int
+}
+
+// ConsoleSnapshot — пульт турнира целиком (FR-8/FR-9/FR-19): общий payload
+// unary- и streaming-ответа, одним агрегирующим обращением — по образцу
+// TournamentSnapshot (спека 0034).
+type ConsoleSnapshot struct {
+	TournamentID    string
+	Arenas          []ConsoleArena
+	Nominations     []ConsoleNomination
+	Queue           []ConsoleQueueItem
+	Alerts          []ConsoleAlert
+	ServerNowUnixMS int64
 }

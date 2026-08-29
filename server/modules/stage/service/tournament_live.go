@@ -43,27 +43,18 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 		return domain.TournamentSnapshot{}, domain.ErrInvalidInput
 	}
 
-	nominations, err := s.nominations.NominationsByTournament(ctx, tournamentID)
+	groups, err := s.gatherNominationContainers(ctx, tournamentID)
 	if err != nil {
 		return domain.TournamentSnapshot{}, err
 	}
 
 	containers := make([]tournamentContainer, 0)
-	liveNominations := make([]domain.LiveNominationView, 0, len(nominations))
+	liveNominations := make([]domain.LiveNominationView, 0, len(groups))
 
-	for _, nom := range nominations {
-		stages, err := s.stagesForRead(ctx, nom.ID)
-		if err != nil {
-			return domain.TournamentSnapshot{}, err
-		}
+	for _, g := range groups {
+		containers = append(containers, g.containers...)
 
-		nomContainers, err := s.tournamentContainersForNomination(ctx, nom, stages)
-		if err != nil {
-			return domain.TournamentSnapshot{}, err
-		}
-		containers = append(containers, nomContainers...)
-
-		view, err := s.liveNominationView(ctx, nom, stages, nomContainers)
+		view, err := s.liveNominationView(ctx, g.nom, g.stages, g.containers)
 		if err != nil {
 			return domain.TournamentSnapshot{}, err
 		}
@@ -85,10 +76,29 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 		return domain.TournamentSnapshot{}, err
 	}
 
+	// StartedAtByBouts — наблюдения для темпа площадок (спека 0043, ADR
+	// 0020), тем же батч-приёмом, что BoutTimesForPools выше: один вызов
+	// на все собранные бои снапшота разом, не по одному на пул.
+	allBoutIDs := make([]string, 0, len(containers))
+	for _, c := range containers {
+		for _, b := range c.bouts {
+			allBoutIDs = append(allBoutIDs, b.ID)
+		}
+	}
+	startedAt, err := s.bouts.StartedAtByBouts(ctx, allBoutIDs)
+	if err != nil {
+		return domain.TournamentSnapshot{}, err
+	}
+	now := time.Now()
+	forecasts, err := s.buildForecasts(ctx, containers, startedAt, times, now)
+	if err != nil {
+		return domain.TournamentSnapshot{}, err
+	}
+
 	bouts := make([]domain.FeedBout, 0)
 	for _, c := range containers {
 		for _, b := range c.bouts {
-			bouts = append(bouts, toFeedBout(c, b, times[b.ID]))
+			bouts = append(bouts, toFeedBout(c, b, times[b.ID], boutForecastFor(forecasts, c.pool.ID, b.ID)))
 		}
 	}
 
@@ -104,7 +114,7 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 	}
 	liveArenas := make([]domain.LiveArenaView, 0, len(arenas))
 	for _, arena := range arenas {
-		liveArenas = append(liveArenas, toLiveArenaView(arena, containerByArena[arena.ID], times))
+		liveArenas = append(liveArenas, toLiveArenaView(arena, containerByArena[arena.ID], times, forecasts))
 	}
 
 	return domain.TournamentSnapshot{
@@ -112,8 +122,44 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 		Arenas:          liveArenas,
 		Bouts:           bouts,
 		Nominations:     liveNominations,
-		ServerNowUnixMS: time.Now().UnixMilli(),
+		ServerNowUnixMS: now.UnixMilli(),
 	}, nil
+}
+
+// nominationContainers — одна номинация турнира вместе с её этапами и уже
+// собранными готовыми контейнерами (спека 0043: общий вход для сборки
+// строки номинации TournamentLive и ConsoleNomination/ConsoleQueueItem
+// GetTournamentConsole — оба читают одни и те же контейнеры, без второго
+// обхода этапов).
+type nominationContainers struct {
+	nom        domain.NominationRef
+	stages     []domain.Stage
+	containers []tournamentContainer
+}
+
+// gatherNominationContainers резолвит номинации турнира (спека 0034,
+// FR-20 — тот же охват и admin-порядок, что ActiveArenas) и для каждой
+// собирает её этапы и готовые контейнеры — единственный проход по
+// номинациям/этапам турнира, переиспользуемый TournamentLive и
+// GetTournamentConsole (спека 0043, NFR-2).
+func (s *Service) gatherNominationContainers(ctx context.Context, tournamentID string) ([]nominationContainers, error) {
+	nominations, err := s.nominations.NominationsByTournament(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]nominationContainers, 0, len(nominations))
+	for _, nom := range nominations {
+		stages, err := s.stagesForRead(ctx, nom.ID)
+		if err != nil {
+			return nil, err
+		}
+		containers, err := s.tournamentContainersForNomination(ctx, nom, stages)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, nominationContainers{nom: nom, stages: stages, containers: containers})
+	}
+	return out, nil
 }
 
 // tournamentContainersForNomination собирает tournamentContainer для все
@@ -255,7 +301,7 @@ func nominationPhaseFromExecution(execution domain.NominationExecution) domain.N
 // иначе показало бы старое время завершения, пока журнал ещё не обновлён
 // новым событием (сознательное решение этого инкремента, не полагающееся на
 // нюансы SQL-агрегата модуля bout).
-func toFeedBout(c tournamentContainer, b domain.BoutRef, t domain.BoutTimes) domain.FeedBout {
+func toFeedBout(c tournamentContainer, b domain.BoutRef, t domain.BoutTimes, forecast *domain.BoutForecast) domain.FeedBout {
 	startedAt, finishedAt := feedBoutTimes(b.State, t)
 	return domain.FeedBout{
 		BoutID:         b.ID,
@@ -274,6 +320,7 @@ func toFeedBout(c tournamentContainer, b domain.BoutRef, t domain.BoutTimes) dom
 		ScoreB:         b.ScoreB,
 		StartedAt:      startedAt,
 		FinishedAt:     finishedAt,
+		Forecast:       forecast,
 	}
 }
 
@@ -301,7 +348,7 @@ func feedBoutTimes(state domain.BoutState, t domain.BoutTimes) (startedAt, finis
 // против макета (тот показывает под «свободна» ещё и итог только что
 // отыгранного пула — данные протокола пула вне FR-14 в этом инкременте,
 // план T9 п.5).
-func toLiveArenaView(arena domain.ArenaRef, c tournamentContainer, times map[string]domain.BoutTimes) domain.LiveArenaView {
+func toLiveArenaView(arena domain.ArenaRef, c tournamentContainer, times map[string]domain.BoutTimes, forecasts map[string]containerForecast) domain.LiveArenaView {
 	view := domain.LiveArenaView{
 		ArenaID:   arena.ID,
 		ArenaName: arena.Name,
@@ -336,12 +383,19 @@ func toLiveArenaView(arena domain.ArenaRef, c tournamentContainer, times map[str
 	view.StageTitle = c.stageTitle
 	view.PoolBoutTotal = total
 	view.PoolBoutFinished = finished
-	feedBout := toFeedBout(c, *current, times[current.ID])
+	feedBout := toFeedBout(c, *current, times[current.ID], boutForecastFor(forecasts, c.pool.ID, current.ID))
 	view.CurrentBout = &feedBout
 	if current.State == domain.BoutStateInProgress {
 		view.State = domain.LiveArenaBoutInProgress
 	} else {
 		view.State = domain.LiveArenaPreparing
+	}
+	// NextBoutForecast — прогноз ближайшего не начатого боя ЭТОЙ площадки
+	// (спека 0043, FR-21): при PREPARING совпадает с CurrentBout.Forecast
+	// (сам CurrentBout и есть следующий бой), при BOUT_IN_PROGRESS — прогноз
+	// боя ПОСЛЕ идущего (у CurrentBout в этом состоянии своего прогноза нет).
+	if cf, ok := forecasts[c.pool.ID]; ok {
+		view.NextBoutForecast = cf.nextBoutForecast()
 	}
 	return view
 }
