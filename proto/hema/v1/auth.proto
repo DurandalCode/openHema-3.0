@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package hema.v1;
 
+import "google/protobuf/timestamp.proto";
 import "hema/v1/common.proto";
 
 option go_package = "github.com/hema/server/gen/hema/v1;hemav1";
@@ -29,6 +30,39 @@ service AuthService {
   rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
   // UpdateProfile правит отображаемое имя и клуб текущего пользователя.
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // VerifyEmail подтверждает адрес по одноразовому токену из письма
+  // (спека 0042, FR-3). Публичный RPC — переход по ссылке из письма может
+  // случиться без активной сессии в этом браузере.
+  rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
+  // ResendEmailVerification отправляет письмо подтверждения повторно
+  // (FR-4). Троттлинг — как у RequestPasswordReset (не чаще 1/мин на
+  // адрес).
+  rpc ResendEmailVerification(ResendEmailVerificationRequest) returns (ResendEmailVerificationResponse);
+  // RequestEmailChange запрашивает смену адреса учётки (FR-6). Требует
+  // текущий пароль. Письмо со ссылкой подтверждения уходит на новый адрес;
+  // прежний адрес получает письмо-предупреждение без ссылки (FR-7).
+  rpc RequestEmailChange(RequestEmailChangeRequest) returns (RequestEmailChangeResponse);
+  // ConfirmEmailChange подтверждает смену адреса по токену из письма,
+  // отправленного на новый адрес (FR-6). Публичный RPC — как VerifyEmail.
+  rpc ConfirmEmailChange(ConfirmEmailChangeRequest) returns (ConfirmEmailChangeResponse);
+  // CancelEmailChange отменяет незавершённый запрос смены адреса.
+  rpc CancelEmailChange(CancelEmailChangeRequest) returns (CancelEmailChangeResponse);
+  // UpdateNotificationSettings правит личные переключатели уведомлений
+  // текущего пользователя (FR-20). Включение вида при неподтверждённом
+  // адресе отклоняется (FR-21).
+  rpc UpdateNotificationSettings(UpdateNotificationSettingsRequest) returns (UpdateNotificationSettingsResponse);
+  // ListSessions возвращает активные сессии текущего пользователя (FR-11).
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // RevokeSession завершает одну сессию пользователя по id (FR-12). Чужая
+  // сессия — PermissionDenied.
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+  // RevokeOtherSessions завершает все сессии пользователя, кроме текущей
+  // («выйти со всех устройств», FR-12).
+  rpc RevokeOtherSessions(RevokeOtherSessionsRequest) returns (RevokeOtherSessionsResponse);
+  // Logout завершает текущую сессию на сервере (FR-13), а не только
+  // стирает cookie в браузере.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
 }
 
 message RegisterRequest {
@@ -101,3 +135,84 @@ message UpdateProfileRequest {
 message UpdateProfileResponse {
   User user = 1;
 }
+
+message VerifyEmailRequest {
+  // token — сырой токен подтверждения из ссылки письма.
+  string token = 1;
+}
+
+message VerifyEmailResponse {}
+
+message ResendEmailVerificationRequest {}
+
+message ResendEmailVerificationResponse {}
+
+message RequestEmailChangeRequest {
+  string new_email = 1;
+  string current_password = 2;
+}
+
+message RequestEmailChangeResponse {
+  // user.pending_email несёт запрошенный адрес до подтверждения.
+  User user = 1;
+}
+
+message ConfirmEmailChangeRequest {
+  // token — сырой токен подтверждения из письма, отправленного на новый
+  // адрес.
+  string token = 1;
+}
+
+message ConfirmEmailChangeResponse {
+  User user = 1;
+}
+
+message CancelEmailChangeRequest {}
+
+message CancelEmailChangeResponse {
+  User user = 1;
+}
+
+message UpdateNotificationSettingsRequest {
+  NotificationSettings settings = 1;
+}
+
+message UpdateNotificationSettingsResponse {
+  User user = 1;
+}
+
+// Session — одна выданная refresh-сессия пользователя (спека 0042,
+// FR-11). Без устройства/браузера/IP (решение 2 спеки, NFR-8) — только
+// времена.
+message Session {
+  string id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp last_seen_at = 3;
+  // current — сессия, из которой сделан текущий запрос.
+  bool current = 4;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  string session_id = 1;
+}
+
+message RevokeSessionResponse {}
+
+message RevokeOtherSessionsRequest {}
+
+message RevokeOtherSessionsResponse {
+  int32 revoked_count = 1;
+}
+
+message LogoutRequest {
+  // refresh_token — сервер узнаёт завершаемую сессию по клейму sid.
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}

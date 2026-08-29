@@ -33,17 +33,17 @@
 
 ## Волна 0 — контракты и ADR
 
-- [ ] T1. `proto/hema/v1/{common,auth,tournament}.proto` — `NotificationSettings`,
+- [x] T1. `proto/hema/v1/{common,auth,tournament}.proto` — `NotificationSettings`,
       `Session`, поля `User`/`Tournament`, RPC подтверждения и смены адреса,
       сессий, настроек уведомлений, `TournamentFile`/`TournamentFileKind` и
       `UploadTournamentFile`/`DeleteTournamentFile`;
       `make generate`. _(контракты — не TDD-шаг, но идут первыми.)_
-- [ ] T2. `docs/adr/0018-session-persistence.md` — персистентность
+- [x] T2. `docs/adr/0018-session-persistence.md` — персистентность
       refresh-сессий: клейм `sid`, что отзывается мгновенно (продление) и
       что доживает свой TTL (access, FR-16), почему access остаётся
       stateless, судьба уже выданных токенов без `sid`, отказ от хранения
       IP/User-Agent (решение 2 спеки). Разворот решения 6 спеки 0037.
-- [ ] T3. `docs/adr/0019-file-storage.md` — порт `filestore` + адаптер
+- [x] T3. `docs/adr/0019-file-storage.md` — порт `filestore` + адаптер
       «локальный том» (решение 3 спеки): лимиты типа/размера, отдача файла,
       порядок put→update→delete и осиротевшие объекты, почему не S3 сейчас
       и что меняется, когда понадобится.

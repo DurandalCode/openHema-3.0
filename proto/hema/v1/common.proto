@@ -24,6 +24,29 @@ message User {
   // связь учётка↔боец не восстанавливают). Опционально, пустая строка —
   // «не указан».
   string club = 6;
+  // email_verified — подтверждён ли текущий email (спека 0042, FR-1).
+  // Учётки, существующие на момент внедрения, считаются подтверждёнными
+  // (grandfather).
+  bool email_verified = 7;
+  // pending_email — новый адрес, ожидающий подтверждения по ссылке из
+  // письма (спека 0042, FR-6). Пустая строка — запроса смены нет.
+  string pending_email = 8;
+  // notifications — личные переключатели уведомлений (спека 0042, FR-20).
+  // Оба выключены по умолчанию.
+  NotificationSettings notifications = 9;
+}
+
+// NotificationSettings — переключатели видов почтовых уведомлений (спека
+// 0042). Одна форма для личных настроек учётки (auth.User.notifications) и
+// глобальных настроек турнира (Tournament.notifications) — виды совпадают,
+// письмо уходит только когда оба уровня разрешают один и тот же вид
+// (FR-21).
+message NotificationSettings {
+  // application_state — о состоянии моей заявки, изменённом не мной
+  // (FR-23).
+  bool application_state = 1;
+  // pool_seated — о постановке моего пула на площадку (FR-24).
+  bool pool_seated = 2;
 }
 
 // TokenPair — пара JWT: короткоживущий access и долгоживущий refresh.
