@@ -112,9 +112,15 @@
 
 ## Волна 3 (join) — wiring
 
-- [ ] T13. **platform** — `stage_arena_provider.go` (`MarkFreed`,
+- [x] T13. **platform** — `stage_arena_provider.go` (`MarkFreed`,
       `LastFreedAt` в `ActiveArenas`), `stage_bout_conductor.go`
-      (`StartedAtByBouts`), `stage_live_bus.go` (тема `console:<id>`).
+      (`StartedAtByBouts`). `stage_live_bus.go` не тронут: пульт
+      переиспользует существующий топик `SubscribeTournament` (0034) вместо
+      отдельной темы `console:<id>` из плана — все мутации, влияющие на
+      пульт, уже публикуют `PublishTournamentChanged` рядом с сигналом
+      номинации (`notifyNominationChanged`), второй синхронный канал не
+      добавил бы пользы (обоснование — doc-комментарий
+      `AdminHandler.WatchTournamentConsole`).
 
 ## Волна 4 — общий форматтер и BFF пульта
 
