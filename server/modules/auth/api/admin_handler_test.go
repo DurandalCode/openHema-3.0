@@ -25,7 +25,7 @@ func seedAdmin(t *testing.T, repo *testutil.FakeRepo, tokens *jwt.Manager, email
 	if err != nil {
 		t.Fatalf("seed admin: %v", err)
 	}
-	pair, err := tokens.Issue(user.ID, string(user.Role))
+	pair, err := tokens.Issue(user.ID, string(user.Role), "")
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
@@ -44,7 +44,7 @@ func seedUser(t *testing.T, repo *testutil.FakeRepo, tokens *jwt.Manager, email 
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	pair, err := tokens.Issue(user.ID, string(user.Role))
+	pair, err := tokens.Issue(user.ID, string(user.Role), "")
 	if err != nil {
 		t.Fatalf("issue user token: %v", err)
 	}

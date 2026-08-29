@@ -10,11 +10,18 @@ import (
 )
 
 // ChangePassword меняет пароль залогиненного пользователя, подтвердив
-// текущий (AC-8/9). Возвращает новую пару токенов: текущее устройство
-// остаётся в системе (получает новую пару), но продление прежних refresh-
-// токенов обрывается — см. проверку password_changed_at в Refresh
-// (FR-12, спека 0037, решение 6).
-func (s *Service) ChangePassword(ctx context.Context, accessToken, currentPassword, newPassword string) (jwt.Pair, error) {
+// текущий (AC-8/9). Возвращает новую пару токенов. FR-14 (спека 0042):
+// смена пароля завершает все сессии пользователя, кроме той, из которой
+// она была выполнена.
+//
+// currentSessionID — id сессии вызывающего запроса, если он известен
+// api-слою (резолвится из refresh-токена текущего запроса — access-токен
+// клейма sid не несёт, ADR 0018). Пустая строка или сессия, не
+// принадлежащая этому пользователю, — api-слой не смог его определить:
+// ChangePassword в этом случае заводит для ответа новую сессию, чтобы
+// вызов в любом случае вернул рабочую пару токенов, и отзывает все
+// остальные.
+func (s *Service) ChangePassword(ctx context.Context, accessToken, currentPassword, newPassword, currentSessionID string) (jwt.Pair, error) {
 	claims, err := s.tokens.ParseAccess(accessToken)
 	if err != nil {
 		return jwt.Pair{}, domain.ErrInvalidCredentials
@@ -43,9 +50,41 @@ func (s *Service) ChangePassword(ctx context.Context, accessToken, currentPasswo
 		return jwt.Pair{}, fmt.Errorf("update password: %w", err)
 	}
 
-	pair, err := s.tokens.Issue(user.ID, string(user.Role))
+	keepSessionID, err := s.resolveKeepSession(ctx, user, currentSessionID)
+	if err != nil {
+		return jwt.Pair{}, err
+	}
+	if _, err := s.repo.RevokeUserSessions(ctx, user.ID, keepSessionID, s.now()); err != nil {
+		return jwt.Pair{}, fmt.Errorf("revoke user sessions: %w", err)
+	}
+
+	pair, err := s.tokens.Issue(user.ID, string(user.Role), keepSessionID)
 	if err != nil {
 		return jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
 	}
 	return pair, nil
+}
+
+// resolveKeepSession возвращает id сессии, которая должна пережить
+// массовый отзыв в ChangePassword: переданную (если она существует и
+// принадлежит этому пользователю) либо свежесозданную — так вызывающий
+// запрос в любом случае получает рабочую пару токенов.
+func (s *Service) resolveKeepSession(ctx context.Context, user domain.User, currentSessionID string) (string, error) {
+	if currentSessionID != "" {
+		session, err := s.repo.GetSession(ctx, currentSessionID)
+		if err == nil && session.UserID == user.ID {
+			if err := s.repo.TouchSession(ctx, session.ID, s.now()); err != nil {
+				return "", fmt.Errorf("touch session: %w", err)
+			}
+			return session.ID, nil
+		}
+	}
+	session, err := s.repo.CreateSession(ctx, domain.NewSession{
+		UserID:    user.ID,
+		ExpiresAt: s.now().Add(s.sessionTTL),
+	})
+	if err != nil {
+		return "", fmt.Errorf("create session: %w", err)
+	}
+	return session.ID, nil
 }

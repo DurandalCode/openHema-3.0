@@ -34,6 +34,13 @@ type Deps struct {
 	PublicAppURL string
 	// PasswordResetTTL — срок жизни ссылки восстановления (FR-4).
 	PasswordResetTTL time.Duration
+	// EmailTokenTTL — срок жизни ссылки подтверждения/смены адреса (спека
+	// 0042, FR-3/FR-6).
+	EmailTokenTTL time.Duration
+	// SessionTTL — срок жизни строки реестра сессий (ADR 0018). Composition
+	// root передаёт то же значение, что и TTL refresh-токена в jwt.Manager —
+	// сессия и несущий её refresh-токен должны истекать синхронно.
+	SessionTTL time.Duration
 }
 
 // Register монтирует Connect-хендлеры модуля на переданный mux.
@@ -41,7 +48,7 @@ type Deps struct {
 // adminOpts дополнительно накладываются на AdminService (require-admin).
 func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, adminOpts []connect.HandlerOption) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Tokens, deps.Mailer, deps.PublicAppURL, deps.PasswordResetTTL, time.Now)
+	svc := service.New(r, deps.Tokens, deps.Mailer, deps.PublicAppURL, deps.PasswordResetTTL, deps.EmailTokenTTL, deps.SessionTTL, time.Now)
 
 	authHandler := api.NewHandler(svc)
 	adminHandler := api.NewAdminHandler(svc)
@@ -61,7 +68,7 @@ func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, a
 // Вызывается composition root'ом (internal/platform) при старте сервера.
 func Bootstrap(ctx context.Context, deps Deps, log *slog.Logger, email, password, displayName string) {
 	r := repo.New(deps.Pool)
-	svc := service.New(r, deps.Tokens, deps.Mailer, deps.PublicAppURL, deps.PasswordResetTTL, time.Now)
+	svc := service.New(r, deps.Tokens, deps.Mailer, deps.PublicAppURL, deps.PasswordResetTTL, deps.EmailTokenTTL, deps.SessionTTL, time.Now)
 
 	created, err := svc.BootstrapAdmin(ctx, email, password, displayName)
 	switch {

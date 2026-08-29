@@ -103,6 +103,13 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, newPassword strin
 	if err := s.repo.MarkResetTokenUsed(ctx, token.ID); err != nil {
 		return fmt.Errorf("mark reset token used: %w", err)
 	}
+	// FR-14 (спека 0042): сброс пароля завершает ВСЕ сессии пользователя —
+	// в отличие от ChangePassword, ResetPassword не выдаёт сессию сам
+	// (FR-7, решение 5 спеки 0037), поэтому нет «текущей», которую нужно
+	// было бы исключить (exceptID="" — отзывает все).
+	if _, err := s.repo.RevokeUserSessions(ctx, token.UserID, "", s.now()); err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
 	return nil
 }
 

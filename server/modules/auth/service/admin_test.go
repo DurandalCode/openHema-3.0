@@ -283,7 +283,7 @@ func TestMe_ReturnsRole(t *testing.T) {
 		t.Fatalf("CreateAdmin: %v", err)
 	}
 	// Создаём токен вручную (CreateAdmin не выдаёт токены).
-	pair, err := svc.tokens.Issue(getUserIDByEmail(t, svc, "me@hema.test"), string(domain.RoleAdmin))
+	pair, err := svc.tokens.Issue(getUserIDByEmail(t, svc, "me@hema.test"), string(domain.RoleAdmin), "")
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}

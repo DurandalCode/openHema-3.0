@@ -29,7 +29,7 @@ func testServiceWithClock(c *clock) (*Service, *testutil.FakeRepo, *testutil.Fak
 	repo.SetNow(c.now) // репо и сервис должны видеть одно и то же время
 	mailer := testutil.NewFakeMailer()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
-	svc := New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, c.now)
+	svc := New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, 30*time.Minute, 720*time.Hour, c.now)
 	return svc, repo, mailer
 }
 

@@ -24,7 +24,7 @@ type DisplayNameProvider struct {
 // сервиса ему не нужны (nil-мейлер, нулевой TTL).
 func NewDisplayNameProvider(pool *pgxpool.Pool, tokens *jwt.Manager) *DisplayNameProvider {
 	r := repo.New(pool)
-	return &DisplayNameProvider{svc: service.New(r, tokens, nil, "", 0, time.Now)}
+	return &DisplayNameProvider{svc: service.New(r, tokens, nil, "", 0, 0, 0, time.Now)}
 }
 
 // DisplayNames возвращает батч отображаемых имён по набору id.

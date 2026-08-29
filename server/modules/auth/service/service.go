@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"strings"
 	"time"
@@ -23,20 +24,29 @@ type Service struct {
 	publicAppURL string
 	// resetTTL — срок жизни токена восстановления пароля (спека 0037, FR-4).
 	resetTTL time.Duration
+	// emailTokenTTL — срок жизни токена подтверждения/смены адреса (спека
+	// 0042, FR-3/FR-6).
+	emailTokenTTL time.Duration
+	// sessionTTL — срок жизни строки реестра сессий (ADR 0018). Равен TTL
+	// refresh-токена: сессия не должна пережить токен, который её несёт,
+	// и не должна истечь раньше него.
+	sessionTTL time.Duration
 	// now — источник текущего времени; параметризован ради детерминизма
 	// тестов на TTL/троттлинг сброса пароля.
 	now func() time.Time
 }
 
 // New создаёт сервис auth.
-func New(repo domain.Repository, tokens *jwt.Manager, mailer domain.Mailer, publicAppURL string, resetTTL time.Duration, now func() time.Time) *Service {
+func New(repo domain.Repository, tokens *jwt.Manager, mailer domain.Mailer, publicAppURL string, resetTTL, emailTokenTTL, sessionTTL time.Duration, now func() time.Time) *Service {
 	return &Service{
-		repo:         repo,
-		tokens:       tokens,
-		mailer:       mailer,
-		publicAppURL: publicAppURL,
-		resetTTL:     resetTTL,
-		now:          now,
+		repo:          repo,
+		tokens:        tokens,
+		mailer:        mailer,
+		publicAppURL:  publicAppURL,
+		resetTTL:      resetTTL,
+		emailTokenTTL: emailTokenTTL,
+		sessionTTL:    sessionTTL,
+		now:           now,
 	}
 }
 
@@ -52,9 +62,16 @@ func (s *Service) Register(ctx context.Context, email, password, displayName str
 		return domain.User{}, jwt.Pair{}, err
 	}
 
-	pair, err := s.tokens.Issue(user.ID, string(user.Role))
+	// Письмо подтверждения — побочный эффект регистрации (спека 0042,
+	// FR-3): его сбой (в т.ч. на уровне создания токена, не только
+	// отправки) не должен ронять уже успешно созданную учётку.
+	if err := s.SendVerification(ctx, user.ID); err != nil {
+		slog.Default().Error("register: send verification failed", "err", err)
+	}
+
+	pair, err := s.issueWithNewSession(ctx, user)
 	if err != nil {
-		return domain.User{}, jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
+		return domain.User{}, jwt.Pair{}, err
 	}
 	return user, pair, nil
 }
@@ -74,11 +91,29 @@ func (s *Service) Login(ctx context.Context, email, password string) (domain.Use
 		return domain.User{}, jwt.Pair{}, domain.ErrInvalidCredentials
 	}
 
-	pair, err := s.tokens.Issue(user.ID, string(user.Role))
+	pair, err := s.issueWithNewSession(ctx, user)
 	if err != nil {
-		return domain.User{}, jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
+		return domain.User{}, jwt.Pair{}, err
 	}
 	return user, pair, nil
+}
+
+// issueWithNewSession создаёт новую строку реестра сессий (ADR 0018,
+// каждая выдача сессии — вход, регистрация — создаёт запись, FR-10) и
+// выпускает пару токенов с её id в клейме sid refresh-токена.
+func (s *Service) issueWithNewSession(ctx context.Context, user domain.User) (jwt.Pair, error) {
+	session, err := s.repo.CreateSession(ctx, domain.NewSession{
+		UserID:    user.ID,
+		ExpiresAt: s.now().Add(s.sessionTTL),
+	})
+	if err != nil {
+		return jwt.Pair{}, fmt.Errorf("create session: %w", err)
+	}
+	pair, err := s.tokens.Issue(user.ID, string(user.Role), session.ID)
+	if err != nil {
+		return jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
+	}
+	return pair, nil
 }
 
 // Refresh обменивает валидный refresh-токен на новую пару токенов.
@@ -88,6 +123,22 @@ func (s *Service) Login(ctx context.Context, email, password string) (domain.Use
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (jwt.Pair, error) {
 	claims, err := s.tokens.ParseRefresh(refreshToken)
 	if err != nil {
+		return jwt.Pair{}, domain.ErrInvalidCredentials
+	}
+	// Токен без sid — выпущен до внедрения реестра сессий (ADR 0018, п.4:
+	// "Судьба уже выданных токенов без sid") — трактуется как невалидный,
+	// пользователь входит заново, ровно как если бы refresh истёк.
+	if claims.SessionID == "" {
+		return jwt.Pair{}, domain.ErrInvalidCredentials
+	}
+	session, err := s.repo.GetSession(ctx, claims.SessionID)
+	if err != nil {
+		return jwt.Pair{}, domain.ErrInvalidCredentials
+	}
+	now := s.now()
+	// Отозванная (поштучно, "выйти со всех устройств", смена/сброс пароля)
+	// или просроченная сессия не продлевается (ADR 0018, п.2).
+	if session.RevokedAt != nil || now.After(session.ExpiresAt) {
 		return jwt.Pair{}, domain.ErrInvalidCredentials
 	}
 	user, err := s.repo.GetUserByID(ctx, claims.UserID)
@@ -101,7 +152,12 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (jwt.Pair, e
 	if claims.IssuedAt != nil && claims.IssuedAt.Time.Before(user.PasswordChangedAt.Truncate(time.Second)) {
 		return jwt.Pair{}, domain.ErrInvalidCredentials
 	}
-	pair, err := s.tokens.Issue(user.ID, string(user.Role))
+	if err := s.repo.TouchSession(ctx, session.ID, now); err != nil {
+		return jwt.Pair{}, fmt.Errorf("touch session: %w", err)
+	}
+	// sid сохраняется — Refresh продлевает существующую сессию, не создаёт
+	// новую строку реестра (ADR 0018).
+	pair, err := s.tokens.Issue(user.ID, string(user.Role), session.ID)
 	if err != nil {
 		return jwt.Pair{}, fmt.Errorf("issue tokens: %w", err)
 	}

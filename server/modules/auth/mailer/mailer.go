@@ -1,7 +1,7 @@
 // Package mailer адаптирует domain.Mailer поверх pkg/mail.Sender: собирает
-// текст письма восстановления пароля. Домен знает только «отправить ссылку»
-// (domain.Mailer); этот пакет знает, как выглядит письмо (спека 0037,
-// решение 3 — почта через порт с подменяемой реализацией).
+// текст писем модуля auth. Домен знает только «отправить ссылку»/«отправить
+// уведомление» (domain.Mailer); этот пакет знает, как выглядит письмо
+// (спека 0037, решение 3 — почта через порт с подменяемой реализацией).
 package mailer
 
 import (
@@ -13,21 +13,34 @@ import (
 	"github.com/hema/server/pkg/mail"
 )
 
-// subject — тема письма восстановления. Не параметризуется: одна форма
-// письма на весь продукт.
-const subject = "Восстановление доступа — openHEMA"
+const (
+	// resetSubject — тема письма восстановления. Не параметризуется: одна
+	// форма письма на весь продукт (NFR-7 — одна цель на письмо).
+	resetSubject = "Восстановление доступа — openHEMA"
+	// verificationSubject — тема письма подтверждения адреса (спека 0042, FR-3).
+	verificationSubject = "Подтверждение адреса — openHEMA"
+	// changeConfirmationSubject — тема письма подтверждения смены адреса,
+	// уходит на НОВЫЙ адрес (FR-6).
+	changeConfirmationSubject = "Подтверждение смены адреса — openHEMA"
+	// changeNoticeSubject — тема письма-предупреждения о смене адреса,
+	// уходит на ПРЕЖНИЙ адрес, без ссылки (FR-7).
+	changeNoticeSubject = "Запрошена смена адреса вашей учётки — openHEMA"
+)
 
 // Mailer — адаптер domain.Mailer поверх pkg/mail.Sender.
 type Mailer struct {
 	sender mail.Sender
-	// ttl — срок жизни ссылки восстановления, указывается в тексте письма
-	// (FR-3, NFR-4).
-	ttl time.Duration
+	// resetTTL — срок жизни ссылки восстановления, указывается в тексте
+	// письма (FR-3 спеки 0037, NFR-4).
+	resetTTL time.Duration
+	// emailTokenTTL — срок жизни ссылки подтверждения/смены адреса,
+	// указывается в тексте соответствующих писем (спека 0042, FR-3/FR-6).
+	emailTokenTTL time.Duration
 }
 
 // New создаёт адаптер над произвольным Sender (SMTP или лог-адаптер).
-func New(sender mail.Sender, ttl time.Duration) *Mailer {
-	return &Mailer{sender: sender, ttl: ttl}
+func New(sender mail.Sender, resetTTL, emailTokenTTL time.Duration) *Mailer {
+	return &Mailer{sender: sender, resetTTL: resetTTL, emailTokenTTL: emailTokenTTL}
 }
 
 var _ domain.Mailer = (*Mailer)(nil)
@@ -43,11 +56,71 @@ func (m *Mailer) SendPasswordReset(ctx context.Context, to, link string) error {
 			"Ссылка действует %s с момента отправки этого письма. Если вы не "+
 			"запрашивали восстановление доступа, просто проигнорируйте это письмо — "+
 			"пароль останется прежним.",
-		link, formatMinutes(m.ttl),
+		link, formatMinutes(m.resetTTL),
 	)
 	return m.sender.Send(ctx, mail.Message{
 		To:      to,
-		Subject: subject,
+		Subject: resetSubject,
+		Text:    text,
+	})
+}
+
+// SendEmailVerification отправляет письмо подтверждения адреса (спека
+// 0042, FR-3): одна ссылка, явный срок её действия, на русском.
+func (m *Mailer) SendEmailVerification(ctx context.Context, to, link string) error {
+	text := fmt.Sprintf(
+		"Здравствуйте!\n\n"+
+			"Чтобы подтвердить, что этот адрес принадлежит вам, перейдите по "+
+			"ссылке:\n\n"+
+			"%s\n\n"+
+			"Ссылка действует %s с момента отправки этого письма. Если вы не "+
+			"регистрировались в openHEMA, просто проигнорируйте это письмо.",
+		link, formatMinutes(m.emailTokenTTL),
+	)
+	return m.sender.Send(ctx, mail.Message{
+		To:      to,
+		Subject: verificationSubject,
+		Text:    text,
+	})
+}
+
+// SendEmailChangeConfirmation отправляет письмо со ссылкой подтверждения
+// смены адреса на НОВЫЙ адрес (спека 0042, FR-6).
+func (m *Mailer) SendEmailChangeConfirmation(ctx context.Context, newAddr, link string) error {
+	text := fmt.Sprintf(
+		"Здравствуйте!\n\n"+
+			"Для вашей учётки openHEMA запрошена смена адреса на этот. Чтобы "+
+			"подтвердить смену, перейдите по ссылке:\n\n"+
+			"%s\n\n"+
+			"Ссылка действует %s с момента отправки этого письма. Если вы не "+
+			"запрашивали смену адреса, просто проигнорируйте это письмо — адрес "+
+			"учётки не изменится.",
+		link, formatMinutes(m.emailTokenTTL),
+	)
+	return m.sender.Send(ctx, mail.Message{
+		To:      newAddr,
+		Subject: changeConfirmationSubject,
+		Text:    text,
+	})
+}
+
+// SendEmailChangeNotice отправляет письмо-предупреждение о запросе смены
+// адреса на ПРЕЖНИЙ адрес — без ссылки подтверждения (спека 0042, FR-7):
+// цель письма — дать владельцу узнать о попытке увести учётку, а не
+// предложить действие.
+func (m *Mailer) SendEmailChangeNotice(ctx context.Context, oldAddr, newAddr string) error {
+	text := fmt.Sprintf(
+		"Здравствуйте!\n\n"+
+			"Для вашей учётки openHEMA (%s) запрошена смена адреса на %s. Если "+
+			"это были вы — никаких действий не требуется, смена вступит в силу "+
+			"после перехода по ссылке в письме на новый адрес.\n\n"+
+			"Если это были не вы — как можно скорее смените пароль и завершите "+
+			"все сессии в разделе безопасности личного кабинета.",
+		oldAddr, newAddr,
+	)
+	return m.sender.Send(ctx, mail.Message{
+		To:      oldAddr,
+		Subject: changeNoticeSubject,
 		Text:    text,
 	})
 }

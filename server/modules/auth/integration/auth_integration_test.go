@@ -97,7 +97,8 @@ func setup(t *testing.T) (hemav1connect.AuthServiceClient, *pgxpool.Pool, *captu
 	handler := &capturingHandler{}
 	sender := mail.NewLogger(slog.New(handler))
 	resetTTL := 30 * time.Minute
-	mailerAdapter := authmailer.New(sender, resetTTL)
+	emailTokenTTL := 30 * time.Minute
+	mailerAdapter := authmailer.New(sender, resetTTL, emailTokenTTL)
 
 	mux := http.NewServeMux()
 	auth.Register(mux, auth.Deps{
@@ -106,6 +107,8 @@ func setup(t *testing.T) (hemav1connect.AuthServiceClient, *pgxpool.Pool, *captu
 		Mailer:           mailerAdapter,
 		PublicAppURL:     "http://localhost:3000",
 		PasswordResetTTL: resetTTL,
+		EmailTokenTTL:    emailTokenTTL,
+		SessionTTL:       720 * time.Hour,
 	}, baseOpts, adminOpts)
 
 	server := httptest.NewServer(mux)

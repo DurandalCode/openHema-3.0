@@ -23,11 +23,20 @@ import (
 // глобально Auth (валидация Bearer-токена), на AdminService — RequireAdmin.
 func setup(t *testing.T) (hemav1connect.AuthServiceClient, hemav1connect.AdminServiceClient, *testutil.FakeRepo) {
 	t.Helper()
+	client, adminClient, repo, _ := setupWithMailer(t)
+	return client, adminClient, repo
+}
+
+// setupWithMailer — как setup, но дополнительно отдаёт fake-мейлер: нужен
+// тестам email-подтверждения/смены адреса, которым нужно вытащить токен из
+// отправленного письма (спека 0042).
+func setupWithMailer(t *testing.T) (hemav1connect.AuthServiceClient, hemav1connect.AdminServiceClient, *testutil.FakeRepo, *testutil.FakeMailer) {
+	t.Helper()
 
 	repo := testutil.NewFakeRepo()
 	tokens := jwt.NewManager("access-secret", "refresh-secret", 15*time.Minute, 720*time.Hour)
 	mailer := testutil.NewFakeMailer()
-	svc := service.New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, time.Now)
+	svc := service.New(repo, tokens, mailer, "https://app.hema.test", 30*time.Minute, 30*time.Minute, 720*time.Hour, time.Now)
 	authHandler := NewHandler(svc)
 	adminHandler := NewAdminHandler(svc)
 
@@ -51,7 +60,7 @@ func setup(t *testing.T) (hemav1connect.AuthServiceClient, hemav1connect.AdminSe
 	client := server.Client()
 	authClient := hemav1connect.NewAuthServiceClient(client, server.URL)
 	adminClient := hemav1connect.NewAdminServiceClient(client, server.URL)
-	return authClient, adminClient, repo
+	return authClient, adminClient, repo, mailer
 }
 
 func TestRegister_E2E(t *testing.T) {
