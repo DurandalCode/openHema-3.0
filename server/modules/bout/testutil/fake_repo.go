@@ -6,6 +6,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -45,6 +46,10 @@ type FakeRepo struct {
 	// BoutTimesForPools (спека 0034, FR-16) — для проверки no-op на пустом
 	// poolIDs в тестах service (TimesForPools не должен ходить в репо).
 	boutTimesForPoolsCalls [][]string
+	// startedAtByBoutsCalls — spy: аргументы каждого вызова
+	// StartedAtByBouts (спека 0043, ADR 0020) — для проверки no-op на
+	// пустом boutIDs в тестах service.
+	startedAtByBoutsCalls [][]string
 	// existsBoutForNominationCalls — spy: аргументы каждого вызова
 	// ExistsBoutForNomination (спека 0040, гейт удаления номинации).
 	existsBoutForNominationCalls []string
@@ -597,6 +602,55 @@ func (r *FakeRepo) BoutTimesForPoolsCalls() [][]string {
 
 	out := make([][]string, len(r.boutTimesForPoolsCalls))
 	for i, c := range r.boutTimesForPoolsCalls {
+		out[i] = append([]string{}, c...)
+	}
+	return out
+}
+
+// StartedAtByBouts возвращает первый момент начала каждого боя из списка
+// (спека 0043, ADR 0020) — зеркалит семантику SQL StartedAtByBouts
+// (repo/queries/pace.sql): МИНИМАЛЬНЫЙ occurred_at события started (не
+// последний, в отличие от boutTimesFromEvents выше) — reset+повторный
+// StartBout может дать несколько started, для темпа площадки важен первый
+// реальный запуск. Бои без события started просто отсутствуют в карте.
+// Пустой boutIDs — no-op: пустая карта без сканирования хранилища.
+func (r *FakeRepo) StartedAtByBouts(_ context.Context, boutIDs []string) (map[string]time.Time, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.startedAtByBoutsCalls = append(r.startedAtByBoutsCalls, append([]string{}, boutIDs...))
+
+	if len(boutIDs) == 0 {
+		return map[string]time.Time{}, nil
+	}
+
+	out := make(map[string]time.Time)
+	for _, boutID := range boutIDs {
+		var earliest *time.Time
+		for _, ev := range r.events[boutID] {
+			if ev.Type != domain.EventStarted {
+				continue
+			}
+			if earliest == nil || ev.OccurredAt.Before(*earliest) {
+				t := ev.OccurredAt
+				earliest = &t
+			}
+		}
+		if earliest != nil {
+			out[boutID] = *earliest
+		}
+	}
+	return out, nil
+}
+
+// StartedAtByBoutsCalls возвращает зафиксированные вызовы StartedAtByBouts
+// (для проверки no-op на пустом boutIDs в тестах service, спека 0043).
+func (r *FakeRepo) StartedAtByBoutsCalls() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([][]string, len(r.startedAtByBoutsCalls))
+	for i, c := range r.startedAtByBoutsCalls {
 		out[i] = append([]string{}, c...)
 	}
 	return out

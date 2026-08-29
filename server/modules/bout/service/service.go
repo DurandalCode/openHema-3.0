@@ -241,6 +241,16 @@ func (s *Service) TimesForPools(ctx context.Context, poolIDs []string) (map[stri
 	return s.repo.BoutTimesForPools(ctx, poolIDs)
 }
 
+// StartedAtByBouts — см. domain.Repository.StartedAtByBouts (спека 0043,
+// ADR 0020: наблюдения для оценки темпа площадки модулем stage). Гейтит
+// пустой список так же, как TimesForPools.
+func (s *Service) StartedAtByBouts(ctx context.Context, boutIDs []string) (map[string]time.Time, error) {
+	if len(boutIDs) == 0 {
+		return map[string]time.Time{}, nil
+	}
+	return s.repo.StartedAtByBouts(ctx, boutIDs)
+}
+
 // HasBouts — есть ли среди боёв номинации хотя бы один поставленный (спека
 // 0040, сценарий 1, FR-1б). Тонкая обёртка над репозиторием — эта
 // доменная-порт-реализация используется nomination-модулем через
