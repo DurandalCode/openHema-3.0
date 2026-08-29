@@ -13,6 +13,9 @@ const codeToStatus: Partial<Record<Code, number>> = {
   // позволяет» на стороне клиента, конвенционально 409.
   [Code.FailedPrecondition]: 409,
   [Code.Aborted]: 409,
+  // Троттлинг писем и ограничение частоты по адресу источника (спека 0042,
+  // FR-4/FR-39/FR-40) — «слишком много попыток, попробуйте позже».
+  [Code.ResourceExhausted]: 429,
   [Code.Internal]: 500,
   [Code.Unavailable]: 503,
 };
