@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/hema/server/modules/stage/domain"
 )
@@ -20,6 +21,11 @@ type FakeArenaProvider struct {
 	// адресуется по arenaID, эта по tournamentID, площадка может быть в
 	// нескольких турнирах в тестовых данных.
 	active map[string][]domain.ArenaRef
+
+	// MarkFreedCalls — зафиксированные вызовы MarkFreed (спека 0043: тест
+	// проверяет, что UnseatPool зовёт его ровно один раз при успешном
+	// снятии пула и не зовёт при отказе).
+	MarkFreedCalls []string
 }
 
 // NewFakeArenaProvider создаёт пустой fake-провайдер площадок.
@@ -112,4 +118,21 @@ func (p *FakeArenaProvider) ActiveArenas(_ context.Context, tournamentID string)
 	out := append([]domain.ArenaRef{}, p.active[tournamentID]...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Position < out[j].Position })
 	return out, nil
+}
+
+// MarkFreed фиксирует вызов (для MarkFreedCalls) и, если площадка задана
+// через Set, проставляет LastFreedAt текущим моментом — тестовому коду
+// не нужно эмулировать ошибку хранилища для этого метода, реальный адаптер
+// (internal/platform, join-волна T13) сам мапит ошибки repo.
+func (p *FakeArenaProvider) MarkFreed(_ context.Context, arenaID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.MarkFreedCalls = append(p.MarkFreedCalls, arenaID)
+	if ref, ok := p.arenas[arenaID]; ok {
+		now := time.Now()
+		ref.LastFreedAt = &now
+		p.arenas[arenaID] = ref
+	}
+	return nil
 }

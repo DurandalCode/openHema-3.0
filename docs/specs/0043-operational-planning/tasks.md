@@ -85,11 +85,11 @@
 
 ## Волна 2 (join) — сервис `stage`
 
-- [ ] T8. **domain: порты** — `modules/stage/domain/domain.go`:
+- [x] T8. **domain: порты** — `modules/stage/domain/domain.go`:
       `ArenaRef.LastFreedAt`, `ArenaProvider.MarkFreed`,
       `BoutConductor.StartedAtByBouts`. Тест — компиляционный red через
       testutil следующего шага.
-- [ ] T9. **testutil** — `modules/stage/testutil/`: фейки новых методов
+- [x] T9. **testutil** — `modules/stage/testutil/`: фейки новых методов
       (`FakeArenaProvider.MarkFreed`, `FakeBoutConductor.StartedAtByBouts`),
       `var _` проверки портов.
 - [ ] T10. **UnseatPool → MarkFreed (red→green)** —

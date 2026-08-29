@@ -783,6 +783,13 @@ type BoutConductor interface {
 	// неактуальными, AC-14). Пустой список пулов — валидный вход, no-op →
 	// пустая карта (как AnyStartedInPools).
 	BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]BoutTimes, error)
+
+	// StartedAtByBouts возвращает первый момент начала каждого боя из
+	// перечисленных (спека 0043, ADR 0020) — наблюдения для темпа
+	// площадки: MIN(occurred_at) события started, не последний актуальный
+	// (в отличие от BoutTimesForPools). Бои без started просто отсутствуют
+	// в карте. Пустой список — валидный вход, no-op → пустая карта.
+	StartedAtByBouts(ctx context.Context, boutIDs []string) (map[string]time.Time, error)
 }
 
 // BoutTimes — фактическое время одного боя (спека 0034, FR-16): начало и
@@ -937,6 +944,11 @@ type ArenaRef struct {
 	Name     string
 	Active   bool
 	Position int
+	// LastFreedAt — момент последнего освобождения площадки (спека 0043,
+	// FR-26/FR-28): nil, если площадку никогда не освобождали («ждёт
+	// первый пул»). Заполняется только у результата ActiveArenas — как и
+	// Position, остальные пути его не резолвят (см. комментарий у Position).
+	LastFreedAt *time.Time
 }
 
 // ArenaProvider — межмодульная зависимость: резолв площадок через API
@@ -963,6 +975,12 @@ type ArenaProvider interface {
 	// турнир — валидацию делает сама реализация (по аналогии с
 	// arena.Service.List/resolveTournament), этот порт её не дублирует.
 	ActiveArenas(ctx context.Context, tournamentID string) ([]ArenaRef, error)
+	// MarkFreed проставляет момент освобождения площадки (спека 0043,
+	// FR-26/FR-27) — вызывается сервисом на UnseatPool, единственном
+	// действии, которое площадку освобождает. Ошибку не мапит в доменные
+	// ошибки этого пакета: вызывается уже после успешного снятия пула,
+	// падение здесь — инфраструктурная аномалия, не доменный отказ.
+	MarkFreed(ctx context.Context, arenaID string) error
 }
 
 // NominationRef — проекция номинации для обогащения пулов именем номинации
