@@ -51,6 +51,9 @@ describe("getCurrentUser", () => {
       role: "ROLE_USER",
       createdAt: "2023-11-14T22:13:20.000Z",
       club: "",
+      emailVerified: false,
+      pendingEmail: "",
+      notifications: { applicationState: false, poolSeated: false },
     });
   });
 
@@ -137,6 +140,9 @@ describe("getCurrentUser", () => {
       role: "ROLE_ADMIN",
       createdAt: "1970-01-01T00:00:00.000Z",
       club: "",
+      emailVerified: false,
+      pendingEmail: "",
+      notifications: { applicationState: false, poolSeated: false },
     });
   });
 

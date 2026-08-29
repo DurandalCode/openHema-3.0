@@ -1,6 +1,7 @@
 import { toJson } from "@bufbuild/protobuf";
 import { UserSchema, type User } from "@/gen/hema/v1/common_pb";
 import { TournamentSchema, type Tournament } from "@/gen/hema/v1/tournament_pb";
+import { SessionSchema, type Session as SessionProto } from "@/gen/hema/v1/auth_pb";
 import { NominationSchema, type Nomination } from "@/gen/hema/v1/nomination_pb";
 import {
   ApplicationSchema,
@@ -56,7 +57,7 @@ import {
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
-import type { CurrentUser } from "@/entities/user/lib/types";
+import type { CurrentUser, Session } from "@/entities/user/lib/types";
 import type {
   Nomination as NominationDto,
   NominationStatus as NominationStatusDto,
@@ -165,7 +166,11 @@ import { emptyNominationResults } from "@/entities/nomination-results/lib/types"
  */
 export function userToJson(user: User | undefined): CurrentUser | null {
   if (!user) return null;
-  const raw = toJson(UserSchema, user) as Partial<CurrentUser>;
+  const raw = toJson(UserSchema, user) as Partial<CurrentUser> & {
+    emailVerified?: boolean;
+    pendingEmail?: string;
+    notifications?: { applicationState?: boolean; poolSeated?: boolean };
+  };
   return {
     id: raw.id ?? "",
     email: raw.email ?? "",
@@ -173,6 +178,27 @@ export function userToJson(user: User | undefined): CurrentUser | null {
     role: raw.role ?? "ROLE_UNSPECIFIED",
     createdAt: raw.createdAt ?? "",
     club: raw.club ?? "",
+    emailVerified: raw.emailVerified ?? false,
+    pendingEmail: raw.pendingEmail ?? "",
+    notifications: {
+      applicationState: raw.notifications?.applicationState ?? false,
+      poolSeated: raw.notifications?.poolSeated ?? false,
+    },
+  };
+}
+
+/**
+ * sessionToJson превращает protobuf-сообщение Session (спека 0042, FR-11)
+ * в обычный JSON-объект. Без устройства/браузера/IP (решение 2 спеки) —
+ * только id, времена и признак «текущая».
+ */
+export function sessionToJson(session: SessionProto): Session {
+  const raw = toJson(SessionSchema, session) as Partial<Session>;
+  return {
+    id: raw.id ?? "",
+    createdAt: raw.createdAt ?? "",
+    lastSeenAt: raw.lastSeenAt ?? "",
+    current: raw.current ?? false,
   };
 }
 
@@ -195,6 +221,9 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
   if (!tournament) return null;
   const raw = toJson(TournamentSchema, tournament) as Partial<TournamentDto> & {
     entryFeeMinor?: string;
+    regulationsFile?: { url?: string; name?: string; size?: string };
+    emblemFile?: { url?: string; name?: string; size?: string };
+    notifications?: { applicationState?: boolean; poolSeated?: boolean };
   };
   return {
     id: raw.id ?? "",
@@ -227,6 +256,22 @@ export function tournamentToJson(tournament: Tournament | undefined): Tournament
             : [],
         }))
       : [],
+    // regulationsFile / emblemFile (спека 0042, FR-30/FR-31): size — int64,
+    // connect-es сериализует в JSON строкой (тот же приём, что entryFeeMinor).
+    regulationsFile: {
+      url: raw.regulationsFile?.url ?? "",
+      name: raw.regulationsFile?.name ?? "",
+      size: Number(raw.regulationsFile?.size ?? "0"),
+    },
+    emblemFile: {
+      url: raw.emblemFile?.url ?? "",
+      name: raw.emblemFile?.name ?? "",
+      size: Number(raw.emblemFile?.size ?? "0"),
+    },
+    notifications: {
+      applicationState: raw.notifications?.applicationState ?? false,
+      poolSeated: raw.notifications?.poolSeated ?? false,
+    },
   };
 }
 

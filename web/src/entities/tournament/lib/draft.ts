@@ -267,6 +267,13 @@ export function draftToTournament(
     updatedAt: saved.updatedAt,
     chiefJudge: draft.chiefJudge,
     regulationsUrl: draft.regulationsUrl,
+    // regulationsFile/emblemFile/notifications (спека 0042) не редактируются
+    // этой формой напрямую (файлы — отдельное действие загрузки, FR-30/
+    // FR-31; переключатели — свой раздел, T39/T40) — превью несёт их из
+    // saved как есть.
+    regulationsFile: saved.regulationsFile,
+    emblemFile: saved.emblemFile,
+    notifications: saved.notifications,
     venueName: draft.venueName,
     venueAddress: draft.venueAddress,
     entryFeeMinor,

@@ -54,6 +54,9 @@ function renderScreen(props: Partial<Parameters<typeof DashboardScreen>[0]> = {}
     role: "ROLE_USER",
     createdAt: "2026-01-14T00:00:00.000Z",
     club: "",
+    emailVerified: true,
+    pendingEmail: "",
+    notifications: { applicationState: false, poolSeated: false },
   };
   return render(
     <DashboardScreen

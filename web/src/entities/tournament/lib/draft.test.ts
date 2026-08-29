@@ -31,6 +31,9 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     entryFeeMinor: 150000,
     entryFeeCurrency: "RUB",
     program: [],
+    regulationsFile: { url: "", name: "", size: 0 },
+    emblemFile: { url: "", name: "", size: 0 },
+    notifications: { applicationState: false, poolSeated: false },
     ...overrides,
   };
 }
