@@ -38,6 +38,7 @@ import {
   NominationResultsSchema,
   BoutJournalEntrySchema,
   TournamentLiveSnapshotSchema,
+  TournamentConsoleSnapshotSchema,
   type PoolLayout,
   type Pool,
   type BoutBoard,
@@ -54,6 +55,7 @@ import {
   type FormatPreset,
   type NominationResults,
   type TournamentLiveSnapshot,
+  type TournamentConsoleSnapshot,
 } from "@/gen/hema/v1/stage_pb";
 import { BoutSchema, type Bout } from "@/gen/hema/v1/bout_pb";
 import type { Tournament as TournamentDto } from "@/entities/tournament/lib/types";
@@ -100,6 +102,16 @@ import type {
   NominationLiveSnapshotDto,
   LivePoolDto,
 } from "@/entities/nomination-live/lib/types";
+import type {
+  TournamentConsoleSnapshotDto,
+  ConsoleArena as ConsoleArenaDto,
+  ConsoleNomination as ConsoleNominationDto,
+  ConsoleQueueItem as ConsoleQueueItemDto,
+  ConsoleAlert as ConsoleAlertDto,
+  ConsoleAlertKind as ConsoleAlertKindDto,
+  ArenaIdleState as ArenaIdleStateDto,
+} from "@/entities/tournament-console/lib/types";
+import type { ForecastDto, PaceEstimateDto } from "@/shared/lib/forecast-time";
 import type {
   TournamentLiveSnapshotDto,
   LiveArenaDto,
@@ -877,7 +889,33 @@ export function boutsToJson(bouts: Bout[] | undefined): BoutDto[] {
   return bouts.map((b) => boutToJson(b)).filter((b): b is BoutDto => b !== null);
 }
 
-function boardBoutRawToDto(raw: Partial<BoardBoutDto> | undefined): BoardBoutDto {
+/**
+ * boutForecastRawToDto маппит ориентировочное время боя (спека 0043, ADR
+ * 0020). `undefined` — прогноза нет (не заполненное proto-сообщение, та же
+ * семантика, что у `LiveFeedBout.started_at/finished_at`) — даёт
+ * `expectedStartAt: null`, не эпоху/ноль.
+ */
+function boutForecastRawToDto(raw: Partial<ForecastDto> | undefined): ForecastDto {
+  return {
+    expectedStartAt: raw?.expectedStartAt ?? null,
+    boutsAhead: raw?.boutsAhead ?? 0,
+    provisional: raw?.provisional ?? false,
+    imminent: raw?.imminent ?? false,
+  };
+}
+
+/** paceEstimateRawToDto маппит темп площадки (спека 0043, ADR 0020, п.5). */
+function paceEstimateRawToDto(raw: Partial<PaceEstimateDto> | undefined): PaceEstimateDto {
+  return {
+    tickSeconds: raw?.tickSeconds ?? 0,
+    sampleCount: raw?.sampleCount ?? 0,
+    provisional: raw?.provisional ?? false,
+  };
+}
+
+function boardBoutRawToDto(
+  raw: (Partial<BoardBoutDto> & { forecast?: Partial<ForecastDto> }) | undefined,
+): BoardBoutDto {
   return {
     id: raw?.id ?? "",
     roundNumber: raw?.roundNumber ?? 0,
@@ -887,6 +925,7 @@ function boardBoutRawToDto(raw: Partial<BoardBoutDto> | undefined): BoardBoutDto
     state: (raw?.state as BoutStateDto) ?? "BOUT_STATE_UNSPECIFIED",
     scoreA: raw?.scoreA ?? 0,
     scoreB: raw?.scoreB ?? 0,
+    forecast: boutForecastRawToDto(raw?.forecast),
   };
 }
 
@@ -1176,6 +1215,7 @@ function liveFeedBoutRawToDto(
     | (Partial<LiveFeedBoutDto> & {
         fighterA?: Partial<PoolFighterRefDto>;
         fighterB?: Partial<PoolFighterRefDto>;
+        forecast?: Partial<ForecastDto>;
       })
     | undefined,
 ): LiveFeedBoutDto {
@@ -1196,6 +1236,7 @@ function liveFeedBoutRawToDto(
     scoreB: raw?.scoreB ?? 0,
     startedAt: raw?.startedAt ?? null,
     finishedAt: raw?.finishedAt ?? null,
+    forecast: boutForecastRawToDto(raw?.forecast),
   };
 }
 
@@ -1206,7 +1247,9 @@ function liveArenaRawToDto(
         currentBout?: Partial<LiveFeedBoutDto> & {
           fighterA?: Partial<PoolFighterRefDto>;
           fighterB?: Partial<PoolFighterRefDto>;
+          forecast?: Partial<ForecastDto>;
         };
+        nextBoutForecast?: Partial<ForecastDto>;
       })
     | undefined,
 ): LiveArenaDto {
@@ -1222,6 +1265,7 @@ function liveArenaRawToDto(
     currentBout: raw?.currentBout ? liveFeedBoutRawToDto(raw.currentBout) : null,
     poolBoutTotal: raw?.poolBoutTotal ?? 0,
     poolBoutFinished: raw?.poolBoutFinished ?? 0,
+    nextBoutForecast: boutForecastRawToDto(raw?.nextBoutForecast),
   };
 }
 
@@ -1267,6 +1311,145 @@ export function tournamentLiveToJson(
     nominations: Array.isArray(raw.nominations)
       ? raw.nominations.map((n) => liveNominationRawToDto(n as never))
       : [],
+    serverNowUnixMs: raw.serverNowUnixMs ?? "0",
+  };
+}
+
+// ---------------------------------------------------------------------
+// Спека 0043: пульт турнира (ADR 0020).
+// ---------------------------------------------------------------------
+
+/** arenaIdleStateToDto маппит простой площадки (FR-26/FR-28) в короткую ось DTO. */
+function arenaIdleStateToDto(raw: string | undefined): ArenaIdleStateDto {
+  switch (raw) {
+    case "ARENA_IDLE_STATE_WAITING_FIRST_POOL":
+      return "waiting_first_pool";
+    case "ARENA_IDLE_STATE_FREE":
+      return "free";
+    default:
+      return "occupied";
+  }
+}
+
+/** consoleAlertKindToDto маппит вид записи ленты внимания (FR-15) в короткую ось DTO. */
+function consoleAlertKindToDto(raw: string | undefined): ConsoleAlertKindDto {
+  switch (raw) {
+    case "CONSOLE_ALERT_KIND_BOUT_STUCK":
+      return "bout_stuck";
+    case "CONSOLE_ALERT_KIND_POOL_NOT_STARTED":
+      return "pool_not_started";
+    case "CONSOLE_ALERT_KIND_POOL_DONE_NOT_UNSEATED":
+      return "pool_done_not_unseated";
+    case "CONSOLE_ALERT_KIND_NEXT_STAGE_NOT_BUILT":
+      return "next_stage_not_built";
+    case "CONSOLE_ALERT_KIND_NOMINATION_STALLED":
+      return "nomination_stalled";
+    default:
+      return "arena_idle";
+  }
+}
+
+function consoleArenaRawToDto(
+  raw:
+    | (Partial<ConsoleArenaDto> & {
+        idleState?: string;
+        currentBout?: Partial<BoardBoutDto> & {
+          fighterA?: Partial<PoolFighterRefDto>;
+          fighterB?: Partial<PoolFighterRefDto>;
+          forecast?: Partial<ForecastDto>;
+        };
+        pace?: Partial<PaceEstimateDto>;
+      })
+    | undefined,
+): ConsoleArenaDto {
+  return {
+    arenaId: raw?.arenaId ?? "",
+    arenaName: raw?.arenaName ?? "",
+    position: raw?.position ?? 0,
+    idleState: arenaIdleStateToDto(raw?.idleState),
+    freeSince: raw?.freeSince ?? null,
+    nominationId: raw?.nominationId ?? "",
+    nominationName: raw?.nominationName ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    poolId: raw?.poolId ?? "",
+    poolName: raw?.poolName ?? "",
+    currentBout: raw?.currentBout ? boardBoutRawToDto(raw.currentBout) : null,
+    boutTotal: raw?.boutTotal ?? 0,
+    boutFinished: raw?.boutFinished ?? 0,
+    pace: raw?.pace ? paceEstimateRawToDto(raw.pace) : null,
+    poolExpectedFinishAt: raw?.poolExpectedFinishAt ?? null,
+  };
+}
+
+function consoleNominationRawToDto(
+  raw: (Partial<ConsoleNominationDto> & { phase?: string }) | undefined,
+): ConsoleNominationDto {
+  return {
+    nominationId: raw?.nominationId ?? "",
+    title: raw?.title ?? "",
+    position: raw?.position ?? 0,
+    phase: liveNominationPhaseToDto(raw?.phase),
+    currentStageTitle: raw?.currentStageTitle ?? "",
+    boutTotal: raw?.boutTotal ?? 0,
+    boutFinished: raw?.boutFinished ?? 0,
+    boutRemainingUnseated: raw?.boutRemainingUnseated ?? 0,
+    expectedFinishAt: raw?.expectedFinishAt ?? null,
+    provisional: raw?.provisional ?? false,
+  };
+}
+
+function consoleQueueItemRawToDto(raw: Partial<ConsoleQueueItemDto> | undefined): ConsoleQueueItemDto {
+  return {
+    poolId: raw?.poolId ?? "",
+    nominationId: raw?.nominationId ?? "",
+    nominationName: raw?.nominationName ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    poolName: raw?.poolName ?? "",
+    boutCount: raw?.boutCount ?? 0,
+    estimatedSeconds: raw?.estimatedSeconds ?? 0,
+  };
+}
+
+function consoleAlertRawToDto(
+  raw: (Partial<ConsoleAlertDto> & { kind?: string }) | undefined,
+): ConsoleAlertDto {
+  return {
+    kind: consoleAlertKindToDto(raw?.kind),
+    since: raw?.since ?? "",
+    arenaId: raw?.arenaId ?? "",
+    arenaName: raw?.arenaName ?? "",
+    nominationId: raw?.nominationId ?? "",
+    nominationName: raw?.nominationName ?? "",
+    poolId: raw?.poolId ?? "",
+    poolName: raw?.poolName ?? "",
+    boutId: raw?.boutId ?? "",
+  };
+}
+
+/**
+ * consoleSnapshotToJson превращает protobuf-сообщение
+ * TournamentConsoleSnapshot в обычный JSON-объект (спека 0043): пульт
+ * турнира целиком — площадки, номинации, очередь, лента внимания. По
+ * образцу `tournamentLiveToJson`.
+ */
+export function consoleSnapshotToJson(
+  snapshot: TournamentConsoleSnapshot | undefined,
+): TournamentConsoleSnapshotDto | null {
+  if (!snapshot) return null;
+  const raw = toJson(TournamentConsoleSnapshotSchema, snapshot) as Partial<TournamentConsoleSnapshotDto> & {
+    arenas?: unknown[];
+    nominations?: unknown[];
+    queue?: unknown[];
+    alerts?: unknown[];
+  };
+  return {
+    tournamentId: raw.tournamentId ?? "",
+    arenas: Array.isArray(raw.arenas) ? raw.arenas.map((a) => consoleArenaRawToDto(a as never)) : [],
+    nominations: Array.isArray(raw.nominations)
+      ? raw.nominations.map((n) => consoleNominationRawToDto(n as never))
+      : [],
+    queue: Array.isArray(raw.queue) ? raw.queue.map((q) => consoleQueueItemRawToDto(q as never)) : [],
+    alerts: Array.isArray(raw.alerts) ? raw.alerts.map((al) => consoleAlertRawToDto(al as never)) : [],
     serverNowUnixMs: raw.serverNowUnixMs ?? "0",
   };
 }

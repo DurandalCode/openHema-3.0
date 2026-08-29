@@ -28,6 +28,22 @@ export function emptyForecast(): ForecastDto {
   return { expectedStartAt: null, boutsAhead: 0, provisional: false, imminent: false };
 }
 
+/**
+ * PaceEstimateDto — темп площадки: интервал между началом одного боя и
+ * началом следующего, вместе с его основанием (ADR 0020, п.5). `tickSeconds`
+ * — сервер уже перевёл в секунды (домен хранит `time.Duration`).
+ */
+export type PaceEstimateDto = {
+  tickSeconds: number;
+  sampleCount: number;
+  provisional: boolean;
+};
+
+/** emptyPaceEstimate — нулевой темп (площадка ещё ни на что не встала). */
+export function emptyPaceEstimate(): PaceEstimateDto {
+  return { tickSeconds: 0, sampleCount: 0, provisional: true };
+}
+
 /** formatForecastClock — «11:20»: локальные часы:минуты момента прогноза. */
 export function formatForecastClock(iso: string): string {
   const date = new Date(iso);

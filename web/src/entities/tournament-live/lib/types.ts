@@ -11,6 +11,7 @@
  */
 
 import type { FighterRef, BoutState } from "@/entities/pool/lib/types";
+import type { ForecastDto } from "@/shared/lib/forecast-time";
 
 /** LiveArenaState — состояние площадки в публичной сводке (FR-14). */
 export type LiveArenaState = "free" | "preparing" | "bout_in_progress";
@@ -46,6 +47,13 @@ export type LiveFeedBoutDto = {
   scoreB: number;
   startedAt: string | null;
   finishedAt: string | null;
+  /**
+   * forecast — ориентировочное время боя (спека 0043, ADR 0020), заполнено
+   * только у не начатых боёв поставленного пула (FR-20/FR-24). Опционален
+   * по тому же приёму, что `BoardBout.forecast` (`entities/pool/lib/types`)
+   * — существующие фикстуры не обязаны его знать.
+   */
+  forecast?: ForecastDto;
 };
 
 /**
@@ -65,6 +73,15 @@ export type LiveArenaDto = {
   currentBout: LiveFeedBoutDto | null;
   poolBoutTotal: number;
   poolBoutFinished: number;
+  /**
+   * nextBoutForecast — ориентировочное время СЛЕДУЮЩЕГО боя площадки
+   * (спека 0043, FR-21): при `preparing` совпадает с `currentBout.forecast`
+   * (сам `currentBout` и есть следующий бой); при `bout_in_progress` —
+   * прогноз боя ПОСЛЕ идущего (у `currentBout` в этом состоянии своего
+   * прогноза нет). `undefined`/`expectedStartAt: null` у `free` и когда не
+   * осталось не начатых боёв.
+   */
+  nextBoutForecast?: ForecastDto;
 };
 
 /** LiveNominationDto — строка сайдбара «Номинации» (FR-20). */

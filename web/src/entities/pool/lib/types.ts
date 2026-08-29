@@ -8,6 +8,7 @@
  */
 
 import type { Stage } from "@/entities/stage/lib/types";
+import type { ForecastDto } from "@/shared/lib/forecast-time";
 
 /**
  * PoolLayoutStatus — статус раскладки номинации целиком (спека 0009,
@@ -193,6 +194,17 @@ export type BoardBout = {
   state: BoutState;
   scoreA: number;
   scoreB: number;
+  /**
+   * forecast — ориентировочное время боя (спека 0043, ADR 0020).
+   * `expectedStartAt: null` (либо всё поле не задано) — прогноза нет: бой
+   * не подходит под прогноз (не начат/уже идёт-завершён) либо пул не
+   * поставлен на площадку (FR-9/FR-24). `<ForecastTime>`
+   * (`shared/ui/forecast-time`) сам решает, рендерить ли что-то. Опционален
+   * по тому же приёму, что `Pool.stageId` выше: десятки существующих
+   * фикстур/тестов строят `BoardBout` без прогноза, строгая обязательность
+   * сломала бы их без причины.
+   */
+  forecast?: ForecastDto;
 };
 
 /**
