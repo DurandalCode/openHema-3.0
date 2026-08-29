@@ -139,17 +139,24 @@
 
 ## Волна 5, трек D — экран пульта
 
-- [ ] T16. **feature (red→green)** — `features/tournament-console/api/`
-      (`requests.ts`, `keys.ts`, RQ-хук + SSE-подписка) с тестами
-      фетчеров → затем `ui/`: `console-arena-card`,
-      `console-nomination-row`, `console-queue-list`, `attention-feed`,
-      `alert-row`. Тест ленты: шесть видов рендерятся, у каждого верный
-      переход (AC-10..AC-14).
-- [ ] T17. **widget + route (red→green)** —
-      `widgets/tournament-console/console-screen.test.tsx` (SSR-снапшот,
-      пустой турнир без падения, пульт ничего не мутирует — AC-9) → затем
+- [x] T16. **feature (red→green)** — `features/tournament-console/api/`:
+      без `requests.ts`/`keys.ts` (нет в plan.md-догадке) — только
+      `use-console.ts` (SSE + polling-fallback, дословный порт
+      `useTournamentLive`/0034: живой push-канал по ADR 0006 сознательно
+      не через RQ, как и у соседа) с тестами → затем `ui/`:
+      `console-arena-card`, `console-nomination-row`, `console-queue-list`,
+      `attention-feed`, `alert-row`. Тест ленты: шесть видов рендерятся, у
+      каждого верный переход (AC-10..AC-14) — все восемь.
+- [x] T17. **screen + page (red→green)** — не `widgets/tournament-console/`,
+      как в plan.md, а `features/tournament-console/ui/console-screen.tsx`:
+      единственная админ-фича этого экрана, `widgets/` заводится в этом
+      кодовой базе только для композиции НЕСКОЛЬКИХ фич (см. соседний
+      `features/arena-management/ui/arenas-screen.tsx` → `arenas/page.tsx`
+      напрямую, без промежуточного widget). `console-screen.test.tsx`
+      (SSR-снапшот, пустой турнир без падения, пульт ничего не мутирует —
+      AC-9, 0 кнопок на экране) → затем
       `console-screen.tsx` и `app/(admin)/admin/console/page.tsx`.
-- [ ] T18. **навигация** — пункт «Пульт» первым в
+- [x] T18. **навигация** — пункт «Пульт» первым в
       `widgets/admin-shell/admin-nav-links.tsx` + правка
       `admin-shell.test.tsx`.
 
