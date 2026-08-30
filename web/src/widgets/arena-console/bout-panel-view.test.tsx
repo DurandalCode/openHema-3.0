@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoutBoard } from "@/entities/pool/lib/types";
@@ -7,6 +8,37 @@ import { BoutPanelView } from "./bout-panel-view";
 
 vi.mock("@/features/arena-timer/ui/TimerControls", () => ({
   TimerControls: () => <div data-testid="timer-controls" />,
+}));
+
+vi.mock("./bout-timer-strip", () => ({
+  BoutTimerStrip: ({
+    roundNumber,
+    children,
+  }: {
+    roundNumber: number | null;
+    children: ReactNode;
+  }) => (
+    <div data-testid="bout-timer-strip" data-round={roundNumber ?? ""}>
+      {children}
+    </div>
+  ),
+}));
+
+vi.mock("./bout-actions-sheet", () => ({
+  BoutActionsSheetContent: (props: {
+    upNext: { fighterA: { name: string } } | null;
+    canReset: boolean;
+    canReopen: boolean;
+    undoLabel: string | null;
+  }) => (
+    <div
+      data-testid="bout-actions-sheet-content"
+      data-up-next={props.upNext ? props.upNext.fighterA.name : ""}
+      data-can-reset={String(props.canReset)}
+      data-can-reopen={String(props.canReopen)}
+      data-undo-label={props.undoLabel ?? ""}
+    />
+  ),
 }));
 
 const finishMutate = vi.fn();
@@ -260,16 +292,43 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(onAutoReturn).not.toHaveBeenCalled();
   });
 
-  it("spec 0044 FR-7/AC-5: stacks the fighter halves and timer column vertically below sm so a 300px-wide timer column doesn't squeeze the halves off-screen at 360px", () => {
+  it("spec 0045 T7: stacks the fighter halves vertically below md (unified breakpoint, was sm in 0044) and shows TimerControls in a hidden md:block column", () => {
     renderPanel(seatedBoard());
 
     const timerColumn = screen.getByTestId("timer-controls").parentElement;
-    expect(timerColumn?.className).toMatch(/(?:^|\s)w-full(?:\s|$)/);
-    expect(timerColumn?.className).toMatch(/(?:^|\s)sm:w-\[300px\](?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)hidden(?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)md:block(?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)md:w-\[300px\](?:\s|$)/);
 
     const row = timerColumn?.parentElement;
     expect(row?.className).toMatch(/(?:^|\s)flex-col(?:\s|$)/);
-    expect(row?.className).toMatch(/(?:^|\s)sm:flex-row(?:\s|$)/);
+    expect(row?.className).toMatch(/(?:^|\s)md:flex-row(?:\s|$)/);
+  });
+
+  describe("spec 0045, T7 — BoutTimerStrip between the fighter halves on md:hidden", () => {
+    it("renders BoutTimerStrip in a md:hidden wrapper, nesting BoutActionsSheetContent inside it", () => {
+      renderPanel(seatedBoard());
+
+      const strip = screen.getByTestId("bout-timer-strip");
+      expect(strip.parentElement?.className).toMatch(/(?:^|\s)md:hidden(?:\s|$)/);
+      expect(within(strip).getByTestId("bout-actions-sheet-content")).toBeInTheDocument();
+    });
+
+    it("passes the current bout's round number to BoutTimerStrip", () => {
+      renderPanel(seatedBoard());
+      expect(screen.getByTestId("bout-timer-strip")).toHaveAttribute("data-round", "1");
+    });
+
+    it("passes the next-bout preview, reset/reopen eligibility and the undo label to BoutActionsSheetContent", () => {
+      scoreControlState.undoLabel = "Отменить +2 красному";
+      renderPanel(seatedBoard());
+
+      const sheetContent = screen.getByTestId("bout-actions-sheet-content");
+      expect(sheetContent).toHaveAttribute("data-up-next", "Соколов");
+      expect(sheetContent).toHaveAttribute("data-can-reset", "true");
+      expect(sheetContent).toHaveAttribute("data-can-reopen", "false");
+      expect(sheetContent).toHaveAttribute("data-undo-label", "Отменить +2 красному");
+    });
   });
 
   describe("spec 0045, T6 — mobile compact header (FR-1/FR-2/AC-3)", () => {

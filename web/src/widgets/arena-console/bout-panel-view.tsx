@@ -12,6 +12,8 @@ import { useRevealBout } from "@/features/bout-board/api/use-reveal-bout";
 import { useReopenBout } from "@/features/bout-board/api/use-reopen-bout";
 import { useResetBout } from "@/features/bout-board/api/use-reset-bout";
 import { toastError } from "@/shared/lib/toast";
+import { BoutActionsSheetContent } from "./bout-actions-sheet";
+import { BoutTimerStrip } from "./bout-timer-strip";
 import { useBoutScoreControl } from "./use-bout-score-control";
 
 const STEPS_MAIN = [1, 2, 3, 5] as const;
@@ -123,6 +125,10 @@ export function BoutPanelView({
   const canScore = currentBout.state === "BOUT_STATE_IN_PROGRESS";
   const num = boutNumber(board);
   const upNext = nextBout(board);
+  // Общие для нижней строки (десктоп/планшет) и листа «⋯» (телефон, T5)
+  // условия — одна и та же доменная логика, не дублируется под каждый вид.
+  const canReset = currentBout.state === "BOUT_STATE_IN_PROGRESS";
+  const canReopen = currentBout.state === "BOUT_STATE_FINISHED";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -162,7 +168,7 @@ export function BoutPanelView({
           {scoreControl.pendingNotice}
         </p>
       )}
-      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <FighterHalf
           color="red"
           fighter={redFighter}
@@ -170,9 +176,37 @@ export function BoutPanelView({
           disabled={!canScore}
           onStep={(delta) => scoreControl.step(redSide, delta, "красному")}
         />
-        <div className="w-full flex-none overflow-y-auto border-y border-border bg-card p-4 sm:w-[300px] sm:border-x sm:border-y-0">
+
+        {/*
+          Полоса таймера на телефоне (спека 0045, FR-4/T7): узкая
+          `BoutTimerStrip` вместо полной колонки `TimerControls` — вмещает
+          только раунд/статус/время/старт-паузу, редкие действия — в её
+          листе «⋯» (`BoutActionsSheetContent`, T5), сюда переданном как
+          `children`.
+        */}
+        <div className="w-full flex-none md:hidden">
+          <BoutTimerStrip roundNumber={currentBout.roundNumber} display={display} controls={controls}>
+            <BoutActionsSheetContent
+              arenaId={arenaId}
+              upNext={upNext}
+              controls={controls}
+              sidesSwapped={sidesSwapped}
+              defaultDurationSeconds={live.snapshot?.defaultDurationSeconds ?? null}
+              undoLabel={scoreControl.undoLabel}
+              onUndo={scoreControl.undoLastStep}
+              canReset={canReset}
+              onReset={() => pool && reset.mutate(pool.id, { onError: (err) => toastError(err.message) })}
+              canReopen={canReopen}
+              onReopen={() => pool && reopen.mutate(pool.id, { onError: (err) => toastError(err.message) })}
+            />
+          </BoutTimerStrip>
+        </div>
+
+        {/* Полная колонка таймера — планшет и шире (FR-8/FR-9/FR-10), без изменений в логике. */}
+        <div className="hidden w-full flex-none overflow-y-auto border-y border-border bg-card p-4 md:block md:w-[300px] md:border-x md:border-y-0">
           <TimerControls arenaId={arenaId} live={live} display={display} controls={controls} />
         </div>
+
         <FighterHalf
           color="blue"
           fighter={blueFighter}
@@ -194,7 +228,7 @@ export function BoutPanelView({
         )}
         <button
           type="button"
-          disabled={currentBout.state !== "BOUT_STATE_IN_PROGRESS"}
+          disabled={!canReset}
           onClick={() => pool && reset.mutate(pool.id, { onError: (err) => toastError(err.message) })}
           className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
         >
@@ -202,7 +236,8 @@ export function BoutPanelView({
         </button>
         <button
           type="button"
-          disabled={currentBout.state !== "BOUT_STATE_FINISHED"}
+          disabled={!canReopen}
+          title={canReopen ? undefined : "Бой ещё не завершён"}
           onClick={() => pool && reopen.mutate(pool.id, { onError: (err) => toastError(err.message) })}
           className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
         >
