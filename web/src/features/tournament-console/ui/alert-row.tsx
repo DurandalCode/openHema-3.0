@@ -36,6 +36,16 @@ function alertContext(alert: ConsoleAlert): string {
   return alert.nominationName;
 }
 
+/**
+ * alertSummary — «Площадка простаивает · Ристалище 1» (спека 0045, T11):
+ * тот же текст, что показывает `AlertRow`, но одной строкой — используется
+ * компактной лентой `AttentionFeedCompact` для первого сигнала, не
+ * дублируя разметку самой строки.
+ */
+export function alertSummary(alert: ConsoleAlert): string {
+  return `${KIND_LABEL[alert.kind]} · ${alertContext(alert)}`;
+}
+
 /** AlertRow — одна запись ленты «требует внимания» (спека 0043, FR-14/FR-15). */
 export function AlertRow({ alert, now = new Date() }: { alert: ConsoleAlert; now?: Date }) {
   return (
