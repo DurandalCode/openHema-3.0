@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/hema/server/modules/stage/domain"
 )
@@ -165,5 +166,114 @@ func TestListStagesForTournament_MaterializesAutoStagePerNomination(t *testing.T
 	}
 	if len(single) != 1 || single[0].ID != entries[0].Stages[0].ID {
 		t.Fatalf("GetListStagesForTournament entry diverges from single ListStages: %+v vs %+v", entries[0].Stages, single)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Спека 0043: простой площадки и прогноз на доске (ADR 0020, FR-26/FR-28,
+// AC-16..AC-18).
+// ---------------------------------------------------------------------
+
+// TestGetArenaBoards_WaitingFirstPool — AC-16: площадку в этом турнире ни
+// разу не освобождали (LastFreedAt не задан) и пула на ней нет — «ждёт
+// первый пул», без счётчика простоя.
+func TestGetArenaBoards_WaitingFirstPool(t *testing.T) {
+	svc, _, _, _, arenas, _, _ := newServiceWithNominations()
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+
+	entries, err := svc.GetArenaBoards(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].IdleState != domain.ArenaIdleWaitingFirstPool {
+		t.Errorf("IdleState = %q, want waiting_first_pool", entries[0].IdleState)
+	}
+	if entries[0].FreeSince != nil {
+		t.Errorf("FreeSince = %v, want nil", entries[0].FreeSince)
+	}
+}
+
+// TestGetArenaBoards_Free_WithFreeSince — AC-17: площадку освобождали,
+// пула на ней сейчас нет — «Свободна · N мин» несёт FreeSince.
+func TestGetArenaBoards_Free_WithFreeSince(t *testing.T) {
+	svc, _, _, _, arenas, _, _ := newServiceWithNominations()
+	freedAt := time.Now().Add(-12 * time.Minute)
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1, LastFreedAt: &freedAt})
+
+	entries, err := svc.GetArenaBoards(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entries[0].IdleState != domain.ArenaIdleFree {
+		t.Errorf("IdleState = %q, want free", entries[0].IdleState)
+	}
+	if entries[0].FreeSince == nil || !entries[0].FreeSince.Equal(freedAt) {
+		t.Errorf("FreeSince = %v, want %v", entries[0].FreeSince, freedAt)
+	}
+}
+
+// TestGetArenaBoards_AllBoutsFinished_StillOccupied — AC-18: все бои
+// стоящего пула проведены, пул не снят — площадка остаётся occupied
+// (простой не идёт), независимо от того, что арена когда-то освобождалась.
+func TestGetArenaBoards_AllBoutsFinished_StillOccupied(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, _, _ := newServiceWithNominations()
+
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateFinished,
+	})
+	oldFreedAt := time.Now().Add(-2 * time.Hour)
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1, LastFreedAt: &oldFreedAt})
+
+	entries, err := svc.GetArenaBoards(ctx, "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entries[0].IdleState != domain.ArenaIdleOccupied {
+		t.Errorf("IdleState = %q, want occupied (pool still seated even though every bout finished)", entries[0].IdleState)
+	}
+	if entries[0].FreeSince != nil {
+		t.Errorf("FreeSince = %v, want nil while occupied", entries[0].FreeSince)
+	}
+}
+
+// TestGetArenaBoards_ForecastOnNotStartedBout — доска несёт тот же прогноз,
+// что публичная лента (ADR 0020): не начатый бой поставленного пула
+// получает Forecast.
+func TestGetArenaBoards_ForecastOnNotStartedBout(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, nominations, _ := newServiceWithNominations()
+
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: "n1", Title: "Длинный меч", Position: 1})
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+
+	entries, err := svc.GetArenaBoards(ctx, "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries[0].Board.Bouts) != 1 || entries[0].Board.Bouts[0].Forecast == nil {
+		t.Fatalf("expected Forecast on the not-started bout, got %+v", entries[0].Board.Bouts)
 	}
 }

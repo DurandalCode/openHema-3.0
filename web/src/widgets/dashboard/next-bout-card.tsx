@@ -1,5 +1,6 @@
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent } from "@/shared/ui/card";
+import { ForecastTime } from "@/shared/ui/forecast-time";
 import { Col, Row } from "@/shared/ui/stack";
 import { boutsUntil, nextBout } from "@/entities/tournament-live/lib/my-view";
 import type { LiveFeedBoutDto } from "@/entities/tournament-live/lib/types";
@@ -15,10 +16,13 @@ function myScoreLine(bout: LiveFeedBoutDto, fighterId: string): string {
 }
 
 /**
- * NextBoutCard — «Ваш следующий бой» кабинета (спека 0038, FR-33/FR-34):
- * идущий бой бойца — с текущим счётом; иначе ближайший не начатый — с
- * очередью боёв до него, без прогноза времени. `null`, если у бойца нет
- * боёв в снапшоте вовсе (FR-37/FR-32 решают вызывающая сторона и
+ * NextBoutCard — «Ваш следующий бой» кабинета (спека 0038, FR-33/FR-34;
+ * спека 0043, FR-23): идущий бой бойца — с текущим счётом; иначе ближайший
+ * не начатый — с очередью боёв до него (`boutsUntil`, не тронуто) плюс
+ * ориентировочное время и обратный отсчёт, когда пул уже поставлен на
+ * площадку (`bout.forecast`, AC-6); если пул ещё не поставлен —
+ * объяснение вместо времени (AC-5, горизонт оценки — FR-9). `null`, если у
+ * бойца нет боёв в снапшоте вовсе (FR-37/FR-32 решают вызывающая сторона и
  * `my-nominations`, этот компонент просто ничего не рендерит).
  */
 export function NextBoutCard({
@@ -54,9 +58,18 @@ export function NextBoutCard({
           {inProgress ? (
             <span className="font-mono text-2xl font-bold">{myScoreLine(bout, fighterId)}</span>
           ) : (
-            <span className="text-sm text-muted-foreground">
-              {until === 0 ? "вы следующие" : `через ${until} ${boutsWord(until)}`}
-            </span>
+            <Col gap={1}>
+              <span className="text-sm text-muted-foreground">
+                {until === 0 ? "вы следующие" : `через ${until} ${boutsWord(until)}`}
+              </span>
+              {bout.forecast?.expectedStartAt ? (
+                <ForecastTime forecast={bout.forecast} className="text-sm" />
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  пул ещё не поставлен на площадку
+                </span>
+              )}
+            </Col>
           )}
         </Col>
       </CardContent>

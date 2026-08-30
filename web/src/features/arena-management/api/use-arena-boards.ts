@@ -67,7 +67,10 @@ export function useArenaBoards(
       // (например, гонка обновления списка площадок и цикла опроса) — «—»,
       // а не преждевременное «Свободна» (не врём результатом до
       // разрешения запроса/появления записи).
-      status: entry === undefined ? UNKNOWN_STATUS : arenaLiveStatus(entry.board),
+      status:
+        entry === undefined
+          ? UNKNOWN_STATUS
+          : arenaLiveStatus(entry.board, { idleState: entry.idleState, freeSince: entry.freeSince }),
       isError: result.isError,
     });
   });

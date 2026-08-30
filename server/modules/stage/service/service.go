@@ -520,6 +520,12 @@ func (s *Service) UnseatPool(ctx context.Context, poolID string) (domain.Layout,
 	if err := s.repo.UnseatPool(ctx, poolID); err != nil {
 		return domain.Layout{}, err
 	}
+	// MarkFreed — до публикации живого кадра (спека 0043, FR-27): первый
+	// кадр после снятия обязан уже видеть площадку свободной с проставленным
+	// моментом освобождения, а не догонять его следующим кадром.
+	if err := s.arenas.MarkFreed(ctx, arenaID); err != nil {
+		return domain.Layout{}, err
+	}
 	s.notifyNominationChanged(pool.NominationID)
 	s.signalArenaBoard(arenaID)
 	return s.loadLayout(ctx, pool.StageID)

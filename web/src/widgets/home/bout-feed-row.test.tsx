@@ -23,6 +23,7 @@ function bout(overrides: Partial<LiveFeedBoutDto> = {}): LiveFeedBoutDto {
     scoreB: 0,
     startedAt: null,
     finishedAt: null,
+    forecast: undefined,
     ...overrides,
   };
 }
@@ -68,10 +69,26 @@ describe("widgets/home BoutFeedRow (spec 0034, FR-15/FR-16, AC-11..AC-13)", () =
     expect(screen.getByText("завершён · Иванов")).toBeInTheDocument();
   });
 
-  it("shows a dash and no forecast for a not-started bout (AC-13)", () => {
+  it("shows a dash when a not-started bout has no forecast — unseated pool, out of the estimation horizon (спека 0043, FR-9/FR-20)", () => {
     renderRow(bout({ state: "BOUT_STATE_NOT_STARTED" }));
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.getByText("не начат")).toBeInTheDocument();
+  });
+
+  it("shows the forecast instead of a dash for a not-started bout of a seated pool (спека 0043, FR-20)", () => {
+    renderRow(
+      bout({
+        state: "BOUT_STATE_NOT_STARTED",
+        forecast: {
+          expectedStartAt: "2026-08-22T11:20:00.000Z",
+          boutsAhead: 1,
+          provisional: false,
+          imminent: false,
+        },
+      }),
+    );
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
+    expect(screen.getByText(/ориентировочно/)).toBeInTheDocument();
   });
 
   it("shows the nomination and stage together", () => {

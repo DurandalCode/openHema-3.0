@@ -1,4 +1,5 @@
 import { Badge } from "@/shared/ui/badge";
+import { ForecastTime } from "@/shared/ui/forecast-time";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { boutScoreLabel, boutStateLabel, outcomeOf } from "@/entities/pool/lib/types";
@@ -41,6 +42,11 @@ export function BoutRow({ bout, isCurrent }: { bout: BoardBout; isCurrent: boole
       </Row>
       {finished && (
         <span className="text-xs text-muted-foreground">Исход: {outcomeLabel(bout)}</span>
+      )}
+      {bout.state === "BOUT_STATE_NOT_STARTED" && bout.forecast?.expectedStartAt && (
+        <span className="text-xs">
+          <ForecastTime forecast={bout.forecast} />
+        </span>
       )}
     </Col>
   );

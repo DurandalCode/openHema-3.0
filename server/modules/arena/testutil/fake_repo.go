@@ -164,6 +164,22 @@ func (r *FakeRepo) SetDefaultDuration(_ context.Context, id string, seconds int3
 	return existing, nil
 }
 
+// MarkFreed проставляет переданный момент как last_freed_at площадки.
+func (r *FakeRepo) MarkFreed(_ context.Context, id string, at time.Time) (domain.Arena, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.arenas[id]
+	if !ok {
+		return domain.Arena{}, domain.ErrNotFound
+	}
+	freedAt := at
+	existing.LastFreedAt = &freedAt
+	existing.UpdatedAt = at
+	r.arenas[id] = existing
+	return existing, nil
+}
+
 func sortByPosition(arenas []domain.Arena) {
 	for i := 1; i < len(arenas); i++ {
 		for j := i; j > 0 && arenas[j].Position < arenas[j-1].Position; j-- {

@@ -72,10 +72,22 @@ func (p *StageArenaProvider) DefaultDurationSeconds(ctx context.Context, arenaID
 
 func toPoolArenaRef(a arenadomain.Arena) stagedomain.ArenaRef {
 	return stagedomain.ArenaRef{
-		ID:     a.ID,
-		Name:   a.Name,
-		Active: a.Status == arenadomain.StatusActive,
+		ID:          a.ID,
+		Name:        a.Name,
+		Active:      a.Status == arenadomain.StatusActive,
+		LastFreedAt: a.LastFreedAt,
 	}
+}
+
+// MarkFreed проставляет момент освобождения площадки (спека 0043,
+// FR-26/FR-27) — вызывается сервисом stage сразу после UnseatPool. arenaID
+// здесь уже валиден (пришёл от только что снятого пула) — любая ошибка
+// arena-сервиса прокидывается как есть, без мапинга в доменные ошибки
+// stage (см. domain.ArenaProvider.MarkFreed: падение здесь —
+// инфраструктурная аномалия, не доменный отказ).
+func (p *StageArenaProvider) MarkFreed(ctx context.Context, arenaID string) error {
+	_, err := p.svc.MarkFreed(ctx, arenaID)
+	return err
 }
 
 // ActiveArenas возвращает неархивные площадки турнира в admin-порядке

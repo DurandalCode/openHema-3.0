@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/hema/server/modules/stage/domain"
 )
@@ -40,6 +41,39 @@ func TestComputePoolStatus(t *testing.T) {
 			got := domain.ComputePoolStatus(c.layout, c.arenaID, c.started, c.finished, c.total)
 			if got != c.want {
 				t.Errorf("ComputePoolStatus(%q, %q, %d, %d, %d) = %q, want %q", c.layout, c.arenaID, c.started, c.finished, c.total, got, c.want)
+			}
+		})
+	}
+}
+
+// TestIdleStateOf — спека 0043, FR-26/FR-28: три состояния простоя
+// площадки из (стоит ли пул сейчас, момент последнего освобождения).
+func TestIdleStateOf(t *testing.T) {
+	freedAt := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name             string
+		occupied         bool
+		lastFreedAt      *time.Time
+		wantState        domain.ArenaIdleState
+		wantFreeSinceSet bool
+	}{
+		{"occupied, никогда не освобождалась -> occupied", true, nil, domain.ArenaIdleOccupied, false},
+		{"occupied, ранее освобождалась -> всё равно occupied", true, &freedAt, domain.ArenaIdleOccupied, false},
+		{"свободна, ни разу не освобождалась -> ждёт первый пул", false, nil, domain.ArenaIdleWaitingFirstPool, false},
+		{"свободна, освобождалась -> free с моментом", false, &freedAt, domain.ArenaIdleFree, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			state, freeSince := domain.IdleStateOf(c.occupied, c.lastFreedAt)
+			if state != c.wantState {
+				t.Errorf("state = %q, want %q", state, c.wantState)
+			}
+			if c.wantFreeSinceSet {
+				if freeSince == nil || !freeSince.Equal(*c.lastFreedAt) {
+					t.Errorf("freeSince = %v, want %v", freeSince, c.lastFreedAt)
+				}
+			} else if freeSince != nil {
+				t.Errorf("freeSince = %v, want nil", freeSince)
 			}
 		})
 	}

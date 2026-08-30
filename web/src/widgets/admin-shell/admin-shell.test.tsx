@@ -38,10 +38,12 @@ describe("AdminNavLinks", () => {
     ).not.toHaveAttribute("aria-current");
   });
 
-  it("does not render the phantom 'Пульт' item from the default design (AC-4)", () => {
+  it("renders a link to the tournament console as the first item (спека 0043)", () => {
     pathname = "/admin";
     render(<AdminNavLinks />);
-    expect(screen.queryByRole("link", { name: "Пульт" })).toBeNull();
+    const links = screen.getAllByRole("link");
+    expect(links[0]).toHaveAttribute("href", "/admin/console");
+    expect(links[0]).toHaveTextContent("Пульт");
   });
 
   it("does not render '+ Создать админа' — creation moved into a modal on the users screen (спека 0024, AC-12)", () => {

@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hema/server/modules/arena/domain"
@@ -206,8 +208,28 @@ func (r *Repo) SetDefaultDuration(ctx context.Context, id string, seconds int32)
 	return toDomain(row), nil
 }
 
+// MarkFreed проставляет текущий момент как last_freed_at площадки.
+// Идемпотентна: повторный вызов просто обновляет момент.
+func (r *Repo) MarkFreed(ctx context.Context, id string, at time.Time) (domain.Arena, error) {
+	aid, err := uuid.Parse(id)
+	if err != nil {
+		return domain.Arena{}, domain.ErrNotFound
+	}
+	row, err := r.q.MarkArenaFreed(ctx, sqlc.MarkArenaFreedParams{
+		ID:          aid,
+		LastFreedAt: pgtype.Timestamptz{Time: at, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Arena{}, domain.ErrNotFound
+		}
+		return domain.Arena{}, fmt.Errorf("mark arena freed: %w", err)
+	}
+	return toDomain(row), nil
+}
+
 func toDomain(row sqlc.ArenaArena) domain.Arena {
-	return domain.Arena{
+	a := domain.Arena{
 		ID:                     row.ID.String(),
 		TournamentID:           row.TournamentID.String(),
 		Name:                   row.Name,
@@ -218,4 +240,9 @@ func toDomain(row sqlc.ArenaArena) domain.Arena {
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
 	}
+	if row.LastFreedAt.Valid {
+		lastFreedAt := row.LastFreedAt.Time
+		a.LastFreedAt = &lastFreedAt
+	}
+	return a
 }

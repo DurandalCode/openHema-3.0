@@ -122,7 +122,8 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-function minuteWord(n: number): string {
+/** minuteWord — склонение «минута/минуты/минут» (переиспользуется прогнозом, спека 0043). */
+export function minuteWord(n: number): string {
   if (n % 10 === 1 && n % 100 !== 11) return "минуту";
   if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) {
     return "минуты";

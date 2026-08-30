@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/hema/server/modules/arena/domain"
 )
@@ -137,6 +138,16 @@ func (s *Service) SetDefaultDuration(ctx context.Context, id string, seconds int
 		return domain.Arena{}, err
 	}
 	return s.repo.SetDefaultDuration(ctx, id, seconds)
+}
+
+// MarkFreed проставляет момент освобождения площадки (спека 0043,
+// FR-26/FR-27). Идемпотентен.
+func (s *Service) MarkFreed(ctx context.Context, id string) (domain.Arena, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return domain.Arena{}, domain.ErrInvalidInput
+	}
+	return s.repo.MarkFreed(ctx, id, time.Now())
 }
 
 // resolveTournament проверяет, что tournamentID непустой и указывает на

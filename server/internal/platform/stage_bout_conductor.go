@@ -177,6 +177,16 @@ func (g *StageBoutConductor) BoutTimesForPools(ctx context.Context, poolIDs []st
 	return out, nil
 }
 
+// StartedAtByBouts возвращает первый момент начала каждого боя из списка
+// (спека 0043, ADR 0020) — наблюдения для темпа площадки модуля stage.
+func (g *StageBoutConductor) StartedAtByBouts(ctx context.Context, boutIDs []string) (map[string]time.Time, error) {
+	out, err := g.svc.StartedAtByBouts(ctx, boutIDs)
+	if err != nil {
+		return nil, mapBoutErr(err)
+	}
+	return out, nil
+}
+
 // mapBoutEventKind переводит bout.domain.EventType в собственный тип stage
 // (модули не делят типы напрямую, ADR 0002). `scheduled` не встречается на
 // входе — bout/repo уже фильтрует его из EventsForPools (спека 0033, план

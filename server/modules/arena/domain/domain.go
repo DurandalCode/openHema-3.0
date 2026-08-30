@@ -46,6 +46,9 @@ type Arena struct {
 	DefaultDurationSeconds int32
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	// LastFreedAt — момент последнего освобождения площадки (спека 0043,
+	// FR-26). nil = площадку никогда не освобождали.
+	LastFreedAt *time.Time
 }
 
 // CreateInput — значения полей при создании площадки.
@@ -83,6 +86,11 @@ type Repository interface {
 	// SetDefaultDuration задаёт дефолтную длительность боя для площадки
 	// (недоменная настройка табло арены).
 	SetDefaultDuration(ctx context.Context, id string, seconds int32) (Arena, error)
+	// MarkFreed проставляет текущий момент как last_freed_at площадки (спека
+	// 0043, FR-26/FR-27) — вызывается сервисом stage при снятии пула
+	// (UnseatPool), единственном действии, которое площадку освобождает.
+	// Идемпотентен: повторный вызов просто обновляет момент.
+	MarkFreed(ctx context.Context, id string, at time.Time) (Arena, error)
 }
 
 // ActiveTournamentProvider — межмодульная зависимость: резолв идентификатора

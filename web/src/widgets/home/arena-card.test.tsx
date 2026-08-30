@@ -89,4 +89,28 @@ describe("widgets/home ArenaCard (spec 0034, FR-14, AC-7..AC-9)", () => {
     expect(screen.getByText("свободна")).toBeInTheDocument();
     expect(screen.queryByText(/Бой \d+ из \d+/)).not.toBeInTheDocument();
   });
+
+  it("FR-21 (спека 0043): показывает ориентировочное время следующего боя площадки, когда оно есть", () => {
+    render(
+      <ArenaCard
+        arena={arena({
+          state: "preparing",
+          currentBout: { ...bout, state: "BOUT_STATE_NOT_STARTED" },
+          nextBoutForecast: {
+            expectedStartAt: "2026-08-22T11:20:00.000Z",
+            boutsAhead: 0,
+            provisional: false,
+            imminent: false,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/ориентировочно/)).toBeInTheDocument();
+  });
+
+  it("AC-19: у свободной площадки нет прогноза следующего боя и простой не показывается", () => {
+    render(<ArenaCard arena={arena({ state: "free" })} />);
+    expect(screen.queryByText(/ориентировочно/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/мин/)).not.toBeInTheDocument();
+  });
 });

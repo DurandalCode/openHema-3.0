@@ -211,6 +211,19 @@ service StageAdminService {
   // схема номинации не тронута: нет состава, нет пулов на аренах, нет
   // начатых боёв (FR-13, FR-14) — иначе ErrSchemaNotEmpty. Атомарно (NFR-1).
   rpc ApplyFormat(ApplyFormatRequest) returns (ApplyFormatResponse);
+  // GetTournamentConsole возвращает пульт турнира целиком — живой
+  // операционный дашборд оператора (спека 0043, FR-8/FR-9/FR-19): все
+  // неархивные площадки с темпом и прогнозом, все номинации с остатком
+  // боёв, очередь готовых к постановке пулов, лента «требует внимания».
+  // Одно агрегирующее обращение, как GetArenaBoards/GetTournamentLive —
+  // без запроса на площадку/номинацию за цикл обновления.
+  rpc GetTournamentConsole(GetTournamentConsoleRequest) returns (GetTournamentConsoleResponse);
+  // WatchTournamentConsole — server-streaming живой канал пульта (спека
+  // 0043, FR-18): первый кадр — текущий снапшот (как GetTournamentConsole),
+  // далее — при изменениях. Read-only: пульт сам ничего не ставит и не
+  // завершает (FR-17), поток только отражает состояние, установленное
+  // другими RPC.
+  rpc WatchTournamentConsole(WatchTournamentConsoleRequest) returns (stream WatchTournamentConsoleResponse);
 }
 
 // StagePublicService — публичное чтение пулов номинации (спека 0011, FR-11).
@@ -530,10 +543,40 @@ message Pool {
   string stage_id = 11;
 }
 
+// ---------------------------------------------------------------------
+// Спека 0043: модель операционной оценки (ADR 0020). PaceEstimate/
+// BoutForecast — общие типы, используемые и админскими проекциями
+// (BoardBout, пульт), и публичными (LiveFeedBout, LiveArena).
+// ---------------------------------------------------------------------
+
+// PaceEstimate — темп площадки: интервал между началом одного боя и
+// началом следующего, вместе с его основанием (ADR 0020, п. 5). Клиент не
+// пересчитывает темп сам — значение приходит с сервера готовым.
+// provisional = true на любом уровне каскада резервов, кроме темпа,
+// посчитанного по фактическим боям текущего пула (ADR 0020, п. 4).
+message PaceEstimate {
+  int32 tick_seconds = 1;
+  int32 sample_count = 2;
+  bool provisional = 3;
+}
+
+// BoutForecast — ориентировочное время конкретного боя (ADR 0020, п. 7).
+// Отсутствие прогноза выражается незаполненным сообщением, а не нулевым
+// временем — та же семантика, что у LiveFeedBout.started_at (спека 0043,
+// FR-24). imminent = true вместо отрицательного интервала, когда
+// расчётное время уже позади, а бой не начат (FR-7).
+message BoutForecast {
+  google.protobuf.Timestamp expected_start_at = 1;
+  int32 bouts_ahead = 2;
+  bool provisional = 3;
+  bool imminent = 4;
+}
+
 // BoardBout — проекция одного боя пула для доски ведения (спека 0013,
 // FR-14): собственная проекция pool, не переиспользует bout.Bout (ADR 0002).
 // score_a/score_b — актуальный счёт (0:0 у не начатого); state — текущая
-// фаза ЖЦ боя.
+// фаза ЖЦ боя. forecast заполнен только у не начатых боёв поставленного
+// пула (спека 0043, FR-9/FR-24).
 message BoardBout {
   string id = 1;
   int32 round_number = 2;
@@ -543,6 +586,7 @@ message BoardBout {
   BoutState state = 6;
   int32 score_a = 7;
   int32 score_b = 8;
+  BoutForecast forecast = 9;
 }
 
 // BoutBoard — доска ведения боёв одной арены (спека 0013, FR-14): стоящий
@@ -1135,6 +1179,8 @@ enum LiveNominationPhase {
 // бой любой номинации турнира с площадкой и фактическим временем.
 // started_at/finished_at не заполнены, если соответствующее событие ещё не
 // произошло (FR-16, AC-13) — клиент показывает прочерк, не 0/эпоху.
+// forecast заполнен только у не начатых боёв поставленного пула (спека
+// 0043, FR-20/FR-24) — как у BoardBout.
 message LiveFeedBout {
   string bout_id = 1;
   string nomination_id = 2;
@@ -1152,11 +1198,14 @@ message LiveFeedBout {
   int32 score_b = 14;
   google.protobuf.Timestamp started_at = 15;
   google.protobuf.Timestamp finished_at = 16;
+  BoutForecast forecast = 17;
 }
 
 // LiveArena — карточка площадки публичной сводки (спека 0034, FR-14).
 // current_bout заполнен у PREPARING (первая непроведённая пара пула) и у
-// BOUT_IN_PROGRESS (идущий бой); не заполнен у FREE.
+// BOUT_IN_PROGRESS (идущий бой); не заполнен у FREE. next_bout_forecast —
+// ориентировочное время следующего боя площадки (спека 0043, FR-21);
+// простой площадки сюда не входит — публично он не показывается (FR-29).
 message LiveArena {
   string arena_id = 1;
   string arena_name = 2;
@@ -1169,6 +1218,7 @@ message LiveArena {
   LiveFeedBout current_bout = 9;
   int32 pool_bout_total = 10;
   int32 pool_bout_finished = 11;
+  BoutForecast next_bout_forecast = 12;
 }
 
 // LiveNomination — строка сайдбара «Номинации» публичной сводки (спека
@@ -1228,12 +1278,27 @@ message GetArenaBoardsRequest {
   string tournament_id = 1;
 }
 
+// ArenaIdleState — состояние простоя площадки (спека 0043, FR-26/FR-28).
+// WAITING_FIRST_POOL — на площадку в этом турнире ни разу не ставили пул
+// (last_freed_at не задан); FREE — пул сняли, free_since задан;
+// OCCUPIED — пул стоит.
+enum ArenaIdleState {
+  ARENA_IDLE_STATE_UNSPECIFIED = 0;
+  ARENA_IDLE_STATE_OCCUPIED = 1;
+  ARENA_IDLE_STATE_WAITING_FIRST_POOL = 2;
+  ARENA_IDLE_STATE_FREE = 3;
+}
+
 // ArenaBoardEntry — та же форма, что GetBoutBoardResponse, для одной
 // площадки в составе агрегирующего ответа (спека 0041). board не заполнен,
 // если на площадке никто не стоит (та же семантика, что у GetBoutBoard).
+// idle_state/free_since — простой площадки (спека 0043, FR-26/FR-28):
+// free_since заполнен только у FREE.
 message ArenaBoardEntry {
   string arena_id = 1;
   BoutBoard board = 2;
+  ArenaIdleState idle_state = 3;
+  google.protobuf.Timestamp free_since = 4;
 }
 
 message GetArenaBoardsResponse {
@@ -1460,4 +1525,122 @@ message ApplyFormatRequest {
 
 message ApplyFormatResponse {
   repeated Stage stages = 1;
+}
+
+// ---------------------------------------------------------------------
+// Спека 0043: пульт турнира и прогноз очереди (ADR 0020).
+// ---------------------------------------------------------------------
+
+// ConsoleAlertKind — вид записи ленты «требует внимания» пульта (спека
+// 0043, FR-15). Ровно шесть видов, пороги — константы сервера, не
+// настройка турнира.
+enum ConsoleAlertKind {
+  CONSOLE_ALERT_KIND_UNSPECIFIED = 0;
+  CONSOLE_ALERT_KIND_ARENA_IDLE = 1;
+  CONSOLE_ALERT_KIND_BOUT_STUCK = 2;
+  CONSOLE_ALERT_KIND_POOL_NOT_STARTED = 3;
+  CONSOLE_ALERT_KIND_POOL_DONE_NOT_UNSEATED = 4;
+  CONSOLE_ALERT_KIND_NEXT_STAGE_NOT_BUILT = 5;
+  CONSOLE_ALERT_KIND_NOMINATION_STALLED = 6;
+}
+
+// ConsoleArena — карточка площадки на пульте (спека 0043, FR-11): что на
+// ней стоит, идущий бой (через current_bout), темп и прогноз завершения
+// пула, простой. current_bout/pace/pool_expected_finish_at не заполнены,
+// если на площадке никто не стоит.
+message ConsoleArena {
+  string arena_id = 1;
+  string arena_name = 2;
+  int32 position = 3;
+  ArenaIdleState idle_state = 4;
+  google.protobuf.Timestamp free_since = 5;
+  string nomination_id = 6;
+  string nomination_name = 7;
+  string stage_title = 8;
+  string pool_id = 9;
+  string pool_name = 10;
+  BoardBout current_bout = 11;
+  int32 bout_total = 12;
+  int32 bout_finished = 13;
+  PaceEstimate pace = 14;
+  google.protobuf.Timestamp pool_expected_finish_at = 15;
+}
+
+// ConsoleNomination — строка номинации на пульте (спека 0043, FR-12).
+// expected_finish_at считается только по поставленным пулам —
+// bout_remaining_unseated считает остаток непоставленных пулов числом,
+// без времени (горизонт оценки, FR-9).
+message ConsoleNomination {
+  string nomination_id = 1;
+  string title = 2;
+  int32 position = 3;
+  LiveNominationPhase phase = 4;
+  string current_stage_title = 5;
+  int32 bout_total = 6;
+  int32 bout_finished = 7;
+  int32 bout_remaining_unseated = 8;
+  google.protobuf.Timestamp expected_finish_at = 9;
+  bool provisional = 10;
+}
+
+// ConsoleQueueItem — готовый к постановке пул в очереди пульта (спека
+// 0043, FR-13): тот же набор, что предлагает SeatPoolOnArena.
+// estimated_seconds — сколько такой пул займёт при темпе турнира.
+message ConsoleQueueItem {
+  string pool_id = 1;
+  string nomination_id = 2;
+  string nomination_name = 3;
+  string stage_title = 4;
+  string pool_name = 5;
+  int32 bout_count = 6;
+  int32 estimated_seconds = 7;
+}
+
+// ConsoleAlert — одна запись ленты «требует внимания» (спека 0043,
+// FR-14/FR-15). Заполнены только поля, осмысленные для kind: у
+// ARENA_IDLE/BOUT_STUCK/POOL_NOT_STARTED/POOL_DONE_NOT_UNSEATED —
+// arena_id/arena_name (плюс pool_id/pool_name или bout_id где уместно), у
+// NEXT_STAGE_NOT_BUILT/NOMINATION_STALLED — nomination_id/nomination_name.
+// since — момент, с которого держится условие; записи не хранятся и не
+// гасятся вручную (FR-16) — существуют, пока условие держится.
+message ConsoleAlert {
+  ConsoleAlertKind kind = 1;
+  google.protobuf.Timestamp since = 2;
+  string arena_id = 3;
+  string arena_name = 4;
+  string nomination_id = 5;
+  string nomination_name = 6;
+  string pool_id = 7;
+  string pool_name = 8;
+  string bout_id = 9;
+}
+
+// TournamentConsoleSnapshot — пульт турнира целиком (спека 0043): общий
+// payload unary- и streaming-ответа, одним агрегирующим обращением
+// (FR-19), по образцу TournamentLiveSnapshot (0034).
+message TournamentConsoleSnapshot {
+  string tournament_id = 1;
+  repeated ConsoleArena arenas = 2;
+  repeated ConsoleNomination nominations = 3;
+  repeated ConsoleQueueItem queue = 4;
+  repeated ConsoleAlert alerts = 5;
+  int64 server_now_unix_ms = 6;
+}
+
+// GetTournamentConsoleRequest — tournament_id обязателен и должен
+// указывать на активный турнир (MVP), как GetTournamentLiveRequest.
+message GetTournamentConsoleRequest {
+  string tournament_id = 1;
+}
+
+message GetTournamentConsoleResponse {
+  TournamentConsoleSnapshot snapshot = 1;
+}
+
+message WatchTournamentConsoleRequest {
+  string tournament_id = 1;
+}
+
+message WatchTournamentConsoleResponse {
+  TournamentConsoleSnapshot snapshot = 1;
 }

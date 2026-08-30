@@ -9,7 +9,7 @@ vi.mock("@/lib/grpc/client", () => ({
   stageAdminClient: { getArenaBoards: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
-  boutBoardToJson: vi.fn((b) => b ?? null),
+  arenaBoardEntriesToJson: vi.fn((entries) => entries ?? []),
 }));
 
 import { stageAdminClient } from "@/lib/grpc/client";
@@ -34,22 +34,21 @@ describe("app/api/tournaments/[id]/arena-boards route", () => {
 
   it("returns entries on ok", async () => {
     vi.mocked(getAccessToken).mockResolvedValue("token");
-    vi.mocked(stageAdminClient.getArenaBoards).mockResolvedValue({
-      entries: [
-        { arenaId: "a1", board: { pool: { id: "p1" }, bouts: [], currentBoutId: "" } },
-        { arenaId: "a2", board: undefined },
-      ],
-    } as never);
+    const entries = [
+      {
+        arenaId: "a1",
+        board: { pool: { id: "p1" }, bouts: [], currentBoutId: "" },
+        idleState: "occupied",
+        freeSince: null,
+      },
+      { arenaId: "a2", board: null, idleState: "free", freeSince: "2026-08-29T11:48:00.000Z" },
+    ];
+    vi.mocked(stageAdminClient.getArenaBoards).mockResolvedValue({ entries } as never);
 
     const res = await GET(getReq(), { params: Promise.resolve({ id: "t1" }) });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({
-      entries: [
-        { arenaId: "a1", board: { pool: { id: "p1" }, bouts: [], currentBoutId: "" } },
-        { arenaId: "a2", board: null },
-      ],
-    });
+    expect(data).toEqual({ entries });
     expect(stageAdminClient.getArenaBoards).toHaveBeenCalledWith(
       { tournamentId: "t1" },
       { headers: { Authorization: "Bearer token" } },

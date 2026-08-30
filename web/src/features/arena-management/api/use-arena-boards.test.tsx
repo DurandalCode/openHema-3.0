@@ -73,6 +73,51 @@ describe("features/arena-management/api/useArenaBoards", () => {
     });
   });
 
+  it("AC-16 (спека 0043): waiting_first_pool даёт «Ждёт первый пул»", async () => {
+    getArenaBoardsRequestMock.mockResolvedValue({
+      ok: true,
+      entries: [{ arenaId: "a1", board: null, idleState: "waiting_first_pool", freeSince: null }],
+    });
+
+    const { result } = renderHook(() => useArenaBoards("t1", [arena("a1")]), { wrapper });
+
+    await waitFor(() => expect(result.current.get("a1")?.status.title).toBe("Ждёт первый пул"));
+  });
+
+  it("AC-17 (спека 0043): free с freeSince даёт «Свободна · N мин»", async () => {
+    const freeSince = new Date(Date.now() - 12 * 60_000).toISOString();
+    getArenaBoardsRequestMock.mockResolvedValue({
+      ok: true,
+      entries: [{ arenaId: "a1", board: null, idleState: "free", freeSince }],
+    });
+
+    const { result } = renderHook(() => useArenaBoards("t1", [arena("a1")]), { wrapper });
+
+    await waitFor(() => expect(result.current.get("a1")?.status.title).toBe("Свободна · 12 мин"));
+  });
+
+  it("AC-18 (спека 0043): occupied с доигранным пулом остаётся finished, не free", async () => {
+    getArenaBoardsRequestMock.mockResolvedValue({
+      ok: true,
+      entries: [
+        {
+          arenaId: "a1",
+          board: {
+            pool: { id: "p1", status: "POOL_STATUS_FINISHED" },
+            bouts: [{ id: "b1", sequenceNumber: 1, state: "BOUT_STATE_FINISHED", scoreA: 5, scoreB: 3 }],
+            currentBoutId: "b1",
+          },
+          idleState: "occupied",
+          freeSince: null,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useArenaBoards("t1", [arena("a1")]), { wrapper });
+
+    await waitFor(() => expect(result.current.get("a1")?.status.kind).toBe("finished"));
+  });
+
   it("marks every arena isError:true when the aggregated request fails (shared, not per-arena)", async () => {
     getArenaBoardsRequestMock.mockResolvedValue({ ok: false, error: "boom" });
 

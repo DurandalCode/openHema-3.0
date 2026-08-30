@@ -385,6 +385,16 @@ type Repository interface {
 	// SQL-запроса BoutTimesForPools). Пустой poolIDs — валидный no-op:
 	// пустая карта без ошибки (как EventsForPools/AnyStartedInPools).
 	BoutTimesForPools(ctx context.Context, poolIDs []string) (map[string]BoutTimes, error)
+	// StartedAtByBouts возвращает первый момент начала каждого боя из
+	// перечисленных (спека 0043, ADR 0020: наблюдения для оценки темпа
+	// площадки) — MIN(occurred_at) события 'started', не свёртка по
+	// restart-маркерам (в отличие от BoutTimesForPools/started_at, которому
+	// нужен ПОСЛЕДНИЙ актуальный started — здесь нужен ПЕРВЫЙ, чтобы
+	// reset+повторный старт не искажал такт). Бои без единого события
+	// 'started' просто отсутствуют в результирующей карте — не ошибка.
+	// Пустой список — валидный вход, no-op → пустая карта (как
+	// AnyStartedInPools/EventsForPools).
+	StartedAtByBouts(ctx context.Context, boutIDs []string) (map[string]time.Time, error)
 	// ExistsBoutForNomination — есть ли среди боёв номинации хотя бы один
 	// поставленный (spec 0040, сценарий 1, FR-1б: гейт удаления номинации —
 	// nomination/domain.BoutOccupancyChecker, реализуется

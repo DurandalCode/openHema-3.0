@@ -498,3 +498,175 @@ func TestSubscribeTournament_Passthrough(t *testing.T) {
 		t.Fatalf("expected a signal on the tournament channel after publish")
 	}
 }
+
+// ---------------------------------------------------------------------
+// Спека 0043: прогноз в живой ленте боёв и на карточке площадки (ADR 0020,
+// FR-9/FR-20/FR-21/FR-24).
+// ---------------------------------------------------------------------
+
+// TestTournamentLive_Forecast_SeatedPoolNotStartedBout — не начатый бой
+// поставленного пула получает прогноз даже без фактических наблюдений (по
+// каскаду резервов, ADR 0020 п.4) — предварительный.
+func TestTournamentLive_Forecast_SeatedPoolNotStartedBout(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, nominations, _ := newServiceWithNominations()
+
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: "n1", Title: "Длинный меч", Position: 1})
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+
+	snap, err := svc.TournamentLive(ctx, "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snap.Bouts) != 1 {
+		t.Fatalf("expected 1 bout in feed, got %d", len(snap.Bouts))
+	}
+	f := snap.Bouts[0].Forecast
+	if f == nil {
+		t.Fatal("expected Forecast to be set for a not-started bout of a seated pool")
+	}
+	if !f.Provisional {
+		t.Errorf("Provisional = false, want true (no observations yet, cascade fell to arena default)")
+	}
+}
+
+// TestTournamentLive_Forecast_UnseatedPoolNotStartedBout_NoForecast —
+// горизонт оценки — только стоящий на площадке пул (FR-9): бой ready-пула,
+// не поставленного ни на одну арену, прогноза не получает.
+func TestTournamentLive_Forecast_UnseatedPoolNotStartedBout_NoForecast(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, _, nominations, _ := newServiceWithNominations()
+
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: "n1", Title: "Длинный меч", Position: 1})
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+
+	snap, err := svc.TournamentLive(ctx, "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snap.Bouts) != 1 {
+		t.Fatalf("expected 1 bout in feed, got %d", len(snap.Bouts))
+	}
+	if snap.Bouts[0].Forecast != nil {
+		t.Errorf("Forecast = %+v, want nil for a bout of an unseated pool", snap.Bouts[0].Forecast)
+	}
+}
+
+// TestTournamentLive_Forecast_ImminentWhenPastDue — AC-4: расчётное время
+// уже прошло (идущий бой начат давно, темп короткий по сравнению с этим
+// разрывом) — Imminent вместо отрицательного интервала/времени из прошлого.
+func TestTournamentLive_Forecast_ImminentWhenPastDue(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, nominations, _ := newServiceWithNominations()
+
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: "n1", Title: "Длинный меч", Position: 1})
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"}, domain.FighterRef{ID: "f3"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2", "f3")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	longAgo := time.Now().Add(-1 * time.Hour)
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateInProgress,
+	})
+	bouts.SeedBoutTimes("b1", domain.BoutTimes{StartedAt: &longAgo})
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b2", RoundNumber: 1, SequenceNumber: 2,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f3"},
+		State: domain.BoutStateNotStarted,
+	})
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+
+	snap, err := svc.TournamentLive(ctx, "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var b2 *domain.FeedBout
+	for i := range snap.Bouts {
+		if snap.Bouts[i].BoutID == "b2" {
+			b2 = &snap.Bouts[i]
+		}
+	}
+	if b2 == nil {
+		t.Fatalf("expected bout b2 in feed, got %+v", snap.Bouts)
+	}
+	if b2.Forecast == nil {
+		t.Fatal("expected Forecast to be set for b2")
+	}
+	if !b2.Forecast.Imminent {
+		t.Errorf("Imminent = false, want true (expected start is long past due)")
+	}
+}
+
+// TestTournamentLive_NextBoutForecast_Preparing — FR-21: карточка площадки
+// в PREPARING несёт прогноз следующего боя (совпадает с прогнозом самого
+// CurrentBout — он и есть следующий).
+func TestTournamentLive_NextBoutForecast_Preparing(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, nominations, _ := newServiceWithNominations()
+
+	nominations.SeedByTournament("t1", domain.NominationRef{ID: "n1", Title: "Длинный меч", Position: 1})
+	fighters.Set("n1", domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f2"})
+	poolID := repo.SeedPool("n1", 1, "f1", "f2")
+	repo.SeedStatus("n1", domain.LayoutReady)
+	if err := repo.SeatPool(ctx, poolID, "arena-1"); err != nil {
+		t.Fatalf("seat pool: %v", err)
+	}
+	bouts.SeedBout(poolID, domain.BoutRef{
+		ID: "b1", RoundNumber: 1, SequenceNumber: 1,
+		FighterA: domain.FighterRef{ID: "f1"}, FighterB: domain.FighterRef{ID: "f2"},
+		State: domain.BoutStateNotStarted,
+	})
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+
+	snap, err := svc.TournamentLive(ctx, "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snap.Arenas) != 1 {
+		t.Fatalf("expected 1 arena, got %d", len(snap.Arenas))
+	}
+	if snap.Arenas[0].NextBoutForecast == nil {
+		t.Fatal("expected NextBoutForecast to be set for a preparing arena")
+	}
+}
+
+// TestTournamentLive_NextBoutForecast_Free_Nil — площадка без пула не
+// несёт прогноза следующего боя.
+func TestTournamentLive_NextBoutForecast_Free_Nil(t *testing.T) {
+	svc, _, _, _, arenas, nominations, _ := newServiceWithNominations()
+	nominations.SeedByTournament("t1")
+	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+
+	snap, err := svc.TournamentLive(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snap.Arenas) != 1 {
+		t.Fatalf("expected 1 arena, got %d", len(snap.Arenas))
+	}
+	if snap.Arenas[0].NextBoutForecast != nil {
+		t.Errorf("NextBoutForecast = %+v, want nil for a free arena", snap.Arenas[0].NextBoutForecast)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -116,6 +117,17 @@ type FakeBoutConductor struct {
 	// 0034, T9: тест проверяет, что вызван ровно один раз на все пулы сразу,
 	// не по одному на пул/тип этапа).
 	BoutTimesForPoolsCalls [][]string
+
+	// startedAt — первый момент начала боя (спека 0043, ADR 0020): bout id
+	// -> time, задаётся SeedStartedAt. Отдельно от times (BoutTimesForPools)
+	// — то поле хранит последний актуальный started/finished, это хранит
+	// первый started, они намеренно расходятся у переоткрытых/сброшенных боёв.
+	startedAt map[string]time.Time
+	// StartedAtByBoutsErr — если задана, StartedAtByBouts возвращает эту
+	// ошибку (вызов всё равно фиксируется).
+	StartedAtByBoutsErr error
+	// StartedAtByBoutsCalls — зафиксированные вызовы StartedAtByBouts.
+	StartedAtByBoutsCalls [][]string
 }
 
 // NewFakeBoutConductor создаёт пустой fake-кондуктор боёв.
@@ -127,6 +139,7 @@ func NewFakeBoutConductor() *FakeBoutConductor {
 		anyStarted:  make(map[string]bool),
 		events:      make(map[string][]domain.BoutEventRecord),
 		times:       make(map[string]domain.BoutTimes),
+		startedAt:   make(map[string]time.Time),
 	}
 }
 
@@ -448,6 +461,37 @@ func (f *FakeBoutConductor) BoutTimesForPools(_ context.Context, poolIDs []strin
 			if t, ok := f.times[boutID]; ok {
 				out[boutID] = t
 			}
+		}
+	}
+	return out, nil
+}
+
+// SeedStartedAt задаёт первый момент начала боя для StartedAtByBouts (спека
+// 0043, ADR 0020) — не привязано к посеянному бою (SeedBout) или к
+// SeedBoutTimes: тесты сборки темпа адресуют момент напрямую по boutID.
+func (f *FakeBoutConductor) SeedStartedAt(boutID string, t time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.startedAt[boutID] = t
+}
+
+// StartedAtByBouts фиксирует вызов (для StartedAtByBoutsCalls) и возвращает
+// моменты, посеянные SeedStartedAt, по перечисленным boutIDs; бои без
+// посеянного значения просто отсутствуют в результате — как настоящий
+// репозиторий, у которого нет ни одного события started. Возвращает
+// StartedAtByBoutsErr, если задана.
+func (f *FakeBoutConductor) StartedAtByBouts(_ context.Context, boutIDs []string) (map[string]time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.StartedAtByBoutsCalls = append(f.StartedAtByBoutsCalls, append([]string{}, boutIDs...))
+	if f.StartedAtByBoutsErr != nil {
+		return nil, f.StartedAtByBoutsErr
+	}
+	out := make(map[string]time.Time)
+	for _, id := range boutIDs {
+		if t, ok := f.startedAt[id]; ok {
+			out[id] = t
 		}
 	}
 	return out, nil

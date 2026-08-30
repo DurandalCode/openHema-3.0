@@ -65,4 +65,27 @@ describe("BoutRow", () => {
     render(<BoutRow bout={bout({ state: "BOUT_STATE_IN_PROGRESS", scoreA: 1, scoreB: 0 })} isCurrent={false} />);
     expect(screen.queryByText(/Исход/)).not.toBeInTheDocument();
   });
+
+  it("спека 0043, FR-22: показывает прогноз не начатого боя поставленного пула", () => {
+    render(
+      <BoutRow
+        bout={bout({
+          state: "BOUT_STATE_NOT_STARTED",
+          forecast: {
+            expectedStartAt: "2026-08-22T11:20:00.000Z",
+            boutsAhead: 1,
+            provisional: false,
+            imminent: false,
+          },
+        })}
+        isCurrent={false}
+      />,
+    );
+    expect(screen.getByText(/ориентировочно/)).toBeInTheDocument();
+  });
+
+  it("не показывает прогноз без forecast (пул не поставлен, вне горизонта оценки)", () => {
+    render(<BoutRow bout={bout({ state: "BOUT_STATE_NOT_STARTED" })} isCurrent={false} />);
+    expect(screen.queryByText(/ориентировочно/)).not.toBeInTheDocument();
+  });
 });
