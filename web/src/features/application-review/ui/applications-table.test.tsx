@@ -113,4 +113,19 @@ describe("ApplicationsTable", () => {
     expect(screen.queryByText(/заявок в турнире нет/i)).not.toBeInTheDocument();
     expect(screen.getByText(/ничего не найдено/i)).toBeInTheDocument();
   });
+
+  it("wraps the header and rows in a horizontal-scroll container when applications are shown (spec 0044, FR-8/AC-3)", () => {
+    const submitted = app({ id: "submitted" });
+    render(<ApplicationsTable {...baseProps()} applications={[submitted]} hasAnyApplications />);
+
+    const scroll = document.querySelector('[data-slot="table-scroll"]');
+    expect(scroll).toBeInTheDocument();
+    expect(scroll?.querySelector('[data-slot="table-head"]')).toBeInTheDocument();
+    expect(scroll?.querySelector('[data-slot="application-row"]')).toBeInTheDocument();
+  });
+
+  it("does not put the loading skeleton inside the horizontal-scroll container", () => {
+    render(<ApplicationsTable {...baseProps()} isLoading />);
+    expect(document.querySelector('[data-slot="table-scroll"]')).not.toBeInTheDocument();
+  });
 });

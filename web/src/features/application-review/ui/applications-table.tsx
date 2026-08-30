@@ -5,6 +5,7 @@ import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
+import { TableScroll } from "@/shared/ui/table-scroll";
 import type { Application } from "@/entities/application/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
@@ -70,41 +71,53 @@ export function ApplicationsTable({
 
   return (
     <div data-slot="applications-table" className="overflow-hidden rounded-lg border border-border">
-      <TableHead cols={COLUMNS} />
-
       {isLoading ? (
-        <SkeletonRows rows={6} cols={5} />
+        <>
+          <TableHead cols={COLUMNS} />
+          <SkeletonRows rows={6} cols={5} />
+        </>
       ) : error instanceof UnauthorizedError ? null : error ? (
-        <div className="flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm text-muted-foreground">{error.message}</p>
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            Повторить
-          </Button>
-        </div>
+        <>
+          <TableHead cols={COLUMNS} />
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <p className="text-sm text-muted-foreground">{error.message}</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              Повторить
+            </Button>
+          </div>
+        </>
       ) : rows.length === 0 ? (
-        hasAnyApplications ? (
-          <EmptyState
-            title="По выбранным фильтрам ничего не найдено"
-            hint="Попробуйте изменить фильтры или сбросить поиск."
-          />
-        ) : (
-          <EmptyState title="Заявок в турнире нет" />
-        )
+        <>
+          <TableHead cols={COLUMNS} />
+          {hasAnyApplications ? (
+            <EmptyState
+              title="По выбранным фильтрам ничего не найдено"
+              hint="Попробуйте изменить фильтры или сбросить поиск."
+            />
+          ) : (
+            <EmptyState title="Заявок в турнире нет" />
+          )}
+        </>
       ) : (
-        rows.map((app) => (
-          <ApplicationRow
-            key={app.id}
-            application={app}
-            nominationTitle={nominationTitleById.get(app.nominationId) ?? "—"}
-            isOverfullNomination={overfullNominationIds.has(app.nominationId)}
-            onOpenCard={onOpenCard}
-            onConfirmPayment={onConfirmPayment}
-            onRegister={onRegister}
-            confirmPending={confirmPendingId === app.id}
-            registerPending={registerPendingId === app.id}
-            now={now}
-          />
-        ))
+        <TableScroll>
+          <div className="min-w-[980px]">
+            <TableHead cols={COLUMNS} />
+            {rows.map((app) => (
+              <ApplicationRow
+                key={app.id}
+                application={app}
+                nominationTitle={nominationTitleById.get(app.nominationId) ?? "—"}
+                isOverfullNomination={overfullNominationIds.has(app.nominationId)}
+                onOpenCard={onOpenCard}
+                onConfirmPayment={onConfirmPayment}
+                onRegister={onRegister}
+                confirmPending={confirmPendingId === app.id}
+                registerPending={registerPendingId === app.id}
+                now={now}
+              />
+            ))}
+          </div>
+        </TableScroll>
       )}
     </div>
   );
