@@ -61,6 +61,27 @@ describe("TimerDisplay", () => {
     expect(el.className).toContain("text-red-500");
   });
 
+  /**
+   * size=strip (спека 0045, T4-fix): `BoutTimerStrip` — узкая горизонтальная
+   * полоса на телефоне, а не отдельная колонка — размер `panel`
+   * (`text-6xl`/`text-7xl`, рассчитан на десктопную колонку `TimerControls`)
+   * переполнял строку по горизонтали на 390px (найдено ручной проверкой,
+   * спека 0045 T16). `strip` — заметно компактнее `panel` и без `sm:`-роста.
+   */
+  it("size=strip renders a compact size that fits a horizontal strip", () => {
+    render(<TimerDisplay status="RUNNING" remainingCs={9000} size="strip" />);
+    const el = screen.getByText("1:30.00");
+    expect(el.className).not.toMatch(/(?:^|\s)text-6xl(?:\s|$)/);
+    expect(el.className).not.toMatch(/(?:^|\s)sm:text-7xl(?:\s|$)/);
+    expect(el.className).toMatch(/(?:^|\s)text-(?:lg|xl|2xl)(?:\s|$)/);
+  });
+
+  it("size=strip still turns red/amber on expired/endgame", () => {
+    render(<TimerDisplay status="EXPIRED" remainingCs={0} size="strip" alert="expired" />);
+    const el = screen.getByText("00.00");
+    expect(el.className).toContain("text-destructive");
+  });
+
   // T18 (спека 0033): TimerDisplay больше не решает "мигать красным" сам —
   // решение приходит пропсом `alert`, посчитанным снаружи (scoreboardPhase).
   describe("alert prop (spec 0033, T18 — presentational, decision from outside)", () => {
