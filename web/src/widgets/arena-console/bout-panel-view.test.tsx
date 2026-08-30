@@ -216,18 +216,20 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(scoreControlState.step).toHaveBeenCalledWith("A", 2, "красному");
   });
 
-  it("FR-18: bottom bar renders Сбросить бой / Переоткрыть / Показать следующий / Завершить бой and Далее", () => {
+  it("FR-18: desktop bottom bar renders Сбросить бой / Переоткрыть / Показать следующий / Завершить бой and Далее", () => {
     renderPanel(seatedBoard());
-    expect(screen.getByRole("button", { name: "Сбросить бой" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Переоткрыть" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Показать следующий" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Завершить бой" })).toBeEnabled();
-    expect(screen.getByText(/Далее: Соколов — Берг/)).toBeInTheDocument();
+    const bar = screen.getByTestId("desktop-bottom-actions");
+    expect(within(bar).getByRole("button", { name: "Сбросить бой" })).toBeEnabled();
+    expect(within(bar).getByRole("button", { name: "Переоткрыть" })).toBeDisabled();
+    expect(within(bar).getByRole("button", { name: "Показать следующий" })).toBeInTheDocument();
+    expect(within(bar).getByRole("button", { name: "Завершить бой" })).toBeEnabled();
+    expect(within(bar).getByText(/Далее: Соколов — Берг/)).toBeInTheDocument();
   });
 
-  it("AC-12: Завершить бой is disabled while offline", () => {
+  it("AC-12: Завершить бой is disabled while offline (desktop bottom bar)", () => {
     renderPanel(seatedBoard(), true);
-    expect(screen.getByRole("button", { name: "Завершить бой" })).toBeDisabled();
+    const bar = screen.getByTestId("desktop-bottom-actions");
+    expect(within(bar).getByRole("button", { name: "Завершить бой" })).toBeDisabled();
   });
 
   it("FR-19/AC-8: shows the undo button when scoreControl reports a label", () => {
@@ -362,6 +364,40 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
       renderPanel(seatedBoard(), false);
       const header = screen.getByTestId("mobile-bout-header");
       expect(within(header).queryByText("Офлайн")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("spec 0045, T8 — bottom action row split by breakpoint (FR-6)", () => {
+    it("mobile bottom bar (md:hidden) contains only Показать следующий and Завершить бой", () => {
+      renderPanel(seatedBoard());
+      const bar = screen.getByTestId("mobile-bottom-actions");
+      expect(bar.className).toMatch(/(?:^|\s)md:hidden(?:\s|$)/);
+
+      const buttons = within(bar).getAllByRole("button");
+      expect(buttons.map((b) => b.textContent)).toEqual(["Показать следующий", "Завершить бой"]);
+    });
+
+    it("mobile bottom bar's Показать следующий/Завершить бой call reveal/finish exactly like the desktop bar", () => {
+      renderPanel(seatedBoard());
+      const bar = screen.getByTestId("mobile-bottom-actions");
+
+      fireEvent.click(within(bar).getByRole("button", { name: "Показать следующий" }));
+      expect(revealMutate).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(within(bar).getByRole("button", { name: "Завершить бой" }));
+      expect(finishMutate).toHaveBeenCalledWith("pool-1", expect.objectContaining({ onError: expect.any(Function) }));
+    });
+
+    it("desktop bottom bar (hidden md:flex) keeps the full action set unchanged", () => {
+      renderPanel(seatedBoard());
+      const bar = screen.getByTestId("desktop-bottom-actions");
+      expect(bar.className).toMatch(/(?:^|\s)hidden(?:\s|$)/);
+      expect(bar.className).toMatch(/(?:^|\s)md:flex(?:\s|$)/);
+
+      expect(within(bar).getByRole("button", { name: "Сбросить бой" })).toBeInTheDocument();
+      expect(within(bar).getByRole("button", { name: "Переоткрыть" })).toBeInTheDocument();
+      expect(within(bar).getByRole("button", { name: "Показать следующий" })).toBeInTheDocument();
+      expect(within(bar).getByRole("button", { name: "Завершить бой" })).toBeInTheDocument();
     });
   });
 });

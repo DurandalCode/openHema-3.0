@@ -216,7 +216,40 @@ export function BoutPanelView({
         />
       </div>
 
-      <div className="flex flex-none flex-wrap items-center gap-2 border-t border-border bg-card p-2">
+      {/*
+        Мобильная нижняя строка (спека 0045, FR-6/T8): только два основных
+        действия — остальные (отмена/сброс/переоткрытие) переехали в лист
+        «⋯» (`BoutActionsSheetContent`, T5), открываемый из `BoutTimerStrip`
+        (T4) выше. Одни и те же мутации (`reveal`/`finish`), что и в
+        десктопной строке ниже — не дублируются, дублируется только разметка
+        кнопок под два разных набора видимости.
+      */}
+      <div
+        data-testid="mobile-bottom-actions"
+        className="flex flex-none items-center gap-2 border-t border-border bg-card p-2 md:hidden"
+      >
+        <button
+          type="button"
+          onClick={() => reveal.mutate(undefined, { onError: (err) => toastError(err.message) })}
+          className="flex-1 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
+        >
+          Показать следующий
+        </button>
+        <button
+          type="button"
+          disabled={!canFinish}
+          onClick={() => pool && finish.mutate(pool.id, { onError: (err) => toastError(err.message) })}
+          className="flex-1 rounded-md bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40"
+        >
+          Завершить бой
+        </button>
+      </div>
+
+      {/* Десктопная/планшетная нижняя строка — полный состав, без изменений (FR-8/FR-9). */}
+      <div
+        data-testid="desktop-bottom-actions"
+        className="hidden flex-none flex-wrap items-center gap-2 border-t border-border bg-card p-2 md:flex"
+      >
         {scoreControl.undoLabel && (
           <button
             type="button"
