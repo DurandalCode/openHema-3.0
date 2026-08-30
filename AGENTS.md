@@ -52,6 +52,12 @@ make dev               # postgres в докере + migrate + server и web ло
 **в репозитории не хранится** (см. `docs/adr/0004-no-generated-in-repo.md`) —
 он в `.gitignore` и генерируется локально и в CI.
 
+Если планируете реализовывать часть задач локальной моделью (opencode +
+LM Studio/Ollama, ADR 0021/0022) — скилл `setup-local-model` настраивает
+связку под вашу машину (провайдер в глобальном конфиге opencode,
+`OPENCODE_LOCAL_MODEL`); это персональная настройка, в репозиторий не
+попадает.
+
 ## Глобальные правила
 
 1. **Контракты — источник истины.** Любое изменение API начинается с `.proto`
@@ -83,11 +89,21 @@ make dev               # postgres в докере + migrate + server и web ло
 2. **plan** — `plan.md`: КАК (proto, server-модули/слои, PG-схема, web-слои,
    тесты по пирамиде ADR 0003).
 3. **tasks** — `tasks.md`: упорядоченный TDD-чеклист.
+3.5. **карточки** (опционально, по требованию) — когда часть задач
+   `tasks.md` отдаётся локальной/слабой модели (не Claude), скилл
+   `decompose-tasks` раскладывает их в самодостаточные файлы
+   `docs/specs/NNN-*/tasks/*.md` (ADR 0021). Для Claude ничего не меняется:
+   он реализует прямо от `tasks.md` через `tdd-cycle`, шаг не обязателен.
 4. **code** — реализация по циклу red → green → refactor (тест первым).
 
 Инструменты: скиллы `write-spec`, `add-module`, `add-feature-web`, `tdd-cycle`
 и команда `/spec`. Для OpenCode — `.opencode/skill/` + `opencode.json`. Для
 Claude Code — `.claude/skills/` + `.claude/commands/spec.md` (см. `CLAUDE.md`).
+Для отдачи задач локальной модели — `decompose-tasks` (только Claude) и
+`implement-task` (только OpenCode/локальный контур), см. ADR 0021. Для
+автозапуска opencode по уже готовым карточкам прямо из Claude Code —
+`run-local-tasks` (только Claude, изоляция per-карточка в `git worktree`,
+мерж только после проверки), см. ADR 0022.
 
 Мелкие правки (рефактор, баг-фикс, косметика) спеки не требуют — только
 инкремент с тестами.
