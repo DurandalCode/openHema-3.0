@@ -43,6 +43,12 @@ export type TimerAlertKind = "endgame" | "expired";
  * следующая join-волна спеки 0033): компонент вычисляет тревогу по старой
  * недифференцированной пороговой арифметике (`remainingCs < 500`), где
  * «концовка» и «истекло» визуально **не различаются** (как было исторически).
+ *
+ * `size="strip"` (спека 0045, T4-fix) — узкая горизонтальная полоса
+ * `BoutTimerStrip` на телефоне: `panel` (`text-6xl`/`sm:text-7xl`, рассчитан
+ * на отдельную колонку `TimerControls`) переполнял строку по горизонтали на
+ * 390px (найдено ручной проверкой, T16) — `strip` заметно компактнее и без
+ * роста от `sm:`.
  */
 export function TimerDisplay({
   status,
@@ -52,7 +58,7 @@ export function TimerDisplay({
 }: {
   status: TimerStatus;
   remainingCs: number;
-  size?: "panel" | "scoreboard";
+  size?: "panel" | "scoreboard" | "strip";
   alert?: TimerAlertKind | null;
 }) {
   const lowTime = remainingCs < 500 && status !== "EXPIRED";
@@ -78,12 +84,19 @@ export function TimerDisplay({
               kind === "endgame" && "text-amber-400",
               kind === null && "text-white",
             )
-          : cn(
-              "text-6xl sm:text-7xl",
-              kind === "expired" && "motion-safe:animate-pulse text-destructive",
-              kind === "endgame" && "text-amber-500",
-              kind === null && "text-foreground",
-            ),
+          : size === "strip"
+            ? cn(
+                "text-xl leading-none",
+                kind === "expired" && "motion-safe:animate-pulse text-destructive",
+                kind === "endgame" && "text-amber-500",
+                kind === null && "text-foreground",
+              )
+            : cn(
+                "text-6xl sm:text-7xl",
+                kind === "expired" && "motion-safe:animate-pulse text-destructive",
+                kind === "endgame" && "text-amber-500",
+                kind === null && "text-foreground",
+              ),
       )}
     >
       {formatTimerCs(remainingCs)}
