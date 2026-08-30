@@ -1,22 +1,13 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/shared/ui/button";
 import { Col, Row } from "@/shared/ui/stack";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
 import type { TimerDisplay as TimerDisplayState, UseArenaTimerResult } from "@/features/arena-timer/api/use-arena-timer";
 import { useStartBout } from "@/features/bout-board/api/use-start-bout";
+import { ADJUST_STEPS } from "../lib/steps";
+import { useSwapSides } from "../api/use-swap-sides";
 import { TimerDisplay } from "./TimerDisplay";
-
-const ADJUST_STEPS = [1, 2, 3, 5] as const;
-
-async function postScoreboardSides(arenaId: string, swapped: boolean): Promise<void> {
-  await fetch(`/api/arenas/${encodeURIComponent(arenaId)}/scoreboard-sides`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ swapped }),
-  });
-}
 
 /**
  * TimerControls — колонка таймера панели секретаря (спека 0033, FR-17,
@@ -66,9 +57,7 @@ export function TimerControls({
 
   const sidesSwapped = live.snapshot?.room.sidesSwapped ?? false;
 
-  const setSides = useMutation({
-    mutationFn: (swapped: boolean) => postScoreboardSides(arenaId, swapped),
-  });
+  const setSides = useSwapSides(arenaId);
 
   return (
     <Col gap={4}>
