@@ -32,18 +32,18 @@
 
 ## Общий примитив и рефакторинг (волна 0)
 
-- [ ] T1. **`shared/ui/sheet.tsx` (red→green)** — `sheet.test.tsx`: `Sheet` +
+- [x] T1. **`shared/ui/sheet.tsx` (red→green)** — `sheet.test.tsx`: `Sheet` +
       `SheetTrigger` открывает `SheetContent` (`bottom sheet` — контент
       `inset-x-0 bottom-0 rounded-t-xl`), закрывается по Esc/оверлею/клику
       на пункт; контент отсутствует в DOM, когда закрыт → затем
       `shared/ui/sheet.tsx` поверх Radix `Dialog` (по образцу
       `admin-nav-drawer.tsx`, см. `plan.md`).
-- [ ] T2. **Вынос `ADJUST_STEPS` (refactor)** — `features/arena-timer/lib/steps.ts`
+- [x] T2. **Вынос `ADJUST_STEPS` (refactor)** — `features/arena-timer/lib/steps.ts`
       экспортирует константу шагов ±секунд; `TimerControls.tsx` импортирует
       её вместо локальной копии. Существующие тесты `TimerControls`
       остаются зелёными без изменений (чистый рефакторинг, поведение не
       меняется).
-- [ ] T3. **Вынос мутации смены сторон (red→green)** —
+- [x] T3. **Вынос мутации смены сторон (red→green)** —
       `features/arena-timer/api/use-swap-sides.test.ts`: хук вызывает
       `POST /api/arenas/:id/scoreboard-sides` с ожидаемым телом → затем
       `use-swap-sides.ts`; `TimerControls.tsx` переключается на хук вместо
