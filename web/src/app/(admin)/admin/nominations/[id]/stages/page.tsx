@@ -43,7 +43,7 @@ export default async function AdminNominationStagesPage({ params }: PageProps) {
   return (
     <Col gap={0}>
       <NominationSchemaScreen nomination={nomination} />
-      <div className="mx-auto w-full max-w-6xl px-4 py-8">
+      <div className="w-full px-4 py-8">
         <NominationResults results={results} showUnfinished canExport />
       </div>
     </Col>

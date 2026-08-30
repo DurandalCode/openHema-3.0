@@ -120,4 +120,27 @@ describe("NominationsTable", () => {
     const allRowLabels = screen.getAllByText(/Первая|Вторая/).map((el) => el.textContent);
     expect(allRowLabels).toEqual(["Первая", "Вторая"]);
   });
+
+  it("wraps the table head and rows in a horizontal scroll container so the page itself doesn't scroll (spec 0044, FR-8/AC-3)", () => {
+    const { container } = render(<NominationsTable {...defaultProps()} />);
+
+    const scroll = container.querySelector('[data-slot="table-scroll"]');
+    expect(scroll).toBeInTheDocument();
+    expect(scroll).toHaveTextContent("Порядок");
+    expect(scroll).toHaveTextContent("Номинация 1");
+  });
+
+  it("keeps loading/error/empty states out of the scroll's min-width block (spec 0044)", () => {
+    const { container: loading } = render(
+      <NominationsTable {...defaultProps()} isLoading nominations={[]} />,
+    );
+    const loadingMinWidth = loading.querySelector('[data-slot="table-scroll"] [class*="min-w-"]');
+    expect(loadingMinWidth?.querySelector('[data-slot="skeleton-rows"]')).not.toBeInTheDocument();
+    expect(loading.querySelector('[data-slot="skeleton-rows"]')).toBeInTheDocument();
+
+    const { container: empty } = render(<NominationsTable {...defaultProps()} nominations={[]} />);
+    const emptyMinWidth = empty.querySelector('[data-slot="table-scroll"] [class*="min-w-"]');
+    expect(emptyMinWidth?.textContent).not.toMatch(/номинаций ещё нет/i);
+    expect(empty.textContent).toMatch(/номинаций ещё нет/i);
+  });
 });
