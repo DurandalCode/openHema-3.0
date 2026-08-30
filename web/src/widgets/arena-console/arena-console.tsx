@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/shared/ui/button";
+import { cn } from "@/shared/lib/cn";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Col, Row } from "@/shared/ui/stack";
 import { useArenaLive } from "@/features/arena-live/api/use-arena-live";
@@ -82,18 +83,32 @@ export function ArenaConsole({
         <ConnectionBar lostSinceMs={live.lostSinceMs} onReconnect={live.reconnect} />
       )}
 
-      <PageHeader
-        title={arenaName || "Площадка"}
-        action={
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/admin/arenas/${arenaId}/scoreboard`} target="_blank">
-              Открыть табло
-            </Link>
-          </Button>
-        }
-      />
+      {/*
+        FR-1/FR-10 (спека 0045): на телефоне режим «Ведение боя» рисует
+        свою компактную шапку внутри `BoutPanelView` (md:hidden) — эти два
+        ряда там дублировали бы её, поэтому скрыты `md:`-условием только в
+        режиме `bout`. В «Управлении ареной» (вне скоупа 0045) — без
+        изменений, видны на любой ширине.
+      */}
+      <div className={mode === "bout" ? "hidden md:block" : undefined}>
+        <PageHeader
+          title={arenaName || "Площадка"}
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/admin/arenas/${arenaId}/scoreboard`} target="_blank">
+                Открыть табло
+              </Link>
+            </Button>
+          }
+        />
+      </div>
 
-      <Row align="center" justify="between" gap={3} className="flex-wrap">
+      <Row
+        align="center"
+        justify="between"
+        gap={3}
+        className={cn("flex-wrap", mode === "bout" && "hidden md:flex")}
+      >
         {mode === "management" ? (
           <Row align="center" gap={2} className="text-sm text-muted-foreground">
             <Link href="/admin/arenas" className="hover:text-foreground">
@@ -136,11 +151,12 @@ export function ArenaConsole({
       ) : (
         <BoutPanelView
           arenaId={arenaId}
+          arenaName={arenaName}
           live={live}
           display={display}
           controls={controls}
           offline={offline}
-          onAutoReturn={() => setMode("management")}
+          onReturnToManagement={() => setMode("management")}
         />
       )}
     </Col>

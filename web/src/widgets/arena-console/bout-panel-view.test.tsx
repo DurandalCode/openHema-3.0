@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoutBoard } from "@/entities/pool/lib/types";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
@@ -7,6 +8,37 @@ import { BoutPanelView } from "./bout-panel-view";
 
 vi.mock("@/features/arena-timer/ui/TimerControls", () => ({
   TimerControls: () => <div data-testid="timer-controls" />,
+}));
+
+vi.mock("./bout-timer-strip", () => ({
+  BoutTimerStrip: ({
+    roundNumber,
+    children,
+  }: {
+    roundNumber: number | null;
+    children: ReactNode;
+  }) => (
+    <div data-testid="bout-timer-strip" data-round={roundNumber ?? ""}>
+      {children}
+    </div>
+  ),
+}));
+
+vi.mock("./bout-actions-sheet", () => ({
+  BoutActionsSheetContent: (props: {
+    upNext: { fighterA: { name: string } } | null;
+    canReset: boolean;
+    canReopen: boolean;
+    undoLabel: string | null;
+  }) => (
+    <div
+      data-testid="bout-actions-sheet-content"
+      data-up-next={props.upNext ? props.upNext.fighterA.name : ""}
+      data-can-reset={String(props.canReset)}
+      data-can-reopen={String(props.canReopen)}
+      data-undo-label={props.undoLabel ?? ""}
+    />
+  ),
 }));
 
 const finishMutate = vi.fn();
@@ -124,15 +156,22 @@ function seatedBoard(overrides: Partial<{ bouts: BoutBoard["bouts"]; currentBout
   };
 }
 
-function renderPanel(board: BoutBoard | null, offline = false, sidesSwapped = false, onAutoReturn = vi.fn()) {
+function renderPanel(
+  board: BoutBoard | null,
+  offline = false,
+  sidesSwapped = false,
+  onReturnToManagement = vi.fn(),
+  arenaName = "Арена 1",
+) {
   return render(
     <BoutPanelView
       arenaId="a1"
+      arenaName={arenaName}
       live={makeLive(board, sidesSwapped)}
       display={timerDisplay}
       controls={timerControls}
       offline={offline}
-      onAutoReturn={onAutoReturn}
+      onReturnToManagement={onReturnToManagement}
     />,
   );
 }
@@ -160,6 +199,16 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(minus1.className).toContain("h-12");
   });
 
+  it("spec 0045 T9/FR-9: +N/-N buttons grow on md: (tablet touch targets) without losing their mobile size", () => {
+    renderPanel(seatedBoard());
+    const plus1 = screen.getAllByRole("button", { name: "+1" })[0];
+    const minus1 = screen.getAllByRole("button", { name: "−1" })[0];
+    expect(plus1.className).toMatch(/(?:^|\s)h-16(?:\s|$)/);
+    expect(plus1.className).toMatch(/(?:^|\s)md:h-\[84px\](?:\s|$)/);
+    expect(minus1.className).toMatch(/(?:^|\s)h-12(?:\s|$)/);
+    expect(minus1.className).toMatch(/(?:^|\s)md:h-\[52px\](?:\s|$)/);
+  });
+
   it("colors sides by sideColorOfFighterA and flips on sidesSwapped", () => {
     const { rerender } = renderPanel(seatedBoard());
     // Fighter A (Кравцов) is red when not swapped.
@@ -177,18 +226,20 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(scoreControlState.step).toHaveBeenCalledWith("A", 2, "красному");
   });
 
-  it("FR-18: bottom bar renders Сбросить бой / Переоткрыть / Показать следующий / Завершить бой and Далее", () => {
+  it("FR-18: desktop bottom bar renders Сбросить бой / Переоткрыть / Показать следующий / Завершить бой and Далее", () => {
     renderPanel(seatedBoard());
-    expect(screen.getByRole("button", { name: "Сбросить бой" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Переоткрыть" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Показать следующий" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Завершить бой" })).toBeEnabled();
-    expect(screen.getByText(/Далее: Соколов — Берг/)).toBeInTheDocument();
+    const bar = screen.getByTestId("desktop-bottom-actions");
+    expect(within(bar).getByRole("button", { name: "Сбросить бой" })).toBeEnabled();
+    expect(within(bar).getByRole("button", { name: "Переоткрыть" })).toBeDisabled();
+    expect(within(bar).getByRole("button", { name: "Показать следующий" })).toBeInTheDocument();
+    expect(within(bar).getByRole("button", { name: "Завершить бой" })).toBeEnabled();
+    expect(within(bar).getByText(/Далее: Соколов — Берг/)).toBeInTheDocument();
   });
 
-  it("AC-12: Завершить бой is disabled while offline", () => {
+  it("AC-12: Завершить бой is disabled while offline (desktop bottom bar)", () => {
     renderPanel(seatedBoard(), true);
-    expect(screen.getByRole("button", { name: "Завершить бой" })).toBeDisabled();
+    const bar = screen.getByTestId("desktop-bottom-actions");
+    expect(within(bar).getByRole("button", { name: "Завершить бой" })).toBeDisabled();
   });
 
   it("FR-19/AC-8: shows the undo button when scoreControl reports a label", () => {
@@ -253,15 +304,110 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(onAutoReturn).not.toHaveBeenCalled();
   });
 
-  it("spec 0044 FR-7/AC-5: stacks the fighter halves and timer column vertically below sm so a 300px-wide timer column doesn't squeeze the halves off-screen at 360px", () => {
+  it("spec 0045 T7: stacks the fighter halves vertically below md (unified breakpoint, was sm in 0044) and shows TimerControls in a hidden md:block column", () => {
     renderPanel(seatedBoard());
 
     const timerColumn = screen.getByTestId("timer-controls").parentElement;
-    expect(timerColumn?.className).toMatch(/(?:^|\s)w-full(?:\s|$)/);
-    expect(timerColumn?.className).toMatch(/(?:^|\s)sm:w-\[300px\](?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)hidden(?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)md:block(?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)md:w-\[300px\](?:\s|$)/);
 
     const row = timerColumn?.parentElement;
     expect(row?.className).toMatch(/(?:^|\s)flex-col(?:\s|$)/);
-    expect(row?.className).toMatch(/(?:^|\s)sm:flex-row(?:\s|$)/);
+    expect(row?.className).toMatch(/(?:^|\s)md:flex-row(?:\s|$)/);
+  });
+
+  describe("spec 0045, T7 — BoutTimerStrip between the fighter halves on md:hidden", () => {
+    it("renders BoutTimerStrip in a md:hidden wrapper, nesting BoutActionsSheetContent inside it", () => {
+      renderPanel(seatedBoard());
+
+      const strip = screen.getByTestId("bout-timer-strip");
+      expect(strip.parentElement?.className).toMatch(/(?:^|\s)md:hidden(?:\s|$)/);
+      expect(within(strip).getByTestId("bout-actions-sheet-content")).toBeInTheDocument();
+    });
+
+    it("passes the current bout's round number to BoutTimerStrip", () => {
+      renderPanel(seatedBoard());
+      expect(screen.getByTestId("bout-timer-strip")).toHaveAttribute("data-round", "1");
+    });
+
+    it("passes the next-bout preview, reset/reopen eligibility and the undo label to BoutActionsSheetContent", () => {
+      scoreControlState.undoLabel = "Отменить +2 красному";
+      renderPanel(seatedBoard());
+
+      const sheetContent = screen.getByTestId("bout-actions-sheet-content");
+      expect(sheetContent).toHaveAttribute("data-up-next", "Соколов");
+      expect(sheetContent).toHaveAttribute("data-can-reset", "true");
+      expect(sheetContent).toHaveAttribute("data-can-reopen", "false");
+      expect(sheetContent).toHaveAttribute("data-undo-label", "Отменить +2 красному");
+    });
+  });
+
+  describe("spec 0045, T6 — mobile compact header (FR-1/FR-2/AC-3)", () => {
+    it("renders a single md:hidden row with a return button, the arena name and the bout number", () => {
+      renderPanel(seatedBoard());
+      const header = screen.getByTestId("mobile-bout-header");
+      expect(header.className).toMatch(/(?:^|\s)md:hidden(?:\s|$)/);
+
+      const returnButton = within(header).getByRole("button", { name: /Арена 1/ });
+      expect(returnButton).toBeInTheDocument();
+      expect(within(header).getByText(/Бой 1 из 2/)).toBeInTheDocument();
+    });
+
+    it("AC-3: clicking the return button switches the page to management mode", () => {
+      const onReturnToManagement = vi.fn();
+      renderPanel(seatedBoard(), false, false, onReturnToManagement);
+      const header = screen.getByTestId("mobile-bout-header");
+
+      fireEvent.click(within(header).getByRole("button", { name: /Арена 1/ }));
+
+      expect(onReturnToManagement).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows an offline indicator in the compact header while offline", () => {
+      renderPanel(seatedBoard(), true);
+      const header = screen.getByTestId("mobile-bout-header");
+      expect(within(header).getByText("Офлайн")).toBeInTheDocument();
+    });
+
+    it("does not show an offline indicator while connected", () => {
+      renderPanel(seatedBoard(), false);
+      const header = screen.getByTestId("mobile-bout-header");
+      expect(within(header).queryByText("Офлайн")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("spec 0045, T8 — bottom action row split by breakpoint (FR-6)", () => {
+    it("mobile bottom bar (md:hidden) contains only Показать следующий and Завершить бой", () => {
+      renderPanel(seatedBoard());
+      const bar = screen.getByTestId("mobile-bottom-actions");
+      expect(bar.className).toMatch(/(?:^|\s)md:hidden(?:\s|$)/);
+
+      const buttons = within(bar).getAllByRole("button");
+      expect(buttons.map((b) => b.textContent)).toEqual(["Показать следующий", "Завершить бой"]);
+    });
+
+    it("mobile bottom bar's Показать следующий/Завершить бой call reveal/finish exactly like the desktop bar", () => {
+      renderPanel(seatedBoard());
+      const bar = screen.getByTestId("mobile-bottom-actions");
+
+      fireEvent.click(within(bar).getByRole("button", { name: "Показать следующий" }));
+      expect(revealMutate).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(within(bar).getByRole("button", { name: "Завершить бой" }));
+      expect(finishMutate).toHaveBeenCalledWith("pool-1", expect.objectContaining({ onError: expect.any(Function) }));
+    });
+
+    it("desktop bottom bar (hidden md:flex) keeps the full action set unchanged", () => {
+      renderPanel(seatedBoard());
+      const bar = screen.getByTestId("desktop-bottom-actions");
+      expect(bar.className).toMatch(/(?:^|\s)hidden(?:\s|$)/);
+      expect(bar.className).toMatch(/(?:^|\s)md:flex(?:\s|$)/);
+
+      expect(within(bar).getByRole("button", { name: "Сбросить бой" })).toBeInTheDocument();
+      expect(within(bar).getByRole("button", { name: "Переоткрыть" })).toBeInTheDocument();
+      expect(within(bar).getByRole("button", { name: "Показать следующий" })).toBeInTheDocument();
+      expect(within(bar).getByRole("button", { name: "Завершить бой" })).toBeInTheDocument();
+    });
   });
 });
