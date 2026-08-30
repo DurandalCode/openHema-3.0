@@ -4,6 +4,7 @@ import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
+import { TableScroll } from "@/shared/ui/table-scroll";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { NominationSchema } from "../api/use-nomination-schemas";
@@ -56,9 +57,36 @@ export function NominationsTable({
   onCloseRegistration: (nominationId: string) => void;
   onReopenRegistration: (nominationId: string) => void;
 }) {
+  const showRows = !isLoading && !error && nominations.length > 0;
+
   return (
     <div data-slot="nominations-table" className="overflow-hidden rounded-lg border border-border">
-      <TableHead cols={COLUMNS} />
+      <TableScroll>
+        <div className="min-w-[802px]">
+          <TableHead cols={COLUMNS} />
+
+          {showRows &&
+            nominations.map((nomination, i) => (
+              <NominationRow
+                key={nomination.id}
+                nomination={nomination}
+                orderNumber={i + 1}
+                isFirst={i === 0}
+                isLast={i === nominations.length - 1}
+                onMoveUp={() => onMoveUp(nomination.id)}
+                onMoveDown={() => onMoveDown(nomination.id)}
+                reorderPending={reorderPending}
+                schema={schemas.get(nomination.id)}
+                onEdit={() => onEdit(nomination.id)}
+                onDelete={() => onDelete(nomination.id)}
+                onCloseRegistration={() => onCloseRegistration(nomination.id)}
+                onReopenRegistration={() => onReopenRegistration(nomination.id)}
+                closePending={closePendingId === nomination.id}
+                reopenPending={reopenPendingId === nomination.id}
+              />
+            ))}
+        </div>
+      </TableScroll>
 
       {isLoading ? (
         <SkeletonRows rows={5} cols={6} />
@@ -74,27 +102,7 @@ export function NominationsTable({
           title="Номинаций ещё нет"
           hint="Заведите первую номинацию действием «+ Номинация»."
         />
-      ) : (
-        nominations.map((nomination, i) => (
-          <NominationRow
-            key={nomination.id}
-            nomination={nomination}
-            orderNumber={i + 1}
-            isFirst={i === 0}
-            isLast={i === nominations.length - 1}
-            onMoveUp={() => onMoveUp(nomination.id)}
-            onMoveDown={() => onMoveDown(nomination.id)}
-            reorderPending={reorderPending}
-            schema={schemas.get(nomination.id)}
-            onEdit={() => onEdit(nomination.id)}
-            onDelete={() => onDelete(nomination.id)}
-            onCloseRegistration={() => onCloseRegistration(nomination.id)}
-            onReopenRegistration={() => onReopenRegistration(nomination.id)}
-            closePending={closePendingId === nomination.id}
-            reopenPending={reopenPendingId === nomination.id}
-          />
-        ))
-      )}
+      ) : null}
     </div>
   );
 }
