@@ -12,6 +12,11 @@ description: Use when implementing tasks from a feature's tasks.md in the HEMA p
 Есть заполненная спека: `docs/specs/NNN-*/{spec.md,plan.md,tasks.md}`. Если нет —
 сначала скилл `write-spec`.
 
+Если у задачи есть карточка в `tasks/` (ADR 0021, `decompose-tasks`): со
+`status: done` — уже реализована локальной моделью, пропустить; со
+`status: pending` и `requires: claude` (эскалация) — доделать как обычный
+пункт `tasks.md` по циклу ниже.
+
 ## Цикл для каждой задачи tasks.md
 
 1. **Red.** Написать тест, описывающий поведение из задачи. Запустить — убедиться,
