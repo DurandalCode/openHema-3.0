@@ -1,5 +1,11 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const getCurrentUserMock = vi.fn();
+vi.mock("@/entities/user/model/get-current-user", () => ({
+  getCurrentUser: () => getCurrentUserMock(),
+}));
+
 import { GET } from "./route";
 
 function ctx(id: string) {
@@ -12,6 +18,7 @@ function req(): NextRequest {
 
 describe("app/api/files/[id] route (spec 0042, T37)", () => {
   const originalEnv = process.env.SERVER_GRPC_URL;
+  const originalPreprodMode = process.env.PREPROD_MODE;
 
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -20,6 +27,7 @@ describe("app/api/files/[id] route (spec 0042, T37)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     process.env.SERVER_GRPC_URL = originalEnv;
+    process.env.PREPROD_MODE = originalPreprodMode;
   });
 
   it("proxies the file, preserving Content-Type/nosniff/Content-Disposition", async () => {
@@ -69,5 +77,17 @@ describe("app/api/files/[id] route (spec 0042, T37)", () => {
     const res = await GET(req(), ctx("missing"));
 
     expect(res.status).toBe(404);
+  });
+
+  // spec 0046, T4: гейт preprod-доступа — гость без сессии получает 401 и
+  // проксирования в апстрим не происходит.
+  it("returns 401 for a guest in preprod mode without proxying to upstream", async () => {
+    process.env.PREPROD_MODE = "true";
+    getCurrentUserMock.mockResolvedValue(null);
+
+    const res = await GET(req(), ctx("abc123"));
+
+    expect(res.status).toBe(401);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

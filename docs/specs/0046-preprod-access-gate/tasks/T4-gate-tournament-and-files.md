@@ -1,7 +1,7 @@
 ---
 task: T4
 feature: docs/specs/0046-preprod-access-gate/
-status: pending
+status: done
 requires: local
 depends_on: [T3]
 ---

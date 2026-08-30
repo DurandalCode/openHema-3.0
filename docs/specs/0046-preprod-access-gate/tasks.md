@@ -32,7 +32,7 @@
       без сессии → `401`-`NextResponse`; флаг включён с сессией (мок
       `getCurrentUser`) → `null` → затем `lib/grpc/preprod-guard.ts`
       (`assertPreprodAccess`). → `tasks/T3-preprod-guard.md`
-- [ ] T4. **представитель + regression (red→green)** —
+- [x] T4. **представитель + regression (red→green)** —
       `app/api/tournament/route.test.ts`: расширить кейсами
       `PREPROD_MODE=true` без сессии (`401`, апстрим не вызван) и с сессией
       (как раньше) → добавить вызов `assertPreprodAccess()` первой строкой
