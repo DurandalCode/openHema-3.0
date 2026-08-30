@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Arena } from "@/entities/arena/lib/types";
 import type { ArenaBoardState } from "../api/use-arena-boards";
@@ -143,5 +143,20 @@ describe("ArenasTable", () => {
     expect(onEdit).toHaveBeenCalledWith("a1");
     fireEvent.click(screen.getByRole("button", { name: "Убрать в архив" }));
     expect(onArchive).toHaveBeenCalledWith("a1");
+  });
+
+  it("wraps the table head and rows in a horizontal scroll container (spec 0044, FR-8/AC-3)", () => {
+    const { container } = render(<ArenasTable {...defaultProps()} />);
+
+    const scrollContainer = container.querySelector('[data-slot="table-scroll"]');
+    expect(scrollContainer).toBeInTheDocument();
+    expect(scrollContainer?.className).toMatch(/(?:^|\s)overflow-x-auto(?:\s|$)/);
+    expect(within(scrollContainer as HTMLElement).getByText("Порядок")).toBeInTheDocument();
+    expect(within(scrollContainer as HTMLElement).getByText("Арена 1")).toBeInTheDocument();
+  });
+
+  it("does not wrap the loading skeleton in the horizontal scroll container", () => {
+    const { container } = render(<ArenasTable {...defaultProps()} isLoading arenas={[]} />);
+    expect(container.querySelector('[data-slot="table-scroll"]')).not.toBeInTheDocument();
   });
 });

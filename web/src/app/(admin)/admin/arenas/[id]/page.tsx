@@ -30,7 +30,7 @@ export default async function AdminArenaPage({ params }: PageProps) {
   const board = await getArenaLiveBoard(id);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8">
+    <div className="w-full px-4 py-8">
       <Suspense fallback={null}>
         <ArenaConsole arenaId={arena.id} arenaName={arena.name} initialBoard={board} />
       </Suspense>

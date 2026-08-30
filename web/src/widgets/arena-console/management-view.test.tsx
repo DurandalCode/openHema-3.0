@@ -270,6 +270,24 @@ describe("ManagementView (спека 0033, FR-6..FR-14)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отменить +1 Кравцову" }));
     expect(scoreControlState.undoLastStep).toHaveBeenCalledTimes(1);
   });
+
+  it("spec 0044 FR-7/AC-5: bout-select buttons in «Бои по порядку» can shrink instead of forcing page overflow on narrow screens", () => {
+    render(
+      <ManagementView
+        arenaId="a1"
+        live={makeLive(seatedBoard())}
+        display={timerDisplay}
+        controls={timerControls}
+        offline={false}
+        onEnterBoutPanel={vi.fn()}
+      />,
+    );
+
+    const boutButton = screen.getByRole("button", { name: /Кравцов — Гринёв/ });
+    expect(boutButton.className).toMatch(/(?:^|\s)min-w-0(?:\s|$)/);
+    expect(boutButton.className).toMatch(/(?:^|\s)flex-1(?:\s|$)/);
+    expect(boutButton.className).toMatch(/(?:^|\s)truncate(?:\s|$)/);
+  });
 });
 
 describe("ManagementView — вторая точка входа в панель (спека 0033, FR-4)", () => {

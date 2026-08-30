@@ -4,6 +4,7 @@ import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
+import { TableScroll } from "@/shared/ui/table-scroll";
 import type { Arena } from "@/entities/arena/lib/types";
 import type { ArenaBoardState } from "../api/use-arena-boards";
 import { ArenaRow } from "./arena-row";
@@ -66,51 +67,63 @@ export function ArenasTable({
 
   return (
     <div data-slot="arenas-table" className="overflow-hidden rounded-lg border border-border">
-      <TableHead cols={COLUMNS} />
-
       {isLoading ? (
-        <SkeletonRows rows={5} cols={5} />
+        <>
+          <TableHead cols={COLUMNS} />
+          <SkeletonRows rows={5} cols={5} />
+        </>
       ) : error ? (
-        <div className="flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm text-muted-foreground">{error.message}</p>
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            Повторить
-          </Button>
-        </div>
+        <>
+          <TableHead cols={COLUMNS} />
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <p className="text-sm text-muted-foreground">{error.message}</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              Повторить
+            </Button>
+          </div>
+        </>
       ) : rows.length === 0 ? (
-        hasAnyArenas ? (
-          <EmptyState
-            title="Все площадки в архиве"
-            hint="Включите показ архивных, чтобы их увидеть."
-          />
-        ) : (
-          <EmptyState
-            title="Площадок ещё нет"
-            hint="Заведите первую площадку действием «+ Площадка»."
-          />
-        )
-      ) : (
-        rows.map((arena) => {
-          const activeIndex = active.findIndex((a) => a.id === arena.id);
-          return (
-            <ArenaRow
-              key={arena.id}
-              arena={arena}
-              orderNumber={activeIndex + 1}
-              boardState={boardStates.get(arena.id)}
-              isFirst={activeIndex === 0}
-              isLast={activeIndex === active.length - 1}
-              onMoveUp={() => onMoveUp(arena.id)}
-              onMoveDown={() => onMoveDown(arena.id)}
-              reorderPending={reorderPending}
-              onEdit={() => onEdit(arena.id)}
-              onArchive={() => onArchive(arena.id)}
-              onRestore={() => onRestore(arena.id)}
-              archivePending={archivePendingId === arena.id}
-              restorePending={restorePendingId === arena.id}
+        <>
+          <TableHead cols={COLUMNS} />
+          {hasAnyArenas ? (
+            <EmptyState
+              title="Все площадки в архиве"
+              hint="Включите показ архивных, чтобы их увидеть."
             />
-          );
-        })
+          ) : (
+            <EmptyState
+              title="Площадок ещё нет"
+              hint="Заведите первую площадку действием «+ Площадка»."
+            />
+          )}
+        </>
+      ) : (
+        <TableScroll>
+          <div className="min-w-[880px]">
+            <TableHead cols={COLUMNS} />
+            {rows.map((arena) => {
+              const activeIndex = active.findIndex((a) => a.id === arena.id);
+              return (
+                <ArenaRow
+                  key={arena.id}
+                  arena={arena}
+                  orderNumber={activeIndex + 1}
+                  boardState={boardStates.get(arena.id)}
+                  isFirst={activeIndex === 0}
+                  isLast={activeIndex === active.length - 1}
+                  onMoveUp={() => onMoveUp(arena.id)}
+                  onMoveDown={() => onMoveDown(arena.id)}
+                  reorderPending={reorderPending}
+                  onEdit={() => onEdit(arena.id)}
+                  onArchive={() => onArchive(arena.id)}
+                  onRestore={() => onRestore(arena.id)}
+                  archivePending={archivePendingId === arena.id}
+                  restorePending={restorePendingId === arena.id}
+                />
+              );
+            })}
+          </div>
+        </TableScroll>
       )}
     </div>
   );

@@ -353,13 +353,15 @@ function BoutList({
               type="button"
               variant={b.id === currentBoutId ? "default" : "ghost"}
               size="sm"
-              className="justify-start"
+              className="min-w-0 flex-1 justify-start truncate"
               disabled={pending}
               onClick={() => onSelect(b.id)}
             >
               {b.sequenceNumber}. {b.fighterA.name} — {b.fighterB.name}
             </Button>
-            <Badge variant="outline">{boutStateLabel(b.state)}</Badge>
+            <Badge variant="outline" className="shrink-0">
+              {boutStateLabel(b.state)}
+            </Badge>
           </Row>
         ))}
         {!expanded && bouts.length > 8 && (

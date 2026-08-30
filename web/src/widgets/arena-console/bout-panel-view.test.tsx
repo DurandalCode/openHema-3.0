@@ -252,4 +252,16 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     renderPanel(seatedBoard(), false, false, onAutoReturn);
     expect(onAutoReturn).not.toHaveBeenCalled();
   });
+
+  it("spec 0044 FR-7/AC-5: stacks the fighter halves and timer column vertically below sm so a 300px-wide timer column doesn't squeeze the halves off-screen at 360px", () => {
+    renderPanel(seatedBoard());
+
+    const timerColumn = screen.getByTestId("timer-controls").parentElement;
+    expect(timerColumn?.className).toMatch(/(?:^|\s)w-full(?:\s|$)/);
+    expect(timerColumn?.className).toMatch(/(?:^|\s)sm:w-\[300px\](?:\s|$)/);
+
+    const row = timerColumn?.parentElement;
+    expect(row?.className).toMatch(/(?:^|\s)flex-col(?:\s|$)/);
+    expect(row?.className).toMatch(/(?:^|\s)sm:flex-row(?:\s|$)/);
+  });
 });
