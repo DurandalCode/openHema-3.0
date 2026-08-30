@@ -17,7 +17,7 @@
 
 ## Конфигурация
 
-- [ ] T1. `.env.example` — добавить `PREPROD_MODE=` и
+- [x] T1. `.env.example` — добавить `PREPROD_MODE=` и
       `REGISTRATION_DISABLED=` с комментарием (пусто/выключено по
       умолчанию, как `FILE_STORAGE_DIR`). → `tasks/T1-env-example.md`
 - [ ] T2. **shared/config (red→green)** — `shared/config/preprod.test.ts`:
