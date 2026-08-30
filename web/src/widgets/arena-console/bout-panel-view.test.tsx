@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoutBoard } from "@/entities/pool/lib/types";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
@@ -124,15 +124,22 @@ function seatedBoard(overrides: Partial<{ bouts: BoutBoard["bouts"]; currentBout
   };
 }
 
-function renderPanel(board: BoutBoard | null, offline = false, sidesSwapped = false, onAutoReturn = vi.fn()) {
+function renderPanel(
+  board: BoutBoard | null,
+  offline = false,
+  sidesSwapped = false,
+  onReturnToManagement = vi.fn(),
+  arenaName = "Арена 1",
+) {
   return render(
     <BoutPanelView
       arenaId="a1"
+      arenaName={arenaName}
       live={makeLive(board, sidesSwapped)}
       display={timerDisplay}
       controls={timerControls}
       offline={offline}
-      onAutoReturn={onAutoReturn}
+      onReturnToManagement={onReturnToManagement}
     />,
   );
 }
@@ -263,5 +270,39 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     const row = timerColumn?.parentElement;
     expect(row?.className).toMatch(/(?:^|\s)flex-col(?:\s|$)/);
     expect(row?.className).toMatch(/(?:^|\s)sm:flex-row(?:\s|$)/);
+  });
+
+  describe("spec 0045, T6 — mobile compact header (FR-1/FR-2/AC-3)", () => {
+    it("renders a single md:hidden row with a return button, the arena name and the bout number", () => {
+      renderPanel(seatedBoard());
+      const header = screen.getByTestId("mobile-bout-header");
+      expect(header.className).toMatch(/(?:^|\s)md:hidden(?:\s|$)/);
+
+      const returnButton = within(header).getByRole("button", { name: /Арена 1/ });
+      expect(returnButton).toBeInTheDocument();
+      expect(within(header).getByText(/Бой 1 из 2/)).toBeInTheDocument();
+    });
+
+    it("AC-3: clicking the return button switches the page to management mode", () => {
+      const onReturnToManagement = vi.fn();
+      renderPanel(seatedBoard(), false, false, onReturnToManagement);
+      const header = screen.getByTestId("mobile-bout-header");
+
+      fireEvent.click(within(header).getByRole("button", { name: /Арена 1/ }));
+
+      expect(onReturnToManagement).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows an offline indicator in the compact header while offline", () => {
+      renderPanel(seatedBoard(), true);
+      const header = screen.getByTestId("mobile-bout-header");
+      expect(within(header).getByText("Офлайн")).toBeInTheDocument();
+    });
+
+    it("does not show an offline indicator while connected", () => {
+      renderPanel(seatedBoard(), false);
+      const header = screen.getByTestId("mobile-bout-header");
+      expect(within(header).queryByText("Офлайн")).not.toBeInTheDocument();
+    });
   });
 });

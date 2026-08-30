@@ -31,18 +31,28 @@ const STEPS_SECONDARY = [1, 2, 3, 5] as const;
  */
 export function BoutPanelView({
   arenaId,
+  arenaName,
   live,
   display,
   controls,
   offline,
-  onAutoReturn,
+  onReturnToManagement,
 }: {
   arenaId: string;
+  arenaName: string;
   live: UseArenaLiveResult;
   display: TimerDisplayState;
   controls: UseArenaTimerResult["controls"];
   offline: boolean;
-  onAutoReturn: () => void;
+  /**
+   * onReturnToManagement — переключает страницу в режим «Управление
+   * ареной» (спека 0045, FR-2). Один и тот же колбэк (`setMode
+   * ("management")` в `ArenaConsole`) отвечает и за автовозврат по
+   * завершении пула (AC-9/FR-21, спека 0033), и за ручной тап по кнопке
+   * возврата в компактной мобильной шапке (AC-3, спека 0045) — оба случая
+   * означают одно и то же действие, отдельного колбэка не заводим.
+   */
+  onReturnToManagement: () => void;
 }) {
   const board = live.snapshot?.board ?? null;
   const finish = useFinishBout(arenaId);
@@ -92,8 +102,8 @@ export function BoutPanelView({
   useEffect(() => {
     if (!board?.pool || board.bouts.length === 0) return;
     const allFinished = board.bouts.every((b) => b.state === "BOUT_STATE_FINISHED");
-    if (allFinished) onAutoReturn();
-  }, [board, onAutoReturn]);
+    if (allFinished) onReturnToManagement();
+  }, [board, onReturnToManagement]);
 
   if (!board?.pool || !currentBout) {
     return (
@@ -116,6 +126,37 @@ export function BoutPanelView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/*
+        Компактная мобильная шапка (спека 0045, FR-1/FR-2/AC-3): на md:hidden
+        заменяет собой два ряда десктопной шапки страницы площадки
+        (`PageHeader` + подшапка режима, скрытые `ArenaConsole` на этой
+        ширине в режиме `bout`) одной строкой — кнопка возврата с названием
+        площадки, номер боя в пуле, индикатор офлайна.
+      */}
+      <div
+        data-testid="mobile-bout-header"
+        className="flex flex-none items-center gap-2 border-b border-border bg-card px-3 py-2 md:hidden"
+      >
+        <button
+          type="button"
+          onClick={onReturnToManagement}
+          className="flex min-w-0 items-center gap-1 text-sm font-medium text-foreground"
+        >
+          <span aria-hidden="true">‹</span>
+          <span className="truncate">{arenaName || "Арена"}</span>
+        </button>
+        {num && (
+          <span className="flex-none text-xs text-muted-foreground">
+            Бой {num.current} из {num.total}
+          </span>
+        )}
+        {offline && (
+          <span className="ml-auto flex-none rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+            Офлайн
+          </span>
+        )}
+      </div>
+
       {scoreControl.pendingNotice && (
         <p className="flex-none bg-amber-500/10 px-3 py-1 text-center text-xs text-amber-700 dark:text-amber-400">
           {scoreControl.pendingNotice}
