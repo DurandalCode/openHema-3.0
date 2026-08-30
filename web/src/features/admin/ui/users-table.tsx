@@ -4,6 +4,7 @@ import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
+import { TableScroll } from "@/shared/ui/table-scroll";
 import type { AdminUser } from "../api/requests";
 import { sortUsers } from "../lib/select-users";
 import { UserRow, type UserRowAction } from "./user-row";
@@ -47,36 +48,48 @@ export function UsersTable({
 
   return (
     <div data-slot="users-table" className="overflow-hidden rounded-lg border border-border">
-      <TableHead cols={COLUMNS} />
-
       {isLoading ? (
-        <SkeletonRows rows={6} cols={4} />
+        <>
+          <TableHead cols={COLUMNS} />
+          <SkeletonRows rows={6} cols={4} />
+        </>
       ) : error ? (
-        <div className="flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm text-muted-foreground">{error.message}</p>
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            Повторить
-          </Button>
-        </div>
+        <>
+          <TableHead cols={COLUMNS} />
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <p className="text-sm text-muted-foreground">{error.message}</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              Повторить
+            </Button>
+          </div>
+        </>
       ) : rows.length === 0 ? (
-        hasAnyUsers ? (
-          <EmptyState
-            title="Ничего не найдено"
-            hint="Попробуйте изменить фильтр по роли или сбросить поиск."
-          />
-        ) : (
-          <EmptyState title="В системе нет ни одной учётной записи" />
-        )
+        <>
+          <TableHead cols={COLUMNS} />
+          {hasAnyUsers ? (
+            <EmptyState
+              title="Ничего не найдено"
+              hint="Попробуйте изменить фильтр по роли или сбросить поиск."
+            />
+          ) : (
+            <EmptyState title="В системе нет ни одной учётной записи" />
+          )}
+        </>
       ) : (
-        rows.map((u) => (
-          <UserRow
-            key={u.id}
-            user={u}
-            isCurrentUser={u.id === currentUserId}
-            action={getAction(u)}
-            now={now}
-          />
-        ))
+        <TableScroll>
+          <div className="min-w-[700px]">
+            <TableHead cols={COLUMNS} />
+            {rows.map((u) => (
+              <UserRow
+                key={u.id}
+                user={u}
+                isCurrentUser={u.id === currentUserId}
+                action={getAction(u)}
+                now={now}
+              />
+            ))}
+          </div>
+        </TableScroll>
       )}
     </div>
   );

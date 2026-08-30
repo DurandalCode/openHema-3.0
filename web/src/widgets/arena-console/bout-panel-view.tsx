@@ -121,7 +121,7 @@ export function BoutPanelView({
           {scoreControl.pendingNotice}
         </p>
       )}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <FighterHalf
           color="red"
           fighter={redFighter}
@@ -129,7 +129,7 @@ export function BoutPanelView({
           disabled={!canScore}
           onStep={(delta) => scoreControl.step(redSide, delta, "красному")}
         />
-        <div className="w-[300px] flex-none overflow-y-auto border-x border-border bg-card p-4">
+        <div className="w-full flex-none overflow-y-auto border-y border-border bg-card p-4 sm:w-[300px] sm:border-x sm:border-y-0">
           <TimerControls arenaId={arenaId} live={live} display={display} controls={controls} />
         </div>
         <FighterHalf

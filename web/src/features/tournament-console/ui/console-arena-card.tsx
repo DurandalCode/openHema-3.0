@@ -17,12 +17,12 @@ export function ConsoleArenaCard({ arena, now = new Date() }: { arena: ConsoleAr
   return (
     <Card className="gap-3">
       <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2">
-          <Link href={`/admin/arenas/${arena.arenaId}`} className="hover:underline">
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+          <Link href={`/admin/arenas/${arena.arenaId}`} className="min-w-0 break-words hover:underline">
             {arena.arenaName}
           </Link>
           {!occupied && (
-            <Badge variant="outline" className="font-normal">
+            <Badge variant="outline" className="shrink-0 font-normal">
               {idleLabel(arena.idleState, arena.freeSince, now)}
             </Badge>
           )}
@@ -35,11 +35,11 @@ export function ConsoleArenaCard({ arena, now = new Date() }: { arena: ConsoleAr
             {arena.stageTitle && ` · ${arena.stageTitle}`}
           </div>
           {arena.currentBout && (
-            <div className="flex items-center justify-between gap-2">
-              <span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 break-words">
                 {arena.currentBout.fighterA.name} — {arena.currentBout.fighterB.name}
               </span>
-              <span className="font-mono">{boutScoreLabel(arena.currentBout)}</span>
+              <span className="shrink-0 font-mono">{boutScoreLabel(arena.currentBout)}</span>
             </div>
           )}
           <div className="text-muted-foreground">

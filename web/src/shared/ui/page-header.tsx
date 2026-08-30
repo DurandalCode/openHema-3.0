@@ -20,6 +20,13 @@ export type PageHeaderProps = {
  *
  * Отличие от исходных слотов `AppShell`: `meta` — `React.ReactNode`, а не
  * `string` (счётчик приходит как форматированный элемент из данных).
+ *
+ * Высота строки (спека 0044, FR-1): на узком экране длинная крошка/заголовок
+ * переносятся на несколько строк — фиксированная `h-[var(--header-h)]`
+ * обрезала бы их и накладывалась на контент ниже, поэтому ниже `md:` высота
+ * растёт под контент (`h-auto` + вертикальные паддинги), а сама строка
+ * переносится в колонку. От `md:` — прежняя однострочная фиксированная
+ * высота (там ширины обычно хватает на одну строку).
  */
 export function PageHeader({
   crumb,
@@ -38,9 +45,9 @@ export function PageHeader({
   return (
     <div
       data-slot="page-header"
-      className="flex h-[var(--header-h)] w-full items-center justify-between border-b border-border bg-surface-raised px-4"
+      className="flex h-auto w-full flex-col gap-2 border-b border-border bg-surface-raised px-4 py-2 md:h-[var(--header-h)] md:flex-row md:items-center md:justify-between md:gap-4 md:py-0"
     >
-      <div>
+      <div className="min-w-0">
         {crumb && (
           <div className="font-mono text-[10px] uppercase tracking-[.14em] text-caption-foreground">
             {crumb}
@@ -52,7 +59,7 @@ export function PageHeader({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         {status}
         {meta && (
           <span className="font-mono text-caption-foreground">{meta}</span>

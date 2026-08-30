@@ -130,4 +130,23 @@ describe("UsersTable", () => {
 
     expect(screen.getByText(/ничего не найдено/i)).toBeInTheDocument();
   });
+
+  it("wraps the header and rows in a horizontal table-scroll container (FR-8/AC-3)", () => {
+    render(
+      <UsersTable
+        users={[admin, zed, anna]}
+        isLoading={false}
+        error={null}
+        onRetry={vi.fn()}
+        hasAnyUsers
+        currentUserId="none"
+        getAction={() => undefined}
+      />,
+    );
+
+    const scroll = document.querySelector('[data-slot="table-scroll"]');
+    expect(scroll).toBeInTheDocument();
+    expect(scroll?.querySelector('[data-slot="table-head"]')).toBeInTheDocument();
+    expect(scroll?.querySelectorAll('[data-slot="user-row"]')).toHaveLength(3);
+  });
 });

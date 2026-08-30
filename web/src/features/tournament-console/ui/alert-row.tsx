@@ -41,9 +41,9 @@ export function AlertRow({ alert, now = new Date() }: { alert: ConsoleAlert; now
   return (
     <Link
       href={alertHref(alert)}
-      className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm hover:bg-destructive/10"
+      className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm hover:bg-destructive/10"
     >
-      <span>
+      <span className="min-w-0 break-words">
         <span className="font-medium">{KIND_LABEL[alert.kind]}</span>
         <span className="ml-2 text-caption-foreground">{alertContext(alert)}</span>
       </span>

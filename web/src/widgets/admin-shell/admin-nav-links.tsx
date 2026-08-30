@@ -31,12 +31,15 @@ export const ADMIN_NAV_ITEMS = [
  * Вынесен в отдельный клиентский компонент: `usePathname` — client-only хук,
  * недоступен в серверном `widgets/admin-shell/admin-shell.tsx` (по образцу
  * `widgets/navbar/nav-links.tsx`).
+ *
+ * `hidden md:flex` (спека 0044, FR-6) — ниже `md:` навигация не помещается в
+ * один ряд (восемь пунктов), её заменяет `AdminNavDrawer`.
  */
 export function AdminNavLinks() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex h-full items-center gap-5 text-sm">
+    <nav className="hidden h-full items-center gap-5 text-sm md:flex">
       {ADMIN_NAV_ITEMS.map((item) => {
         const active = isActiveNavItem(pathname, item.href);
         return (

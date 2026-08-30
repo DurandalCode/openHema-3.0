@@ -89,3 +89,34 @@ describe("Dialog (AC-3)", () => {
     }
   });
 });
+
+/**
+ * DialogContent full-screen на узком экране (spec 0044, FR-9/AC-6). jsdom не
+ * вычисляет медиа-запросы (см. `mobile-nav.test.tsx`, спека 0039) — тест
+ * проверяет структуру классов: базовые (mobile-first, без префикса) должны
+ * растягивать диалог на весь экран, `sm:`-варианты — возвращать текущее
+ * центрированное окно с шириной `max-w-lg` без базового
+ * `max-w-[calc(100%-2rem)]` (тот убран — на мобильном диалог не center-card).
+ */
+describe("Dialog mobile full-screen (spec 0044, FR-9/AC-6)", () => {
+  it("fills the screen edge-to-edge on the base (mobile-first) classes", () => {
+    renderDialog();
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog.className).toMatch(/(?:^|\s)inset-0(?:\s|$)/);
+    expect(dialog.className).toMatch(/(?:^|\s)h-full(?:\s|$)/);
+    expect(dialog.className).toMatch(/(?:^|\s)w-full(?:\s|$)/);
+    expect(dialog.className).not.toMatch(/(?:^|\s)max-w-\[calc\(100%-2rem\)\](?:\s|$)/);
+    expect(dialog.className).not.toMatch(/(?:^|\s)top-\[50%\](?:\s|$)/);
+  });
+
+  it("reverts to a centered card from the sm: breakpoint", () => {
+    renderDialog();
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog.className).toMatch(/(?:^|\s)sm:top-\[50%\](?:\s|$)/);
+    expect(dialog.className).toMatch(/(?:^|\s)sm:left-\[50%\](?:\s|$)/);
+    expect(dialog.className).toMatch(/(?:^|\s)sm:max-w-lg(?:\s|$)/);
+    expect(dialog.className).toMatch(/(?:^|\s)sm:rounded-xl(?:\s|$)/);
+  });
+});

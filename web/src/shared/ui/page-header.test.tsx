@@ -50,3 +50,33 @@ describe("PageHeader", () => {
     expect(container.querySelector('[data-slot="page-header"]')).toBeNull();
   });
 });
+
+/**
+ * Высота строки на узком экране (spec 0044, FR-1): найдено ручной проверкой
+ * в браузере на 360px (T14) — с длинной крошкой (`ПОЛЬЗОВАТЕЛИ · <название
+ * турнира>`) текст переносился на несколько строк внутри фиксированной
+ * `h-[var(--header-h)]`, вылезал за её пределы и накладывался на контент
+ * ниже. От `md:` строка остаётся однострочной фиксированной высоты — там
+ * ширины обычно хватает.
+ */
+describe("PageHeader mobile height (spec 0044, FR-1)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("grows to fit wrapped content on narrow screens instead of a fixed height", () => {
+    const { container } = render(
+      <PageHeader
+        crumb="ПОЛЬЗОВАТЕЛИ · ДЛИННОЕ НАЗВАНИЕ ТУРНИРА, КОТОРОЕ ПЕРЕНОСИТСЯ"
+        title="Пользователи"
+        meta={<span>1 учётная запись</span>}
+        action={<button type="button">+ Создать админа</button>}
+      />,
+    );
+    const header = container.querySelector('[data-slot="page-header"]');
+
+    expect(header?.className).not.toMatch(/(?:^|\s)h-\[var\(--header-h\)\](?:\s|$)/);
+    expect(header?.className).toMatch(/(?:^|\s)h-auto(?:\s|$)/);
+    expect(header?.className).toMatch(/(?:^|\s)md:h-\[var\(--header-h\)\](?:\s|$)/);
+  });
+});

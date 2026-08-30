@@ -5,6 +5,7 @@ import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { SkeletonRows } from "@/shared/ui/skeletons";
 import { TableHead, type TableHeadCol } from "@/shared/ui/table-head";
+import { TableScroll } from "@/shared/ui/table-scroll";
 import type { Fighter } from "@/entities/fighter/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
@@ -52,36 +53,55 @@ export function FightersTable({
   }, [nominations]);
 
   const rows = sortFighters(fighters);
+  const head = <TableHead cols={COLUMNS} />;
 
   return (
     <div data-slot="fighters-table" className="overflow-hidden rounded-lg border border-border">
-      <TableHead cols={COLUMNS} />
-
       {isLoading ? (
-        <SkeletonRows rows={6} cols={5} />
+        <>
+          {head}
+          <SkeletonRows rows={6} cols={5} />
+        </>
       ) : error instanceof UnauthorizedError ? null : error ? (
-        <div className="flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm text-muted-foreground">{error.message}</p>
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            Повторить
-          </Button>
-        </div>
+        <>
+          {head}
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <p className="text-sm text-muted-foreground">{error.message}</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              Повторить
+            </Button>
+          </div>
+        </>
       ) : rows.length === 0 ? (
-        hasAnyFighters ? (
-          <EmptyState
-            title="По выбранным фильтрам никого не найдено"
-            hint="Попробуйте изменить фильтры или сбросить поиск."
-          />
-        ) : (
-          <EmptyState
-            title="В ростере пока нет бойцов"
-            hint="Боец появляется из регистрации заявки либо заводится вручную."
-          />
-        )
+        <>
+          {head}
+          {hasAnyFighters ? (
+            <EmptyState
+              title="По выбранным фильтрам никого не найдено"
+              hint="Попробуйте изменить фильтры или сбросить поиск."
+            />
+          ) : (
+            <EmptyState
+              title="В ростере пока нет бойцов"
+              hint="Боец появляется из регистрации заявки либо заводится вручную."
+            />
+          )}
+        </>
       ) : (
-        rows.map((f) => (
-          <FighterRow key={f.id} fighter={f} nominationTitleById={nominationTitleById} onOpenCard={onOpenCard} />
-        ))
+        // Шапка и строки скроллятся вбок вместе (spec 0044, FR-8/AC-3): у
+        // «Клуб»/«Статус»/«Происхождение» фиксированная ширина (180+140+200),
+        // у «Боец»/«Участие в номинациях» — гибкая, с запасом на длинные
+        // значения. min-w форсирует горизонтальный скролл только тогда, когда
+        // реально есть строки данных — skeleton/error/empty не нуждаются в
+        // принудительной ширине.
+        <TableScroll>
+          <div className="min-w-[920px]">
+            {head}
+            {rows.map((f) => (
+              <FighterRow key={f.id} fighter={f} nominationTitleById={nominationTitleById} onOpenCard={onOpenCard} />
+            ))}
+          </div>
+        </TableScroll>
       )}
     </div>
   );
