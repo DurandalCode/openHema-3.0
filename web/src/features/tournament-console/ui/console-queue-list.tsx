@@ -21,12 +21,15 @@ export function ConsoleQueueList({ items }: { items: ConsoleQueueItem[] }) {
   return (
     <ul className="flex flex-col gap-1">
       {items.map((item) => (
-        <li key={item.poolId} className="flex items-center justify-between gap-2 text-sm">
-          <Link href="/admin/arenas" className="hover:underline">
+        <li
+          key={item.poolId}
+          className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm"
+        >
+          <Link href="/admin/arenas" className="min-w-0 break-words hover:underline">
             {item.nominationName} · {item.poolName}
             {item.stageTitle && ` · ${item.stageTitle}`}
           </Link>
-          <span className="text-caption-foreground">
+          <span className="shrink-0 text-caption-foreground">
             {item.boutCount} боёв · {queueEstimateLabel(item.estimatedSeconds)}
           </span>
         </li>
