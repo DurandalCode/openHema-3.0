@@ -78,7 +78,17 @@ export function HomeScreen({
         className="mx-auto w-full max-w-6xl px-4 py-6 text-sm text-muted-foreground"
       >
         <span>{siteConfig.name}</span>
-        <span>Пет-проект · в разработке</span>
+        <Row align="center" gap={4}>
+          <span>Пет-проект · сделан нейросетями</span>
+          <a
+            href={siteConfig.repoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Исходный код на GitHub
+          </a>
+        </Row>
       </Row>
     </footer>
   );

@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeScreen } from "./home-screen";
+import { siteConfig } from "@/shared/config/site-config";
 import type { Tournament } from "@/entities/tournament/lib/types";
 import type { Nomination } from "@/entities/nomination/lib/types";
 import type {
@@ -133,6 +134,24 @@ describe("widgets/home HomeScreen (spec 0034)", () => {
     expect(screen.queryByText("Лента боёв")).not.toBeInTheDocument();
     // before-phase: подписка не нужна, EventSource не создаётся (NFR-1/AC-20).
     expect(FakeEventSource.instances).toHaveLength(0);
+  });
+
+  it("footer links to the project's GitHub repo", () => {
+    render(
+      <HomeScreen
+        tournament={null}
+        nominations={[]}
+        participantsByNomination={{}}
+        rosterByNomination={{}}
+        isAuthenticated={false}
+        initialLiveSnapshot={emptyTournamentLiveSnapshot("")}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "Исходный код на GitHub" });
+    expect(link).toHaveAttribute("href", siteConfig.repoUrl);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("AC-1: before phase renders hero + nominations, not arenas/feed", () => {
