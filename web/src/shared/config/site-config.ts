@@ -1,6 +1,7 @@
 export const siteConfig = {
   name: "openHEMA",
   description: "Платформа для проведения HEMA-турниров",
+  repoUrl: "https://github.com/DurandalCode/openHema-3.0",
   navItems: [
     // Секции главной (`id="tournament"`/`id="nominations"`, см.
     // widgets/tournament-hero, widgets/nominations-list). Абсолютный путь с
