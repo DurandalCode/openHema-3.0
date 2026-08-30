@@ -199,6 +199,16 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(minus1.className).toContain("h-12");
   });
 
+  it("spec 0045 T9/FR-9: +N/-N buttons grow on md: (tablet touch targets) without losing their mobile size", () => {
+    renderPanel(seatedBoard());
+    const plus1 = screen.getAllByRole("button", { name: "+1" })[0];
+    const minus1 = screen.getAllByRole("button", { name: "−1" })[0];
+    expect(plus1.className).toMatch(/(?:^|\s)h-16(?:\s|$)/);
+    expect(plus1.className).toMatch(/(?:^|\s)md:h-\[84px\](?:\s|$)/);
+    expect(minus1.className).toMatch(/(?:^|\s)h-12(?:\s|$)/);
+    expect(minus1.className).toMatch(/(?:^|\s)md:h-\[52px\](?:\s|$)/);
+  });
+
   it("colors sides by sideColorOfFighterA and flips on sidesSwapped", () => {
     const { rerender } = renderPanel(seatedBoard());
     // Fighter A (Кравцов) is red when not swapped.

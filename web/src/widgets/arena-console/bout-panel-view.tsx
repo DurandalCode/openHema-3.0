@@ -339,7 +339,7 @@ function FighterHalf({
             type="button"
             disabled={disabled}
             onClick={() => onStep(n)}
-            className="h-16 bg-black/20 text-2xl font-extrabold hover:bg-black/10 disabled:opacity-40"
+            className="h-16 bg-black/20 text-2xl font-extrabold hover:bg-black/10 disabled:opacity-40 md:h-[84px]"
           >
             +{n}
           </button>
@@ -352,7 +352,7 @@ function FighterHalf({
             type="button"
             disabled={disabled}
             onClick={() => onStep(-n)}
-            className="h-12 bg-black/10 text-lg font-bold hover:bg-black/20 disabled:opacity-40"
+            className="h-12 bg-black/10 text-lg font-bold hover:bg-black/20 disabled:opacity-40 md:h-[52px]"
           >
             −{n}
           </button>
