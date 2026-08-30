@@ -27,7 +27,7 @@
 
 ## BFF-гейт публичных данных
 
-- [ ] T3. **guard (red→green)** — `lib/grpc/preprod-guard.test.ts`:
+- [x] T3. **guard (red→green)** — `lib/grpc/preprod-guard.test.ts`:
       флаг выключен → `null`, `getCurrentUser` не вызван (мок); флаг включён
       без сессии → `401`-`NextResponse`; флаг включён с сессией (мок
       `getCurrentUser`) → `null` → затем `lib/grpc/preprod-guard.ts`
