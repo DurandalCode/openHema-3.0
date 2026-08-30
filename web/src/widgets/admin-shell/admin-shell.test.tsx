@@ -53,4 +53,12 @@ describe("AdminNavLinks", () => {
       screen.queryByRole("link", { name: "+ Создать админа" }),
     ).toBeNull();
   });
+
+  it("is hidden below md: — narrow screens use AdminNavDrawer instead (spec 0044, FR-6)", () => {
+    pathname = "/admin";
+    render(<AdminNavLinks />);
+    const nav = screen.getByRole("navigation");
+    expect(nav.className).toMatch(/(?:^|\s)hidden(?:\s|$)/);
+    expect(nav.className).toMatch(/(?:^|\s)md:flex(?:\s|$)/);
+  });
 });

@@ -4,6 +4,7 @@ import { siteConfig } from "@/shared/config/site-config";
 import { AppShell } from "@/shared/ui/app-shell";
 import { Row } from "@/shared/ui/stack";
 import { UserMenu } from "@/widgets/navbar/user-menu";
+import { AdminNavDrawer } from "./admin-nav-drawer";
 import { AdminNavLinks } from "./admin-nav-links";
 import { ExitToPublicLink } from "./exit-to-public-link";
 
@@ -21,6 +22,11 @@ import { ExitToPublicLink } from "./exit-to-public-link";
  * Строку заголовка раздела (крошка/заголовок/счётчик/действия) `AppShell`
  * больше не рендерит — с спеки 0024 (FR-19) это `shared/ui/page-header.tsx`,
  * которую рендерит сам экран.
+ *
+ * `nav` — оба варианта навигации разом (спека 0044, FR-6): широкий
+ * `AdminNavLinks` (`hidden md:flex`) и мобильный `AdminNavDrawer` (триггер
+ * `md:hidden`) — видимость решает CSS-брейкпоинт, не условный рендер, по
+ * образцу `widgets/navbar/navbar.tsx` (`NavLinks`/`MobileNav`).
  */
 export async function AdminShell() {
   const user = await getCurrentUser();
@@ -35,7 +41,12 @@ export async function AdminShell() {
           {siteConfig.name}
         </Link>
       }
-      nav={<AdminNavLinks />}
+      nav={
+        <>
+          <AdminNavLinks />
+          <AdminNavDrawer />
+        </>
+      }
       userSlot={
         <Row align="center" gap={4}>
           <ExitToPublicLink />
