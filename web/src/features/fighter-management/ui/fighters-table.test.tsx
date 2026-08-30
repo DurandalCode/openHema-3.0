@@ -115,4 +115,20 @@ describe("FightersTable", () => {
     fireEvent.click(screen.getByText("Иван Петров"));
     expect(onOpenCard).toHaveBeenCalledWith("f1");
   });
+
+  it("wraps the head and rows in a horizontal scroll container (spec 0044, FR-8/AC-3)", () => {
+    const { container } = render(<FightersTable {...defaultProps} />);
+    const scroll = container.querySelector('[data-slot="table-scroll"]');
+
+    expect(scroll).toBeInTheDocument();
+    expect(scroll).toHaveTextContent("Боец");
+    expect(scroll).toHaveTextContent("Иван Петров");
+  });
+
+  it("does not force scroll-container width on the loading skeleton", () => {
+    const { container } = render(<FightersTable {...defaultProps} isLoading fighters={[]} />);
+
+    expect(container.querySelector('[data-slot="table-scroll"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton-rows"]')).toBeInTheDocument();
+  });
 });
