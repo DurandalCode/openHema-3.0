@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: draft
+- Статус: done
 - Дата: 2026-08-30
 - План: `./plan.md`
 
@@ -112,15 +112,15 @@
 
 ## Проверка
 
-- [ ] T11. `make test-web` зелёный (весь новый и расширенный набор из
+- [x] T11. `make test-web` зелёный (весь новый и расширенный набор из
       T2–T10).
-- [ ] T12. `pnpm exec tsc --noEmit`.
-- [ ] T13. Ручной смоук (`make dev`, `PREPROD_MODE=true` в `.env`): гость на
+- [x] T12. `pnpm exec tsc --noEmit`.
+- [x] T13. Ручной смоук (`make dev`, `PREPROD_MODE=true` в `.env`): гость на
       `/`, `/about`, `/nominations/[id]` видит гейт-экран с открытым
       диалогом входа; логин снимает гейт без навигации, без цикла через
       `/login`; `curl` на любую из 13 гейтованных BFF-ручек без cookie —
       `401`. Затем `PREPROD_MODE=` (выкл), `REGISTRATION_DISABLED=true`:
       сайт виден гостю как обычно, `/register` показывает сообщение о
       паузе, `curl -X POST /api/auth/register` — `403`.
-- [ ] T14. Обновить статус спеки/плана/индекс в `docs/specs/README.md`
+- [x] T14. Обновить статус спеки/плана/индекс в `docs/specs/README.md`
       (`draft` → `done`).
