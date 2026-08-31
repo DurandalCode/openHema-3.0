@@ -33,7 +33,7 @@ const DESCRIPTION: Record<"login" | "register" | "reset", string> = {
  * пароль?» и возвращающийся ссылкой «Вернуться ко входу» (в
  * ResetRequestForm). На узком экране (`sm:` вниз) — нижний лист (FR-7).
  */
-export function AuthDialog() {
+export function AuthDialog({ registrationDisabled = false }: { registrationDisabled?: boolean }) {
   const router = useRouter();
   const isOpen = useAuthDialogStore((s) => s.isOpen);
   const mode = useAuthDialogStore((s) => s.mode);
@@ -97,7 +97,13 @@ export function AuthDialog() {
               </Button>
             </TabsContent>
             <TabsContent value="register" className="pt-4">
-              <AuthForm mode="register" onSuccess={onSuccess} />
+              {registrationDisabled ? (
+                <p className="text-sm text-muted-foreground">
+                  Регистрация временно приостановлена.
+                </p>
+              ) : (
+                <AuthForm mode="register" onSuccess={onSuccess} />
+              )}
             </TabsContent>
           </Tabs>
         )}

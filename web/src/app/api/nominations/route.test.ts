@@ -13,11 +13,14 @@ vi.mock("@/lib/grpc/serialize", () => ({
   nominationToJson: vi.fn((n) => n),
   nominationsToJson: vi.fn((n) => n),
 }));
+vi.mock("@/lib/grpc/preprod-guard", () => ({ assertPreprodAccess: vi.fn() }));
 
+import { NextResponse } from "next/server";
 import {
   nominationAdminClient,
   nominationClient,
 } from "@/lib/grpc/client";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { getAccessToken } from "@/lib/session/cookies";
 import { nominationToJson, nominationsToJson } from "@/lib/grpc/serialize";
 import { GET, POST } from "./route";
@@ -66,6 +69,16 @@ describe("app/api/nominations route", () => {
 
       const res = await GET(req("http://localhost/api/nominations?tournamentId=t1"));
       expect(res.status).toBe(404);
+    });
+
+    it("returns 401 and skips upstream when preprod gate blocks the request", async () => {
+      vi.mocked(assertPreprodAccess).mockResolvedValueOnce(
+        NextResponse.json({ error: "unauthenticated" }, { status: 401 }),
+      );
+
+      const res = await GET(req("http://localhost/api/nominations?tournamentId=t1"));
+      expect(res.status).toBe(401);
+      expect(nominationClient.listNominations).not.toHaveBeenCalled();
     });
   });
 

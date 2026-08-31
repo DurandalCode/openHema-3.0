@@ -8,8 +8,11 @@ vi.mock("@/lib/grpc/client", () => ({
 vi.mock("@/lib/grpc/serialize", () => ({
   tournamentLiveToJson: vi.fn((s) => s ?? null),
 }));
+vi.mock("@/lib/grpc/preprod-guard", () => ({ assertPreprodAccess: vi.fn() }));
 
+import { NextResponse } from "next/server";
 import { tournamentClient, stagePublicClient } from "@/lib/grpc/client";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { GET } from "./route";
 
 function getReq(signal?: AbortSignal) {
@@ -141,5 +144,17 @@ describe("app/api/tournament/live route (SSE)", () => {
     const next = await readChunk(reader);
     expect(next.done).toBe(true);
     expect(clearIntervalSpy).toHaveBeenCalled();
+  });
+
+  it("returns 401 and skips upstream when preprod gate blocks the request, without opening a stream", async () => {
+    vi.mocked(assertPreprodAccess).mockResolvedValueOnce(
+      NextResponse.json({ error: "unauthenticated" }, { status: 401 }),
+    );
+
+    const res = await GET(getReq());
+    expect(res.status).toBe(401);
+    expect(tournamentClient.getActiveTournament).not.toHaveBeenCalled();
+    expect(stagePublicClient.watchTournamentLive).not.toHaveBeenCalled();
+    expect(res.headers.get("Content-Type")).not.toBe("text/event-stream");
   });
 });

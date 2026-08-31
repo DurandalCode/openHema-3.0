@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { stagePublicClient, tournamentClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { tournamentLiveToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -20,6 +21,9 @@ export const runtime = "nodejs";
  * сводку.
  */
 export async function GET(): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   try {
     const active = await tournamentClient.getActiveTournament({});
     const tournamentId = active.tournament?.id;

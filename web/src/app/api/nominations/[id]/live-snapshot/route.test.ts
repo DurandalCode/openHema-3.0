@@ -1,5 +1,5 @@
 import { ConnectError, Code } from "@connectrpc/connect";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/grpc/client", () => ({
@@ -8,8 +8,10 @@ vi.mock("@/lib/grpc/client", () => ({
 vi.mock("@/lib/grpc/serialize", () => ({
   nominationLiveToJson: vi.fn((s) => s ?? null),
 }));
+vi.mock("@/lib/grpc/preprod-guard", () => ({ assertPreprodAccess: vi.fn() }));
 
 import { stagePublicClient } from "@/lib/grpc/client";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { GET } from "./route";
 
 function getReq() {
@@ -58,5 +60,15 @@ describe("app/api/nominations/[id]/live-snapshot route", () => {
     );
     const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
     expect(res.status).toBe(404);
+  });
+
+  it("returns 401 and skips upstream when preprod gate blocks the request", async () => {
+    vi.mocked(assertPreprodAccess).mockResolvedValueOnce(
+      NextResponse.json({ error: "unauthenticated" }, { status: 401 }),
+    );
+
+    const res = await GET(getReq(), { params: Promise.resolve({ id: "n1" }) });
+    expect(res.status).toBe(401);
+    expect(stagePublicClient.getNominationLive).not.toHaveBeenCalled();
   });
 });

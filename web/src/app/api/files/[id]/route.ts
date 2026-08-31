@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,9 @@ const PROXIED_HEADERS = ["content-type", "x-content-type-options", "content-disp
  * быть до 10 МБ.
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
   const baseUrl = process.env.SERVER_GRPC_URL ?? "http://localhost:8080";
 

@@ -1,7 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getNomination } from "@/entities/nomination/model/get-nomination";
 import { getNominationLive } from "@/entities/nomination-live/model/get-nomination-live";
 import { getCurrentUser } from "@/entities/user/model/get-current-user";
+import { isPreprodModeEnabled } from "@/shared/config/preprod";
 import { NominationPublicScreen } from "@/widgets/nomination-public/nomination-public-screen";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,9 @@ export default async function PublicNominationPage({ params }: PageProps) {
     getNominationLive(id),
     getCurrentUser(),
   ]);
+  if (isPreprodModeEnabled() && !user) {
+    redirect("/login");
+  }
   if (!nomination) {
     notFound();
   }

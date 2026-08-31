@@ -2,6 +2,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { NextResponse, type NextRequest } from "next/server";
 import { nominationAdminClient, nominationClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { nominationToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
 
@@ -18,6 +19,9 @@ type UpdateBody = {
 
 /** GET /api/nominations/[id] — одна номинация (публичный). */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
   try {
     const res = await nominationClient.getNomination({ id });

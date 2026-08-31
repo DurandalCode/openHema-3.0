@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { stagePublicClient, tournamentClient } from "@/lib/grpc/client";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { tournamentLiveToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -23,6 +24,9 @@ export const runtime = "nodejs";
  * JSON-404 без старта потока, а не эмитить ошибку внутри уже открытого SSE.
  */
 export async function GET(req: NextRequest): Promise<Response> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const active = await tournamentClient.getActiveTournament({});
   const tournamentId = active.tournament?.id;
   if (!tournamentId) {

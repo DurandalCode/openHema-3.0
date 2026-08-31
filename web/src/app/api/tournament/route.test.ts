@@ -1,6 +1,6 @@
 import { ConnectError, Code } from "@connectrpc/connect";
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContactType } from "@/gen/hema/v1/tournament_pb";
 
 vi.mock("@/lib/session/cookies", () => ({
@@ -14,6 +14,11 @@ vi.mock("@/lib/grpc/serialize", () => ({
   tournamentToJson: vi.fn((t) => t),
 }));
 
+const getCurrentUserMock = vi.fn();
+vi.mock("@/entities/user/model/get-current-user", () => ({
+  getCurrentUser: () => getCurrentUserMock(),
+}));
+
 import {
   tournamentAdminClient,
   tournamentClient,
@@ -23,8 +28,14 @@ import { tournamentToJson } from "@/lib/grpc/serialize";
 import { GET, PUT } from "./route";
 
 describe("app/api/tournament route", () => {
+  const originalPreprodMode = process.env.PREPROD_MODE;
+
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    process.env.PREPROD_MODE = originalPreprodMode;
   });
 
   describe("GET", () => {
@@ -49,6 +60,37 @@ describe("app/api/tournament route", () => {
       expect(res.status).toBe(404);
       const data = await res.json();
       expect(data.error).toBe("not found");
+    });
+
+    // spec 0046, T4: гейт preprod-доступа — гость без сессии получает 401 и
+    // апстрим не вызывается; залогиненный пользователь проходит как раньше.
+    it("returns 401 for a guest in preprod mode and does not call upstream", async () => {
+      process.env.PREPROD_MODE = "true";
+      getCurrentUserMock.mockResolvedValue(null);
+
+      const res = await GET();
+
+      expect(res.status).toBe(401);
+      expect(tournamentClient.getActiveTournament).not.toHaveBeenCalled();
+    });
+
+    it("lets an authenticated user through in preprod mode", async () => {
+      process.env.PREPROD_MODE = "true";
+      getCurrentUserMock.mockResolvedValue({
+        id: "u1",
+        email: "user@hema.test",
+        displayName: "Боец",
+        role: "ROLE_USER",
+        createdAt: "",
+      });
+      vi.mocked(tournamentClient.getActiveTournament).mockResolvedValue({
+        tournament: { id: "t1", title: "Cup" },
+      } as never);
+      vi.mocked(tournamentToJson).mockReturnValue({ id: "t1", title: "Cup" } as never);
+
+      const res = await GET();
+
+      expect(res.status).toBe(200);
     });
   });
 

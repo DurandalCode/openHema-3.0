@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { applicationPublicClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { nominationParticipantsToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -13,6 +14,9 @@ type RouteContext = { params: Promise<{ id: string }> };
  * («заявлено · подтверждено / лимит», FR-15/FR-16). Не требует access-токена.
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
 
   try {

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectError, Code, createClient, createRouterTransport } from "@connectrpc/connect";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
@@ -9,6 +9,8 @@ import {
   NominationResultsSchema,
   StageType,
 } from "@/gen/hema/v1/stage_pb";
+
+vi.mock("@/lib/grpc/preprod-guard", () => ({ assertPreprodAccess: vi.fn() }));
 
 // E2E-тест BFF route.ts: реальная CSV-сериализация поверх реального
 // nominationResultsToJson и реальной proto binary-сериализации через
@@ -34,6 +36,7 @@ vi.mock("@/lib/grpc/client", async () => {
   };
 });
 
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { GET } from "./route";
 
 function req() {
@@ -170,5 +173,15 @@ describe("app/api/nominations/[id]/results/export route (e2e — real proto + CS
     currentMockError = new ConnectError("not found", Code.NotFound);
     const res = await GET(req(), ctx());
     expect(res.status).toBe(404);
+  });
+
+  it("returns 401 without a CSV body when preprod gate blocks the request", async () => {
+    vi.mocked(assertPreprodAccess).mockResolvedValueOnce(
+      NextResponse.json({ error: "unauthenticated" }, { status: 401 }),
+    );
+
+    const res = await GET(req(), ctx());
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Content-Type")).not.toBe("text/csv; charset=utf-8");
   });
 });

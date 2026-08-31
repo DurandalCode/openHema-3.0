@@ -6,7 +6,9 @@ import type { NominationParticipants } from "@/entities/application/lib/types";
 import { getNominationRoster } from "@/entities/fighter/model/get-nomination-roster";
 import type { RosterEntry } from "@/entities/fighter/lib/types";
 import { getTournamentLive } from "@/entities/tournament-live/model/get-tournament-live";
+import { isPreprodModeEnabled } from "@/shared/config/preprod";
 import { HomeScreen } from "@/widgets/home/home-screen";
+import { PreprodGateScreen } from "@/widgets/preprod-gate/preprod-gate-screen";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,9 @@ export default async function HomePage() {
     getCurrentUser(),
     getActiveTournament(),
   ]);
+  if (isPreprodModeEnabled() && !user) {
+    return <PreprodGateScreen />;
+  }
   const [nominations, initialLiveSnapshot] = await Promise.all([
     getNominations(tournament?.id ?? ""),
     getTournamentLive(tournament?.id ?? ""),

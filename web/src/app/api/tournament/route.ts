@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { tournamentAdminClient, tournamentClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { tournamentToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
 import {
@@ -57,6 +58,9 @@ const CONTACT_TYPE_BY_NAME: Record<string, ContactTypeProto> = {
 
 /** GET /api/tournament — активный турнир (публичный, без auth). */
 export async function GET(): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   try {
     const res = await tournamentClient.getActiveTournament({});
     return NextResponse.json({ tournament: tournamentToJson(res.tournament) });

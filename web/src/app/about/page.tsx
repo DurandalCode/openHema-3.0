@@ -1,9 +1,12 @@
 import { Swords } from "lucide-react";
+import { redirect } from "next/navigation";
 import { siteConfig } from "@/shared/config/site-config";
 import { Badge } from "@/shared/ui/badge";
 import { Col } from "@/shared/ui/stack";
 import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
+import { getCurrentUser } from "@/entities/user/model/get-current-user";
 import { getNominations } from "@/entities/nomination/model/get-nominations";
+import { isPreprodModeEnabled } from "@/shared/config/preprod";
 import { TournamentAboutScreen } from "@/widgets/tournament-about/tournament-about-screen";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +48,11 @@ function AboutPlatformFallback() {
  * турнира и его номинации (для CTA и счётчика) в `TournamentAboutScreen`.
  */
 export default async function AboutPage() {
+  const user = await getCurrentUser();
+  if (isPreprodModeEnabled() && !user) {
+    redirect("/login");
+  }
+
   const tournament = await getActiveTournament();
   if (!tournament) {
     return <AboutPlatformFallback />;

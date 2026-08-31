@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { fighterPublicClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { rosterEntriesToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -13,6 +14,9 @@ type RouteContext = { params: Promise<{ id: string }> };
  * /api/nominations/[id]/participants (воронка заявок, 0005) — спека 0007.
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
   try {
     const res = await fighterPublicClient.listNominationRoster({ nominationId: id });
