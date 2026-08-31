@@ -9,6 +9,8 @@
 package stage
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -69,4 +71,19 @@ func Register(mux *http.ServeMux, deps Deps, baseOpts []connect.HandlerOption, a
 
 	publicPath, publicH := hemav1connect.NewStagePublicServiceHandler(publicHandler, baseOpts...)
 	mux.Handle(publicPath, publicH)
+}
+
+// BootstrapPresets заводит каталог встроенных пресетов формата при старте
+// (спека 0047, FR-6/FR-9): ошибка только логируется, сервер не блокируется
+// (NFR-2), по образцу auth.Bootstrap (ADR 0007).
+func BootstrapPresets(ctx context.Context, deps Deps, log *slog.Logger) {
+	r := repo.New(deps.Pool)
+	svc := service.New(r, deps.Fighters, deps.Bouts, deps.Arenas, deps.Nominations, deps.LiveBus, deps.Users, deps.Notifier)
+	report, err := svc.SeedBuiltinPresets(ctx)
+	switch {
+	case err != nil:
+		log.Error("builtin format presets seed failed", "err", err)
+	default:
+		log.Info("builtin format presets seeded", "restored", len(report.Restored), "skipped", report.Skipped)
+	}
 }

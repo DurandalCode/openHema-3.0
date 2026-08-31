@@ -567,3 +567,78 @@ func TestListStages_T13_NoIssuesForValidSchema(t *testing.T) {
 		t.Fatalf("expected no issues for a freshly materialized auto-stage, got %+v", issues)
 	}
 }
+
+// ---------------------------------------------------------------------
+// T6 (спека 0047, FR-11; AC-2/AC-3): применимость целевой записи каталога
+// (groups-double-playoff-16) — тот же путь ApplyFormat, что и любой другой
+// пресет; диагностика применённой схемы не содержит проблем класса ERROR.
+// ---------------------------------------------------------------------
+
+func TestApplyFormat_T6_BuiltinTargetSchemaAppliesCleanly(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, _, _ := newService()
+	fighters.Set("target")
+
+	var catalogue domain.BuiltinPreset
+	for _, p := range domain.BuiltinPresets() {
+		if p.Key == "groups-double-playoff-16" {
+			catalogue = p
+		}
+	}
+	if catalogue.Key == "" {
+		t.Fatalf("catalogue entry groups-double-playoff-16 not found")
+	}
+
+	preset, err := repo.InsertFormatPreset(ctx, catalogue.Name, catalogue.Spec)
+	if err != nil {
+		t.Fatalf("InsertFormatPreset: %v", err)
+	}
+	stageIDFor(t, repo, "target") // материализует пустой авто-этап — заменится целиком
+
+	newStages, err := svc.ApplyFormat(ctx, "target", preset.ID, "")
+	if err != nil {
+		t.Fatalf("ApplyFormat: %v", err)
+	}
+	if len(newStages) != 3 {
+		t.Fatalf("expected 3 stages applied, got %d", len(newStages))
+	}
+
+	var groups, main, consolation domain.Stage
+	for _, st := range newStages {
+		switch {
+		case st.Type == domain.StageTypeGroups:
+			groups = st
+		case st.Title == "Основная сетка":
+			main = st
+		case st.Title == "Утешительная сетка":
+			consolation = st
+		}
+	}
+	if groups.ID == "" || main.ID == "" || consolation.ID == "" {
+		t.Fatalf("expected groups + main bracket + consolation bracket, got %+v", newStages)
+	}
+	if groups.Groups.GroupCount != 4 {
+		t.Fatalf("expected 4 groups, got %d", groups.Groups.GroupCount)
+	}
+	for _, b := range []domain.Stage{main, consolation} {
+		if b.Rule.SourceStageID != groups.ID {
+			t.Fatalf("expected bracket %q to source from the new groups stage, got %+v", b.Title, b.Rule)
+		}
+		if b.Bracket.Size != 8 {
+			t.Fatalf("expected bracket size 8, got %d", b.Bracket.Size)
+		}
+	}
+	if main.Rule.PlaceFrom != 1 || main.Rule.PlaceTo != 2 {
+		t.Fatalf("expected main bracket window 1-2, got %d-%d", main.Rule.PlaceFrom, main.Rule.PlaceTo)
+	}
+	if consolation.Rule.PlaceFrom != 3 || consolation.Rule.PlaceTo != 0 {
+		t.Fatalf("expected consolation bracket window 3-open, got %d-%d", consolation.Rule.PlaceFrom, consolation.Rule.PlaceTo)
+	}
+
+	issues := domain.DiagnoseSchema(newStages)
+	for _, iss := range issues {
+		if iss.Severity == domain.SchemaIssueSeverityError {
+			t.Fatalf("expected no ERROR-class diagnostic issues for the builtin target schema, got %+v", issues)
+		}
+	}
+}

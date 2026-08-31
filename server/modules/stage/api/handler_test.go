@@ -2326,3 +2326,49 @@ func TestGetNominationLive_E2E_IncludesReadyBrackets(t *testing.T) {
 		t.Fatalf("expected no group pools, got %+v", res.Msg.Snapshot.Pools)
 	}
 }
+
+// ---------------------------------------------------------------------
+// Спека 0047: восстановление встроенного каталога пресетов формата.
+// ---------------------------------------------------------------------
+
+// TestRestoreBuiltinPresets_E2E_EmptyLibrarySeedsAllTen — счастливый путь
+// (план «Тестирование»): на пустой библиотеке действие заводит весь
+// каталог, отвечает restored/skipped (FR-10, AC-1).
+func TestRestoreBuiltinPresets_E2E(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.RestoreBuiltinPresetsRequest{})
+	req.Header().Set("Authorization", adminBearer(t))
+
+	res, err := admin.RestoreBuiltinPresets(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RestoreBuiltinPresets: %v", err)
+	}
+	if len(res.Msg.Restored) != 10 {
+		t.Fatalf("Restored len = %d, want 10", len(res.Msg.Restored))
+	}
+	if res.Msg.Skipped != 0 {
+		t.Fatalf("Skipped = %d, want 0", res.Msg.Skipped)
+	}
+}
+
+func TestRestoreBuiltinPresets_E2E_NoTokenReturnsUnauthenticated(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	_, err := admin.RestoreBuiltinPresets(context.Background(), connect.NewRequest(&hemav1.RestoreBuiltinPresetsRequest{}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestRestoreBuiltinPresets_E2E_NonAdminReturnsPermissionDenied(t *testing.T) {
+	admin, _, _ := setup(t)
+
+	req := connect.NewRequest(&hemav1.RestoreBuiltinPresetsRequest{})
+	req.Header().Set("Authorization", userBearer(t))
+
+	_, err := admin.RestoreBuiltinPresets(context.Background(), req)
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("expected CodePermissionDenied, got %v", connect.CodeOf(err))
+	}
+}

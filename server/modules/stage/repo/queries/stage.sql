@@ -172,6 +172,17 @@ RETURNING id, name, stages, created_at, updated_at;
 -- name: DeleteFormatPreset :execrows
 DELETE FROM stage.format_presets WHERE id = $1;
 
+-- Спека 0047: журнал заведения встроенного каталога пресетов формата
+-- (FR-7) — отдельная таблица, переживающая удаление самого пресета
+-- (миграция 00006).
+
+-- name: ListSeededPresetKeys :many
+SELECT preset_key FROM stage.builtin_preset_seeds;
+
+-- name: MarkPresetSeeded :exec
+INSERT INTO stage.builtin_preset_seeds (preset_key) VALUES ($1)
+ON CONFLICT (preset_key) DO NOTHING;
+
 -- name: SetStageStatus :exec
 -- Задаёт статус этапа (draft/ready), очищает undo (спека 0017, FR-9/FR-7a).
 UPDATE stage.stages

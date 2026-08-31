@@ -628,6 +628,30 @@ func (r *Repo) DeleteFormatPreset(ctx context.Context, presetID string) error {
 	return nil
 }
 
+// ---------------------------------------------------------------------
+// Спека 0047: журнал заведения встроенного каталога пресетов формата.
+// ---------------------------------------------------------------------
+
+// SeededPresetKeys возвращает ключи каталога, уже заводившиеся в этой
+// инсталляции (FR-7) — читает из stage.builtin_preset_seeds, не из
+// stage.format_presets: журнал переживает удаление самого пресета.
+func (r *Repo) SeededPresetKeys(ctx context.Context) ([]string, error) {
+	keys, err := r.q.ListSeededPresetKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list seeded preset keys: %w", err)
+	}
+	return keys, nil
+}
+
+// MarkPresetSeeded отмечает ключ каталога как заведённый (идемпотентно —
+// ON CONFLICT DO NOTHING в запросе).
+func (r *Repo) MarkPresetSeeded(ctx context.Context, key string) error {
+	if err := r.q.MarkPresetSeeded(ctx, key); err != nil {
+		return fmt.Errorf("mark preset seeded: %w", err)
+	}
+	return nil
+}
+
 // GetPool возвращает один пул по id (включая StageID/ArenaID/CurrentBoutID,
 // спека 0011/0013/0017).
 func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) {

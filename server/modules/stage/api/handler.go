@@ -227,6 +227,24 @@ func (h *AdminHandler) DeleteFormatPreset(
 	return connect.NewResponse(&hemav1.DeleteFormatPresetResponse{}), nil
 }
 
+// RestoreBuiltinPresets заводит недостающие записи встроенного каталога
+// (спека 0047, FR-10): admin-действие, журнал заведения не консультируется
+// как фильтр пропуска — восстанавливает всё, чего сейчас нет в библиотеке
+// по имени, не трогая существующие пресеты (ни чужие, ни встроенные).
+func (h *AdminHandler) RestoreBuiltinPresets(
+	ctx context.Context,
+	_ *connect.Request[hemav1.RestoreBuiltinPresetsRequest],
+) (*connect.Response[hemav1.RestoreBuiltinPresetsResponse], error) {
+	report, err := h.svc.RestoreBuiltinPresets(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.RestoreBuiltinPresetsResponse{
+		Restored: toProtoFormatPresets(report.Restored),
+		Skipped:  int32(report.Skipped),
+	}), nil
+}
+
 // ApplyFormat заменяет схему номинации целиком — источник берётся из oneof
 // (пресет библиотеки либо номинация-донор, FR-13/FR-15). Getter-ы oneof
 // (GetPresetId/GetSourceNominationId) отдают "" для несовпадающей ветки —

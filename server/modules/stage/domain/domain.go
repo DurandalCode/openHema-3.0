@@ -566,6 +566,15 @@ type Repository interface {
 	// отсутствию (ErrNotFound от вызывающего, если нужно).
 	DeleteFormatPreset(ctx context.Context, presetID string) error
 
+	// Спека 0047: встроенный каталог пресетов формата (ADR 0014 §9).
+
+	// SeededPresetKeys — ключи каталога, уже заводившиеся в этой инсталляции
+	// (журнал, спека 0047 FR-7): не путать со списком существующих пресетов
+	// — ключ остаётся в журнале даже после удаления пресета.
+	SeededPresetKeys(ctx context.Context) ([]string, error)
+	// MarkPresetSeeded отмечает ключ каталога как заведённый (идемпотентно).
+	MarkPresetSeeded(ctx context.Context, key string) error
+
 	// SeedSlot сажает бойца в слот первого круга сетки (спека 0018,
 	// FR-7/FR-8): upsert членства (containerPoolID, fighterID, slot).
 	// Занятый слот — обязанность вызывающего (service.SeedBracketSlot)
