@@ -9,6 +9,7 @@ import { SessionExpiredDialog } from "@/widgets/session-expired/session-expired-
 import { UnsavedGuardDialog } from "@/widgets/unsaved-guard/unsaved-guard-dialog";
 import { Navbar } from "@/widgets/navbar/navbar";
 import { NavbarVisibilityGate } from "@/widgets/navbar/navbar-visibility-gate";
+import { isRegistrationDisabled } from "@/shared/config/preprod";
 import { Col } from "@/shared/ui/stack";
 import { Toaster } from "@/shared/ui/sonner";
 import "./globals.css";
@@ -36,6 +37,8 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const registrationDisabled = isRegistrationDisabled();
+
   return (
     <html
       lang="ru"
@@ -61,7 +64,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   (md:hidden), поэтому отступ снимается тем же брейкпоинтом. */}
               <main className="flex-1 pb-16 md:pb-0">{children}</main>
             </Col>
-            <AuthDialog />
+            <AuthDialog registrationDisabled={registrationDisabled} />
             <SessionExpiredDialog />
             <UnsavedGuardDialog />
             {/* mobileOffset — тосты всплывают выше MobileNav (h-16 = 64px)

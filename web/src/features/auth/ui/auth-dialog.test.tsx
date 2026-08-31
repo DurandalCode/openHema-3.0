@@ -6,11 +6,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { AuthDialog } from "./auth-dialog";
 import { useAuthDialogStore } from "../model/auth-dialog-store";
 
-function renderDialog() {
+function renderDialog(props?: { registrationDisabled?: boolean }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <AuthDialog />
+      <AuthDialog {...props} />
     </QueryClientProvider>,
   );
 }
@@ -151,5 +151,20 @@ describe("features/auth/ui/AuthDialog", () => {
       expect(routerRefresh).toHaveBeenCalled();
     });
     expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("shows a registration-paused message instead of the form when registrationDisabled is set", () => {
+    useAuthDialogStore.setState({ isOpen: true, mode: "register", returnTo: undefined });
+    renderDialog({ registrationDisabled: true });
+
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(screen.getByText(/регистрация.*приостановлен/i)).toBeInTheDocument();
+  });
+
+  it("still renders the registration form when registrationDisabled is not set (default)", () => {
+    useAuthDialogStore.setState({ isOpen: true, mode: "register", returnTo: undefined });
+    renderDialog();
+
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
   });
 });

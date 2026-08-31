@@ -100,13 +100,13 @@
 
 ## Пауза регистрации, UI
 
-- [ ] T9. **AuthDialog (red→green)** —
+- [x] T9. **AuthDialog (red→green)** —
       `features/auth/ui/auth-dialog.test.tsx`: расширить кейсом
       `registrationDisabled=true` → таб «Регистрация» рендерит сообщение о
       паузе вместо `<AuthForm mode="register">` → добавить проп
       `registrationDisabled` и ветвление в `auth-dialog.tsx`.
       → `tasks/T9-auth-dialog-registration-disabled.md`
-- [ ] T10. **layout wiring** — `app/layout.tsx`: вычислить
+- [x] T10. **layout wiring** — `app/layout.tsx`: вычислить
       `isRegistrationDisabled()` и передать пропом в `<AuthDialog>`.
       → `tasks/T10-layout-wiring.md`
 
