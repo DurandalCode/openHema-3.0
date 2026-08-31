@@ -73,7 +73,7 @@
 гейт-виджет на месте, без редиректа (см. `plan.md`, «Гейт публичных
 страниц»).
 
-- [ ] T7. **виджет для главной (red→green)** —
+- [x] T7. **виджет для главной (red→green)** —
       `widgets/preprod-gate/preprod-gate-screen.test.tsx`: рендер зовёт
       `useAuthDialogStore.getState().open("login")` (мок стора), показывает
       текст приглашения → `widgets/preprod-gate/preprod-gate-screen.tsx`
