@@ -205,6 +205,13 @@ service StageAdminService {
   // DeleteFormatPreset удаляет пресет из библиотеки; на номинации, к которым
   // он уже применялся, не влияет (спека 0020, FR-16).
   rpc DeleteFormatPreset(DeleteFormatPresetRequest) returns (DeleteFormatPresetResponse);
+  // RestoreBuiltinPresets заводит недостающие записи встроенного каталога
+  // форматов (спека 0047, FR-10): те, что ещё не заводились (журнал
+  // `stage.builtin_preset_seeds`) либо были удалены. Существующие пресеты —
+  // свои и уже встроенные — не трогает; конфликт имени пропускает, не
+  // отклоняет запрос (FR-9). restored — заведённые записи целиком, skipped —
+  // сколько пропущено по занятому имени.
+  rpc RestoreBuiltinPresets(RestoreBuiltinPresetsRequest) returns (RestoreBuiltinPresetsResponse);
   // ApplyFormat заменяет схему номинации целиком — источником спецификации
   // служит либо пресет библиотеки, либо схема другой номинации (спека 0020,
   // FR-13/FR-15, копирование — тот же путь). Разрешено, только если текущая
@@ -1510,6 +1517,15 @@ message DeleteFormatPresetRequest {
 }
 
 message DeleteFormatPresetResponse {}
+
+// RestoreBuiltinPresetsRequest — параметров нет: каталог глобален, как и
+// библиотека (спека 0047, FR-10), см. ListFormatPresetsRequest.
+message RestoreBuiltinPresetsRequest {}
+
+message RestoreBuiltinPresetsResponse {
+  repeated FormatPreset restored = 1;
+  int32 skipped = 2;
+}
 
 // ApplyFormatRequest — источник спецификации: пресет библиотеки либо схема
 // другой номинации того же турнира (спека 0020, FR-13/FR-15) — применение

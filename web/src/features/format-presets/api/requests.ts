@@ -30,6 +30,10 @@ export type ApplyFormatResult =
   | { ok: true; stages: Stage[] }
   | { ok: false; error: string; status?: number };
 
+export type RestoreBuiltinPresetsResult =
+  | { ok: true; restored: FormatPreset[]; skipped: number }
+  | { ok: false; error: string; status?: number };
+
 /** listFormatPresetsRequest — GET /api/formats (библиотека пресетов, FR-12). */
 export async function listFormatPresetsRequest(): Promise<FormatPresetsResult> {
   const res = await apiFetch<{ presets?: FormatPreset[] }>("/api/formats", { method: "GET" });
@@ -112,4 +116,20 @@ export async function applyFormatRequest(
   );
   if (!res.ok) return { ok: false, error: res.error, status: res.status };
   return { ok: true, stages: res.data.stages ?? [] };
+}
+
+/**
+ * restoreBuiltinPresetsRequest — POST /api/formats/restore: заводит записи
+ * встроенного каталога, которых в библиотеке сейчас нет (спека 0047, FR-10).
+ * Тело запроса пустое — действие не параметризуется. `skipped` — сколько
+ * записей пропущено по занятому имени (FR-9); существующие пресеты действие
+ * не трогает.
+ */
+export async function restoreBuiltinPresetsRequest(): Promise<RestoreBuiltinPresetsResult> {
+  const res = await apiFetch<{ restored?: FormatPreset[]; skipped?: number }>(
+    "/api/formats/restore",
+    { method: "POST" },
+  );
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
+  return { ok: true, restored: res.data.restored ?? [], skipped: res.data.skipped ?? 0 };
 }

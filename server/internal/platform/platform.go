@@ -243,6 +243,10 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	}
 	stagemodule.Register(mux, stageDeps, baseOpts, adminOpts)
 
+	// ── Бутстрап каталога встроенных пресетов формата (спека 0047,
+	// FR-6/FR-9) — ошибка только логируется, сервер не блокируется (NFR-2).
+	stagemodule.BootstrapPresets(ctx, stageDeps, log)
+
 	// ── Бутстрап первого админа (до начала приёма запросов) ───────
 	auth.Bootstrap(ctx, deps, log,
 		cfg.BootstrapAdminEmail,

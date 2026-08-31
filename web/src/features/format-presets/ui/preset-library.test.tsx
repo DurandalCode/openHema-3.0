@@ -64,6 +64,15 @@ vi.mock("../api/use-rename-preset", () => ({
   useRenamePreset: () => ({ mutate: renameMutate, isPending: false, error: null, reset: vi.fn() }),
 }));
 
+type RestoreMutateOpts = {
+  onSuccess?: (data: { restored: FormatPreset[]; skipped: number }) => void;
+  onError?: (e: Error) => void;
+};
+const restoreMutate = vi.fn();
+vi.mock("../api/use-restore-builtin-presets", () => ({
+  useRestoreBuiltinPresets: () => ({ mutate: restoreMutate, isPending: false }),
+}));
+
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 const toastUndo = vi.fn();
@@ -76,6 +85,9 @@ vi.mock("@/shared/lib/toast", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   presetsState = { data: [], isLoading: false, error: null };
+  restoreMutate.mockImplementation((_vars: undefined, opts?: RestoreMutateOpts) =>
+    opts?.onSuccess?.({ restored: [], skipped: 0 }),
+  );
 });
 
 afterEach(() => cleanup());
@@ -180,5 +192,43 @@ describe("PresetLibrary", () => {
     presetsState = { data: undefined, isLoading: false, error: new UnauthorizedError() };
     render(<PresetLibrary />);
     expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
+  });
+
+  it("renders a restore builtin presets button in the header actions (spec 0047, FR-10)", () => {
+    render(<PresetLibrary />);
+    expect(screen.getByRole("button", { name: "Восстановить встроенные" })).toBeInTheDocument();
+  });
+
+  it("clicking restore triggers the mutation with no args", () => {
+    render(<PresetLibrary />);
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить встроенные" }));
+    expect(restoreMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a success toast reporting both numbers (AC-10)", () => {
+    restoreMutate.mockImplementation((_vars: undefined, opts?: RestoreMutateOpts) =>
+      opts?.onSuccess?.({ restored: [preset({ id: "p1" }), preset({ id: "p2" }), preset({ id: "p3" })], skipped: 1 }),
+    );
+    render(<PresetLibrary />);
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить встроенные" }));
+    expect(toastSuccess).toHaveBeenCalledWith("Восстановлено 3, пропущено 1");
+  });
+
+  it("shows an 'already in library' toast when nothing was restored (FR-10/AC-10)", () => {
+    restoreMutate.mockImplementation((_vars: undefined, opts?: RestoreMutateOpts) =>
+      opts?.onSuccess?.({ restored: [], skipped: 5 }),
+    );
+    render(<PresetLibrary />);
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить встроенные" }));
+    expect(toastSuccess).toHaveBeenCalledWith("Все встроенные пресеты уже в библиотеке");
+  });
+
+  it("shows an error toast on failure", () => {
+    restoreMutate.mockImplementation((_vars: undefined, opts?: RestoreMutateOpts) =>
+      opts?.onError?.(new Error("Не удалось выполнить действие. Попробуйте ещё раз.")),
+    );
+    render(<PresetLibrary />);
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить встроенные" }));
+    expect(toastError).toHaveBeenCalledWith("Не удалось выполнить действие. Попробуйте ещё раз.");
   });
 });

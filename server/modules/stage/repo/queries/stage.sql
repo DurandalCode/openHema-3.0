@@ -172,6 +172,34 @@ RETURNING id, name, stages, created_at, updated_at;
 -- name: DeleteFormatPreset :execrows
 DELETE FROM stage.format_presets WHERE id = $1;
 
+-- Спека 0047: журнал заведения встроенного каталога пресетов формата
+-- (FR-7/FR-10) — отдельная таблица, переживающая удаление самого пресета
+-- (миграция 00006). ListSeededPresetKeys — все когда-либо заведённые ключи
+-- (успешно или пропущенные по имени), фильтр автоматического заведения при
+-- старте (FR-7 — единожды попробовали, больше не трогаем). Live —
+-- поднабор: ключи, чей preset_id ещё указывает на существующий пресет
+-- (ON DELETE SET NULL в миграции 00006 обнуляет ссылку при удалении, но не
+-- при переименовании) — то, что явное восстановление обязано оставить
+-- нетронутым (FR-10): удалённый теряет ссылку и попадает в разницу
+-- (ListSeededPresetKeys \ LiveSeededPresetKeys) — заводится заново;
+-- переименованный ссылку сохраняет — восстановление его не трогает и не
+-- дублирует под старым именем.
+
+-- name: ListSeededPresetKeys :many
+SELECT preset_key FROM stage.builtin_preset_seeds;
+
+-- name: LiveSeededPresetKeys :many
+SELECT preset_key FROM stage.builtin_preset_seeds WHERE preset_id IS NOT NULL;
+
+-- name: MarkPresetSeeded :exec
+-- preset_id — id заведённого пресета либо NULL, если заведение пропущено
+-- по занятому имени (FR-9, sqlc.narg допускает явный NULL). Upsert: повторная
+-- попытка (явное восстановление, FR-10) обновляет preset_id, если раньше он
+-- был NULL или указывал на уже удалённый пресет.
+INSERT INTO stage.builtin_preset_seeds (preset_key, preset_id)
+VALUES (sqlc.arg(preset_key)::text, sqlc.narg(preset_id)::uuid)
+ON CONFLICT (preset_key) DO UPDATE SET preset_id = EXCLUDED.preset_id, seeded_at = now();
+
 -- name: SetStageStatus :exec
 -- Задаёт статус этапа (draft/ready), очищает undo (спека 0017, FR-9/FR-7a).
 UPDATE stage.stages

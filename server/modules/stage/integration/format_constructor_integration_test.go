@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 
 	hemav1 "github.com/hema/server/gen/hema/v1"
+	"github.com/hema/server/modules/stage/repo"
 )
 
 // createNominationTitled — как createNomination, но с явным названием: этот
@@ -350,4 +351,162 @@ func TestIntegration_FullPath_ThreeStageSchemaPresetApplyThenBuild(t *testing.T)
 	if seededCount != 2 {
 		t.Fatalf("expected 2 rows with a slot in the DB (top-2 seeded into Сетка A), got %d", seededCount)
 	}
+}
+
+// ---------------------------------------------------------------------
+// Миграция 00006: журнал заведения встроенного каталога пресетов формата
+// (спека 0047, FR-7).
+// ---------------------------------------------------------------------
+
+// TestIntegration_BuiltinPresetSeeds_MigrationApplies проверяет, что
+// миграция 00006 действительно создала таблицу stage.builtin_preset_seeds
+// и что репозиторий читает из неё пустой список на свежей БД.
+func TestIntegration_BuiltinPresetSeeds_MigrationApplies(t *testing.T) {
+	_, pool := setup(t)
+	r := repo.New(pool)
+
+	keys, err := r.SeededPresetKeys(context.Background())
+	if err != nil {
+		t.Fatalf("SeededPresetKeys: %v", err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("expected no seeded keys on a fresh database, got %v", keys)
+	}
+
+	var exists bool
+	if err := pool.QueryRow(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'stage' AND table_name = 'builtin_preset_seeds')`,
+	).Scan(&exists); err != nil {
+		t.Fatalf("check table exists: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected migration 00006 to create stage.builtin_preset_seeds")
+	}
+}
+
+// TestIntegration_BuiltinPresetSeeds_SurvivesPresetDeletion — ключевое
+// свойство выбора отдельной таблицы вместо колонки на format_presets
+// (план «Server», FR-7/FR-10): журнал заведения переживает удаление самого
+// пресета (ON DELETE SET NULL, миграция 00006) — иначе удалённая встроенная
+// запись заводилась бы заново при каждом старте сервера. Ключ остаётся в
+// SeededPresetKeys (весь журнал), но выпадает из LiveSeededPresetKeys —
+// именно на этой разнице держится RestoreBuiltinPresets (спека 0047, план
+// «Риски»).
+func TestIntegration_BuiltinPresetSeeds_SurvivesPresetDeletion(t *testing.T) {
+	c, pool := setup(t)
+	r := repo.New(pool)
+	ctx := context.Background()
+
+	nomID := createNominationTitled(t, c, "Журнал переживает удаление")
+	stageIDFor(t, c, nomID)
+
+	saveReq := connect.NewRequest(&hemav1.SaveFormatPresetRequest{Name: "Каталог-жертва", NominationId: nomID})
+	saveReq.Header().Set("Authorization", adminBearer(t))
+	preset, err := c.pool.SaveFormatPreset(ctx, saveReq)
+	if err != nil {
+		t.Fatalf("SaveFormatPreset: %v", err)
+	}
+
+	const key = "test-builtin-preset-seeds-survives-deletion"
+	if err := r.MarkPresetSeeded(ctx, key, preset.Msg.Preset.Id); err != nil {
+		t.Fatalf("MarkPresetSeeded: %v", err)
+	}
+
+	live, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys (before delete): %v", err)
+	}
+	if !containsKey(live, key) {
+		t.Fatalf("expected journal key %q to be live before deletion, got %v", key, live)
+	}
+
+	deleteReq := connect.NewRequest(&hemav1.DeleteFormatPresetRequest{PresetId: preset.Msg.Preset.Id})
+	deleteReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := c.pool.DeleteFormatPreset(ctx, deleteReq); err != nil {
+		t.Fatalf("DeleteFormatPreset: %v", err)
+	}
+
+	keys, err := r.SeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("SeededPresetKeys: %v", err)
+	}
+	if !containsKey(keys, key) {
+		t.Fatalf("expected journal key %q to survive preset deletion, got %v", key, keys)
+	}
+
+	liveAfter, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys (after delete): %v", err)
+	}
+	if containsKey(liveAfter, key) {
+		t.Fatalf("expected journal key %q to drop out of LiveSeededPresetKeys once its preset is deleted (ON DELETE SET NULL), got %v", key, liveAfter)
+	}
+}
+
+// TestIntegration_BuiltinPresetSeeds_MarkIsIdempotent — upsert
+// (миграция 00006/запрос MarkPresetSeeded): пометить ключ дважды — не
+// ошибка, ключ остаётся ровно один раз в журнале, а повторная отметка с
+// реальным preset_id переводит его из «пропущен» в «живой».
+func TestIntegration_BuiltinPresetSeeds_MarkIsIdempotent(t *testing.T) {
+	c, pool := setup(t)
+	r := repo.New(pool)
+	ctx := context.Background()
+
+	const key = "test-builtin-preset-seeds-idempotent"
+	if err := r.MarkPresetSeeded(ctx, key, ""); err != nil {
+		t.Fatalf("MarkPresetSeeded (first, no preset): %v", err)
+	}
+	if err := r.MarkPresetSeeded(ctx, key, ""); err != nil {
+		t.Fatalf("MarkPresetSeeded (second, no preset): %v", err)
+	}
+
+	keys, err := r.SeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("SeededPresetKeys: %v", err)
+	}
+	count := 0
+	for _, k := range keys {
+		if k == key {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected key %q to appear exactly once after two MarkPresetSeeded calls, got %d", key, count)
+	}
+
+	live, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys: %v", err)
+	}
+	if containsKey(live, key) {
+		t.Fatalf("expected key %q with no preset_id to be absent from LiveSeededPresetKeys, got %v", key, live)
+	}
+
+	nomID := createNominationTitled(t, c, "Журнал: апдейт ссылки")
+	stageIDFor(t, c, nomID)
+	saveReq := connect.NewRequest(&hemav1.SaveFormatPresetRequest{Name: "Каталог-апдейт", NominationId: nomID})
+	saveReq.Header().Set("Authorization", adminBearer(t))
+	preset, err := c.pool.SaveFormatPreset(ctx, saveReq)
+	if err != nil {
+		t.Fatalf("SaveFormatPreset: %v", err)
+	}
+	if err := r.MarkPresetSeeded(ctx, key, preset.Msg.Preset.Id); err != nil {
+		t.Fatalf("MarkPresetSeeded (upsert with preset id): %v", err)
+	}
+	liveAfter, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys (after upsert): %v", err)
+	}
+	if !containsKey(liveAfter, key) {
+		t.Fatalf("expected key %q to become live after MarkPresetSeeded upserted a real preset id, got %v", key, liveAfter)
+	}
+}
+
+func containsKey(keys []string, key string) bool {
+	for _, k := range keys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }

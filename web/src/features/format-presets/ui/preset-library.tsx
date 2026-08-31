@@ -12,6 +12,7 @@ import { toastError, toastSuccess } from "@/shared/lib/toast";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 import { usePresets } from "../api/use-presets";
 import { useDeletePreset } from "../api/use-delete-preset";
+import { useRestoreBuiltinPresets } from "../api/use-restore-builtin-presets";
 import { PresetCard } from "./preset-card";
 import { RenamePresetDialog } from "./rename-preset-dialog";
 
@@ -46,6 +47,7 @@ export function PresetLibrary() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const del = useDeletePreset();
+  const restore = useRestoreBuiltinPresets();
 
   const sorted = useMemo(
     () => [...(presets ?? [])].sort((a, b) => a.name.localeCompare(b.name, "ru")),
@@ -67,6 +69,19 @@ export function PresetLibrary() {
 
   const count = presets?.length ?? 0;
 
+  function onRestoreBuiltinPresets() {
+    restore.mutate(undefined, {
+      onSuccess: ({ restored, skipped }) => {
+        toastSuccess(
+          restored.length === 0
+            ? "Все встроенные пресеты уже в библиотеке"
+            : `Восстановлено ${restored.length}, пропущено ${skipped}`,
+        );
+      },
+      onError: (err: Error) => toastError(err.message),
+    });
+  }
+
   return (
     <div data-slot="preset-library" className="flex flex-col">
       <PageHeader
@@ -82,9 +97,19 @@ export function PresetLibrary() {
             живёт вне турнира и переиспользуется между ними. Сохранить текущую схему как пресет
             можно на экране номинации.
           </p>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link href={NOMINATIONS_HREF}>К номинациям</Link>
-          </Button>
+          <Row gap={2} className="flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onRestoreBuiltinPresets}
+            >
+              Восстановить встроенные
+            </Button>
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href={NOMINATIONS_HREF}>К номинациям</Link>
+            </Button>
+          </Row>
         </Row>
 
         {isLoading ? (

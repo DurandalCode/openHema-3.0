@@ -5,6 +5,7 @@ import {
   deleteFormatPresetRequest,
   listFormatPresetsRequest,
   renameFormatPresetRequest,
+  restoreBuiltinPresetsRequest,
   saveFormatPresetRequest,
 } from "./requests";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
@@ -224,6 +225,42 @@ describe("features/format-presets/api/requests", () => {
     it("returns network error when fetch throws", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const result = await applyFormatRequest("n1", { presetId: "p1" });
+      expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
+    });
+  });
+
+  describe("restoreBuiltinPresetsRequest", () => {
+    it("POSTs /api/formats/restore and returns ok:true with restored and skipped", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ restored: [preset], skipped: 2 }),
+      });
+
+      const result = await restoreBuiltinPresetsRequest();
+
+      expect(result).toEqual({ ok: true, restored: [preset], skipped: 2 });
+      expect(fetchMock).toHaveBeenCalledWith("/api/formats/restore", { method: "POST" });
+    });
+
+    it("returns empty restored and zero skipped when the response omits them (proto3-omitted)", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+      const result = await restoreBuiltinPresetsRequest();
+      expect(result).toEqual({ ok: true, restored: [], skipped: 0 });
+    });
+
+    it("returns ok:false with server error and status on 4xx", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: "internal error" }),
+      });
+      const result = await restoreBuiltinPresetsRequest();
+      expect(result).toEqual({ ok: false, error: "internal error", status: 500 });
+    });
+
+    it("returns network error when fetch throws", async () => {
+      fetchMock.mockRejectedValue(new Error("network"));
+      const result = await restoreBuiltinPresetsRequest();
       expect(result).toEqual({ ok: false, error: "Сеть недоступна" });
     });
   });

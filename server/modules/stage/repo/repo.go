@@ -628,6 +628,51 @@ func (r *Repo) DeleteFormatPreset(ctx context.Context, presetID string) error {
 	return nil
 }
 
+// ---------------------------------------------------------------------
+// Спека 0047: журнал заведения встроенного каталога пресетов формата.
+// ---------------------------------------------------------------------
+
+// SeededPresetKeys возвращает ВСЕ ключи каталога, уже заводившиеся в этой
+// инсталляции (FR-7) — читает из stage.builtin_preset_seeds, не из
+// stage.format_presets: журнал переживает удаление самого пресета.
+func (r *Repo) SeededPresetKeys(ctx context.Context) ([]string, error) {
+	keys, err := r.q.ListSeededPresetKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list seeded preset keys: %w", err)
+	}
+	return keys, nil
+}
+
+// LiveSeededPresetKeys возвращает поднабор SeededPresetKeys, чей заведённый
+// пресет ещё существует (FR-10) — preset_id не обнулён удалением (миграция
+// 00006, ON DELETE SET NULL); переименование пресета id не трогает, поэтому
+// переименованная встроенная запись остаётся здесь.
+func (r *Repo) LiveSeededPresetKeys(ctx context.Context) ([]string, error) {
+	keys, err := r.q.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list live seeded preset keys: %w", err)
+	}
+	return keys, nil
+}
+
+// MarkPresetSeeded отмечает попытку заведения ключа каталога (upsert —
+// повторная попытка обновляет preset_id). presetID == "" пишет NULL —
+// заведение было пропущено по занятому имени (FR-9).
+func (r *Repo) MarkPresetSeeded(ctx context.Context, key, presetID string) error {
+	var id pgtype.UUID
+	if presetID != "" {
+		pid, err := uuid.Parse(presetID)
+		if err != nil {
+			return fmt.Errorf("parse preset id: %w", err)
+		}
+		id = pgtype.UUID{Bytes: [16]byte(pid), Valid: true}
+	}
+	if err := r.q.MarkPresetSeeded(ctx, sqlc.MarkPresetSeededParams{PresetKey: key, PresetID: id}); err != nil {
+		return fmt.Errorf("mark preset seeded: %w", err)
+	}
+	return nil
+}
+
 // GetPool возвращает один пул по id (включая StageID/ArenaID/CurrentBoutID,
 // спека 0011/0013/0017).
 func (r *Repo) GetPool(ctx context.Context, poolID string) (domain.Pool, error) {
