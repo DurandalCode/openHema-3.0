@@ -53,7 +53,7 @@
       → `tasks/T5-gate-remaining-public-routes.md` (батч-карточка: один
       файл разобран полностью как эталон, остальные десять — списком с
       точками отличия, применяются по образцу самим исполнителем)
-- [ ] T6. **пауза регистрации, BFF (red→green)** — `route.ts` пока не имеет
+- [x] T6. **пауза регистрации, BFF (red→green)** — `route.ts` пока не имеет
       теста вовсе (в отличие от плана — файла `route.test.ts` нет). Создать
       `app/api/auth/register/route.test.ts` с нуля (мокировать
       `@/lib/grpc/client`/`@/lib/session/cookies`/`@/lib/grpc/serialize`, как

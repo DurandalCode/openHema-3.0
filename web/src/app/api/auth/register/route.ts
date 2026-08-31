@@ -3,11 +3,16 @@ import { authClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
 import { setSessionCookies } from "@/lib/session/cookies";
 import { userToJson } from "@/lib/grpc/serialize";
+import { isPreprodModeEnabled, isRegistrationDisabled } from "@/shared/config/preprod";
 
 export const runtime = "nodejs";
 
 /** POST /api/auth/register — регистрация нового пользователя. */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  if (isRegistrationDisabled() || isPreprodModeEnabled()) {
+    return NextResponse.json({ error: "registration_disabled" }, { status: 403 });
+  }
+
   try {
     const { email, password, displayName } = await req.json();
     const res = await authClient.register({ email, password, displayName });
