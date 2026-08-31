@@ -38,7 +38,7 @@
       (как раньше) → добавить вызов `assertPreprodAccess()` первой строкой
       в `route.ts`. Тот же приём — `app/api/files/[id]/route.test.ts` +
       `route.ts`. → `tasks/T4-gate-tournament-and-files.md`
-- [ ] T5. **остальные публичные ручки** — по одному regression-тесту
+- [x] T5. **остальные публичные ручки** — по одному regression-тесту
       «guard вызывается первой строкой» (мок `assertPreprodAccess` →
       `401`, апстрим-клиент не дёрнут) + добавление вызова в каждый `route.ts`:
       `app/api/tournament/live`, `app/api/tournament/live-snapshot`,

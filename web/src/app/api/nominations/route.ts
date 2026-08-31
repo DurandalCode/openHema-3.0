@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { nominationAdminClient, nominationClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { nominationToJson, nominationsToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
 
@@ -16,6 +17,9 @@ type CreateBody = {
 
 /** GET /api/nominations?tournamentId=... — номинации турнира (публичный). */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const tournamentId = req.nextUrl.searchParams.get("tournamentId");
   if (!tournamentId) {
     return NextResponse.json({ error: "tournamentId is required" }, { status: 400 });

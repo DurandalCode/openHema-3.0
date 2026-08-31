@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { stagePublicClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { poolsToJson, stagesToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -15,6 +16,9 @@ type RouteContext = { params: Promise<{ id: string }> };
  * дублирует эту проверку. `stages` — этапы номинации (спека 0017, FR-11).
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
 
   try {

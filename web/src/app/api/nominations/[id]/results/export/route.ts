@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { stagePublicClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { nominationResultsToJson } from "@/lib/grpc/serialize";
 import { emptyNominationResults, formatPlace, hasPlaces } from "@/entities/nomination-results/lib/types";
 import { CSV_BOM, toCsv } from "@/shared/lib/csv";
@@ -27,6 +28,9 @@ const HEADER = ["Этап", "Место", "Боец", "Клуб", "Происх�
  * 409 с понятной причиной, файл не формируется.
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
 
   try {

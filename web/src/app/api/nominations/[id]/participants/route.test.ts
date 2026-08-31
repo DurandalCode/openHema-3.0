@@ -1,5 +1,5 @@
 import { ConnectError, Code } from "@connectrpc/connect";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/grpc/client", () => ({
@@ -8,8 +8,10 @@ vi.mock("@/lib/grpc/client", () => ({
 vi.mock("@/lib/grpc/serialize", () => ({
   nominationParticipantsToJson: vi.fn((p) => p),
 }));
+vi.mock("@/lib/grpc/preprod-guard", () => ({ assertPreprodAccess: vi.fn() }));
 
 import { applicationPublicClient } from "@/lib/grpc/client";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { GET } from "./route";
 
 function ctx(id: string) {
@@ -60,5 +62,15 @@ describe("app/api/nominations/[id]/participants route (public)", () => {
 
     const res = await GET(new NextRequest("http://localhost"), ctx("missing"));
     expect(res.status).toBe(404);
+  });
+
+  it("returns 401 and skips upstream when preprod gate blocks the request", async () => {
+    vi.mocked(assertPreprodAccess).mockResolvedValueOnce(
+      NextResponse.json({ error: "unauthenticated" }, { status: 401 }),
+    );
+
+    const res = await GET(new NextRequest("http://localhost"), ctx("n1"));
+    expect(res.status).toBe(401);
+    expect(applicationPublicClient.listNominationParticipants).not.toHaveBeenCalled();
   });
 });

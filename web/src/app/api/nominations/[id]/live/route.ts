@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { stagePublicClient } from "@/lib/grpc/client";
+import { assertPreprodAccess } from "@/lib/grpc/preprod-guard";
 import { nominationLiveToJson } from "@/lib/grpc/serialize";
 
 export const runtime = "nodejs";
@@ -15,6 +16,9 @@ type RouteContext = { params: Promise<{ id: string }> };
  * отменяет upstream server-streaming вызов и таймер (cleanup, нет утечки).
  */
 export async function GET(req: NextRequest, ctx: RouteContext): Promise<Response> {
+  const gate = await assertPreprodAccess();
+  if (gate) return gate;
+
   const { id } = await ctx.params;
   const encoder = new TextEncoder();
 
