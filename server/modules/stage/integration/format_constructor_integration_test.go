@@ -386,9 +386,12 @@ func TestIntegration_BuiltinPresetSeeds_MigrationApplies(t *testing.T) {
 
 // TestIntegration_BuiltinPresetSeeds_SurvivesPresetDeletion — ключевое
 // свойство выбора отдельной таблицы вместо колонки на format_presets
-// (план «Server», FR-7): журнал заведения переживает удаление самого
-// пресета — иначе удалённая встроенная запись заводилась бы заново при
-// каждом старте сервера.
+// (план «Server», FR-7/FR-10): журнал заведения переживает удаление самого
+// пресета (ON DELETE SET NULL, миграция 00006) — иначе удалённая встроенная
+// запись заводилась бы заново при каждом старте сервера. Ключ остаётся в
+// SeededPresetKeys (весь журнал), но выпадает из LiveSeededPresetKeys —
+// именно на этой разнице держится RestoreBuiltinPresets (спека 0047, план
+// «Риски»).
 func TestIntegration_BuiltinPresetSeeds_SurvivesPresetDeletion(t *testing.T) {
 	c, pool := setup(t)
 	r := repo.New(pool)
@@ -405,8 +408,16 @@ func TestIntegration_BuiltinPresetSeeds_SurvivesPresetDeletion(t *testing.T) {
 	}
 
 	const key = "test-builtin-preset-seeds-survives-deletion"
-	if err := r.MarkPresetSeeded(ctx, key); err != nil {
+	if err := r.MarkPresetSeeded(ctx, key, preset.Msg.Preset.Id); err != nil {
 		t.Fatalf("MarkPresetSeeded: %v", err)
+	}
+
+	live, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys (before delete): %v", err)
+	}
+	if !containsKey(live, key) {
+		t.Fatalf("expected journal key %q to be live before deletion, got %v", key, live)
 	}
 
 	deleteReq := connect.NewRequest(&hemav1.DeleteFormatPresetRequest{PresetId: preset.Msg.Preset.Id})
@@ -419,31 +430,34 @@ func TestIntegration_BuiltinPresetSeeds_SurvivesPresetDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SeededPresetKeys: %v", err)
 	}
-	found := false
-	for _, k := range keys {
-		if k == key {
-			found = true
-		}
-	}
-	if !found {
+	if !containsKey(keys, key) {
 		t.Fatalf("expected journal key %q to survive preset deletion, got %v", key, keys)
+	}
+
+	liveAfter, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys (after delete): %v", err)
+	}
+	if containsKey(liveAfter, key) {
+		t.Fatalf("expected journal key %q to drop out of LiveSeededPresetKeys once its preset is deleted (ON DELETE SET NULL), got %v", key, liveAfter)
 	}
 }
 
-// TestIntegration_BuiltinPresetSeeds_MarkIsIdempotent — ON CONFLICT DO
-// NOTHING (миграция 00006/запрос MarkPresetSeeded): пометить ключ дважды —
-// не ошибка, ключ остаётся ровно один раз в журнале.
+// TestIntegration_BuiltinPresetSeeds_MarkIsIdempotent — upsert
+// (миграция 00006/запрос MarkPresetSeeded): пометить ключ дважды — не
+// ошибка, ключ остаётся ровно один раз в журнале, а повторная отметка с
+// реальным preset_id переводит его из «пропущен» в «живой».
 func TestIntegration_BuiltinPresetSeeds_MarkIsIdempotent(t *testing.T) {
-	_, pool := setup(t)
+	c, pool := setup(t)
 	r := repo.New(pool)
 	ctx := context.Background()
 
 	const key = "test-builtin-preset-seeds-idempotent"
-	if err := r.MarkPresetSeeded(ctx, key); err != nil {
-		t.Fatalf("MarkPresetSeeded (first): %v", err)
+	if err := r.MarkPresetSeeded(ctx, key, ""); err != nil {
+		t.Fatalf("MarkPresetSeeded (first, no preset): %v", err)
 	}
-	if err := r.MarkPresetSeeded(ctx, key); err != nil {
-		t.Fatalf("MarkPresetSeeded (second): %v", err)
+	if err := r.MarkPresetSeeded(ctx, key, ""); err != nil {
+		t.Fatalf("MarkPresetSeeded (second, no preset): %v", err)
 	}
 
 	keys, err := r.SeededPresetKeys(ctx)
@@ -459,4 +473,40 @@ func TestIntegration_BuiltinPresetSeeds_MarkIsIdempotent(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("expected key %q to appear exactly once after two MarkPresetSeeded calls, got %d", key, count)
 	}
+
+	live, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys: %v", err)
+	}
+	if containsKey(live, key) {
+		t.Fatalf("expected key %q with no preset_id to be absent from LiveSeededPresetKeys, got %v", key, live)
+	}
+
+	nomID := createNominationTitled(t, c, "Журнал: апдейт ссылки")
+	stageIDFor(t, c, nomID)
+	saveReq := connect.NewRequest(&hemav1.SaveFormatPresetRequest{Name: "Каталог-апдейт", NominationId: nomID})
+	saveReq.Header().Set("Authorization", adminBearer(t))
+	preset, err := c.pool.SaveFormatPreset(ctx, saveReq)
+	if err != nil {
+		t.Fatalf("SaveFormatPreset: %v", err)
+	}
+	if err := r.MarkPresetSeeded(ctx, key, preset.Msg.Preset.Id); err != nil {
+		t.Fatalf("MarkPresetSeeded (upsert with preset id): %v", err)
+	}
+	liveAfter, err := r.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		t.Fatalf("LiveSeededPresetKeys (after upsert): %v", err)
+	}
+	if !containsKey(liveAfter, key) {
+		t.Fatalf("expected key %q to become live after MarkPresetSeeded upserted a real preset id, got %v", key, liveAfter)
+	}
+}
+
+func containsKey(keys []string, key string) bool {
+	for _, k := range keys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }

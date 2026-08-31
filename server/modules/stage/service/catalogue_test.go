@@ -130,7 +130,7 @@ func TestSeedBuiltinPresets_T5_OnlyMissingKeyIsSeeded(t *testing.T) {
 			missingKey = p.Key
 			continue
 		}
-		if err := repo.MarkPresetSeeded(ctx, p.Key); err != nil {
+		if err := repo.MarkPresetSeeded(ctx, p.Key, ""); err != nil {
 			t.Fatalf("MarkPresetSeeded(%q): %v", p.Key, err)
 		}
 	}
@@ -208,10 +208,12 @@ func TestSeedBuiltinPresets_T5_NameConflictIsSkippedNotFailed(t *testing.T) {
 	}
 }
 
-// TestRestoreBuiltinPresets_T5_IgnoresJournalRestoresMissing — AC-10:
-// восстановление игнорирует журнал заведения (в отличие от
-// SeedBuiltinPresets) и заводит недостающие записи заново.
-func TestRestoreBuiltinPresets_T5_IgnoresJournalRestoresMissing(t *testing.T) {
+// TestRestoreBuiltinPresets_T5_RestoresOnlyDeleted — AC-10: восстановление
+// пропускает ключи, чей пресет ещё жив (LiveSeededPresetKeys), а не весь
+// журнал заведения (SeededPresetKeys) — в отличие от SeedBuiltinPresets. Три
+// удалённых пресета теряют живую ссылку в журнале (DeleteFormatPreset)
+// и заводятся заново.
+func TestRestoreBuiltinPresets_T5_RestoresOnlyDeleted(t *testing.T) {
 	svc, _, _, _, _ := newService()
 	ctx := context.Background()
 
@@ -250,7 +252,10 @@ func TestRestoreBuiltinPresets_T5_IgnoresJournalRestoresMissing(t *testing.T) {
 // TestRestoreBuiltinPresets_T5_NeverOverwritesExisting — AC-11:
 // восстановление, вызванное когда все записи каталога на месте (в т.ч.
 // одна применена к номинации и её схема на номинации правилась), ничего не
-// меняет — библиотека не тронута.
+// меняет — библиотека не тронута. Skipped остаётся 0: живые записи
+// пропускаются фильтром ДО попытки вставки (LiveSeededPresetKeys), а не
+// через конфликт имени при вставке — Skipped считает только реально
+// провалившиеся попытки (FR-9), не «уже присутствующие».
 func TestRestoreBuiltinPresets_T5_NeverOverwritesExisting(t *testing.T) {
 	svc, _, _, _, _ := newService()
 	ctx := context.Background()
@@ -270,8 +275,8 @@ func TestRestoreBuiltinPresets_T5_NeverOverwritesExisting(t *testing.T) {
 	if len(report.Restored) != 0 {
 		t.Fatalf("Restored len = %d, want 0 — nothing missing", len(report.Restored))
 	}
-	if report.Skipped != 10 {
-		t.Fatalf("Skipped = %d, want 10 — every catalogue name already taken by itself", report.Skipped)
+	if report.Skipped != 0 {
+		t.Fatalf("Skipped = %d, want 0 — every catalogue entry is still live, none was even attempted", report.Skipped)
 	}
 
 	after, err := svc.ListFormatPresets(ctx)
@@ -288,24 +293,16 @@ func TestRestoreBuiltinPresets_T5_NeverOverwritesExisting(t *testing.T) {
 	}
 }
 
-// TestRestoreBuiltinPresets_T5_RenamedPresetNotTouchedOrDuplicated — AC-10:
-// переименованный встроенный пресет не тронут восстановлением и не
-// дублируется под старым именем.
-// NOTE (deviation flagged in the final report): the restore mechanism
-// (plan.md — reuse InsertFormatPreset's ErrPresetNameTaken, no separate
-// catalogue-membership check) recognizes "already present" purely by NAME.
-// Renaming a catalogue preset frees its original catalogue name, so that
-// name looks "missing" to RestoreBuiltinPresets and a fresh row IS
-// inserted under it — a second row with the same schema content,
-// coexisting with the renamed one. Spec AC-10's example text ("restored
-// 3", "not duplicated under the old name") assumes the renamed slot is
-// excluded from that count, which isn't achievable with a name-only check
-// and no catalogue-key<->preset link (a deliberate design choice, spec
-// 0047's decision #2 — builtin presets are plain rows, not tracked
-// specially beyond the once-only seed journal). This test asserts the
-// actually-achievable guarantee: the renamed preset itself is left alone
-// by RestoreBuiltinPresets (never renamed back, never overwritten).
-func TestRestoreBuiltinPresets_T5_RenamedPresetStaysUntouched(t *testing.T) {
+// TestRestoreBuiltinPresets_T5_RenamedNotDuplicatedUnderOldName — AC-10:
+// admin удаляет три записи каталога и переименовывает четвёртую;
+// восстановление заводит заново ровно три удалённых (Restored == 3,
+// Skipped == 0), переименованная не тронута И не задублирована под
+// освободившимся старым именем. Это работает потому, что фильтр пропуска
+// RestoreBuiltinPresets — LiveSeededPresetKeys (живая ссылка в журнале по
+// id пресета), а не проверка занятости имени: переименование id не меняет,
+// поэтому запись остаётся «живой» и восстановление её не касается вовсе —
+// ни втихую переименовывает назад, ни заводит рядом дубликат содержимого.
+func TestRestoreBuiltinPresets_T5_RenamedNotDuplicatedUnderOldName(t *testing.T) {
 	svc, _, _, _, _ := newService()
 	ctx := context.Background()
 
@@ -316,39 +313,53 @@ func TestRestoreBuiltinPresets_T5_RenamedPresetStaysUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListFormatPresets: %v", err)
 	}
+
 	target := presets[0]
+	originalName := target.Name
 	renamed, err := svc.RenameFormatPreset(ctx, target.ID, "Пулька")
 	if err != nil {
 		t.Fatalf("RenameFormatPreset: %v", err)
 	}
 
-	// Также удалим ещё пару, чтобы восстановление реально что-то делало.
-	deleted := presets[1:3]
+	deleted := presets[1:4]
 	for _, p := range deleted {
 		if err := svc.DeleteFormatPreset(ctx, p.ID); err != nil {
 			t.Fatalf("DeleteFormatPreset(%q): %v", p.ID, err)
 		}
 	}
 
-	if _, err := svc.RestoreBuiltinPresets(ctx); err != nil {
+	report, err := svc.RestoreBuiltinPresets(ctx)
+	if err != nil {
 		t.Fatalf("RestoreBuiltinPresets: %v", err)
+	}
+	if len(report.Restored) != 3 {
+		t.Fatalf("Restored len = %d, want 3 (only the deleted ones)", len(report.Restored))
+	}
+	if report.Skipped != 0 {
+		t.Fatalf("Skipped = %d, want 0 — the renamed/live entry was never even attempted", report.Skipped)
 	}
 
 	after, err := svc.ListFormatPresets(ctx)
 	if err != nil {
 		t.Fatalf("ListFormatPresets (after): %v", err)
 	}
-	var renamedCount int
+	if len(after) != 10 {
+		t.Fatalf("library presets len = %d, want 10 (7 untouched + 3 restored)", len(after))
+	}
+	var renamedStillThere bool
 	for _, p := range after {
 		if p.ID == renamed.ID {
 			if p.Name != "Пулька" {
 				t.Fatalf("renamed preset name changed: got %q", p.Name)
 			}
-			renamedCount++
+			renamedStillThere = true
+		}
+		if p.Name == originalName {
+			t.Fatalf("found a preset named %q — renamed builtin was duplicated under its old name", originalName)
 		}
 	}
-	if renamedCount != 1 {
-		t.Fatalf("expected exactly 1 preset with the renamed id, got %d", renamedCount)
+	if !renamedStillThere {
+		t.Fatalf("renamed preset disappeared")
 	}
 }
 

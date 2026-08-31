@@ -36,13 +36,24 @@ func (s *Service) SeedBuiltinPresets(ctx context.Context) (SeedReport, error) {
 	return s.seedCatalogue(ctx, func(key string) bool { return already[key] })
 }
 
-// RestoreBuiltinPresets — явное admin-действие (спека 0047, FR-10): журнал
-// заведения не консультируется как фильтр пропуска (пробуем завести всё),
-// но всё равно обновляется по факту попытки — как и SeedBuiltinPresets.
-// Существующие пресеты (свои и уже восстановленные встроенные) не трогает —
-// конфликт имени пропускается тем же путём, что и при заведении (FR-9).
+// RestoreBuiltinPresets — явное admin-действие (спека 0047, FR-10):
+// пропускает ключи, чей заведённый пресет ЕЩЁ ЖИВ (LiveSeededPresetKeys) —
+// это единственно верный фильтр здесь: имя пресета конфликтом не годится,
+// потому что переименованная встроенная запись освобождает своё исходное
+// имя, и проверка по имени завела бы под ним содержательный дубликат
+// (AC-10). Живая (в том числе переименованная) запись не трогается вовсе —
+// не восстановлена и не пропущена, отчёт её не считает. Удалённая теряет
+// ссылку в журнале и заводится заново, как и на самой первой установке.
 func (s *Service) RestoreBuiltinPresets(ctx context.Context) (SeedReport, error) {
-	return s.seedCatalogue(ctx, func(string) bool { return false })
+	live, err := s.repo.LiveSeededPresetKeys(ctx)
+	if err != nil {
+		return SeedReport{}, err
+	}
+	alive := make(map[string]bool, len(live))
+	for _, k := range live {
+		alive[k] = true
+	}
+	return s.seedCatalogue(ctx, func(key string) bool { return alive[key] })
 }
 
 // seedCatalogue — общий проход по domain.BuiltinPresets(): пропускает ключ
@@ -62,6 +73,7 @@ func (s *Service) seedCatalogue(ctx context.Context, skip func(key string) bool)
 			return SeedReport{}, err
 		}
 		preset, err := s.repo.InsertFormatPreset(ctx, p.Name, p.Spec)
+		var presetID string
 		switch {
 		case errors.Is(err, domain.ErrPresetNameTaken):
 			report.Skipped++
@@ -69,8 +81,9 @@ func (s *Service) seedCatalogue(ctx context.Context, skip func(key string) bool)
 			return SeedReport{}, err
 		default:
 			report.Restored = append(report.Restored, preset)
+			presetID = preset.ID
 		}
-		if err := s.repo.MarkPresetSeeded(ctx, p.Key); err != nil {
+		if err := s.repo.MarkPresetSeeded(ctx, p.Key, presetID); err != nil {
 			return SeedReport{}, err
 		}
 	}

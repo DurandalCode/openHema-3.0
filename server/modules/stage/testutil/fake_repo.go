@@ -84,10 +84,12 @@ type FakeRepo struct {
 	// PK (fighter_id, nomination_id) таблицы stage.withdrawn_seeds.
 	withdrawnSeeds map[string]*withdrawnSeedRow
 	// seededKeys — журнал заведения записей встроенного каталога пресетов
-	// (спека 0047, FR-7): ключ каталога → заводился ли он в этой
-	// инсталляции. Отдельно от presets — переживает удаление самого
-	// пресета (см. domain.Repository.SeededPresetKeys).
-	seededKeys map[string]bool
+	// (спека 0047, FR-7/FR-10): ключ каталога → id заведённого пресета
+	// ("" — заведение было пропущено по занятому имени, FR-9). Отдельно от
+	// presets — переживает удаление самого пресета: DeleteFormatPreset
+	// обнуляет значение (эмулирует ON DELETE SET NULL миграции 00006), не
+	// удаляет запись журнала целиком.
+	seededKeys map[string]string
 
 	// SetStatusCalls — счётчик вызовов SetStatus (спека 0010, T12): позволяет
 	// тестам service убедиться, что при ошибке BoutConductor статус в repo не
@@ -122,7 +124,7 @@ func NewFakeRepo() *FakeRepo {
 		pools:          make(map[string]*poolRow),
 		presets:        make(map[string]*presetRow),
 		withdrawnSeeds: make(map[string]*withdrawnSeedRow),
-		seededKeys:     make(map[string]bool),
+		seededKeys:     make(map[string]string),
 	}
 }
 
@@ -899,7 +901,11 @@ func (r *FakeRepo) RenameFormatPreset(_ context.Context, presetID, name string) 
 }
 
 // DeleteFormatPreset удаляет пресет из библиотеки; номинации, к которым он
-// уже применялся, не затрагивает (FR-16).
+// уже применялся, не затрагивает (FR-16). Обнуляет ссылку в журнале
+// заведения каталога, если удалённый пресет был встроенным (эмуляция
+// ON DELETE SET NULL миграции 00006, спека 0047 FR-10) — запись журнала
+// остаётся (ключ по-прежнему «когда-то заводился», FR-7), только ссылка
+// на несуществующий больше пресет обнуляется.
 func (r *FakeRepo) DeleteFormatPreset(_ context.Context, presetID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -908,6 +914,11 @@ func (r *FakeRepo) DeleteFormatPreset(_ context.Context, presetID string) error 
 		return domain.ErrNotFound
 	}
 	delete(r.presets, presetID)
+	for key, linkedID := range r.seededKeys {
+		if linkedID == presetID {
+			r.seededKeys[key] = ""
+		}
+	}
 	return nil
 }
 
@@ -916,7 +927,7 @@ func (r *FakeRepo) DeleteFormatPreset(_ context.Context, presetID string) error 
 // пресетов формата.
 // ---------------------------------------------------------------------
 
-// SeededPresetKeys возвращает ключи каталога, уже заводившиеся в этой
+// SeededPresetKeys возвращает ВСЕ ключи каталога, уже заводившиеся в этой
 // инсталляции (FR-7) — не список существующих пресетов, а факт попытки
 // заведения ключа (переживает удаление самого пресета).
 func (r *FakeRepo) SeededPresetKeys(_ context.Context) ([]string, error) {
@@ -931,12 +942,32 @@ func (r *FakeRepo) SeededPresetKeys(_ context.Context) ([]string, error) {
 	return out, nil
 }
 
-// MarkPresetSeeded отмечает ключ каталога как заведённый (идемпотентно).
-func (r *FakeRepo) MarkPresetSeeded(_ context.Context, key string) error {
+// LiveSeededPresetKeys возвращает поднабор SeededPresetKeys, чей заведённый
+// пресет ещё существует (FR-10) — переименование id не трогает, поэтому
+// переименованная встроенная запись остаётся здесь; удаление обнуляет
+// ссылку (DeleteFormatPreset выше), такой ключ отсюда выпадает.
+func (r *FakeRepo) LiveSeededPresetKeys(_ context.Context) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.seededKeys[key] = true
+	out := make([]string, 0, len(r.seededKeys))
+	for k, presetID := range r.seededKeys {
+		if presetID != "" {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// MarkPresetSeeded отмечает попытку заведения ключа каталога (upsert):
+// presetID — id заведённого пресета, "" — заведение пропущено по занятому
+// имени (FR-9).
+func (r *FakeRepo) MarkPresetSeeded(_ context.Context, key, presetID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.seededKeys[key] = presetID
 	return nil
 }
 
