@@ -80,7 +80,7 @@
       (плоско, без `ui/`-подпапки — как остальные виджеты проекта, напр.
       `widgets/session-expired/session-expired-dialog.tsx`).
       → `tasks/T7-preprod-gate-widget.md`
-- [ ] T8. **страницы**: → `tasks/T8a-gate-home-page.md` (главная, рендер
+- [x] T8. **страницы**: → `tasks/T8a-gate-home-page.md` (главная, рендер
       на месте), `tasks/T8b-gate-about-and-nomination-pages.md` (`/about` +
       `/nominations/[id]`, редирект)
       - `app/page.tsx` — добавить ветвление `isPreprodModeEnabled() &&
