@@ -128,6 +128,15 @@ prod: ## Полная сборка и запуск всего стека в до
 	$(MAKE) codegen
 	docker compose up --build
 
+.PHONY: deploy
+deploy: ## Публичный запуск: TLS-шлюз + весь стек без прямых портов (требует PUBLIC_DOMAIN, ACME_EMAIL в .env; спека 0048)
+	@if [ -z "$(PUBLIC_DOMAIN)" ]; then \
+		echo "PUBLIC_DOMAIN не задан (см. .env) — обязателен для make deploy" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) codegen
+	docker compose -f docker-compose.yml --profile prod up -d --build
+
 .PHONY: down
 down: ## Остановить стек
 	docker compose down

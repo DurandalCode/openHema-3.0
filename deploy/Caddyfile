@@ -1,0 +1,21 @@
+# Caddyfile для публичного запуска (make deploy, спека 0048).
+#
+# Один домен на блок (мультидомен/wildcard — вне скоупа спеки). Caddy сам
+# выдаёт и продлевает сертификат Let's Encrypt и по умолчанию редиректит
+# HTTP (:80) на HTTPS для доменных (не localhost/IP) адресов — отдельных
+# директив на это не требуется.
+{
+	email {$ACME_EMAIL}
+}
+
+{$PUBLIC_DOMAIN} {
+	# Реальный health-check живёт на server (/healthz, platform.go), не на
+	# web — внешний мониторинг должен достучаться до него и после того, как
+	# порт server перестал публиковаться напрямую (FR-3/FR-6 спеки 0048).
+	handle /healthz {
+		reverse_proxy server:8080
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

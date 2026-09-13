@@ -71,8 +71,9 @@ services:
       # Локальный том файлового хранилища (регламент/эмблема турнира, ADR
       # 0019) — переживает пересборку и перезапуск контейнера.
       - files:/app/data/files
-    ports:
-      - "8080:8080"
+    # Порт наружу не публикуется: единственный сетевой клиент сервера —
+    # BFF (web) внутри compose-сети (ADR 0001, FR-3 спеки 0048). Для
+    # локального докер-прогона порт возвращает docker-compose.override.yml.
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,11 +86,49 @@ services:
     environment:
       SERVER_GRPC_URL: http://server:8080
       PORT: "3000"
-    ports:
-      - "${WEB_PORT:-3000}:3000"
+    # Порт наружу не публикуется: снаружи стек обслуживает только `proxy`
+    # (FR-3 спеки 0048). Для локального докер-прогона порт возвращает
+    # docker-compose.override.yml.
     depends_on:
+      - server
+
+  # TLS-шлюз для публичного запуска (make deploy, спека 0048, профиль
+  # prod — та же топология понадобится и боевому запуску, второго профиля
+  # не заводим). Не поднимается обычным `docker compose up` без
+  # `--profile prod`, чтобы локальный докер-прогон не требовал домена и
+  # свободных 80/443 (FR-8/AC-6).
+  proxy:
+    image: caddy:2-alpine
+    profiles: ["prod"]
+    environment:
+      # Не `${PUBLIC_DOMAIN:?...}` — интерполяция переменных в
+      # docker-compose.yml выполняется для всех сервисов независимо от
+      # профиля, обязательность без значения по умолчанию сломала бы
+      # `make prod`/`make dev` даже без активации профиля prod (AC-6 спеки
+      # 0048). Проверка обязательности — в самом Makefile-таргете `deploy`.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-}
+      # ACME_EMAIL опционален (.env.example) — но Caddyfile-директиве
+      # `email` нужен ровно один аргумент, пустая строка ломает парсинг
+      # Caddyfile (в отличие от compose, у плейсхолдера `{$VAR:default}` в
+      # самом Caddy дефолт не подставляется для заданной, но пустой
+      # переменной). Дефолт подставляем здесь, на уровне compose-
+      # интерполяции (`:-`, срабатывает и на unset, и на пустую строку).
+      ACME_EMAIL: ${ACME_EMAIL:-admin@${PUBLIC_DOMAIN:-example.invalid}}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Сертификаты и состояние ACME переживают рестарт/передеплой (NFR-3
+      # спеки 0048) — не упираемся в лимиты запросов Let's Encrypt.
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
       - server
 
 volumes:
   pgdata:
   files:
+  caddy_data:
+  caddy_config:
