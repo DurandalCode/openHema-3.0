@@ -86,6 +86,10 @@ services:
     environment:
       SERVER_GRPC_URL: http://server:8080
       PORT: "3000"
+      # Гейт препрода (спека 0046) — читается веб-процессом из process.env,
+      # без явного проброса сюда .env-значение внутрь контейнера не попадёт.
+      PREPROD_MODE: ${PREPROD_MODE:-}
+      REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-}
     # Порт наружу не публикуется: снаружи стек обслуживает только `proxy`
     # (FR-3 спеки 0048). Для локального докер-прогона порт возвращает
     # docker-compose.override.yml.
