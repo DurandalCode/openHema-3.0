@@ -85,3 +85,59 @@ export type RosterEntry = {
   club: string;
   inRoster: boolean;
 };
+
+/**
+ * Отчёт импорта ростера из файла (спека 0049): одна и та же форма у
+ * предпросмотра (`dryRun: true`, ничего не записано — FR-2) и у результата
+ * подтверждённого импорта (FR-10). Enum'ы proto приведены к строковым
+ * литералам, как `FighterStatus` выше.
+ */
+export type ImportRowOutcome =
+  | "IMPORT_ROW_OUTCOME_UNSPECIFIED"
+  | "IMPORT_ROW_OUTCOME_CREATED"
+  | "IMPORT_ROW_OUTCOME_UPDATED"
+  | "IMPORT_ROW_OUTCOME_SKIPPED"
+  | "IMPORT_ROW_OUTCOME_REJECTED";
+
+export type ImportRowError =
+  | "IMPORT_ROW_ERROR_UNSPECIFIED"
+  | "IMPORT_ROW_ERROR_EMPTY_NAME"
+  | "IMPORT_ROW_ERROR_UNKNOWN_NOMINATION"
+  | "IMPORT_ROW_ERROR_FIGHTER_WITHDRAWN";
+
+export type ImportRowReport = {
+  // line — номер строки в файле, как её видит admin в редакторе, с учётом
+  // строки заголовка (FR-11a): отчёт прикладывается к самому файлу.
+  line: number;
+  name: string;
+  club: string;
+  outcome: ImportRowOutcome;
+  // nominationTitles — номинации строки как они записаны в файле; пусто,
+  // если колонка пуста и сработало умолчание из UI (FR-5a).
+  nominationTitles: string[];
+  // addedNominationIds — участия, которые появятся (CREATED/UPDATED).
+  addedNominationIds: string[];
+  // fighterId — существующий боец для UPDATED/SKIPPED и для отклонения по
+  // «боец выведен с турнира»; для CREATED в предпросмотре пуст.
+  fighterId: string;
+  error: ImportRowError;
+  // errorDetail — уточнение причины: нераспознанное название номинации.
+  errorDetail: string;
+};
+
+/** ImportSummary — сводка предпросмотра/отчёта (FR-4). */
+export type ImportSummary = {
+  rowsRead: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  rejected: number;
+};
+
+export type ImportReport = {
+  summary: ImportSummary;
+  rows: ImportRowReport[];
+  // dryRun — эхо запроса: предпросмотр (true) или уже записанный результат
+  // (false). UI не должен их путать.
+  dryRun: boolean;
+};
