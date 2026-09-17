@@ -113,4 +113,14 @@ describe("widgets/home ArenaCard (spec 0034, FR-14, AC-7..AC-9)", () => {
     expect(screen.queryByText(/ориентировочно/)).not.toBeInTheDocument();
     expect(screen.queryByText(/мин/)).not.toBeInTheDocument();
   });
+
+  // Полевой баг: на 360px имя A / счёт / имя B стояли жёстким рядом, и
+  // длинные имена с клубом схлопывались в «столбики по букве».
+  it("stacks the fighter pair on phones and lines it up from md", () => {
+    render(<ArenaCard arena={arena({ state: "bout_in_progress", currentBout: bout })} />);
+
+    const pair = screen.getByTestId("arena-card-pair");
+    expect(pair.className).toContain("flex-col");
+    expect(pair.className).toContain("md:flex-row");
+  });
 });

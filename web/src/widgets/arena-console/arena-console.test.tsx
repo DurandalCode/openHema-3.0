@@ -97,19 +97,19 @@ function seatedBoard(): BoutBoard {
 
 describe("ArenaConsole (спека 0033, FR-1..FR-5)", () => {
   it("renders ManagementView by default (no ?mode)", () => {
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByTestId("management-view")).toBeInTheDocument();
   });
 
   it("renders BoutPanelView when ?mode=bout is present", () => {
     searchParamsState = new URLSearchParams("mode=bout");
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByTestId("bout-panel-view")).toBeInTheDocument();
   });
 
   it("AC-1: entering the panel from the current-bout button navigates to ?mode=bout on the same path", () => {
     liveState.snapshot = { board: seatedBoard() };
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Вести бой в панели ⛶" }));
 
@@ -119,7 +119,7 @@ describe("ArenaConsole (спека 0033, FR-1..FR-5)", () => {
   it("AC-2: the mode switch back button navigates to the path without ?mode", () => {
     searchParamsState = new URLSearchParams("mode=bout");
     liveState.snapshot = { board: seatedBoard() };
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Арена 1 · управление/ }));
 
@@ -129,7 +129,7 @@ describe("ArenaConsole (спека 0033, FR-1..FR-5)", () => {
   it("AC-2: Esc returns from bout mode to management", () => {
     searchParamsState = new URLSearchParams("mode=bout");
     liveState.snapshot = { board: seatedBoard() };
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     fireEvent.keyDown(window, { key: "Escape" });
 
@@ -137,13 +137,13 @@ describe("ArenaConsole (спека 0033, FR-1..FR-5)", () => {
   });
 
   it("Esc does nothing in management mode", () => {
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(push).not.toHaveBeenCalled();
   });
 
   it("AC-3: the mode switch to bout is disabled when no pool is seated, with an explanation", () => {
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     const switchButton = screen.getByRole("button", { name: "Ведение боя ⛶" });
     expect(switchButton).toBeDisabled();
     expect(switchButton).toHaveAttribute("title", "Пул не стоит — вести нечего");
@@ -151,24 +151,24 @@ describe("ArenaConsole (спека 0033, FR-1..FR-5)", () => {
 
   it("the mode switch to bout is enabled when a pool is seated", () => {
     liveState.snapshot = { board: seatedBoard() };
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByRole("button", { name: "Ведение боя ⛶" })).toBeEnabled();
   });
 
   it("AC-11: shows the connection bar when the live channel is lost", () => {
     liveState.connection = "lost";
     liveState.lostSinceMs = Date.now();
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByRole("status")).toHaveTextContent("Связь потеряна");
   });
 
   it("does not show the connection bar while connected", () => {
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("FR-11: the scoreboard link is present in both modes", () => {
-    const { rerender } = render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    const { rerender } = render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByRole("link", { name: "Открыть табло" })).toHaveAttribute(
       "href",
       "/admin/arenas/a1/scoreboard",
@@ -176,7 +176,7 @@ describe("ArenaConsole (спека 0033, FR-1..FR-5)", () => {
 
     cleanup();
     searchParamsState = new URLSearchParams("mode=bout");
-    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} />);
+    render(<ArenaConsole arenaId="a1" arenaName="Арена 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByRole("link", { name: "Открыть табло" })).toBeInTheDocument();
     void rerender;
   });

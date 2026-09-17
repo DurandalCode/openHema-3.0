@@ -32,7 +32,12 @@ export default async function AdminArenaPage({ params }: PageProps) {
   return (
     <div className="w-full px-4 py-8">
       <Suspense fallback={null}>
-        <ArenaConsole arenaId={arena.id} arenaName={arena.name} initialBoard={board} />
+        <ArenaConsole
+          arenaId={arena.id}
+          arenaName={arena.name}
+          initialBoard={board}
+          defaultDurationSeconds={arena.defaultDurationSeconds}
+        />
       </Suspense>
     </div>
   );

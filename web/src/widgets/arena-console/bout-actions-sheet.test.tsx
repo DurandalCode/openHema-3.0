@@ -38,6 +38,7 @@ function renderSheet(overrides: Partial<React.ComponentProps<typeof BoutActionsS
         controls={controls}
         sidesSwapped={false}
         defaultDurationSeconds={90}
+        room={{ scoreboardCount: 1, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 }}
         undoLabel={null}
         onUndo={onUndo}
         canReset
@@ -136,5 +137,19 @@ describe("BoutActionsSheetContent (спека 0045, T5/FR-5)", () => {
       "href",
       "/admin/arenas/a1/scoreboard",
     );
+  });
+
+  it("warns that the timer runs on this screen when no scoreboard is connected", () => {
+    renderSheet({
+      room: { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: true, sidesSwapped: false, revealGeneration: 0 },
+    });
+    expect(screen.getByText("Табло не подключено — время идёт на этом экране")).toBeInTheDocument();
+  });
+
+  it("stays silent about the timer source while a scoreboard is connected", () => {
+    renderSheet();
+    expect(
+      screen.queryByText("Табло не подключено — время идёт на этом экране"),
+    ).not.toBeInTheDocument();
   });
 });

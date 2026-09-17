@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { mergeRequestCookieHeader, refreshDecision } from "@/shared/lib/session-refresh";
+import {
+  mergeRequestCookieHeader,
+  refreshDecision,
+  shouldAutoRefreshPath,
+} from "@/shared/lib/session-refresh";
 import {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
@@ -12,11 +16,22 @@ import {
 // `POST /api/auth/refresh` штатным `setSessionCookies`.
 const SESSION_EXPIRED_MAX_AGE = 30;
 
-// Все страницы, кроме статики/картинок/файлов с расширением и `/api/*` —
-// иначе внутренний fetch на `/api/auth/refresh` ниже рекурсивно попадал бы
-// в этот же middleware.
+// Всё, кроме статики и путей с расширением. `/api/*` СПЕЦИАЛЬНО включён:
+// долгоживущие экраны (консоль арены, табло) висят на одном URL часами и не
+// делают ни одной навигации — без продления на их запросах к BFF access-кука
+// протухала через 15 минут прямо посреди турнира.
+//
+// Точный список исключений внутри `/api` — `shouldAutoRefreshPath`, а не эта
+// строка: Next требует, чтобы matcher был литералом (анализируется на
+// билде), то есть тестом он не покрывается, а рекурсия на
+// `/api/auth/refresh` — самая дорогая ошибка здесь. Matcher остаётся грубым
+// фильтром производительности.
+//
+// Оговорка: `.*\..*` продолжает исключать любой путь с точкой. Под
+// `app/api` таких сегодня нет, но ручка вида `/api/files/report.csv` молча
+// выпала бы из продления.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*|api/).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
 };
 
 /**
@@ -39,6 +54,10 @@ export const config = {
  * `mergeRequestCookieHeader` — её юнит-тест).
  */
 export async function middleware(req: NextRequest): Promise<NextResponse> {
+  if (!shouldAutoRefreshPath(req.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
   const decision = refreshDecision({
     hasAccess: req.cookies.has(ACCESS_COOKIE),
     hasRefresh: req.cookies.has(REFRESH_COOKIE),
@@ -55,11 +74,24 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
       headers: { cookie: req.headers.get("cookie") ?? "" },
     });
   } catch {
-    return sessionExpiredResponse();
+    // Сеть/апстрим недоступны — это НЕ «сессия истекла». Раньше такой блип
+    // стирал refresh-куку; на частоте «раз в навигацию» это было терпимо, на
+    // 5 запросах в секунду — по-настоящему разлогинивает секретаря посреди
+    // турнира. Оставляем куки как есть, попробуем на следующем запросе.
+    return NextResponse.next();
   }
 
-  if (!refreshResponse.ok) {
+  // Гасим сессию ТОЛЬКО на 401: refresh-токен действительно мёртв (отозван,
+  // протух, старше PasswordChangedAt) — повторять бессмысленно, и ветка
+  // самоограничивается: следующий запрос пойдёт как «гость». Любой другой
+  // не-ok (5xx при рестарте Go-сервера) — транзиентный, куки не трогаем.
+  // Сознательная ревизия NFR-5 спеки 0038: «без повторов внутри одного
+  // запроса» сохраняется, но транзиентный отказ больше не сжигает сессию.
+  if (refreshResponse.status === 401) {
     return sessionExpiredResponse();
+  }
+  if (!refreshResponse.ok) {
+    return NextResponse.next();
   }
 
   const setCookieHeaders = refreshResponse.headers.getSetCookie();

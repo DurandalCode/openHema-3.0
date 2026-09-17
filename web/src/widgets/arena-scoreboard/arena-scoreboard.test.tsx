@@ -87,14 +87,14 @@ describe("ArenaScoreboard", () => {
 
   it("shows the neutral waiting state when there is no board/pool (FR-5)", () => {
     mockLive(makeSnapshot(null));
-    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByText("Ожидание боя…")).toBeInTheDocument();
     expect(screen.getByText("Ристалище 1")).toBeInTheDocument();
   });
 
   it("shows the neutral waiting state when board.pool is null", () => {
     mockLive(makeSnapshot({ pool: null, bouts: [], currentBoutId: "" }));
-    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByText("Ожидание боя…")).toBeInTheDocument();
   });
 
@@ -111,7 +111,7 @@ describe("ArenaScoreboard", () => {
     const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
     mockLive(makeSnapshot(board, true)); // swapped: A becomes blue, B becomes red
 
-    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     const blue = document.querySelector('[data-color="blue"]');
     const red = document.querySelector('[data-color="red"]');
@@ -132,7 +132,7 @@ describe("ArenaScoreboard", () => {
     const board: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b1" };
     mockLive(makeSnapshot(board));
 
-    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByText("Далее: Carol — Dave")).toBeInTheDocument();
   });
 
@@ -141,7 +141,7 @@ describe("ArenaScoreboard", () => {
     const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
     mockLive(makeSnapshot(board));
 
-    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByText("Последний бой пула")).toBeInTheDocument();
   });
 
@@ -162,7 +162,7 @@ describe("ArenaScoreboard", () => {
     // once we *observe* a currentBoutId transition on a later render.
     const boardWhileB1Current: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b1" };
     mockLive(makeSnapshot(boardWhileB1Current));
-    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     // The live channel then delivers the post-finish snapshot: server
     // already auto-advanced currentBoutId to b2 (0013 FinishCurrentBout),
@@ -170,7 +170,7 @@ describe("ArenaScoreboard", () => {
     // b2 is still NOT_STARTED — the widget must keep showing b1's outcome.
     const boardAfterFinish: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b2" };
     mockLive(makeSnapshot(boardAfterFinish));
-    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     expect(screen.getByTestId("outcome-announcement").textContent).toContain("Alice");
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Bob");
@@ -183,7 +183,7 @@ describe("ArenaScoreboard", () => {
       currentBoutId: "b2",
     };
     mockLive(makeSnapshot(boardB2Started));
-    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain(b2.fighterB.name);
@@ -210,13 +210,13 @@ describe("ArenaScoreboard", () => {
 
     const boardWhileB1Current: BoutBoard = { pool, bouts: [b1, b2, b3], currentBoutId: "b1" };
     mockLive(makeSnapshot(boardWhileB1Current));
-    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     // Finish b1: server auto-advances currentBoutId to b2 — the widget holds
     // b1's outcome (same as the AC-11a test above).
     const boardAfterFinish: BoutBoard = { pool, bouts: [b1, b2, b3], currentBoutId: "b2" };
     mockLive(makeSnapshot(boardAfterFinish));
-    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByTestId("outcome-announcement")).toBeInTheDocument();
 
     // Secretary does NOT start b2 — instead manually circulates (SetCurrentBout)
@@ -224,7 +224,7 @@ describe("ArenaScoreboard", () => {
     // hold and show b3 immediately, not stay stuck on b1's announcement.
     const boardCirculatedToB3: BoutBoard = { pool, bouts: [b1, b2, b3], currentBoutId: "b3" };
     mockLive(makeSnapshot(boardCirculatedToB3));
-    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Dave");
@@ -251,13 +251,13 @@ describe("ArenaScoreboard", () => {
 
     const boardWhileB1Current: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b1" };
     mockLive(makeSnapshot(boardWhileB1Current, false, 0));
-    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    const view = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     // Finish b1: server auto-advances currentBoutId to b2 — hold engages,
     // same reveal_generation (0) as before.
     const boardAfterFinish: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b2" };
     mockLive(makeSnapshot(boardAfterFinish, false, 0));
-    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByTestId("outcome-announcement")).toBeInTheDocument();
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Bob");
 
@@ -267,7 +267,7 @@ describe("ArenaScoreboard", () => {
     // reveal it anyway (0:0, waiting), not wait for it to start.
     const boardRevealed: BoutBoard = { pool, bouts: [b1, b2], currentBoutId: "b2" };
     mockLive(makeSnapshot(boardRevealed, false, 1));
-    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    view.rerender(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
     expect(screen.queryByTestId("outcome-announcement")).not.toBeInTheDocument();
     expect(document.querySelector('[data-color="blue"]')?.textContent).toContain("Dave");
@@ -288,7 +288,7 @@ describe("ArenaScoreboard", () => {
     const board: BoutBoard = { pool, bouts: [b1], currentBoutId: "b1" };
     mockLive(makeSnapshot(board));
 
-    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+    render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
     expect(screen.getByTestId("outcome-announcement").textContent).toContain("Ничья");
   });
 
@@ -301,7 +301,7 @@ describe("ArenaScoreboard", () => {
       mockLive(makeSnapshot(board));
       mockTimer("RUNNING", 9000);
 
-      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
       const strip = screen.getByTestId("timer-strip");
       const grid = document.querySelector('[data-color="blue"]')!.parentElement!;
@@ -324,7 +324,7 @@ describe("ArenaScoreboard", () => {
 
       mockLive(makeSnapshot(board));
       mockTimer("RUNNING", 462); // 4.62s remaining, running — endgame (AC-15 "given")
-      const endgameView = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      const endgameView = render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
       const endgameStrip = screen.getByTestId("timer-strip");
       expect(endgameStrip).toHaveAttribute("data-phase", "endgame");
       const endgameDigits = endgameStrip.querySelector(".font-mono")!.className;
@@ -334,7 +334,7 @@ describe("ArenaScoreboard", () => {
 
       mockLive(makeSnapshot(board));
       mockTimer("EXPIRED", 0); // time hit zero (AC-15 "when")
-      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
       const expiredStrip = screen.getByTestId("timer-strip");
       expect(expiredStrip).toHaveAttribute("data-phase", "expired");
       const expiredDigits = expiredStrip.querySelector(".font-mono")!.className;
@@ -357,7 +357,7 @@ describe("ArenaScoreboard", () => {
       mockLive(makeSnapshot(board));
       mockTimer("STOPPED", 9000);
 
-      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
       expect(screen.getByText("ОЖИДАНИЕ СТАРТА")).toBeInTheDocument();
       expect(screen.queryByText("ИДЁТ")).not.toBeInTheDocument();
@@ -372,7 +372,7 @@ describe("ArenaScoreboard", () => {
       mockLive(makeSnapshot(board));
       mockTimer("RUNNING", 9000);
 
-      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
       const label = screen.getByTestId("timer-strip-label");
       expect(label.textContent).toBe("ИДЁТ");
@@ -385,7 +385,7 @@ describe("ArenaScoreboard", () => {
       mockLive(makeSnapshot(board));
       mockTimer("EXPIRED", 0);
 
-      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} />);
+      render(<ArenaScoreboard arenaId="a1" arenaName="Ристалище 1" initialBoard={null} defaultDurationSeconds={90} />);
 
       const strip = screen.getByTestId("timer-strip");
       expect(strip.className).toContain("motion-safe:animate-pulse");

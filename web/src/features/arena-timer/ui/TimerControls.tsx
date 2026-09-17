@@ -8,6 +8,7 @@ import { useStartBout } from "@/features/bout-board/api/use-start-bout";
 import { ADJUST_STEPS } from "../lib/steps";
 import { useSwapSides } from "../api/use-swap-sides";
 import { TimerDisplay } from "./TimerDisplay";
+import { TimerSourceNote } from "./timer-source-note";
 
 /**
  * TimerControls — колонка таймера панели секретаря (спека 0033, FR-17,
@@ -120,6 +121,7 @@ export function TimerControls({
             Длительность: {defaultDurationSeconds}с
           </span>
         )}
+        <TimerSourceNote room={live.snapshot?.room} />
       </Row>
     </Col>
   );

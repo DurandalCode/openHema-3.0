@@ -76,6 +76,12 @@ describe("useArenaLive", () => {
     expect(result.current.serverOffsetMs).toBe(0);
   });
 
+  it("seeds the stub snapshot with the arena's own default duration, not a hardcoded 90s", () => {
+    const { result } = renderHook(() => useArenaLive("a1", "panel", initialBoard, 60));
+    expect(result.current.snapshot?.defaultDurationSeconds).toBe(60);
+    expect(result.current.snapshot?.timer.defaultCs).toBe(6000);
+  });
+
   it("opens an EventSource against /api/arenas/{id}/live?role=... and applies snapshot frames", async () => {
     const { result } = renderHook(() => useArenaLive("a1", "scoreboard", null));
 

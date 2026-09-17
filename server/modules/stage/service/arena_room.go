@@ -5,10 +5,17 @@
 // (вычисляются на лету из позиции в слайсе — реиндексация при отключении
 // получается бесплатно), последний присланный источником TimerFrame (кеш
 // реле) и эфемерный swap сторон. Комната живёт, пока в ней есть хотя бы
-// один участник (табло или панель); специально — таймер «умирает»
-// (закешированный кадр сбрасывается) в момент, когда отключается последнее
-// табло, даже если панель остаётся подключена: без табло некому быть
-// источником, значения таймера больше нет смысла показывать.
+// один участник (табло или панель), и вместе с ней умирает закешированный
+// кадр.
+//
+// Источник комнаты — первое табло, а если табло нет ни одного — первая
+// панель (фоллбэк). Это уточнение ADR 0013 §1/§4, внесённое по итогам
+// полевых тестов: раньше панель источником быть не могла в принципе, и
+// стоило секретарю закрыть вкладку табло, как кнопки Старт/Пауза/Сброс
+// начинали молча улетать в никуда. Табло по-прежнему главнее: подключившись,
+// оно перехватывает источник у панели. Кадр при этом переживает и перехват,
+// и уход последнего табло — новому источнику есть чем засеяться, и идущий
+// отсчёт не обнуляется в момент смены.
 package service
 
 import (
@@ -36,15 +43,30 @@ type roomMember struct {
 }
 
 // arenaRoom — состояние живой комнаты одной арены (спека 0015).
-// scoreboards — упорядоченный слайс подключённых табло: позиция+1 = ordinal,
-// scoreboards[0] — источник таймера (this_is_source). panels — подключённые
-// панели управления, не участвуют в ordinal/source, всегда this_ordinal=0.
+// scoreboards — упорядоченный слайс подключённых табло: позиция+1 = ordinal.
+// panels — подключённые панели управления: в нумерации табло не участвуют
+// (всегда this_ordinal=0), но первая из них становится источником, если
+// табло в комнате нет вовсе (см. source).
 type arenaRoom struct {
 	scoreboards      []*roomMember
 	panels           []*roomMember
 	lastFrame        *domain.TimerFrame
 	sidesSwapped     bool
 	revealGeneration int32
+}
+
+// source — текущий источник таймера комнаты: первое табло, иначе первая
+// панель (фоллбэк), иначе nil (комната пуста). Единственное место, где
+// выражен приоритет ролей — view/relayCommand/сигналы читают только его,
+// чтобы условие «есть ли табло» не размножилось по файлу.
+func (room *arenaRoom) source() *roomMember {
+	if len(room.scoreboards) > 0 {
+		return room.scoreboards[0]
+	}
+	if len(room.panels) > 0 {
+		return room.panels[0]
+	}
+	return nil
 }
 
 // arenaRooms — реестр живых комнат по arenaID (спека 0015, ADR 0013):
@@ -64,7 +86,11 @@ func newArenaRooms() *arenaRooms {
 }
 
 // join подключает участника к комнате арены, создавая её лениво при первом
-// участнике.
+// участнике. Вход ТАБЛО сигналит остальных: меняется scoreboard_count у
+// всех, а если источником была панель — ещё и this_is_source (перехват).
+// Вход панели ничей view не меняет и потому не сигналит. Сам вошедший
+// намеренно не сигналится: WatchArenaBoard и так шлёт ему первый снапшот
+// сразу после join, и разбуженный boardCh дал бы немедленный дубль.
 func (r *arenaRooms) join(arenaID string, role domain.ScoreboardRole) *roomMember {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -81,17 +107,22 @@ func (r *arenaRooms) join(arenaID string, role domain.ScoreboardRole) *roomMembe
 	}
 	if role == domain.ScoreboardRoleScoreboard {
 		room.scoreboards = append(room.scoreboards, m)
+		signalOthers(room, m)
 	} else {
 		room.panels = append(room.panels, m)
 	}
 	return m
 }
 
-// leave отключает участника от комнаты арены. Если это было последнее табло
-// (SCOREBOARD) комнаты — таймер «умирает»: закешированный кадр сбрасывается
-// (следующий ArenaLive увидит синтетическое значение с нуля), остальные
-// участники (панели) сигналятся об изменении. Если комната опустела целиком
-// (ни табло, ни панелей) — удаляется из реестра (эфемерность, ADR 0013).
+// leave отключает участника от комнаты арены. Сигналим оставшихся, если у
+// них могло измениться видимое состояние: уход ТАБЛО меняет
+// scoreboard_count (и часто источник), уход панели-источника повышает
+// следующую панель. Уход рядовой панели не меняет ничего — молчим.
+// Закешированный кадр при этом НЕ сбрасывается: повышаемому источнику надо
+// чем-то засеяться, иначе идущий отсчёт обнулился бы ровно в момент, когда
+// оператор закрыл табло. Кадр умирает вместе с комнатой — когда та опустела
+// целиком (ни табло, ни панелей) и удаляется из реестра (эфемерность,
+// ADR 0013).
 func (r *arenaRooms) leave(arenaID string, m *roomMember) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -100,18 +131,20 @@ func (r *arenaRooms) leave(arenaID string, m *roomMember) {
 	if !ok {
 		return
 	}
+	sourceBefore := room.source()
 	switch m.role {
 	case domain.ScoreboardRoleScoreboard:
 		room.scoreboards = removeMember(room.scoreboards, m)
-		if len(room.scoreboards) == 0 {
-			room.lastFrame = nil
-			signalAll(room)
-		}
 	default:
 		room.panels = removeMember(room.panels, m)
 	}
 	if len(room.scoreboards) == 0 && len(room.panels) == 0 {
 		delete(r.rooms, arenaID)
+		return
+	}
+	if m.role == domain.ScoreboardRoleScoreboard || sourceBefore != room.source() {
+		// Уходящий уже удалён из слайса, поэтому signalAll его не задевает.
+		signalAll(room)
 	}
 }
 
@@ -134,19 +167,25 @@ func (r *arenaRooms) publishFrame(arenaID string, frame domain.TimerFrame) {
 	signalAll(room)
 }
 
-// relayCommand доставляет команду панели ТОЛЬКО текущему источнику (табло
-// ordinal 1, scoreboards[0]). No-op, если в комнате нет ни одного табло —
-// некому передать команду.
+// relayCommand доставляет команду ТОЛЬКО текущему источнику комнаты (см.
+// source: табло ordinal 1, иначе первая панель). No-op, если комнаты нет —
+// некому передать команду. Если источник — сама панель, приславшая команду,
+// получается замкнутая петля «панель → сервер → та же панель»: так и
+// задумано, путь применения команд один для любой роли.
 func (r *arenaRooms) relayCommand(arenaID string, cmd domain.TimerCommand) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	room, ok := r.rooms[arenaID]
-	if !ok || len(room.scoreboards) == 0 {
+	if !ok {
+		return
+	}
+	src := room.source()
+	if src == nil {
 		return
 	}
 	select {
-	case room.scoreboards[0].cmdCh <- cmd:
+	case src.cmdCh <- cmd:
 	default:
 		// Буфер (8) переполнен — с учётом частоты нажатий кнопок человеком
 		// практически недостижимо; роняем команду, не блокируя вызывающего
@@ -221,11 +260,15 @@ func (r *arenaRooms) view(arenaID string, m *roomMember) domain.ScoreboardRoom {
 		for i, x := range room.scoreboards {
 			if x == m {
 				out.ThisOrdinal = i + 1
-				out.ThisIsSource = i == 0
 				break
 			}
 		}
 	}
+	// Источник считается одинаково для обеих ролей (см. source), а ordinal
+	// остаётся нумерацией табло: у панели-фоллбэка он 0. Пара
+	// (ScoreboardCount == 0, ThisIsSource) — это и есть код «табло не
+	// подключено, таймер идёт на этом экране».
+	out.ThisIsSource = m != nil && room.source() == m
 	return out
 }
 
@@ -257,11 +300,23 @@ func removeMember(list []*roomMember, m *roomMember) []*roomMember {
 // signalAll неблокирующе сигналит boardCh всех участников комнаты (табло и
 // панелей).
 func signalAll(room *arenaRoom) {
+	signalOthers(room, nil)
+}
+
+// signalOthers — то же, но минуя skip (nil — никого не пропускать). Нужен
+// на join: вошедшему WatchArenaBoard и так шлёт первый снапшот сам, и
+// разбуженный boardCh заставил бы стрим немедленно отправить второй,
+// идентичный.
+func signalOthers(room *arenaRoom, skip *roomMember) {
 	for _, m := range room.scoreboards {
-		trySignal(m.boardCh)
+		if m != skip {
+			trySignal(m.boardCh)
+		}
 	}
 	for _, m := range room.panels {
-		trySignal(m.boardCh)
+		if m != skip {
+			trySignal(m.boardCh)
+		}
 	}
 }
 

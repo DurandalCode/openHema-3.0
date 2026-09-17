@@ -7,6 +7,8 @@ import type { BoardBout } from "@/entities/pool/lib/types";
 import type { UseArenaTimerResult } from "@/features/arena-timer/api/use-arena-timer";
 import { ADJUST_STEPS } from "@/features/arena-timer/lib/steps";
 import { useSwapSides } from "@/features/arena-timer/api/use-swap-sides";
+import { TimerSourceNote } from "@/features/arena-timer/ui/timer-source-note";
+import type { ScoreboardRoomDto } from "@/entities/arena-live/lib/types";
 
 /**
  * BoutActionsSheetContent — содержимое листа дополнительных действий
@@ -28,6 +30,7 @@ export function BoutActionsSheetContent({
   controls,
   sidesSwapped,
   defaultDurationSeconds,
+  room,
   undoLabel,
   onUndo,
   canReset,
@@ -40,6 +43,9 @@ export function BoutActionsSheetContent({
   controls: UseArenaTimerResult["controls"];
   sidesSwapped: boolean;
   defaultDurationSeconds: number | null;
+  /** Состав комнаты — только чтобы показать «таймер идёт на этом экране»,
+   *  когда табло не подключено (см. TimerSourceNote). */
+  room: ScoreboardRoomDto | null | undefined;
   undoLabel: string | null;
   onUndo: () => void;
   canReset: boolean;
@@ -95,6 +101,7 @@ export function BoutActionsSheetContent({
             Длительность: {defaultDurationSeconds}с
           </span>
         )}
+        <TimerSourceNote room={room} />
       </Row>
 
       <Row gap={2} className="flex-wrap">

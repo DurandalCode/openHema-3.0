@@ -17,9 +17,15 @@ export async function POST(): Promise<NextResponse> {
 
   try {
     const res = await authClient.refresh({ refreshToken });
-    if (res.tokens) {
-      await setSessionCookies(res.tokens.accessToken, res.tokens.refreshToken);
+    if (!res.tokens) {
+      // По контракту Service.Refresh успех всегда несёт пару токенов, так
+      // что пустой tokens — сломанный апстрим, а НЕ мёртвая сессия. Отвечаем
+      // 502, а не 401: на 401 middleware гасит живую refresh-куку. Раньше
+      // здесь молча возвращался 200 {ok:true} без обновления cookie, и
+      // вызывающий считал протухшую сессию продлённой.
+      return NextResponse.json({ error: "upstream" }, { status: 502 });
     }
+    await setSessionCookies(res.tokens.accessToken, res.tokens.refreshToken);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

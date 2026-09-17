@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { makeQueryClient } from "./query-client";
 import { useSessionExpiredStore } from "./session-expired-store";
+import { resetSilentRefreshStateForTests } from "./silent-refresh";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 function wrapperFor(client: ReturnType<typeof makeQueryClient>) {
@@ -16,6 +17,10 @@ function wrapperFor(client: ReturnType<typeof makeQueryClient>) {
 describe("makeQueryClient", () => {
   beforeEach(() => {
     useSessionExpiredStore.setState({ isOpen: false, reason: null });
+    // Дедуп in-flight продления теперь модульное состояние `silent-refresh`,
+    // общее со всеми импортёрами — без сброса файл зависел бы от порядка
+    // запуска тестов.
+    resetSilentRefreshStateForTests();
   });
 
   afterEach(() => {

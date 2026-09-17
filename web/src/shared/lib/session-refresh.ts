@@ -18,6 +18,39 @@ export function refreshDecision(input: {
 }
 
 /**
+ * NO_AUTO_REFRESH_PATHS — ручки BFF, на которых middleware НЕ продлевает
+ * сессию. Список живёт здесь, а не в `config.matcher`: Next требует, чтобы
+ * matcher был строковым литералом (он анализируется на билде), то есть
+ * принципиально не покрывается тестом — а рекурсия на `/api/auth/refresh`
+ * тут самая дорогая ошибка. Matcher остаётся грубым фильтром
+ * производительности, точный список — эта функция.
+ *
+ * Почему именно эти пять: `auth/refresh` — рекурсия (middleware сам её
+ * зовёт); остальные четыре сами пишут пару cookie через
+ * `setSessionCookies`/`clearSessionCookies`, а порядок слияния двух наборов
+ * `Set-Cookie` в одном ответе Next не документирует. Для `logout` это
+ * критично: победи заголовок от middleware — выход бы не сработал, access
+ * остался бы живым.
+ */
+const NO_AUTO_REFRESH_PATHS = new Set([
+  "/api/auth/refresh",
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/logout",
+  "/api/auth/password",
+]);
+
+/**
+ * shouldAutoRefreshPath — можно ли на этом пути автопродлевать сессию.
+ * Сравнение по ПОЛНОМУ пути, не по префиксу: будущая ручка вроде
+ * `/api/auth/logout-all` не должна молча потерять продление.
+ */
+export function shouldAutoRefreshPath(pathname: string): boolean {
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return !NO_AUTO_REFRESH_PATHS.has(normalized);
+}
+
+/**
  * mergeRequestCookieHeader — применяет свежие `Set-Cookie` из ответа
  * `/api/auth/refresh` поверх заголовка `Cookie` ТЕКУЩЕГО запроса (спека
  * 0038, FR-14). Обязательно, а не косметика: middleware может переписать

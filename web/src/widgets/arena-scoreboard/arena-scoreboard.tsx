@@ -49,12 +49,16 @@ export function ArenaScoreboard({
   arenaId,
   arenaName,
   initialBoard,
+  defaultDurationSeconds,
 }: {
   arenaId: string;
   arenaName: string;
   initialBoard: BoutBoardDto | null;
+  /** Дефолт площадки из SSR — чтобы таймер до первого живого кадра показывал
+   *  её собственную длительность, а не хардкод 90с. */
+  defaultDurationSeconds: number;
 }) {
-  const live = useArenaLive(arenaId, "scoreboard", initialBoard);
+  const live = useArenaLive(arenaId, "scoreboard", initialBoard, defaultDurationSeconds);
   const { display } = useArenaTimer(arenaId, live);
   const [appearance] = useScoreboardAppearance(arenaId);
   const isLight = appearance === "light";

@@ -42,7 +42,15 @@ export function ArenaCard({ arena }: { arena: LiveArenaDto }) {
       {bout && (
         <CardContent>
           <Col gap={2} className="text-sm">
-            <Row align="center" justify="between" gap={2}>
+            {/* Имя A / счёт / имя B: в один ряд только от `md`. На 360px
+                длинные имена с клубом в скобках схлопывались в «столбики по
+                букве» (0044 NFR-1). */}
+            <Row
+              justify="between"
+              gap={2}
+              data-testid="arena-card-pair"
+              className="flex-col items-start md:flex-row md:items-center"
+            >
               <span className="font-medium">
                 {bout.fighterA.name}
                 {bout.fighterA.club && (

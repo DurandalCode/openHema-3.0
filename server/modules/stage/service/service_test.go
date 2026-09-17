@@ -2697,13 +2697,39 @@ func TestControlArenaTimer_RelaysToSourceOnly(t *testing.T) {
 	}
 }
 
-// ControlArenaTimer без единого табло в комнате — no-op, не паникует.
-func TestControlArenaTimer_NoScoreboardsIsNoop(t *testing.T) {
+// ControlArenaTimer по арене, у которой вообще нет живой комнаты, — no-op,
+// не паникует. Это единственный оставшийся no-op: если в комнате есть хотя
+// бы панель, ей и достанется команда (см. следующий тест).
+func TestControlArenaTimer_NoRoomIsNoop(t *testing.T) {
 	ctx := context.Background()
 	svc, _, _, _, _, _ := newServiceWithArenas()
 
-	if _, err := svc.ControlArenaTimer(ctx, "arena-without-scoreboards", domain.TimerCommand{Kind: domain.TimerCommandPause}); err != nil {
+	if _, err := svc.ControlArenaTimer(ctx, "arena-without-room", domain.TimerCommand{Kind: domain.TimerCommandPause}); err != nil {
 		t.Fatalf("ControlArenaTimer: %v", err)
+	}
+}
+
+// Комната без табло: команда доезжает до панели-фоллбэка. Это и есть
+// починка полевого бага «закрыли табло — кнопки таймера перестали работать».
+func TestControlArenaTimer_DeliversToPanelWhenNoScoreboards(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newServiceWithArenas()
+
+	panel := svc.JoinArenaBoard("arena-1", domain.ScoreboardRolePanel)
+	defer panel.Leave()
+
+	cmd := domain.TimerCommand{Kind: domain.TimerCommandStart}
+	if _, err := svc.ControlArenaTimer(ctx, "arena-1", cmd); err != nil {
+		t.Fatalf("ControlArenaTimer: %v", err)
+	}
+
+	select {
+	case got := <-panel.Commands():
+		if got != cmd {
+			t.Errorf("panel got %+v, want %+v", got, cmd)
+		}
+	default:
+		t.Fatalf("expected command delivered to the fallback source panel")
 	}
 }
 

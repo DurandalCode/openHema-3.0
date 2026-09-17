@@ -104,7 +104,7 @@ export function ApplicationCard({
             </Row>
           )}
 
-          <Row gap={2}>
+          <Row gap={2} wrap>
             {actions.includes("declarePayment") && (
               <Button
                 type="button"

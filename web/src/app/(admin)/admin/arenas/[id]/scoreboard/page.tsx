@@ -24,5 +24,12 @@ export default async function ArenaScoreboardPage({ params }: PageProps) {
   }
   const board = await getArenaLiveBoard(id);
 
-  return <ArenaScoreboard arenaId={id} arenaName={arena.name} initialBoard={board} />;
+  return (
+    <ArenaScoreboard
+      arenaId={id}
+      arenaName={arena.name}
+      initialBoard={board}
+      defaultDurationSeconds={arena.defaultDurationSeconds}
+    />
+  );
 }

@@ -75,10 +75,12 @@ export function HomeScreen({
       <Row
         align="center"
         justify="between"
+        wrap
+        gap={3}
         className="mx-auto w-full max-w-6xl px-4 py-6 text-sm text-muted-foreground"
       >
         <span>{siteConfig.name}</span>
-        <Row align="center" gap={4}>
+        <Row align="center" gap={3} wrap>
           <span>Пет-проект · сделан нейросетями</span>
           <a
             href={siteConfig.repoUrl}
@@ -141,13 +143,28 @@ export function HomeScreen({
     <Col>
       <TournamentStrip tournament={tournament!} snapshot={liveSnapshot} phase={phase} now={now} />
 
-      <Row gap={4} align="start" className="mx-auto w-full max-w-6xl">
-        <Col className="min-w-0 flex-1">
+      {/*
+        Одна колонка на телефоне/планшете, контент + рельс 320px от `lg`
+        (тот же трек, что у кабинета и страницы этапа). Раньше здесь был
+        флекс-ряд без переноса, и на 360px обе колонки ужимались до ~172px,
+        а их содержимое вылезало наружу — заголовки «Площадки прямо сейчас»
+        и «Номинации» наезжали друг на друга (0044 NFR-1/FR-3/FR-4).
+
+        `px-4` на контейнере намеренно НЕТ: боковые отступы дают дети
+        (`ArenasNow`/`BoutFeed`/`NominationsRail`, у каждого свой `px-4`).
+        Добавить его сюда — получить двойной отступ.
+
+        `min-w-0` у колонки — против `min-width: auto` у grid-элемента:
+        иначе широкая таблица ленты боёв (`min-w-[640px]`) распёрла бы трек
+        `1fr` и вернула горизонтальный скролл всей страницы.
+      */}
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 lg:grid-cols-[1fr_320px] lg:gap-4" data-testid="home-live-layout">
+        <Col className="min-w-0">
           {phase === "running" && <ArenasNow arenas={liveSnapshot.arenas} />}
           <BoutFeed bouts={liveSnapshot.bouts} nominations={liveSnapshot.nominations} />
         </Col>
         <NominationsRail nominations={liveSnapshot.nominations} />
-      </Row>
+      </div>
 
       {!anyRegistrationOpen && <RegistrationClosed isAuthenticated={isAuthenticated} />}
 

@@ -33,7 +33,7 @@ export function BoutFeed({
   const visible = sortFeed(filterFeed(bouts, filter));
 
   return (
-    <section id="bout-feed" className="mx-auto w-full max-w-6xl px-4 py-8">
+    <section id="bout-feed" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 py-8">
       <Col gap={4}>
         <h2 className="text-xl font-semibold tracking-tight">Лента боёв</h2>
 
