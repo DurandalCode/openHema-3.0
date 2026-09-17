@@ -4,7 +4,7 @@
 > проекта. Заполняется только когда в `spec.md` нет открытых
 > `[NEEDS CLARIFICATION]`.
 
-- Статус: ready
+- Статус: done
 - Дата: 2026-09-17
 - Спека: `./spec.md`
 
@@ -187,8 +187,11 @@ message ImportFightersResponse {
   `NominationsByTournament(ctx, tournamentID) ([]NominationRef, error)`,
   где `NominationRef{ID, Title string}` — резолв названий требует списка, а
   существующий `Nomination(ctx, id)` отдаёт только `TournamentID`.
-- Порт `Repository` — без изменений: `ListByTournament` с пустым
-  `RosterFilter` даёт снимок ростера, `Create`/`Update` применяют план.
+- Порт `Repository` — без изменений. **Поправка, найденная при реализации:**
+  `ListByTournament` с пустым `RosterFilter` снимка ростера НЕ даёт — после
+  спеки 0041 `Limit` уходит в SQL как есть (`LIMIT sqlc.arg(row_limit)` без
+  `NULLIF`), и `LIMIT 0` возвращает ноль строк. Снимок собирается страницами
+  (`service.loadRoster`, по 500). `Create`/`Update` применяют план.
 
 ### `service/` — `modules/fighter/service/import.go`
 
@@ -205,7 +208,7 @@ message ImportFightersResponse {
    названий; `cmd.DefaultNominationIDs` проверяются на принадлежность
    турниру (чужой id → `ErrNominationNotFound`, это ошибка запроса, не
    строки — id приходит из UI, а не из файла);
-5. ростер: `Repository.ListByTournament(tournamentID, RosterFilter{})`;
+5. ростер: `loadRoster` — страницами по 500 (см. поправку выше);
 6. `domain.PlanImport(...)`;
 7. `dry_run` → вернуть отчёт (ничего не записано, AC-2);
 8. применение построчно: `created` → `Repository.Create`, `updated` →
@@ -250,7 +253,7 @@ CREATE INDEX idx_fighters_name_club
 `module.go` и `internal/platform` меняются в одной точке: адаптер
 `FighterNominationProvider` (`internal/platform/fighter_provider.go`)
 получает метод `NominationsByTournament` поверх
-`nomservice.ListNominations`. Новых зависимостей между модулями не
+`nomservice.List`. Новых зависимостей между модулями не
 появляется — `fighter → nomination` уже есть.
 
 - Межмодульные зависимости: `fighter → nomination` (расширяется),
