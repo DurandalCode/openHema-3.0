@@ -207,14 +207,14 @@ describe("BracketSeeding", () => {
 
   it("a failed slot clear shows a translated error toast", () => {
     clearMutate.mockImplementation((_slot, options: { onError?: (err: Error) => void }) => {
-      options?.onError?.(new Error("bracket: layout is ready, cannot modify"));
+      options?.onError?.(new Error(bracketErrorMessage("bracket: layout is ready, cannot modify", 409)));
     });
 
     render(<BracketSeeding stageId="stage-1" />);
     fireEvent.click(screen.getByLabelText("Освободить слот 1"));
 
     expect(toastErrorMock).toHaveBeenCalledWith(
-      bracketErrorMessage("bracket: layout is ready, cannot modify"),
+      bracketErrorMessage("bracket: layout is ready, cannot modify", 409),
       undefined,
     );
   });
@@ -237,7 +237,7 @@ describe("BracketSeeding", () => {
 
   it("a failed seed drag shows a translated error toast (slot occupied)", () => {
     seedMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
-      options?.onError?.(new Error("bracket: slot occupied"));
+      options?.onError?.(new Error(bracketErrorMessage("bracket: slot occupied", 409)));
     });
 
     render(<BracketSeeding stageId="stage-1" />);
@@ -246,7 +246,7 @@ describe("BracketSeeding", () => {
       over: { data: { current: { slot: 2 } } },
     });
 
-    expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied"), undefined);
+    expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied", 409), undefined);
   });
 
   // Спека 0032, FR-3: статус/фиксация ушли из тулбара в PageHeader (по
@@ -307,7 +307,7 @@ describe("BracketSeeding", () => {
 
   it("shows a retryable, translated error toast when reset fails", () => {
     resetMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
-      options.onError?.(new Error("сеть недоступна"));
+      options.onError?.(new Error(bracketErrorMessage("сеть недоступна")));
     });
 
     render(<BracketSeeding stageId="stage-1" />);
@@ -346,13 +346,13 @@ describe("BracketSeeding", () => {
   it("a failed toolbar Отменить shows a translated error toast", () => {
     mockBracketData(readyBracket(true));
     undoMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
-      options?.onError?.(new Error("nothing to undo"));
+      options?.onError?.(new Error(bracketErrorMessage("nothing to undo", 409)));
     });
 
     render(<BracketSeeding stageId="stage-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Отменить/i }));
 
-    expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("nothing to undo"), undefined);
+    expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("nothing to undo", 409), undefined);
   });
 
   // Спека 0032, FR-23: скелетон в форме экрана (нераспределённые + пары),
@@ -425,14 +425,14 @@ describe("BracketSeeding", () => {
 
     it("shows a translated error toast when a menu seed fails, without a success toast", () => {
       seedMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
-        options?.onError?.(new Error("bracket: slot occupied"));
+        options?.onError?.(new Error(bracketErrorMessage("bracket: slot occupied", 409)));
       });
 
       render(<BracketSeeding stageId="stage-1" />);
       openMenu("Поставить b3 в слот");
       fireEvent.click(screen.getByRole("menuitem", { name: "В слот 2" }));
 
-      expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied"), undefined);
+      expect(toastErrorMock).toHaveBeenCalledWith(bracketErrorMessage("bracket: slot occupied", 409), undefined);
       expect(toastSuccessMock).not.toHaveBeenCalled();
     });
 

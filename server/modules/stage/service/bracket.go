@@ -262,7 +262,7 @@ func (s *Service) SeedBracketSlot(ctx context.Context, stageID string, slot int,
 		return domain.Bracket{}, domain.ErrSlotOccupied
 	}
 
-	containerID, err := s.containerOfHalf(ctx, stageID, domain.HalfOfSlot(stage.Bracket, slot))
+	containerID, err := s.containerOfHalf(ctx, stage, domain.HalfOfSlot(stage.Bracket, slot))
 	if err != nil {
 		return domain.Bracket{}, err
 	}
@@ -328,8 +328,16 @@ func (s *Service) GetBracket(ctx context.Context, stageID string) (domain.Bracke
 
 // containerOfHalf возвращает id контейнера-владельца half первого круга
 // этапа (number 1 или 2 — см. CreateStage).
-func (s *Service) containerOfHalf(ctx context.Context, stageID string, half int) (string, error) {
-	pools, err := s.repo.PoolsByStage(ctx, stageID)
+//
+// Недостающий контейнер создаётся на месте (lazy-init, как у GetLayout).
+// Штатно этого не случается: обе половины заводит CreateStage, а
+// ResetLayout/unlockBracket/undoBuild их не трогают. Но сетки, сброшенные
+// версией, где ResetLayout сносил пулы этапа целиком, остались без
+// контейнеров и без посева — без ленивого пересоздания их не починить
+// ничем, кроме ручного SQL. Вызывается уже после гейта draft и валидации
+// слота, так что новых путей записи не открывает.
+func (s *Service) containerOfHalf(ctx context.Context, stage domain.Stage, half int) (string, error) {
+	pools, err := s.repo.PoolsByStage(ctx, stage.ID)
 	if err != nil {
 		return "", err
 	}
@@ -338,7 +346,24 @@ func (s *Service) containerOfHalf(ctx context.Context, stageID string, half int)
 			return p.ID, nil
 		}
 	}
-	return "", domain.ErrNotFound
+	pool, err := s.repo.CreatePool(ctx, stage.ID, domain.ContainerNumberOf(stage.Bracket, 1, half))
+	if err != nil {
+		return "", err
+	}
+	return pool.ID, nil
+}
+
+// ensureHalfContainers гарантирует, что у сетки есть оба контейнера первого
+// круга, — предусловие любой посадки бойца в слот (ручной и через
+// формирование, где посев уходит в repo одной пачкой и половину искать уже
+// поздно). См. containerOfHalf о том, откуда берутся сетки без контейнеров.
+func (s *Service) ensureHalfContainers(ctx context.Context, stage domain.Stage) error {
+	for half := 1; half <= 2; half++ {
+		if _, err := s.containerOfHalf(ctx, stage, half); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // syncBracketRegistration синхронизирует состояние номинации после

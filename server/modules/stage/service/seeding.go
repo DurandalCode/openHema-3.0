@@ -430,6 +430,16 @@ func (s *Service) BuildStage(ctx context.Context, stageID string, ties []domain.
 		return domain.Layout{}, domain.Bracket{}, domain.ErrCapacityExceeded
 	}
 
+	// ApplyStageBuild раскладывает посев по контейнерам половин одной пачкой
+	// и на отсутствующей половине отвечает ErrNotFound — убеждаемся, что обе
+	// на месте (см. containerOfHalf: сетки, сброшенные старым ResetLayout,
+	// остались без контейнеров).
+	if stage.Type == domain.StageTypeBracket {
+		if err := s.ensureHalfContainers(ctx, stage); err != nil {
+			return domain.Layout{}, domain.Bracket{}, err
+		}
+	}
+
 	if err := s.repo.ApplyStageBuild(ctx, stageID, plan.Groups, plan.Seeds); err != nil {
 		return domain.Layout{}, domain.Bracket{}, err
 	}

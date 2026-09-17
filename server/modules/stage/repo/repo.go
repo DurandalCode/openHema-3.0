@@ -775,6 +775,72 @@ func (r *Repo) DeletePool(ctx context.Context, poolID string) error {
 	return nil
 }
 
+// snapshotStagePools собирает undo-снапшот состава этапа: пулы по номерам с
+// их членствами и слотами. Общее начало ResetLayout и ResetSeeding — они
+// различаются только тем, что удаляют дальше (пулы целиком либо одни
+// членства), снапшот у обоих один и тот же.
+func snapshotStagePools(ctx context.Context, q *sqlc.Queries, sid uuid.UUID) ([]undoPoolJSON, error) {
+	poolRows, err := q.ListPoolsByStage(ctx, sid)
+	if err != nil {
+		return nil, fmt.Errorf("list pools: %w", err)
+	}
+	memberRows, err := q.ListMembersByStage(ctx, sid)
+	if err != nil {
+		return nil, fmt.Errorf("list members: %w", err)
+	}
+	byPool := make(map[uuid.UUID][]undoMemberJSON, len(poolRows))
+	for _, m := range memberRows {
+		byPool[m.PoolID] = append(byPool[m.PoolID], undoMemberJSON{FighterID: m.FighterID.String(), Slot: fromNullableInt32(m.Slot)})
+	}
+	pools := make([]undoPoolJSON, 0, len(poolRows))
+	for _, p := range poolRows {
+		pools = append(pools, undoPoolJSON{Number: int(p.Number), Members: byPool[p.ID]})
+	}
+	return pools, nil
+}
+
+// ResetSeeding атомарно снимает весь посев этапа-сетки, НЕ трогая контейнеры
+// половин, и записывает тот же undo-снапшот, что и ResetLayout (kind=reset,
+// спека 0018, FR-8). Контейнеры первого круга создаёт CreateStage, они
+// принадлежат этапу, а не составу: удалив их, посев больше не восстановить
+// (containerOfHalf не нашёл бы половину). Тот же инвариант соблюдают
+// undoBuild и unlockBracket.
+func (r *Repo) ResetSeeding(ctx context.Context, stageID string) error {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return fmt.Errorf("parse stage id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	pools, err := snapshotStagePools(ctx, q, sid)
+	if err != nil {
+		return err
+	}
+
+	if err := q.DeleteMembersByStage(ctx, sid); err != nil {
+		return fmt.Errorf("delete members: %w", err)
+	}
+	undoData, err := encodeUndo(undoDataJSON{Pools: pools})
+	if err != nil {
+		return err
+	}
+	if err := q.SetStageUndo(ctx, sqlc.SetStageUndoParams{
+		ID: sid, UndoKind: string(domain.UndoReset), UndoData: undoData,
+	}); err != nil {
+		return fmt.Errorf("set stage undo: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // ResetLayout атомарно удаляет все пулы этапа, записывает undo-снапшот всех
 // пулов с их членствами, включая слоты посева (kind=reset, спека 0018,
 // FR-8).
@@ -792,21 +858,9 @@ func (r *Repo) ResetLayout(ctx context.Context, stageID string) error {
 	q := r.q.WithTx(tx)
 
 	// Снапшот всех пулов этапа (number + члены со слотами) до удаления.
-	poolRows, err := q.ListPoolsByStage(ctx, sid)
+	pools, err := snapshotStagePools(ctx, q, sid)
 	if err != nil {
-		return fmt.Errorf("list pools: %w", err)
-	}
-	memberRows, err := q.ListMembersByStage(ctx, sid)
-	if err != nil {
-		return fmt.Errorf("list members: %w", err)
-	}
-	byPool := make(map[uuid.UUID][]undoMemberJSON, len(poolRows))
-	for _, m := range memberRows {
-		byPool[m.PoolID] = append(byPool[m.PoolID], undoMemberJSON{FighterID: m.FighterID.String(), Slot: fromNullableInt32(m.Slot)})
-	}
-	pools := make([]undoPoolJSON, 0, len(poolRows))
-	for _, p := range poolRows {
-		pools = append(pools, undoPoolJSON{Number: int(p.Number), Members: byPool[p.ID]})
+		return err
 	}
 
 	if err := q.DeleteAllPoolsByStage(ctx, sid); err != nil {
@@ -827,12 +881,11 @@ func (r *Repo) ResetLayout(ctx context.Context, stageID string) error {
 	return nil
 }
 
-// UndoReset пересоздаёт все пулы этапа из снапшота с теми же номерами и
-// членами (со слотами, спека 0018), очищает undo (AC-13a4). Идемпотентно:
-// повторный вызов даёт тот же результат (InsertPool на свободный номер +
-// InsertMember; если пул с номером уже существует — UNIQUE(stage_id,
-// number) даст конфликт, но после undo undo обнулён, повторный undo не
-// должен доходить сюда).
+// UndoReset восстанавливает состав этапа из снапшота: пулы с теми же
+// номерами и членами (со слотами, спека 0018), затем очищает undo (AC-13a4).
+// Пул берётся по номеру через UpsertPool, а не слепым INSERT: после
+// ResetSeeding контейнеры половин сетки живы, и снапшот ложится поверх них —
+// слепой INSERT упёрся бы в UNIQUE(stage_id, number).
 func (r *Repo) UndoReset(ctx context.Context, stageID string, pools []domain.ResetPool) error {
 	sid, err := uuid.Parse(stageID)
 	if err != nil {
@@ -847,9 +900,9 @@ func (r *Repo) UndoReset(ctx context.Context, stageID string, pools []domain.Res
 	q := r.q.WithTx(tx)
 
 	for _, p := range pools {
-		poolRow, err := q.InsertPool(ctx, sqlc.InsertPoolParams{StageID: sid, Number: int32(p.Number)})
+		poolRow, err := q.UpsertPool(ctx, sqlc.UpsertPoolParams{StageID: sid, Number: int32(p.Number)})
 		if err != nil {
-			return fmt.Errorf("insert pool %d: %w", p.Number, err)
+			return fmt.Errorf("upsert pool %d: %w", p.Number, err)
 		}
 		for _, m := range p.Members {
 			fid, err := uuid.Parse(m.FighterID)

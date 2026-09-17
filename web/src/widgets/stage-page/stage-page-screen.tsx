@@ -17,7 +17,6 @@ import { useSetLayoutStatus } from "@/features/nomination-pools/api/use-set-layo
 import { NominationPools } from "@/features/nomination-pools/ui/nomination-pools";
 import { useBracket } from "@/features/bracket-seeding/api/use-bracket";
 import { useSetBracketStatus } from "@/features/bracket-seeding/api/use-set-bracket-status";
-import { bracketErrorMessage } from "@/features/bracket-seeding/api/errors";
 import { BracketSeeding } from "@/features/bracket-seeding/ui/bracket-seeding";
 import { StageSummaryCards } from "./stage-summary-cards";
 import { StageActions } from "./stage-actions";
@@ -103,7 +102,7 @@ export function StagePageScreen({
     if (isBracket) {
       setBracketStatus.mutate(nextStatus, {
         onSuccess,
-        onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+        onError: (err: Error) => toastError(err.message),
       });
     } else {
       setLayoutStatus.mutate(nextStatus, {

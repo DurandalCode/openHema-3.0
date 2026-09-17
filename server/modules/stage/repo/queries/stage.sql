@@ -276,6 +276,22 @@ DELETE FROM stage.pools WHERE id = $1;
 -- name: DeleteAllPoolsByStage :exec
 DELETE FROM stage.pools WHERE stage_id = $1;
 
+-- name: DeleteMembersByStage :exec
+-- Снимает весь состав этапа, не трогая контейнеры — сброс посева сетки
+-- (ResetSeeding). Контейнеры половин принадлежат этапу, а не составу.
+DELETE FROM stage.pool_members WHERE stage_id = $1;
+
+-- name: UpsertPool :one
+-- InsertPool, терпимый к уже существующему номеру: UndoReset восстанавливает
+-- снапшот поверх контейнеров, переживших сброс посева сетки, и слепой INSERT
+-- упёрся бы в uq_pools_stage_number.
+INSERT INTO stage.pools (stage_id, nomination_id, number)
+SELECT sqlc.arg(stage_id)::uuid, s.nomination_id, sqlc.arg(number)::int
+FROM stage.stages s
+WHERE s.id = sqlc.arg(stage_id)::uuid
+ON CONFLICT (stage_id, number) DO UPDATE SET number = EXCLUDED.number
+RETURNING id, stage_id, nomination_id, number;
+
 -- name: DeleteContainers :exec
 -- Удаляет контейнеры (пулы) по id, каскадом членства (спека 0018) —
 -- расфиксация сетки удаляет так круги >= 2 (первый круг и посев остаются).

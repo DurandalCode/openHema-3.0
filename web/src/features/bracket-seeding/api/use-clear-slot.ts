@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Bracket } from "@/entities/bracket/lib/types";
 import { clearSlotRequest } from "./requests";
 import { bracketSeedingKeys } from "./keys";
+import { bracketErrorMessage } from "./errors";
 import { clearSlotInBracket } from "../lib/seed-fighter";
 
 /**
@@ -16,7 +17,7 @@ export function useClearSlot(stageId: string) {
   return useMutation({
     mutationFn: async (slot: number) => {
       const res = await clearSlotRequest(stageId, slot);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(bracketErrorMessage(res.error, res.status));
       return res.bracket;
     },
     onMutate: async (slot) => {
