@@ -5,7 +5,7 @@ import { Col, Row } from "@/shared/ui/stack";
 import { poolStatusLabel, type PoolStatus } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
 import type { LivePoolDto } from "@/entities/nomination-live/lib/types";
-import { BoutRow } from "@/widgets/nomination-public/bout-row";
+import { BoutRow } from "@/entities/pool/ui/bout-row";
 
 /** poolStatusTone — статусный тон группы (дизайн-система 0022, тот же приём, что у половины сетки — `widgets/bracket-view`). */
 function poolStatusTone(status: PoolStatus): "neutral" | "info" | "warn" | "live" | "success" {

@@ -9,7 +9,7 @@ import { cn } from "@/shared/lib/cn";
 import { stageConfigLabel, stageExecutionStatusLabel, stageTypeLabel } from "@/entities/stage/lib/labels";
 import { stageProgressFromSnapshot } from "@/entities/stage/lib/progress";
 import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
-import { useLiveSnapshot } from "@/features/nomination-live/api/use-live-snapshot";
+import type { NominationLiveSnapshotDto } from "@/entities/nomination-live/lib/types";
 import { SchemaDiagnostics } from "@/widgets/nomination-schema/schema-diagnostics";
 
 /**
@@ -19,10 +19,12 @@ import { SchemaDiagnostics } from "@/widgets/nomination-schema/schema-diagnostic
  * пересортировывается) со ссылками на страницы этапов, пометкой текущего
  * этапа и счётчиками боёв, плюс диагностика схемы снизу.
  *
- * Счётчики (`stageProgressFromSnapshot`, NFR-5) берутся из собственного
- * `useLiveSnapshot(nominationId)` — рельс не переиспользует запрос тела
- * страницы: снапшот один на номинацию и кэшируется TanStack Query по
- * общему ключу, второй сети не возникает. Этап без записи в снапшоте
+ * Счётчики (`stageProgressFromSnapshot`, NFR-5) считаются из живого
+ * снапшота номинации, который приходит ПРОПОМ от `StagePageScreen` (спека
+ * 0051). Раньше рельс звал `useLiveSnapshot` сам: при кэшируемом `useQuery`
+ * это было безопасно (общий ключ, второй сети не возникает), но живой канал
+ * так не делится — два вызова открыли бы два потока. Владелец подписки
+ * теперь один на экран. Этап без записи в снапшоте
  * (черновик — раскладка ещё не зафиксирована) показывает только конфиг и
  * статус, без «0 из 0» (FR-18, второй кейс AC-12).
  *
@@ -36,13 +38,15 @@ export function StageRail({
   currentStageId,
   stages,
   issues,
+  snapshot,
 }: {
   nominationId: string;
   currentStageId: string;
   stages: Stage[];
   issues: SchemaIssue[];
+  /** Живой снапшот номинации от `StagePageScreen` — единственного владельца подписки. */
+  snapshot: NominationLiveSnapshotDto | null;
 }) {
-  const { data: snapshot } = useLiveSnapshot(nominationId);
   const progress = snapshot ? stageProgressFromSnapshot(snapshot) : {};
 
   return (

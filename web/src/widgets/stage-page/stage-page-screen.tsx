@@ -15,7 +15,10 @@ import { useStages } from "@/features/stage-management/api/use-stages";
 import { useLayout } from "@/features/nomination-pools/api/use-layout";
 import { useSetLayoutStatus } from "@/features/nomination-pools/api/use-set-layout-status";
 import { NominationPools } from "@/features/nomination-pools/ui/nomination-pools";
+import { useNominationLive } from "@/features/nomination-live/api/use-nomination-live";
+import { emptyNominationLiveSnapshot } from "@/entities/nomination-live/lib/types";
 import { useBracket } from "@/features/bracket-seeding/api/use-bracket";
+import { useBracketLiveSync } from "@/features/bracket-seeding/api/use-bracket-live-sync";
 import { useSetBracketStatus } from "@/features/bracket-seeding/api/use-set-bracket-status";
 import { bracketErrorMessage } from "@/features/bracket-seeding/api/errors";
 import { BracketSeeding } from "@/features/bracket-seeding/ui/bracket-seeding";
@@ -60,6 +63,25 @@ export function StagePageScreen({
   const bracketQuery = useBracket(stage && isBracket ? stageId : "");
   const setLayoutStatus = useSetLayoutStatus(stageId);
   const setBracketStatus = useSetBracketStatus(stageId);
+  // Единственный владелец живого снапшота номинации на экране (спека 0051,
+  // NFR-1): им кормятся и карточки групп (результаты боёв), и рельс
+  // прогресса. Держать по подписке в каждом — значит открыть два SSE-канала
+  // на один поток; раньше это сходило с рук только потому, что снапшот
+  // тянулся кэшируемым `useQuery` по общему ключу.
+  //
+  // Тот же `useNominationLive`, что и у публичной страницы (спека 0014):
+  // SSE + polling-фоллбэк при неустранимом обрыве, то есть при недоступности
+  // канала экран показывает последнее известное состояние, а не пустоту
+  // (NFR-3). SSR-снапшота у админского экрана нет — стартуем с пустого, его
+  // заменит первый же кадр.
+  const liveSnapshot = useNominationLive(
+    nomination.id,
+    emptyNominationLiveSnapshot(nomination.id),
+  );
+  // Сетка счёт уже показывает, но тянет его разовым `useBracket` — живой
+  // канал лишь сообщает ей, что результаты изменились и пора перечитать
+  // (спека 0051, FR-8). No-op на групповом этапе.
+  useBracketLiveSync(stageId, liveSnapshot);
 
   if (isLoading) {
     return <StagePageSkeleton />;
@@ -150,7 +172,11 @@ export function StagePageScreen({
 
         <Row gap={6} align="start" wrap>
           <div className="min-w-0 flex-1">
-            {isBracket ? <BracketSeeding stageId={stageId} /> : <NominationPools stageId={stageId} />}
+            {isBracket ? (
+              <BracketSeeding stageId={stageId} />
+            ) : (
+              <NominationPools stageId={stageId} livePools={liveSnapshot.pools} />
+            )}
           </div>
           <div className="w-full shrink-0 lg:w-[320px]">
             <StageRail
@@ -158,6 +184,7 @@ export function StagePageScreen({
               currentStageId={stageId}
               stages={stages}
               issues={issues}
+              snapshot={liveSnapshot}
             />
           </div>
         </Row>

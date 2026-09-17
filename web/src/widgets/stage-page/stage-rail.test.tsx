@@ -7,10 +7,6 @@ import type { FighterRef } from "@/entities/pool/lib/types";
 import type { SchemaIssue, Stage } from "@/entities/stage/lib/types";
 import { emptyNominationResults } from "@/entities/nomination-results/lib/types";
 
-const useLiveSnapshotMock = vi.fn();
-vi.mock("@/features/nomination-live/api/use-live-snapshot", () => ({
-  useLiveSnapshot: (nominationId: string) => useLiveSnapshotMock(nominationId),
-}));
 
 afterEach(() => {
   cleanup();
@@ -110,13 +106,13 @@ function renderRail(overrides: Partial<{
   issues: SchemaIssue[];
   snapshot: NominationLiveSnapshotDto | null;
 }> = {}) {
-  useLiveSnapshotMock.mockReturnValue({ data: overrides.snapshot ?? null });
   render(
     <StageRail
       nominationId="n1"
       currentStageId={overrides.currentStageId ?? "s2"}
       stages={overrides.stages ?? [groupsStage, bracketStage, semifinalStage]}
       issues={overrides.issues ?? []}
+      snapshot={overrides.snapshot ?? null}
     />,
   );
 }
