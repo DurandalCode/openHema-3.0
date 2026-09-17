@@ -27,14 +27,24 @@ async function fetchBoard(arenaId: string): Promise<BoutBoardDto | null> {
   }
 }
 
-/** emptySnapshotFromBoard — снапшот-заглушка на время до первого SSE-кадра. */
-function emptySnapshotFromBoard(board: BoutBoardDto | null): ArenaLiveSnapshotDto | null {
+/**
+ * emptySnapshotFromBoard — снапшот-заглушка на время до первого SSE-кадра.
+ * `defaultDurationSeconds` приходит от страницы (она и так грузит арену
+ * серверным рендером): иначе таймер до первого кадра показывал бы хардкод
+ * 90с, расходясь с подписью «Длительность: Nс» — половина полевого бага
+ * «1:30 при 60с».
+ */
+function emptySnapshotFromBoard(
+  board: BoutBoardDto | null,
+  defaultDurationSeconds: number,
+): ArenaLiveSnapshotDto | null {
   if (!board) return null;
+  const defaultCs = defaultDurationSeconds * 100;
   return {
     board,
-    timer: { status: "TIMER_STATUS_STOPPED", remainingCs: 0, sampledUnixMs: "0", defaultCs: 0 },
+    timer: { status: "TIMER_STATUS_STOPPED", remainingCs: defaultCs, sampledUnixMs: "0", defaultCs },
     room: { scoreboardCount: 0, thisOrdinal: 0, thisIsSource: false, sidesSwapped: false, revealGeneration: 0 },
-    defaultDurationSeconds: 90,
+    defaultDurationSeconds,
     serverNowUnixMs: "0",
   };
 }
@@ -90,15 +100,22 @@ export function useArenaLive(
   arenaId: string,
   role: "scoreboard" | "panel",
   initialBoard: BoutBoardDto | null,
+  defaultDurationSeconds = 90,
 ): UseArenaLiveResult {
   const [snapshot, setSnapshot] = useState<ArenaLiveSnapshotDto | null>(() =>
-    emptySnapshotFromBoard(initialBoard),
+    emptySnapshotFromBoard(initialBoard, defaultDurationSeconds),
   );
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [connection, setConnection] = useState<"live" | "lost">("live");
   const [lostSinceMs, setLostSinceMs] = useState<number | null>(null);
   const listenersRef = useRef<Set<(command: TimerCommandDto) => void>>(new Set());
   const reconnectRef = useRef<() => void>(() => {});
+  // В ref, а не в зависимостях SSE-эффекта: дефолт площадки может смениться
+  // на лету, и попади он в deps — живой стрим пересоздавался бы на каждую
+  // такую правку. Нужен он только в редкой ветке polling-фоллбэка, когда
+  // снапшота ещё нет вовсе.
+  const defaultDurationRef = useRef(defaultDurationSeconds);
+  defaultDurationRef.current = defaultDurationSeconds;
 
   useEffect(() => {
     let cancelled = false;
@@ -131,7 +148,9 @@ export function useArenaLive(
       pollInterval = setInterval(async () => {
         const board = await fetchBoard(arenaId);
         if (!cancelled && board) {
-          setSnapshot((prev) => (prev ? { ...prev, board } : emptySnapshotFromBoard(board)));
+          setSnapshot((prev) =>
+            prev ? { ...prev, board } : emptySnapshotFromBoard(board, defaultDurationRef.current),
+          );
           markLive();
         }
       }, POLL_INTERVAL_MS);

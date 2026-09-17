@@ -649,19 +649,11 @@ func (h *AdminHandler) ResetCurrentBout(
 // контекста клиентом (обрыв соединения — штатный путь, как
 // WatchNominationLive).
 //
-// ИЗВЕСТНЫЙ ПРОБЕЛ (обнаружен при написании этого хендлера, спека 0015,
-// вне скоупа модуля pool): смонтированные на StageAdminService интерсепторы
-// connectutil.Auth/RequireAdmin — connect.UnaryInterceptorFunc, у которого
-// WrapStreamingHandler — намеренный no-op в самом connect-go («has no
-// effect on streaming RPCs»). Это означает, что FR-1 («Admin-only») сейчас
-// НЕ соблюдается для этого RPC — запрос без токена/от не-admin проходит и
-// получает обычный снапшот. WatchNominationLive (спека 0014) — тоже
-// streaming, но намеренно публичный, поэтому тот же пробел там незаметен.
-// Фикс требует правки server/pkg/connectutil (полноценный
-// connect.Interceptor с реальным WrapStreamingHandler) — за пределами
-// разрешённых для этого трека файлов (server/modules/stage/**), см.
-// handler_test.go рядом с (отсутствующими намеренно) auth-тестами этого
-// RPC.
+// FR-1 («Admin-only») для этого streaming-RPC соблюдается:
+// connectutil.Auth/RequireAdmin реализуют полноценный WrapStreamingHandler
+// (см. pkg/connectutil/auth_interceptor.go), что закреплено E2E-тестами
+// WatchArenaBoard_E2E_NoTokenReturnsUnauthenticated и
+// …_NonAdminReturnsPermissionDenied.
 func (h *AdminHandler) WatchArenaBoard(
 	ctx context.Context,
 	req *connect.Request[hemav1.WatchArenaBoardRequest],
@@ -1875,8 +1867,10 @@ func toDomainTimerCommandKind(k hemav1.TimerCommandKind) domain.TimerCommandKind
 
 // toDomainScoreboardRole маппит роль подписчика WatchArenaBoard (спека
 // 0015): неизвестное/UNSPECIFIED значение трактуется как PANEL (не участвует
-// в ordinal/source, this_ordinal всегда 0) — консервативный дефолт, не
-// позволяющий немаркированному клиенту случайно стать источником таймера.
+// в нумерации, this_ordinal всегда 0). Дефолт остаётся консервативным в том
+// смысле, который сохранился после введения фоллбэка: немаркированный клиент
+// может стать источником только в комнате, где табло нет вовсе, и любое
+// подключившееся табло его немедленно вытесняет.
 func toDomainScoreboardRole(r hemav1.ScoreboardRole) domain.ScoreboardRole {
 	if r == hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD {
 		return domain.ScoreboardRoleScoreboard

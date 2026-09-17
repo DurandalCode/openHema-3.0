@@ -57,10 +57,12 @@ func TestArenaRooms_LeaveReindexesRemaining(t *testing.T) {
 	}
 }
 
-// TestArenaRooms_PanelNeverOrdinalOrSource — panel-участник всегда
-// this_ordinal=0, is_source=false, не считается при вычислении ordinals
-// табло.
-func TestArenaRooms_PanelNeverOrdinalOrSource(t *testing.T) {
+// TestArenaRooms_PanelHasNoOrdinalAndYieldsSourceToScoreboard — пока в
+// комнате есть хотя бы одно табло, panel-участник всегда this_ordinal=0,
+// is_source=false и не считается при вычислении ordinals табло. (Без табло
+// панель становится фоллбэк-источником — см.
+// TestArenaRooms_PanelIsSourceWhenNoScoreboards.)
+func TestArenaRooms_PanelHasNoOrdinalAndYieldsSourceToScoreboard(t *testing.T) {
 	r := newArenaRooms()
 	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
 	panel := r.join("a1", domain.ScoreboardRolePanel)
@@ -79,10 +81,12 @@ func TestArenaRooms_PanelNeverOrdinalOrSource(t *testing.T) {
 	}
 }
 
-// TestArenaRooms_LastScoreboardLeavingClearsFrame — отключение последнего
-// табло из комнаты → следующий frame() видит отсутствие закешированного
-// кадра (таймер «умер»), даже если панель осталась подключена.
-func TestArenaRooms_LastScoreboardLeavingClearsFrame(t *testing.T) {
+// TestArenaRooms_LastScoreboardLeavingPromotesPanelAndKeepsFrame —
+// отключение последнего табло больше НЕ убивает таймер: оставшаяся панель
+// становится фоллбэк-источником, закешированный кадр сохраняется (чтобы ей
+// было чем засеяться — «время переезжает»), и она получает сигнал о
+// повышении. Кадр умирает только вместе с комнатой, когда та пустеет.
+func TestArenaRooms_LastScoreboardLeavingPromotesPanelAndKeepsFrame(t *testing.T) {
 	r := newArenaRooms()
 	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
 	panel := r.join("a1", domain.ScoreboardRolePanel)
@@ -91,25 +95,41 @@ func TestArenaRooms_LastScoreboardLeavingClearsFrame(t *testing.T) {
 	if _, ok := r.frame("a1"); !ok {
 		t.Fatalf("expected cached frame after publishFrame")
 	}
+	drain(panel.boardCh)
 
 	r.leave("a1", scoreboard)
 
-	if _, ok := r.frame("a1"); ok {
-		t.Fatalf("expected no cached frame after last scoreboard left")
+	got, ok := r.frame("a1")
+	if !ok {
+		t.Fatalf("expected cached frame to survive the last scoreboard leaving")
+	}
+	if got.RemainingCS != 1234 {
+		t.Errorf("frame after promotion = %+v, want RemainingCS 1234", got)
 	}
 
-	// Панель ещё в комнате — комната не удалена целиком, но табло 0.
 	v := r.view("a1", panel)
 	if v.ScoreboardCount != 0 {
 		t.Errorf("ScoreboardCount = %d, want 0", v.ScoreboardCount)
 	}
+	if !v.ThisIsSource {
+		t.Errorf("panel view = %+v, want ThisIsSource after the last scoreboard left", v)
+	}
+	if v.ThisOrdinal != 0 {
+		t.Errorf("panel ThisOrdinal = %d, want 0 even as fallback source", v.ThisOrdinal)
+	}
+	if !signalled(panel.boardCh) {
+		t.Errorf("expected the promoted panel to be signalled")
+	}
 
 	r.leave("a1", panel)
 	// Комната опустела целиком — view для несуществующей комнаты возвращает
-	// нулевое значение.
+	// нулевое значение, кадр умер вместе с ней.
 	v2 := r.view("a1", nil)
 	if v2.ScoreboardCount != 0 || v2.SidesSwapped {
 		t.Errorf("view after room emptied = %+v, want zero value", v2)
+	}
+	if _, ok := r.frame("a1"); ok {
+		t.Fatalf("expected no cached frame after the room emptied")
 	}
 }
 
@@ -171,18 +191,152 @@ func TestArenaRooms_RelayCommandGoesOnlyToSource(t *testing.T) {
 	}
 }
 
-// TestArenaRooms_RelayCommandNoScoreboardsIsNoop — нет табло в комнате →
-// no-op, ничего не паникует (в т.ч. для несуществующей комнаты).
-func TestArenaRooms_RelayCommandNoScoreboardsIsNoop(t *testing.T) {
+// TestArenaRooms_PanelIsSourceWhenNoScoreboards — в комнате без табло
+// источником становится первая панель (фоллбэк): ordinal у неё по-прежнему
+// 0 (нумерация — про табло, FR-12), ScoreboardCount тоже 0, и именно эта
+// пара значений кодирует для клиента «таймер идёт на этом экране».
+func TestArenaRooms_PanelIsSourceWhenNoScoreboards(t *testing.T) {
+	r := newArenaRooms()
+	first := r.join("a1", domain.ScoreboardRolePanel)
+	second := r.join("a1", domain.ScoreboardRolePanel)
+
+	v1 := r.view("a1", first)
+	if !v1.ThisIsSource {
+		t.Errorf("first panel view = %+v, want ThisIsSource", v1)
+	}
+	if v1.ThisOrdinal != 0 || v1.ScoreboardCount != 0 {
+		t.Errorf("first panel view = %+v, want ordinal 0 + ScoreboardCount 0", v1)
+	}
+
+	v2 := r.view("a1", second)
+	if v2.ThisIsSource {
+		t.Errorf("second panel view = %+v, want not source", v2)
+	}
+}
+
+// TestArenaRooms_RelayCommandGoesToPanelWhenNoScoreboards — команда
+// доставляется панели-фоллбэку, когда табло в комнате нет (иначе кнопки
+// Старт/Пауза/Сброс не работают вообще). Только первой панели; несуществующая
+// комната по-прежнему no-op.
+func TestArenaRooms_RelayCommandGoesToPanelWhenNoScoreboards(t *testing.T) {
 	r := newArenaRooms()
 	r.relayCommand("does-not-exist", domain.TimerCommand{Kind: domain.TimerCommandPause})
 
-	panel := r.join("a1", domain.ScoreboardRolePanel)
+	first := r.join("a1", domain.ScoreboardRolePanel)
+	second := r.join("a1", domain.ScoreboardRolePanel)
 	r.relayCommand("a1", domain.TimerCommand{Kind: domain.TimerCommandPause})
+
 	select {
-	case got := <-panel.cmdCh:
-		t.Errorf("panel unexpectedly got command: %+v", got)
+	case got := <-first.cmdCh:
+		if got.Kind != domain.TimerCommandPause {
+			t.Errorf("first panel got %+v, want PAUSE", got)
+		}
 	default:
+		t.Errorf("expected the fallback source panel to receive the command")
+	}
+	select {
+	case got := <-second.cmdCh:
+		t.Errorf("second panel unexpectedly got command: %+v", got)
+	default:
+	}
+}
+
+// TestArenaRooms_ScoreboardJoinTakesOverSourceFromPanel — табло всегда
+// главнее: подключившись в комнату, где источником была панель, оно
+// перехватывает источник, панель узнаёт об этом сигналом, а закешированный
+// кадр переживает перехват (новому источнику есть чем засеяться).
+func TestArenaRooms_ScoreboardJoinTakesOverSourceFromPanel(t *testing.T) {
+	r := newArenaRooms()
+	panel := r.join("a1", domain.ScoreboardRolePanel)
+	r.publishFrame("a1", domain.TimerFrame{Status: domain.TimerStatusRunning, RemainingCS: 4500})
+	drain(panel.boardCh)
+
+	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
+
+	vPanel := r.view("a1", panel)
+	if vPanel.ThisIsSource {
+		t.Errorf("panel view = %+v, want demoted once a scoreboard joined", vPanel)
+	}
+	vScoreboard := r.view("a1", scoreboard)
+	if vScoreboard.ThisOrdinal != 1 || !vScoreboard.ThisIsSource {
+		t.Errorf("scoreboard view = %+v, want ordinal 1 + source", vScoreboard)
+	}
+	if !signalled(panel.boardCh) {
+		t.Errorf("expected the demoted panel to be signalled about the takeover")
+	}
+	got, ok := r.frame("a1")
+	if !ok || got.RemainingCS != 4500 {
+		t.Errorf("frame after takeover = %+v (ok=%v), want RemainingCS 4500", got, ok)
+	}
+}
+
+// TestArenaRooms_PanelJoinDoesNotSignalOthers — вход панели ничего не
+// меняет в чужом view (панели не считаются, источник прежний), поэтому
+// сигнала быть не должно: лишний сигнал — это лишний дубль-снапшот в каждом
+// открытом стриме.
+func TestArenaRooms_PanelJoinDoesNotSignalOthers(t *testing.T) {
+	r := newArenaRooms()
+	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
+	drain(scoreboard.boardCh)
+
+	r.join("a1", domain.ScoreboardRolePanel)
+
+	if signalled(scoreboard.boardCh) {
+		t.Errorf("scoreboard unexpectedly signalled by a panel joining")
+	}
+}
+
+// TestArenaRooms_JoiningScoreboardIsNotSelfSignalled — вошедший сам уже
+// получает первый снапшот от WatchArenaBoard; разбудить вдобавок его
+// boardCh значило бы немедленно отправить второй идентичный кадр.
+func TestArenaRooms_JoiningScoreboardIsNotSelfSignalled(t *testing.T) {
+	r := newArenaRooms()
+	r.join("a1", domain.ScoreboardRolePanel)
+
+	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
+
+	if signalled(scoreboard.boardCh) {
+		t.Errorf("joining scoreboard unexpectedly signalled itself")
+	}
+}
+
+// TestArenaRooms_SourcePanelLeavingPromotesNextPanel — уход панели-источника
+// повышает следующую панель и сигналит ей (без этого она молча считала бы
+// себя ведомой).
+func TestArenaRooms_SourcePanelLeavingPromotesNextPanel(t *testing.T) {
+	r := newArenaRooms()
+	first := r.join("a1", domain.ScoreboardRolePanel)
+	second := r.join("a1", domain.ScoreboardRolePanel)
+	drain(second.boardCh)
+
+	r.leave("a1", first)
+
+	v := r.view("a1", second)
+	if !v.ThisIsSource {
+		t.Errorf("second panel view = %+v, want promoted to source", v)
+	}
+	if !signalled(second.boardCh) {
+		t.Errorf("expected the promoted panel to be signalled")
+	}
+}
+
+// TestArenaRooms_NonSourcePanelLeavingDoesNotSignal — уход рядовой панели
+// ничей view не меняет, сигналить некого.
+func TestArenaRooms_NonSourcePanelLeavingDoesNotSignal(t *testing.T) {
+	r := newArenaRooms()
+	scoreboard := r.join("a1", domain.ScoreboardRoleScoreboard)
+	panel := r.join("a1", domain.ScoreboardRolePanel)
+	second := r.join("a1", domain.ScoreboardRolePanel)
+	drain(scoreboard.boardCh)
+	drain(panel.boardCh)
+
+	r.leave("a1", second)
+
+	if signalled(scoreboard.boardCh) {
+		t.Errorf("scoreboard unexpectedly signalled by a non-source panel leaving")
+	}
+	if signalled(panel.boardCh) {
+		t.Errorf("panel unexpectedly signalled by a non-source panel leaving")
 	}
 }
 
@@ -267,4 +421,23 @@ func TestArenaRooms_ConcurrentJoinLeavePublish(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// drain опустошает канал сигналов, чтобы последующая проверка signalled
+// относилась именно к изучаемому действию, а не к предыдущим.
+func drain(ch chan struct{}) {
+	select {
+	case <-ch:
+	default:
+	}
+}
+
+// signalled — был ли сигнал «перечитай ArenaLive» доставлен в этот канал.
+func signalled(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }

@@ -40,12 +40,12 @@ export function MyNominations({
               href={`/nominations/${p.nominationId}`}
               className="rounded-lg border border-border bg-card px-4 py-3 text-sm transition-colors hover:border-primary/50"
             >
-              <Row justify="between" align="center" gap={3}>
+              <Row justify="between" align="center" gap={3} wrap>
                 <span className="font-bold">
                   {nominationTitleById[p.nominationId] ?? "Номинация"}
                 </span>
                 {progress ? (
-                  <Row gap={3} align="center">
+                  <Row gap={3} align="center" wrap>
                     <span className="text-muted-foreground">
                       {progress.containerName} · {progress.done} из {progress.total} боёв
                       проведено

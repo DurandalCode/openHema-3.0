@@ -192,6 +192,7 @@ export function BoutPanelView({
               controls={controls}
               sidesSwapped={sidesSwapped}
               defaultDurationSeconds={live.snapshot?.defaultDurationSeconds ?? null}
+              room={live.snapshot?.room}
               undoLabel={scoreControl.undoLabel}
               onUndo={scoreControl.undoLastStep}
               canReset={canReset}

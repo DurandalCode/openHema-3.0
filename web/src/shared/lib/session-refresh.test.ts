@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeRequestCookieHeader, refreshDecision } from "./session-refresh";
+import { mergeRequestCookieHeader, refreshDecision, shouldAutoRefreshPath } from "./session-refresh";
 
 describe("refreshDecision", () => {
   it("skips when access cookie is present, regardless of refresh cookie", () => {
@@ -40,5 +40,58 @@ describe("mergeRequestCookieHeader", () => {
   it("ignores malformed Set-Cookie entries without an '=' instead of throwing", () => {
     const merged = mergeRequestCookieHeader("hema_access=old", ["garbage-no-equals"]);
     expect(merged).toBe("hema_access=old");
+  });
+});
+
+describe("shouldAutoRefreshPath", () => {
+  // Головной случай: middleware сам зовёт эту ручку, и без исключения
+  // внутренний fetch рекурсивно попал бы в тот же middleware.
+  it("refuses /api/auth/refresh — otherwise the middleware calls itself", () => {
+    expect(shouldAutoRefreshPath("/api/auth/refresh")).toBe(false);
+  });
+
+  // Эти пять ручек сами пишут пару cookie; порядок слияния двух наборов
+  // Set-Cookie Next не документирует. Для logout это критично: победи
+  // Set-Cookie от middleware — выход бы не сработал.
+  it("refuses the cookie-mutating auth routes", () => {
+    expect(shouldAutoRefreshPath("/api/auth/login")).toBe(false);
+    expect(shouldAutoRefreshPath("/api/auth/register")).toBe(false);
+    expect(shouldAutoRefreshPath("/api/auth/logout")).toBe(false);
+    expect(shouldAutoRefreshPath("/api/auth/password")).toBe(false);
+  });
+
+  it("allows the arena BFF routes the console hammers for hours", () => {
+    expect(shouldAutoRefreshPath("/api/arenas/a1/timer-frame")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/arenas/a1/timer")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/arenas/a1/board")).toBe(true);
+  });
+
+  it("allows SSE relays — a reconnect then carries a fresh cookie", () => {
+    expect(shouldAutoRefreshPath("/api/arenas/a1/live")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/tournaments/t1/console/stream")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/tournament/live")).toBe(true);
+  });
+
+  it("allows read-only auth routes", () => {
+    expect(shouldAutoRefreshPath("/api/auth/me")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/auth/sessions")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/auth/sessions/s1")).toBe(true);
+  });
+
+  it("allows plain pages", () => {
+    expect(shouldAutoRefreshPath("/")).toBe(true);
+    expect(shouldAutoRefreshPath("/dashboard")).toBe(true);
+    expect(shouldAutoRefreshPath("/admin/arenas/a1")).toBe(true);
+  });
+
+  // Сравнение по полному пути, а не startsWith — иначе будущая ручка
+  // «/api/auth/logout-all» молча потеряла бы продление.
+  it("does not confuse a prefix with the whole path", () => {
+    expect(shouldAutoRefreshPath("/api/auth/refresh-token")).toBe(true);
+    expect(shouldAutoRefreshPath("/api/auth/logout-all")).toBe(true);
+  });
+
+  it("ignores a trailing slash", () => {
+    expect(shouldAutoRefreshPath("/api/auth/refresh/")).toBe(false);
   });
 });

@@ -188,4 +188,20 @@ describe("TimerControls", () => {
       ),
     );
   });
+
+  it("warns that the timer runs on this screen when no scoreboard is connected", () => {
+    snapshot = {
+      ...baseSnapshot,
+      room: { ...baseSnapshot.room, scoreboardCount: 0, thisIsSource: true },
+    };
+    renderControls();
+    expect(screen.getByText("Табло не подключено — время идёт на этом экране")).toBeInTheDocument();
+  });
+
+  it("stays silent about the timer source while a scoreboard is connected", () => {
+    renderControls();
+    expect(
+      screen.queryByText("Табло не подключено — время идёт на этом экране"),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -16,7 +16,7 @@ export function ArenasNow({ arenas }: { arenas: LiveArenaDto[] }) {
   const sorted = [...arenas].sort((a, b) => a.position - b.position);
 
   return (
-    <section id="arenas-now" className="mx-auto w-full max-w-6xl px-4 py-8">
+    <section id="arenas-now" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 py-8">
       <h2 className="mb-4 text-xl font-semibold tracking-tight">Площадки прямо сейчас</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {sorted.map((arena) => (

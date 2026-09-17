@@ -51,7 +51,7 @@ export function NominationsRail({
   const sorted = [...nominations].sort((a, b) => a.position - b.position);
 
   return (
-    <aside id="nominations-rail" className="w-full max-w-sm px-4 py-8">
+    <aside id="nominations-rail" className="w-full scroll-mt-20 px-4 py-8">
       <Col gap={3}>
         <h2 className="text-lg font-semibold tracking-tight">Номинации</h2>
         <Col gap={2}>

@@ -1568,6 +1568,112 @@ func TestWatchArenaBoard_E2E_ControlArenaTimerRelaysCommandToSource(t *testing.T
 	}
 }
 
+// Комната без табло: панель — фоллбэк-источник и получает команды по своему
+// же стриму (замкнутая петля панель → сервер → та же панель). Это и есть
+// починка полевого бага «закрыли вкладку табло — кнопки таймера молчат».
+func TestWatchArenaBoard_E2E_PanelWithoutScoreboardIsSourceAndGetsCommands(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	panelReq := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_PANEL})
+	panelReq.Header().Set("Authorization", adminBearer(t))
+	panelStream, err := admin.WatchArenaBoard(ctx, panelReq)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard(panel): %v", err)
+	}
+	if !panelStream.Receive() {
+		t.Fatalf("expected first frame (panel), got err: %v", panelStream.Err())
+	}
+	room := panelStream.Msg().GetSnapshot().Room
+	if !room.ThisIsSource || room.ScoreboardCount != 0 {
+		t.Fatalf("Room = %+v, want fallback source with 0 scoreboards", room)
+	}
+
+	controlReq := connect.NewRequest(&hemav1.ControlArenaTimerRequest{
+		ArenaId: "arena-1",
+		Command: &hemav1.TimerCommand{Kind: hemav1.TimerCommandKind_TIMER_COMMAND_KIND_START},
+	})
+	controlReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.ControlArenaTimer(context.Background(), controlReq); err != nil {
+		t.Fatalf("ControlArenaTimer: %v", err)
+	}
+
+	if !panelStream.Receive() {
+		t.Fatalf("expected command frame (panel), got err: %v", panelStream.Err())
+	}
+	cmd := panelStream.Msg().GetCommand()
+	if cmd == nil {
+		t.Fatalf("expected command event, got %+v", panelStream.Msg())
+	}
+	if cmd.Kind != hemav1.TimerCommandKind_TIMER_COMMAND_KIND_START {
+		t.Errorf("Kind = %v, want START", cmd.Kind)
+	}
+}
+
+// Подключившееся табло перехватывает источник у панели, панель узнаёт об
+// этом снапшотом, а закешированный кадр переживает перехват — новому
+// источнику есть чем засеяться, и идущий отсчёт не обнуляется.
+func TestWatchArenaBoard_E2E_ScoreboardJoinDemotesPanelAndInheritsFrame(t *testing.T) {
+	admin, _, _, _, arenas, _, _, _ := setupFull(t)
+	arenas.SetDefaultDuration("arena-1", 90)
+
+	ctxPanel, cancelPanel := context.WithCancel(context.Background())
+	defer cancelPanel()
+	ctxBoard, cancelBoard := context.WithCancel(context.Background())
+	defer cancelBoard()
+
+	panelReq := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_PANEL})
+	panelReq.Header().Set("Authorization", adminBearer(t))
+	panelStream, err := admin.WatchArenaBoard(ctxPanel, panelReq)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard(panel): %v", err)
+	}
+	if !panelStream.Receive() {
+		t.Fatalf("expected first frame (panel), got err: %v", panelStream.Err())
+	}
+
+	// Панель-источник публикует идущий отсчёт.
+	publishReq := connect.NewRequest(&hemav1.PublishTimerFrameRequest{
+		ArenaId: "arena-1",
+		Frame:   &hemav1.TimerFrame{Status: hemav1.TimerStatus_TIMER_STATUS_RUNNING, RemainingCs: 4500, DefaultCs: 9000},
+	})
+	publishReq.Header().Set("Authorization", adminBearer(t))
+	if _, err := admin.PublishTimerFrame(context.Background(), publishReq); err != nil {
+		t.Fatalf("PublishTimerFrame: %v", err)
+	}
+	if !panelStream.Receive() {
+		t.Fatalf("expected snapshot after publish (panel), got err: %v", panelStream.Err())
+	}
+
+	boardReq := connect.NewRequest(&hemav1.WatchArenaBoardRequest{ArenaId: "arena-1", Role: hemav1.ScoreboardRole_SCOREBOARD_ROLE_SCOREBOARD})
+	boardReq.Header().Set("Authorization", adminBearer(t))
+	boardStream, err := admin.WatchArenaBoard(ctxBoard, boardReq)
+	if err != nil {
+		t.Fatalf("WatchArenaBoard(scoreboard): %v", err)
+	}
+	if !boardStream.Receive() {
+		t.Fatalf("expected first frame (scoreboard), got err: %v", boardStream.Err())
+	}
+	boardSnap := boardStream.Msg().GetSnapshot()
+	if boardSnap.Room.ThisOrdinal != 1 || !boardSnap.Room.ThisIsSource {
+		t.Errorf("scoreboard Room = %+v, want ordinal 1 + source", boardSnap.Room)
+	}
+	if boardSnap.Timer.RemainingCs != 4500 || boardSnap.Timer.Status != hemav1.TimerStatus_TIMER_STATUS_RUNNING {
+		t.Errorf("scoreboard Timer = %+v, want the running frame 4500 inherited from the panel", boardSnap.Timer)
+	}
+
+	if !panelStream.Receive() {
+		t.Fatalf("expected the panel to be notified about the takeover, got err: %v", panelStream.Err())
+	}
+	panelRoom := panelStream.Msg().GetSnapshot().Room
+	if panelRoom.ThisIsSource || panelRoom.ScoreboardCount != 1 {
+		t.Errorf("panel Room after takeover = %+v, want demoted with 1 scoreboard", panelRoom)
+	}
+}
+
 // PublishTimerFrame от табло ретранслируется всем подписчикам комнаты
 // (табло и панели) новым snapshot-событием (спека 0015, ADR 0013).
 func TestWatchArenaBoard_E2E_PublishTimerFrameBroadcastsSnapshot(t *testing.T) {
@@ -1606,8 +1712,10 @@ func TestWatchArenaBoard_E2E_PublishTimerFrameBroadcastsSnapshot(t *testing.T) {
 	if snap.Timer.Status != hemav1.TimerStatus_TIMER_STATUS_RUNNING || snap.Timer.RemainingCs != 4500 {
 		t.Errorf("Timer = %+v, want running/4500", snap.Timer)
 	}
-	if snap.Room.ThisOrdinal != 0 || snap.Room.ThisIsSource {
-		t.Errorf("Room = %+v, want panel ordinal 0, not source", snap.Room)
+	// Панель — единственный участник комнаты, значит она же и фоллбэк-источник
+	// (табло нет). Ordinal при этом остаётся 0: нумерация — про табло.
+	if snap.Room.ThisOrdinal != 0 || !snap.Room.ThisIsSource || snap.Room.ScoreboardCount != 0 {
+		t.Errorf("Room = %+v, want panel ordinal 0 + fallback source + 0 scoreboards", snap.Room)
 	}
 }
 
@@ -1723,6 +1831,16 @@ func TestWatchArenaBoard_E2E_RevealCurrentBoutBroadcastsToAllScoreboards(t *test
 	}
 	if !stream2.Receive() {
 		t.Fatalf("expected first frame (table 2), got err: %v", stream2.Err())
+	}
+
+	// Подключение табло №2 меняет scoreboard_count у табло №1, поэтому оно
+	// получает внеочередной снапшот — вычитываем его, чтобы дальше читать
+	// именно кадр от RevealCurrentBout.
+	if !stream1.Receive() {
+		t.Fatalf("expected table 1 to be notified about table 2 joining, got err: %v", stream1.Err())
+	}
+	if got := stream1.Msg().GetSnapshot().Room.ScoreboardCount; got != 2 {
+		t.Errorf("table 1 ScoreboardCount after table 2 joined = %d, want 2", got)
 	}
 
 	revealReq := connect.NewRequest(&hemav1.RevealCurrentBoutRequest{ArenaId: "arena-1"})

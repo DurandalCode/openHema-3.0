@@ -36,12 +36,16 @@ export function ArenaConsole({
   arenaId,
   arenaName,
   initialBoard,
+  defaultDurationSeconds,
 }: {
   arenaId: string;
   arenaName: string;
   initialBoard: BoutBoard | null;
+  /** Дефолт площадки из SSR — чтобы таймер до первого живого кадра показывал
+   *  её собственную длительность, а не хардкод 90с. */
+  defaultDurationSeconds: number;
 }) {
-  const live = useArenaLive(arenaId, "panel", initialBoard);
+  const live = useArenaLive(arenaId, "panel", initialBoard, defaultDurationSeconds);
   const { display, controls } = useArenaTimer(arenaId, live);
   const router = useRouter();
   const searchParams = useSearchParams();

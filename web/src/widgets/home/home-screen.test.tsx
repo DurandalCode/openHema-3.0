@@ -211,6 +211,48 @@ describe("widgets/home HomeScreen (spec 0034)", () => {
     expect(FakeEventSource.instances).toHaveLength(1);
   });
 
+  // Полевой баг: на 360px основная колонка и рельс «Номинации» стояли одним
+  // флекс-рядом без переноса, и заголовки накладывались друг на друга.
+  // Пиним раскладку — одна колонка до lg, контент+рельс 320px от lg
+  // (тот же трек, что у кабинета и страницы этапа).
+  it("stacks the live layout into a single column until lg (mobile baseline, 0044 NFR-1)", () => {
+    render(
+      <HomeScreen
+        tournament={tournament()}
+        nominations={[nomination({ status: "NOMINATION_STATUS_CLOSED" })]}
+        participantsByNomination={{}}
+        rosterByNomination={{}}
+        isAuthenticated={false}
+        initialLiveSnapshot={snapshot({ nominations: [liveNomination({ phase: "running" })] })}
+      />,
+    );
+
+    const layout = screen.getByTestId("home-live-layout");
+    expect(layout.className).toContain("grid-cols-1");
+    expect(layout.className).toContain("lg:grid-cols-[1fr_320px]");
+  });
+
+  // Пункт нижней навигации «Номинации» ведёт на /#nominations-rail
+  // (shared/lib/public-nav-items.ts), поэтому рельс обязан оставаться в DOM
+  // на телефоне: спрятать его через `hidden md:block` нельзя — ссылка
+  // уведёт в никуда.
+  it("keeps the nominations rail rendered and visible on phones (bottom-nav anchor contract)", () => {
+    const { container } = render(
+      <HomeScreen
+        tournament={tournament()}
+        nominations={[nomination({ status: "NOMINATION_STATUS_CLOSED" })]}
+        participantsByNomination={{}}
+        rosterByNomination={{}}
+        isAuthenticated={false}
+        initialLiveSnapshot={snapshot({ nominations: [liveNomination({ phase: "running" })] })}
+      />,
+    );
+
+    const rail = container.querySelector("#nominations-rail");
+    expect(rail).toBeInTheDocument();
+    expect(rail?.className ?? "").not.toMatch(/(^|\s)hidden(\s|$)/);
+  });
+
   it("AC-18: finished phase hides arenas-now but keeps the feed/rail", () => {
     render(
       <HomeScreen

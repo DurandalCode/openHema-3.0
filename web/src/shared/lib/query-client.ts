@@ -7,25 +7,10 @@ import {
 } from "@tanstack/react-query";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 import { useSessionExpiredStore } from "./session-expired-store";
-
-// attemptSilentRefresh — тот же `/api/auth/refresh`, что вызывает
-// `middleware.ts` при навигации (см. `session-refresh.ts`). Один
-// in-flight промис на несколько одновременно упавших с 401 запросов
-// (обычная ситуация — кабинет открывает 2-3 query разом): без дедупа
-// каждый запустил бы свой POST.
-let inFlightRefresh: Promise<boolean> | null = null;
-
-function attemptSilentRefresh(): Promise<boolean> {
-  if (!inFlightRefresh) {
-    inFlightRefresh = fetch("/api/auth/refresh", { method: "POST" })
-      .then((res) => res.ok)
-      .catch(() => false)
-      .finally(() => {
-        inFlightRefresh = null;
-      });
-  }
-  return inFlightRefresh;
-}
+// Дедуп in-flight продления живёт в отдельном модуле: им пользуется не
+// только TanStack Query, но и fire-and-forget вызовы таймера арены, и общий
+// промис нужен один на всё приложение.
+import { attemptSilentRefresh } from "./silent-refresh";
 
 // Мутация (спека 0038, AC-10): пользователь только что нажал «Подать
 // заявку»/«Сохранить» — действие не выполнилось. Тихо продлить сессию и

@@ -75,4 +75,16 @@ describe("widgets/home NominationsRail (spec 0034, FR-20)", () => {
       "/somewhere",
     );
   });
+
+  // Два контракта разом: якорь нижней навигации (/#nominations-rail,
+  // shared/lib/public-nav-items.ts) и отсутствие собственного потолка
+  // ширины — на телефоне рельс занимает всю ширину, на десктопе её задаёт
+  // трек грида главной (0044 FR-3).
+  it("keeps the bottom-nav anchor and caps its width nowhere itself", () => {
+    const { container } = render(<NominationsRail nominations={[nomination()]} />);
+
+    const rail = container.querySelector("#nominations-rail");
+    expect(rail).toBeInTheDocument();
+    expect(rail?.className ?? "").not.toContain("max-w-sm");
+  });
 });
