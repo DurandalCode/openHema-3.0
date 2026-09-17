@@ -167,11 +167,21 @@ func (s *Service) DeletePool(ctx context.Context, poolID string) (domain.Layout,
 	return s.loadLayoutAndSync(ctx, pool.StageID)
 }
 
-// ResetLayout удаляет все пулы этапа и возвращает всех бойцов в
-// нераспределённые (FR-4a). Записывает undo-снапшот всех пулов с их
-// членствами, включая слоты посева (undoable — FR-7a; спека 0018, FR-8).
-// Работает и для группового этапа, и для сетки (план «service/bracket.go»,
-// T13). Только в draft. Если пулов нет — no-op (без undo).
+// ResetLayout сбрасывает состав этапа и возвращает всех бойцов в
+// нераспределённые (FR-4a). Записывает undo-снапшот состава с членствами,
+// включая слоты посева (undoable — FR-7a; спека 0018, FR-8). Только в draft.
+//
+// Тип этапа определяет, что именно удаляется, — ровно как в undoBuild:
+//   - групповой этап: пулы целиком (их создаёт CreatePool/формирование);
+//   - сетка: только посев. Контейнеры половин первого круга создаёт
+//     CreateStage, они принадлежат этапу, а не составу; удалив их, посев
+//     больше не восстановить — SeedBracketSlot не найдёт половину и ответит
+//     ErrNotFound (баг: «после сброса посева в плейоффе нельзя добавлять
+//     бойцов»).
+//
+// Признак «нечего сбрасывать» тоже зависит от типа: у группового этапа это
+// отсутствие пулов, у сетки — отсутствие посева (контейнеры у неё есть
+// всегда). В обоих случаях no-op: undo не пишется.
 func (s *Service) ResetLayout(ctx context.Context, stageID string) (domain.Layout, error) {
 	stageID = strings.TrimSpace(stageID)
 	if stageID == "" {
@@ -188,6 +198,21 @@ func (s *Service) ResetLayout(ctx context.Context, stageID string) (domain.Layou
 	if err != nil {
 		return domain.Layout{}, err
 	}
+
+	if stage.Type == domain.StageTypeBracket {
+		seeds, err := s.repo.SeedsByStage(ctx, stage.ID)
+		if err != nil {
+			return domain.Layout{}, err
+		}
+		if len(seeds) == 0 {
+			return layout, nil // no-op: посева нет — нечего сбрасывать
+		}
+		if err := s.repo.ResetSeeding(ctx, stage.ID); err != nil {
+			return domain.Layout{}, err
+		}
+		return s.loadLayoutAndSync(ctx, stageID)
+	}
+
 	if len(layout.Pools) == 0 {
 		return layout, nil // no-op: пулов нет — нечего сбрасывать, undo не пишется
 	}
@@ -418,14 +443,18 @@ func (s *Service) SetStatus(ctx context.Context, stageID string, status domain.L
 		}
 		transitioned = true
 	}
-	if err := s.repo.SetStatus(ctx, stage.ID, status); err != nil {
-		return domain.Layout{}, err
-	}
-	// Публикуем и синхронизируем номинацию только на реальном переходе
-	// (draft→ready/ready→draft) — не на no-op (draft→draft/ready→ready), см.
-	// mapError и комментарий выше метода (спека 0014, задача T5; спека 0021,
-	// FR-1 — фиксация/расфиксация меняет исполнительный статус этапа).
+	// Пишем статус, публикуем и синхронизируем номинацию только на реальном
+	// переходе (draft→ready/ready→draft) — не на no-op (draft→draft/
+	// ready→ready), см. mapError и комментарий выше метода (спека 0014,
+	// задача T5; спека 0021, FR-1 — фиксация/расфиксация меняет
+	// исполнительный статус этапа). Запись статуса попадает под то же
+	// условие не для экономии: SetStageStatus заодно обнуляет undo этапа, и
+	// безусловный вызов молча стирал возможность отменить сброс посева при
+	// повторном нажатии «Зафиксировать» на уже зафиксированном этапе.
 	if transitioned {
+		if err := s.repo.SetStatus(ctx, stage.ID, status); err != nil {
+			return domain.Layout{}, err
+		}
 		s.notifyNominationChanged(stage.NominationID)
 		if err := s.syncNomination(ctx, stage.NominationID); err != nil {
 			return domain.Layout{}, err

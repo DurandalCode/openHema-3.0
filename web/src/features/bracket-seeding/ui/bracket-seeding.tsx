@@ -36,7 +36,6 @@ import { useSeedSlot } from "../api/use-seed-slot";
 import { useClearSlot } from "../api/use-clear-slot";
 import { useResetBracket } from "../api/use-reset-bracket";
 import { useUndoBracket } from "../api/use-undo-bracket";
-import { bracketErrorMessage } from "../api/errors";
 import { resolveDrop } from "../lib/drop-action";
 
 const UNASSIGNED_ZONE = "zone:unassigned";
@@ -52,8 +51,11 @@ const fighterDragId = (fighterId: string, slot: number | null) =>
  *
  * Обратная связь по мутациям — спека 0032, FR-21/FR-22 (по образцу 0030):
  * постоянный inline-баннер (`mutationError`) убран целиком, все отказы идут
- * тостом через `bracketErrorMessage` (санкционированный дубль
- * `nomination-pools/api/errors.ts`, правило 6 `web/AGENTS.md`). DnD и
+ * тостом. Перевод отказа на русский делает сам хук в `mutationFn` (по
+ * HTTP-статусу, `api/errors.ts` — санкционированный дубль
+ * `nomination-pools/api/errors.ts`, правило 6 `web/AGENTS.md`), поэтому
+ * здесь в тост идёт готовый `err.message`: перевести его ещё раз значит
+ * отдать generic-текст, статуса у строки уже нет. DnD и
  * тулбарная «Отменить» — тихий успех, тост только на ошибку; сброс —
  * тост-успех/`toastUndo`. Статус этапа и переключатель фиксации ушли из
  * тулбара в `PageHeader` страницы этапа (спека 0032, FR-3) — их здесь
@@ -99,7 +101,7 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
   function handleSeedSlot(fighterId: string, slot: number) {
     seedSlot.mutate(
       { fighterId, slot },
-      { onError: (err: Error) => toastError(bracketErrorMessage(err.message)) },
+      { onError: (err: Error) => toastError(err.message) },
     );
   }
 
@@ -115,20 +117,20 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
       { fighterId: fighter.fighterId, slot },
       {
         onSuccess: () => toastSuccess(`${fighter.name} → слот ${slot}`),
-        onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+        onError: (err: Error) => toastError(err.message),
       },
     );
   }
 
   function handleClearSlot(slot: number) {
     clearSlot.mutate(slot, {
-      onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+      onError: (err: Error) => toastError(err.message),
     });
   }
 
   function handleUndo() {
     undoBracket.mutate(undefined, {
-      onError: (err: Error) => toastError(bracketErrorMessage(err.message)),
+      onError: (err: Error) => toastError(err.message),
     });
   }
 
@@ -143,7 +145,7 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
         toastUndo("Посев сброшен", { onUndo: () => undoBracket.mutate() });
       },
       onError: (err: Error) => {
-        toastError(bracketErrorMessage(err.message), { retry: handleResetConfirm });
+        toastError(err.message, { retry: handleResetConfirm });
       },
     });
   }

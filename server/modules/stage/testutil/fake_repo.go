@@ -288,6 +288,17 @@ func (r *FakeRepo) GetPool(_ context.Context, poolID string) (domain.Pool, error
 	return toDomainPool(p), nil
 }
 
+// poolByNumberLocked находит пул этапа по номеру — аналог
+// UNIQUE(stage_id, number) в схеме. Вызывать под r.mu.
+func (r *FakeRepo) poolByNumberLocked(stageID string, number int) *poolRow {
+	for _, p := range r.pools {
+		if p.stageID == stageID && p.number == number {
+			return p
+		}
+	}
+	return nil
+}
+
 // CreatePool вставляет пул в этап, очищает undo этапа.
 func (r *FakeRepo) CreatePool(_ context.Context, stageID string, number int) (domain.Pool, error) {
 	r.mu.Lock()
@@ -317,6 +328,27 @@ func (r *FakeRepo) DeletePool(_ context.Context, poolID string) error {
 	r.setUndoLocked(p.stageID, domain.UndoState{
 		Kind: domain.UndoDeletePool, FighterIDs: fighterIDs, PoolNumber: p.number,
 	})
+	return nil
+}
+
+// ResetSeeding снимает весь посев этапа-сетки, не трогая контейнеры половин,
+// и записывает тот же undo-снапшот, что и ResetLayout (kind=reset, спека
+// 0018, FR-8).
+func (r *FakeRepo) ResetSeeding(_ context.Context, stageID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	snapshot := make([]domain.ResetPool, 0)
+	for _, p := range r.pools {
+		if p.stageID == stageID {
+			snapshot = append(snapshot, domain.ResetPool{
+				Number:  p.number,
+				Members: resetMembersOf(p.members),
+			})
+			p.members = nil
+		}
+	}
+	r.setUndoLocked(stageID, domain.UndoState{Kind: domain.UndoReset, Pools: snapshot})
 	return nil
 }
 
@@ -449,11 +481,17 @@ func (r *FakeRepo) UndoReset(_ context.Context, stageID string, pools []domain.R
 		nominationID = st.nominationID
 	}
 	for _, p := range pools {
-		id := uuid.NewString()
 		members := make([]memberRow, 0, len(p.Members))
 		for _, m := range p.Members {
 			members = append(members, memberRow{fighterID: m.FighterID, slot: m.Slot})
 		}
+		// Пул по номеру, а не новый: после ResetSeeding контейнеры половин
+		// сетки живы и снапшот ложится поверх них (см. repo.UpsertPool).
+		if existing := r.poolByNumberLocked(stageID, p.Number); existing != nil {
+			existing.members = members
+			continue
+		}
+		id := uuid.NewString()
 		r.pools[id] = &poolRow{
 			id: id, stageID: stageID, nominationID: nominationID, number: p.Number,
 			members: members,

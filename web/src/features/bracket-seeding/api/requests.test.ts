@@ -134,4 +134,40 @@ describe("features/bracket-seeding/api/requests", () => {
       });
     });
   });
+
+  /**
+   * HTTP-статус — единственный вход `bracketErrorMessage` (она свитчится по
+   * нему, а не по тексту ошибки от Go-домена). Пока фетчеры его роняли, все
+   * переводы были недостижимы и любой отказ показывался generic-текстом
+   * «Не удалось выполнить действие» — включая 404 после сброса посева, по
+   * которому баг с турнира и не удалось прочитать с экрана.
+   */
+  describe("HTTP status propagation", () => {
+    it("carries the status of a failed bracket read", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({ error: "stage not found" }) });
+      const result = await getBracketRequest("s1");
+      expect(result).toEqual({ ok: false, error: "stage not found", status: 404 });
+    });
+
+    it("carries the status of a rejected seed", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: "slot is already occupied" }) });
+      const result = await seedSlotRequest("s1", "f1", 2);
+      expect(result).toEqual({ ok: false, error: "slot is already occupied", status: 409 });
+    });
+
+    it("carries the status of a rejected clear", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: "layout is ready" }) });
+      const result = await clearSlotRequest("s1", 2);
+      expect(result).toEqual({ ok: false, error: "layout is ready", status: 409 });
+    });
+
+    it.each([
+      ["reset", () => resetBracketRequest("s1")],
+      ["undo", () => undoBracketRequest("s1")],
+      ["status", () => setStatusRequest("s1", "ready")],
+    ])("carries the status of a rejected %s action", async (_name, call) => {
+      fetchMock.mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: "layout is ready" }) });
+      await expect(call()).resolves.toEqual({ ok: false, error: "layout is ready", status: 409 });
+    });
+  });
 });

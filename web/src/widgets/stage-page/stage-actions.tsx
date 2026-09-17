@@ -10,10 +10,8 @@ import type { Stage } from "@/entities/stage/lib/types";
 import { BuildStageDialog } from "@/features/stage-build/ui/build-stage-dialog";
 import { useResetLayout } from "@/features/nomination-pools/api/use-reset-layout";
 import { useUndo } from "@/features/nomination-pools/api/use-undo";
-import { poolsErrorMessage } from "@/features/nomination-pools/api/errors";
 import { useResetBracket } from "@/features/bracket-seeding/api/use-reset-bracket";
 import { useUndoBracket } from "@/features/bracket-seeding/api/use-undo-bracket";
-import { bracketErrorMessage } from "@/features/bracket-seeding/api/errors";
 
 /**
  * StageActions — строка действий страницы этапа (спека 0032, FR-12..FR-14):
@@ -55,9 +53,11 @@ export function StageActions({
   const [buildOpen, setBuildOpen] = useState(false);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
+  // Оба хука («Отменить», «Сбросить») переводят отказ на русский сами, в
+  // mutationFn по HTTP-статусу — в тост идёт готовый err.message. Повторный
+  // перевод строки, у которой статуса уже нет, отдавал бы generic-текст.
   function handleUndo() {
-    const onError = (err: Error) =>
-      toastError(isBracket ? bracketErrorMessage(err.message) : poolsErrorMessage(err.message));
+    const onError = (err: Error) => toastError(err.message);
     if (isBracket) {
       undoBracket.mutate(undefined, { onError });
     } else {
@@ -72,12 +72,12 @@ export function StageActions({
     if (isBracket) {
       resetBracket.mutate(undefined, {
         onSuccess: () => toastSuccess("Состав этапа сброшен"),
-        onError: (err: Error) => toastError(bracketErrorMessage(err.message), { retry: handleResetConfirm }),
+        onError: (err: Error) => toastError(err.message, { retry: handleResetConfirm }),
       });
     } else {
       resetLayout.mutate(undefined, {
         onSuccess: () => toastSuccess("Состав этапа сброшен"),
-        onError: (err: Error) => toastError(poolsErrorMessage(err.message), { retry: handleResetConfirm }),
+        onError: (err: Error) => toastError(err.message, { retry: handleResetConfirm }),
       });
     }
   }

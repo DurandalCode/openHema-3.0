@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Bracket } from "@/entities/bracket/lib/types";
 import { seedSlotRequest } from "./requests";
 import { bracketSeedingKeys } from "./keys";
+import { bracketErrorMessage } from "./errors";
 import { seedFighterInBracket } from "../lib/seed-fighter";
 
 /**
@@ -21,7 +22,7 @@ export function useSeedSlot(stageId: string) {
   return useMutation({
     mutationFn: async (vars: { fighterId: string; slot: number }) => {
       const res = await seedSlotRequest(stageId, vars.fighterId, vars.slot);
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(bracketErrorMessage(res.error, res.status));
       return res.bracket;
     },
     onMutate: async (vars) => {

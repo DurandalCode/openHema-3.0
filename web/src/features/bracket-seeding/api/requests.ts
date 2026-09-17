@@ -13,9 +13,11 @@ import { apiFetch } from "@/shared/api/api-fetch";
  * `useBracket`, а не телом ответа этих трёх ручек.
  */
 
-export type BracketResult = { ok: true; bracket: Bracket } | { ok: false; error: string };
+export type BracketResult =
+  | { ok: true; bracket: Bracket }
+  | { ok: false; error: string; status?: number };
 
-export type BracketActionResult = { ok: true } | { ok: false; error: string };
+export type BracketActionResult = { ok: true } | { ok: false; error: string; status?: number };
 
 /** getBracketRequest — GET /api/stages/[stageId]/bracket (админский вид, FR-7/FR-19). */
 export async function getBracketRequest(stageId: string): Promise<BracketResult> {
@@ -68,7 +70,7 @@ export async function setStatusRequest(
 
 async function fetchBracket(url: string, init: RequestInit): Promise<BracketResult> {
   const res = await apiFetch<{ bracket?: Bracket }>(url, init);
-  if (!res.ok) return { ok: false, error: res.error };
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
   return { ok: true, bracket: res.data.bracket as Bracket };
 }
 
@@ -79,6 +81,6 @@ async function postAction(url: string, body?: unknown): Promise<BracketActionRes
       ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
       : {}),
   });
-  if (!res.ok) return { ok: false, error: res.error };
+  if (!res.ok) return { ok: false, error: res.error, status: res.status };
   return { ok: true };
 }

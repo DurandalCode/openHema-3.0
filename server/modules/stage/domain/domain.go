@@ -431,6 +431,13 @@ type Repository interface {
 	// записывает undo-снапшот всех пулов с их членствами (kind=reset),
 	// гарантирует статус draft (FR-4a, undoable — FR-7a).
 	ResetLayout(ctx context.Context, stageID string) error
+	// ResetSeeding — вариант ResetLayout для этапа-сетки: снимает весь посев
+	// (членства этапа), но НЕ удаляет контейнеры половин. Контейнеры первого
+	// круга создаёт CreateStage, они принадлежат этапу, а не конкретному
+	// составу; удалив их, посев больше не восстановить (тот же инвариант,
+	// что у undoBuild и unlockBracket). Undo-снапшот — той же формы, что у
+	// ResetLayout (kind=reset).
+	ResetSeeding(ctx context.Context, stageID string) error
 	// AssignFighter кладёт бойца в пул: upsert членства по (stage_id,
 	// fighter_id) — move одним действием, если боец уже был в другом пуле
 	// этого этапа (спека 0017, FR-7: тот же боец в пуле другого этапа той

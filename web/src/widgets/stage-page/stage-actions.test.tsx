@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { StageActions } from "./stage-actions";
 import type { Stage } from "@/entities/stage/lib/types";
+import { poolsErrorMessage } from "@/features/nomination-pools/api/errors";
 
 /**
  * Radix `Dialog`/`FocusScope` в jsdom требуют pointer-capture/scrollIntoView
@@ -147,10 +148,13 @@ describe("StageActions", () => {
 
   // Спека 0032, AC-6: отказ сервера (бой уже завершён) — тост-ошибка
   // по-русски, состав остаётся на месте (компонент не пробует оптимистично
-  // ничего менять).
-  it("shows a Russian error toast when the server rejects reset", () => {
+  // ничего менять). Перевод делает сам хук (`mutationFn`, по HTTP-статусу),
+  // поэтому виджет обязан показать `err.message` как есть: перевести его
+  // повторно значит потерять конкретику и выдать generic-текст.
+  it("shows the hook's Russian error toast verbatim when the server rejects reset", () => {
+    const translated = poolsErrorMessage("bout already finished", 409);
     resetLayoutMutate.mockImplementation((_vars, options: { onError?: (err: Error) => void }) => {
-      options?.onError?.(new Error("bout already finished"));
+      options?.onError?.(new Error(translated));
     });
 
     render(<StageActions stage={ruledGroupStage} filled={4} canUndo={false} />);
@@ -158,6 +162,7 @@ describe("StageActions", () => {
     fireEvent.click(screen.getByRole("button", { name: /Да, сбросить/i }));
 
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0][0]).toBe(translated);
     expect(toastErrorMock.mock.calls[0][0]).not.toMatch(/bout already finished/);
     expect(screen.queryByText("bout already finished")).not.toBeInTheDocument();
   });
