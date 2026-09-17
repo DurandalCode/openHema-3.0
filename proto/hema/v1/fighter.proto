@@ -43,6 +43,12 @@ service FighterAdminService {
   // объединённым (FIGHTER_STATUS_MERGED), не удаляется физически (спека
   // 0040, FR-10).
   rpc MergeFighters(MergeFightersRequest) returns (MergeFightersResponse);
+  // ImportFighters разбирает файл со списком участников (CSV/XLSX) и заводит
+  // бойцов (спека 0049). dry_run=true возвращает тот же отчёт, ничего не
+  // записав, — предпросмотр (FR-2). Ошибки уровня файла (неизвестный формат,
+  // нет колонки имени, превышен лимит) — connect.CodeInvalidArgument; ошибки
+  // уровня строки не ошибка RPC, а исход строки в отчёте (FR-9).
+  rpc ImportFighters(ImportFightersRequest) returns (ImportFightersResponse);
 }
 
 // FighterPublicService — публичное чтение состава номинации. RPC доступны
@@ -289,4 +295,77 @@ message GetMyFighterRequest {
 message GetMyFighterResponse {
   // fighter не заполнен, если у пользователя нет бойца в турнире (FR-41).
   Fighter fighter = 1;
+}
+
+// ImportRowOutcome — исход одной строки импортируемого файла (спека 0049).
+enum ImportRowOutcome {
+  IMPORT_ROW_OUTCOME_UNSPECIFIED = 0;
+  // IMPORT_ROW_OUTCOME_CREATED — заведён новый боец.
+  IMPORT_ROW_OUTCOME_CREATED = 1;
+  // IMPORT_ROW_OUTCOME_UPDATED — боец уже есть, добавлены недостающие
+  // участия (FR-8).
+  IMPORT_ROW_OUTCOME_UPDATED = 2;
+  // IMPORT_ROW_OUTCOME_SKIPPED — полный дубль: ничего не меняется (AC-6).
+  IMPORT_ROW_OUTCOME_SKIPPED = 3;
+  // IMPORT_ROW_OUTCOME_REJECTED — строка не применена, причина в error.
+  IMPORT_ROW_OUTCOME_REJECTED = 4;
+}
+
+// ImportRowError — причина отклонения строки (FR-5/FR-6/FR-8a).
+enum ImportRowError {
+  IMPORT_ROW_ERROR_UNSPECIFIED = 0;
+  IMPORT_ROW_ERROR_EMPTY_NAME = 1;
+  IMPORT_ROW_ERROR_UNKNOWN_NOMINATION = 2;
+  IMPORT_ROW_ERROR_FIGHTER_WITHDRAWN = 3;
+}
+
+// ImportRowReport — строка отчёта: и предпросмотра (dry_run), и результата.
+message ImportRowReport {
+  // line — номер строки в файле, как её видит admin в редакторе, с учётом
+  // строки заголовка (FR-11a).
+  int32 line = 1;
+  string name = 2;
+  string club = 3;
+  ImportRowOutcome outcome = 4;
+  // nomination_titles — номинации строки как они записаны в файле; пусто,
+  // если колонка пуста и сработало умолчание из UI (FR-5a).
+  repeated string nomination_titles = 5;
+  // added_nomination_ids — участия, которые появятся (CREATED/UPDATED).
+  repeated string added_nomination_ids = 6;
+  // fighter_id — существующий боец для UPDATED/SKIPPED и для отклонения по
+  // IMPORT_ROW_ERROR_FIGHTER_WITHDRAWN; для CREATED при dry_run пуст (бойца
+  // ещё нет), после импорта заполнен.
+  string fighter_id = 7;
+  ImportRowError error = 8;
+  // error_detail — уточнение: нераспознанное название номинации.
+  string error_detail = 9;
+}
+
+// ImportSummary — сводка по файлу (FR-4).
+message ImportSummary {
+  int32 rows_read = 1;
+  int32 created = 2;
+  int32 updated = 3;
+  int32 skipped = 4;
+  int32 rejected = 5;
+}
+
+message ImportFightersRequest {
+  // tournament_id опционален: пустой — активный турнир (как ListRosterRequest).
+  optional string tournament_id = 1;
+  bytes content = 2;
+  // file_name — по расширению (.csv/.xlsx) выбирается разборщик.
+  string file_name = 3;
+  // default_nomination_ids — применяются к строкам, где колонка номинаций
+  // пуста (FR-5a). Непустая колонка в строке всегда важнее умолчания.
+  repeated string default_nomination_ids = 4;
+  // dry_run — предпросмотр без записи (FR-2).
+  bool dry_run = 5;
+}
+
+message ImportFightersResponse {
+  ImportSummary summary = 1;
+  repeated ImportRowReport rows = 2;
+  // dry_run — эхо запроса: UI не должен путать предпросмотр с отчётом.
+  bool dry_run = 3;
 }
