@@ -17,6 +17,7 @@ import { FighterCardDialog } from "./fighter-card-dialog";
 import { countWord, FightersFilters } from "./fighters-filters";
 import { FightersTable } from "./fighters-table";
 import { FindFighterByAccountDialog } from "./find-fighter-by-account-dialog";
+import { ImportFightersDialog } from "./import-fighters-dialog";
 import { MergeFightersDialog } from "./merge-fighters-dialog";
 
 /** PAGE_SIZE — размер серверной страницы ростера (spec 0026 FR-11). */
@@ -71,6 +72,7 @@ export function FightersScreen({
   const [createOpen, setCreateOpen] = useState(false);
   const [findByAccountOpen, setFindByAccountOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   // "" в clubs представляет пункт «Без клуба» (spec FR-9) — на сервере это
   // отдельный флаг includeNoClub, не элемент clubs[] (ListRosterRequest).
@@ -154,6 +156,11 @@ export function FightersScreen({
             <Button type="button" variant="outline" onClick={() => setMergeOpen(true)}>
               Слить дубли
             </Button>
+            {/* Массовый ввод ростера из файла клуба/выгрузки (спека 0049, FR-1/FR-2):
+                двухшаговый — разбор с предпросмотром, затем подтверждение. */}
+            <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
+              Импорт из файла
+            </Button>
             <Button type="button" onClick={() => setCreateOpen(true)}>
               + Боец вручную
             </Button>
@@ -220,6 +227,12 @@ export function FightersScreen({
       />
 
       <MergeFightersDialog fighters={all} open={mergeOpen} onOpenChange={setMergeOpen} />
+
+      <ImportFightersDialog
+        nominations={nominations}
+        open={importOpen}
+        onOpenChange={setImportOpen}
+      />
     </div>
   );
 }

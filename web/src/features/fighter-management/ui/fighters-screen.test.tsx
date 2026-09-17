@@ -121,6 +121,14 @@ vi.mock("../api/use-fighter-mutations", () => ({
   useCreateFighter: () => ({ mutate: createMutate, isPending: false, error: null, reset: vi.fn() }),
 }));
 
+// Импорт ростера из файла (спека 0049): у экрана своя мутация, не входящая
+// в use-fighter-mutations — мокается отдельно, иначе настоящий хук требует
+// QueryClientProvider.
+const importMutate = vi.fn();
+vi.mock("../api/use-import-fighters", () => ({
+  useImportFighters: () => ({ mutate: importMutate, isPending: false, reset: vi.fn() }),
+}));
+
 vi.mock("../api/return-outcome", () => ({
   resolveReturnSeeding: vi.fn().mockResolvedValue(null),
 }));
@@ -307,6 +315,20 @@ describe("FightersScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Слить дубли" }));
     expect(screen.getByRole("dialog", { name: /Слить дубли/ })).toBeInTheDocument();
+  });
+
+  it("opens the file-import dialog from the section header (spec 0049, FR-1/FR-2)", () => {
+    render(<FightersScreen tournamentId="t1" nominations={[nomination({})]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Импорт из файла" }));
+
+    const dialog = screen.getByRole("dialog", { name: /Импорт бойцов из файла/ });
+    expect(dialog).toBeInTheDocument();
+    // Образец файла (FR-11) — прямо в диалоге, admin не должен гадать про колонки.
+    expect(within(dialog).getByRole("link", { name: /образец/i })).toHaveAttribute(
+      "href",
+      "/fighters-import-template.csv",
+    );
   });
 
   it("shows only 'БОЙЦЫ' in the crumb without an active tournament", () => {
