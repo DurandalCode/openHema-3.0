@@ -38,8 +38,8 @@
 `server/modules/*/repo/queries/`):
 
 ```bash
-# 1. Установить зависимости и сгенерировать код (нужен Go 1.26+)
-make generate   # buf: proto → Go (server/gen) + TS (web/src/gen)
+# 1. Установить зависимости и сгенерировать код (нужны Go 1.26+ и Docker)
+make generate   # buf в контейнере кодгена: proto → Go (server/gen) + TS (web/src/gen)
 make sqlc       # sql: queries → server/modules/*/repo/sqlc
 
 # 2. Поднять БД и применить миграции
@@ -51,6 +51,13 @@ make dev               # postgres в докере + migrate + server и web ло
 Сгенерированный код (`server/gen/`, `web/src/gen/`, `server/modules/*/repo/sqlc/`)
 **в репозитории не хранится** (см. `docs/adr/0004-no-generated-in-repo.md`) —
 он в `.gitignore` и генерируется локально и в CI.
+
+Генераторы protobuf исполняются **в образе кодгена**
+(`deploy/codegen.Dockerfile`), а не на хосте: удалённые плагины `buf.build`
+недоступны из контура препрода, а тулчейны на ВМ мы не ставим. Поэтому для
+`make generate` нужен запущенный Docker, но не нужны установленные генераторы;
+их версии задаются `server/go.mod` и `web/package.json` и никуда не
+дублируются. См. `docs/adr/0023-local-codegen-plugins.md`.
 
 Если планируете реализовывать часть задач локальной моделью (opencode +
 LM Studio/Ollama, ADR 0021/0022) — скилл `setup-local-model` настраивает
@@ -120,7 +127,8 @@ remove` и `git branch -d` за собой; не копить смерженны
 
 | Команда           | Действие                                        |
 | ----------------- | ----------------------------------------------- |
-| `make generate`   | Генерация из proto (Go + TS) через buf          |
+| `make generate`   | Генерация из proto (Go + TS) — buf в контейнере  |
+| `make codegen-image` | Пересборка образа кодгена (при смене версий) |
 | `make migrate`    | Прогон goose-миграций по всем модулям           |
 | `make sqlc`       | Генерация sqlc-репозиториев                     |
 | `make dev`        | Локально: postgres в докере + миграции + server/web |
