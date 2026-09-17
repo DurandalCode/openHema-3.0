@@ -31,6 +31,10 @@ export function normalizeRosterQuery(query: RosterListQuery) {
  * «Найти по учётке», см. `use-full-roster.ts`).
  */
 export const fighterManagementKeys = {
+  // all — корень среза: префикс, накрывающий и `roster`, и `fullRoster`.
+  // Мутации ростера инвалидируют именно его (широко, но ростер небольшой —
+  // см. `use-fighter-mutations.ts`).
+  all: () => ["fighter-management"] as const,
   roster: (tournamentId: string, query: RosterListQuery) =>
     ["fighter-management", "roster", tournamentId, normalizeRosterQuery(query)] as const,
   fullRoster: (tournamentId: string) => ["fighter-management", "full-roster", tournamentId] as const,
