@@ -47,6 +47,22 @@ var (
 	// ErrAlreadyMerged — source или target MergeFighters уже имеет
 	// status=merged (повторное слияние уже объединённой записи).
 	ErrAlreadyMerged = errors.New("fighter: fighter already merged")
+
+	// Ошибки уровня файла при импорте ростера (спека 0049). Ошибка уровня
+	// строки — не ошибка вызова, а исход строки в отчёте (FR-9).
+
+	// ErrUnsupportedFile — расширение загруженного файла не поддерживается
+	// (принимаются .csv и .xlsx).
+	ErrUnsupportedFile = errors.New("fighter: unsupported import file format")
+	// ErrEmptyFile — в файле нет ни одной непустой строки.
+	ErrEmptyFile = errors.New("fighter: empty import file")
+	// ErrTooManyRows — число строк файла превышает лимит импорта (NFR-1).
+	ErrTooManyRows = errors.New("fighter: too many rows in import file")
+	// ErrMissingNameColumn — в заголовке файла нет колонки имени; угадывать
+	// колонки по содержимому импорт не умеет.
+	ErrMissingNameColumn = errors.New("fighter: import file has no name column")
+	// ErrMalformedFile — файл не разобрался (битая книга, сломанный CSV).
+	ErrMalformedFile = errors.New("fighter: malformed import file")
 )
 
 // Status — статус бойца на уровне всего турнира.
@@ -357,10 +373,21 @@ type NominationInfo struct {
 	TournamentID string
 }
 
+// NominationRef — номинация турнира: id и название. Импорт резолвит
+// названия из файла, а Nomination(ctx, id) отдаёт только TournamentID —
+// поэтому нужен список (спека 0049).
+type NominationRef struct {
+	ID    string
+	Title string
+}
+
 // NominationProvider — межмодульная зависимость: резолв сведений о номинации
 // через API модуля nomination (без прямого доступа к его PG-схеме, ADR 0002).
 type NominationProvider interface {
 	Nomination(ctx context.Context, nominationID string) (NominationInfo, error)
+	// NominationsByTournament возвращает все номинации турнира — индекс
+	// названий для импорта ростера из файла (спека 0049, FR-5).
+	NominationsByTournament(ctx context.Context, tournamentID string) ([]NominationRef, error)
 }
 
 // ActiveTournamentProvider — межмодульная зависимость: резолв идентификатора

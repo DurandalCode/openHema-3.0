@@ -1,4 +1,9 @@
-import type { Fighter, FighterStatus, WithdrawalReason } from "@/entities/fighter/lib/types";
+import type {
+  Fighter,
+  FighterStatus,
+  ImportReport,
+  WithdrawalReason,
+} from "@/entities/fighter/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
 import type { StatusCounts } from "../lib/select-fighters";
 
@@ -194,6 +199,44 @@ export async function mergeFightersRequest(
   });
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true, fighter: res.data.fighter as Fighter };
+}
+
+export type ImportFightersOptions = {
+  // dryRun — предпросмотр без записи (спека 0049, FR-2). Тот же файл
+  // отправляется повторно с `false` на подтверждение: состояния импорта на
+  // сервере нет.
+  dryRun: boolean;
+  // nominationIds — номинации «по умолчанию» на всю загрузку, применяются
+  // только к строкам с пустой колонкой номинаций (FR-5a).
+  nominationIds?: string[];
+};
+
+export type ImportFightersResult =
+  | { ok: true; report: ImportReport }
+  | { ok: false; error: string };
+
+/**
+ * importFightersRequest — POST /api/fighters/import (admin, спека 0049):
+ * `multipart/form-data` с самим файлом. `Content-Type` не задаётся руками —
+ * boundary проставляет браузер по `FormData`.
+ */
+export async function importFightersRequest(
+  file: File,
+  { dryRun, nominationIds }: ImportFightersOptions,
+): Promise<ImportFightersResult> {
+  const formData = new FormData();
+  formData.set("file", file);
+  formData.set("dryRun", String(dryRun));
+  for (const nominationId of nominationIds ?? []) {
+    formData.append("nominationIds", nominationId);
+  }
+
+  const res = await apiFetch<{ report: ImportReport }>("/api/fighters/import", {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, report: res.data.report };
 }
 
 async function sendFighter(
