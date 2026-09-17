@@ -38,3 +38,21 @@ func (p *FighterNominationProvider) Nomination(ctx context.Context, nominationID
 	}
 	return fighterdomain.NominationInfo{TournamentID: n.TournamentID}, nil
 }
+
+// NominationsByTournament возвращает номинации турнира — индекс названий для
+// импорта ростера из файла (спека 0049, FR-5). Через List модуля nomination,
+// а не запросом в его схему.
+func (p *FighterNominationProvider) NominationsByTournament(
+	ctx context.Context,
+	tournamentID string,
+) ([]fighterdomain.NominationRef, error) {
+	noms, err := p.svc.List(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]fighterdomain.NominationRef, 0, len(noms))
+	for _, n := range noms {
+		refs = append(refs, fighterdomain.NominationRef{ID: n.ID, Title: n.Title})
+	}
+	return refs, nil
+}
