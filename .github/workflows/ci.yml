@@ -69,11 +69,43 @@ jobs:
         continue-on-error: true
 
   # ──────────────────────────────────────────────────────────────
+  # codegen: единственное место, где выполняется генерация.
+  # Кодген исполняется в контейнере (спека 0050, ADR 0023) — плагины
+  # buf.build запрещены, образ собирается из версий в go.mod/package.json.
+  # Раньше каждая из семи джоб генерировала сама; теперь результат едет
+  # артефактом, и генерация выполняется один раз за прогон.
+  # ──────────────────────────────────────────────────────────────
+  codegen:
+    needs: changes
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Go нужен не кодгену (тот в контейнере), а sqlc — он остаётся хостовым.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Generate code (proto в контейнере + sqlc)
+        run: |
+          make generate
+          make sqlc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codegen
+          path: |
+            server/gen
+            web/src/gen
+            server/modules/*/repo/sqlc
+          retention-days: 1
+          if-no-files-found: error
+
+  # ──────────────────────────────────────────────────────────────
   # server: build / vet / test — отдельными кубиками.
   # Запускаются при изменении server/** или proto/** (нужна регенерация).
   # ──────────────────────────────────────────────────────────────
   server-build:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -82,16 +114,15 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Generate code (proto + sqlc)
-        run: |
-          make generate
-          make sqlc
+      - uses: actions/download-artifact@v4
+        with:
+          name: codegen
       - name: go build
         working-directory: server
         run: go build ./...
 
   server-vet:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -100,16 +131,15 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Generate code (proto + sqlc)
-        run: |
-          make generate
-          make sqlc
+      - uses: actions/download-artifact@v4
+        with:
+          name: codegen
       - name: go vet
         working-directory: server
         run: go vet ./...
 
   server-test:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -118,10 +148,9 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Generate code (proto + sqlc)
-        run: |
-          make generate
-          make sqlc
+      - uses: actions/download-artifact@v4
+        with:
+          name: codegen
       - name: go test
         working-directory: server
         run: go test -race ./...
@@ -129,7 +158,7 @@ jobs:
   # testcontainers-go поднимает Postgres сам (docker-демон уже есть на
   # GitHub-раннере) — отдельный services: postgres не нужен. См. ADR 0010.
   server-test-integration:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.server == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -138,10 +167,9 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Generate code (proto + sqlc)
-        run: |
-          make generate
-          make sqlc
+      - uses: actions/download-artifact@v4
+        with:
+          name: codegen
       - name: go test -tags=integration
         run: make test-integration
 
@@ -151,17 +179,14 @@ jobs:
   # eslint — только при изменении web/** (gen не нужен).
   # ──────────────────────────────────────────────────────────────
   web-test:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
-      - name: Generate code (proto → TS)
-        run: make generate
+          name: codegen
       - uses: pnpm/action-setup@v4
         with:
           version: 11
@@ -178,17 +203,14 @@ jobs:
         run: pnpm test
 
   web-tsc:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
-      - name: Generate code (proto → TS)
-        run: make generate
+          name: codegen
       - uses: pnpm/action-setup@v4
         with:
           version: 11
@@ -226,17 +248,14 @@ jobs:
         run: pnpm lint
 
   web-build:
-    needs: changes
+    needs: [changes, codegen]
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
-      - name: Generate code (proto → TS)
-        run: make generate
+          name: codegen
       - uses: pnpm/action-setup@v4
         with:
           version: 11

@@ -1,19 +1,25 @@
 version: v2
 clean: true
+# Плагины — ТОЛЬКО локальные (`local:`), никогда `remote:`. Удалённое
+# исполнение на buf.build недоступно из контура препрода (403 Forbidden) и
+# ломает деплой; см. docs/adr/0023-local-codegen-plugins.md. Бинари приезжают
+# из образа кодгена (deploy/codegen.Dockerfile), где лежат в PATH, — версии
+# при этом заданы манифестами репо (server/go.mod, web/package.json).
+# Страж от возврата к remote — server/internal/codegen/buf_gen_config_test.go.
 plugins:
   # ── Go (connect-go) ──────────────────────────────────────────
   # Пути `out` относительны к CWD запуска buf (директория server/, см. Makefile).
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: gen
     opt:
       - paths=source_relative
-  - remote: buf.build/connectrpc/go
+  - local: protoc-gen-connect-go
     out: gen
     opt:
       - paths=source_relative
 
   # ── TypeScript (connect-es) ──────────────────────────────────
-  - remote: buf.build/bufbuild/es
+  - local: protoc-gen-es
     out: ../web/src/gen
     opt:
       - target=ts

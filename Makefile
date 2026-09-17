@@ -10,6 +10,14 @@ endif
 BUF   := cd server && go tool buf
 GOOSE := cd server && go tool goose
 SQLC  := cd server && go tool sqlc
+
+# Кодген исполняется в контейнере, а не на хосте (спека 0050, ADR 0023):
+# удалённые плагины buf.build недоступны из контура препрода (403 Forbidden),
+# а тулчейны генераторов на ВМ мы не ставим — хосту нужен только Docker.
+# `-u` обязателен: иначе сгенерированные файлы достанутся root и следующий
+# запуск с хоста упадёт. Версий образ не хранит — см. deploy/codegen.Dockerfile.
+CODEGEN_IMAGE ?= hema-codegen
+CODEGEN_RUN   := docker run --rm -u $(shell id -u):$(shell id -g) -v $(CURDIR):/src $(CODEGEN_IMAGE)
 DB_URL ?= $(DATABASE_URL)
 
 MIGRATIONS_DIR := server/modules/auth/migrations
@@ -34,9 +42,19 @@ tools: ## Установить dev-инструменты (buf/sqlc/goose) в go
 deps: ## Установить зависимости фронтенда (pnpm install)
 	cd web && pnpm install
 
+.PHONY: codegen-image
+codegen-image: ## Собрать образ кодгена (buf + плагины; версии из go.mod/package.json)
+	# `--network host` — не украшение: на препрод-ВМ цепочка DOCKER-USER
+	# пропускает наружу только TCP 80/443/3000, а UDP 53 дропает, поэтому
+	# контейнеры там не резолвят имена и сборка виснет на `go: downloading`.
+	# С host-сетью сборочный контейнер не идёт через FORWARD и не упирается в
+	# это правило. Чистая альтернатива — разрешить контейнерам DNS-егресс
+	# одним правилом DOCKER-USER, тогда флаг можно убрать (см. ADR 0023).
+	docker build --network host -f deploy/codegen.Dockerfile -t $(CODEGEN_IMAGE) .
+
 .PHONY: generate
-generate: ## Генерация Go+TS из proto через buf
-	$(BUF) generate ../proto --template ../proto/buf.gen.yaml
+generate: codegen-image ## Генерация Go+TS из proto (buf в контейнере, без buf.build)
+	$(CODEGEN_RUN) buf generate ../proto --template ../proto/buf.gen.yaml
 
 .PHONY: lint-proto
 lint-proto: ## Линт proto
