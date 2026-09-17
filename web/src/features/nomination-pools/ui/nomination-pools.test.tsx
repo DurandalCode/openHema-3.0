@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NominationPools } from "./nomination-pools";
 import type { BoardBout, FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
@@ -93,9 +93,13 @@ function boardBout(overrides: Partial<BoardBout> = {}): BoardBout {
   };
 }
 
-function livePool(bouts: BoardBout[], currentBoutId = ""): LivePoolDto {
+function livePool(
+  bouts: BoardBout[],
+  currentBoutId = "",
+  standings: Pool["standings"] = [],
+): LivePoolDto {
   return {
-    pool: pool("pool-1", "Пул 1", [fighterA, fighterB]),
+    pool: { ...pool("pool-1", "Пул 1", [fighterA, fighterB]), standings },
     bouts,
     currentBoutId,
   };
@@ -190,12 +194,6 @@ beforeEach(() => {
 describe("NominationPools", () => {
   // Спека 0017, FR-11/AC-3: на экране раскладки номинации состав по группам
   // подписан названием этапа, которому он принадлежит.
-  it("renders the stage title above the pool grid", () => {
-    const { container } = render(<NominationPools stageId="stage-1" livePools={[]} />);
-
-    expect(container).toHaveTextContent("Групповой этап");
-  });
-
   // Спека 0032, FR-3: статус/сводка/фиксация ушли из тулбара в PageHeader —
   // на экране их больше нет ни в каком виде.
   it("no longer renders status, summary, or the fixation button in the toolbar", () => {
@@ -710,6 +708,44 @@ describe("NominationPools", () => {
 
       expect(screen.getByText("2:1")).toBeInTheDocument();
       expect(screen.getByText("идёт")).toBeInTheDocument();
+    });
+
+    // Найдено ручной проверкой (T9): бои уже обновлялись живьём, а таблица
+    // бралась из `useLayout` и оставалась прежней — на открытом экране
+    // завершённый бой был виден, а в таблице его не было. Это ломало AC-6
+    // ровно в тот момент, ради которого фича и делалась.
+    it("берёт итоговую таблицу из того же живого снапшота, что и бои", () => {
+      render(
+        <NominationPools
+          stageId="stage-1"
+          livePools={[
+            livePool(
+              [boardBout({ state: "BOUT_STATE_FINISHED", scoreA: 8, scoreB: 5 })],
+              "",
+              [
+                {
+                  fighter: fighterA,
+                  wins: 1,
+                  draws: 0,
+                  losses: 0,
+                  pointsScored: 8,
+                  pointsConceded: 5,
+                  place: 1,
+                },
+              ],
+            ),
+          ]}
+        />,
+      );
+
+      // Раскладка (`readyLayout`) несёт пустые standings — если таблица
+      // появилась, она пришла из живого снапшота. Ассершены — строго внутри
+      // таблицы: имя бойца встречается ещё и в составе пула.
+      const table = screen.getByRole("table");
+      const row = within(table).getByText(fighterA.name).closest("tr");
+      expect(row).not.toBeNull();
+      expect(within(row!).getByText("8")).toBeInTheDocument();
+      expect(within(row!).getByText("5")).toBeInTheDocument();
     });
 
     // Регрессия: блок боёв существует только у зафиксированной раскладки —

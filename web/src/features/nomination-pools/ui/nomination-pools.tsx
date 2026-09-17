@@ -231,9 +231,6 @@ export function NominationPools({
         resetPending={resetLayout.isPending}
       />
 
-      {/* Подпись этапа над составом групп (спека 0017, FR-11, AC-3). */}
-      <h2 className="text-sm font-medium text-muted-foreground">{layout.stage.title}</h2>
-
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
           <UnassignedColumn
@@ -252,6 +249,7 @@ export function NominationPools({
                 readOnly={readOnly}
                 bouts={liveByPoolId.get(pool.id)?.bouts ?? []}
                 currentBoutId={liveByPoolId.get(pool.id)?.currentBoutId ?? ""}
+                standings={liveByPoolId.get(pool.id)?.pool.standings ?? pool.standings}
                 onDelete={() => handleDeletePool(pool)}
                 deletePending={deletePool.isPending}
                 onAssign={handleMenuAssign}
@@ -436,6 +434,7 @@ function PoolColumn({
   readOnly,
   bouts,
   currentBoutId,
+  standings,
   onDelete,
   deletePending,
   onAssign,
@@ -446,6 +445,15 @@ function PoolColumn({
   readOnly: boolean;
   bouts: BoardBout[];
   currentBoutId: string;
+  /**
+   * Итоговая таблица — из ТОГО ЖЕ живого снапшота, что и бои (спека 0051).
+   * Раньше она бралась из раскладки (`useLayout`), и после того как бои
+   * стали живыми, на открытом экране получался разрыв: завершённый бой уже
+   * виден, а в таблице его ещё нет. Найдено ручной проверкой (T9) — ровно
+   * тот случай, который AC-6 запрещает. Фоллбэк на раскладку остаётся для
+   * черновика, где живого пула нет.
+   */
+  standings: Pool["standings"];
   onDelete: () => void;
   deletePending: boolean;
   onAssign: (fighter: FighterRef, pool: Pool) => void;
@@ -511,7 +519,7 @@ function PoolColumn({
           {readOnly && (
             <>
               <BoutList bouts={bouts} currentBoutId={currentBoutId} />
-              <PoolStandingsTable standings={pool.standings} />
+              <PoolStandingsTable standings={standings} />
             </>
           )}
         </Col>

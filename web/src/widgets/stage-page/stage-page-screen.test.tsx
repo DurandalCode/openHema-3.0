@@ -237,4 +237,20 @@ describe("StagePageScreen", () => {
     expect(screen.getByTestId("stage-actions-stub")).toBeInTheDocument();
     expect(screen.getByTestId("stage-rail-stub")).toHaveTextContent("s1");
   });
+
+  // Название этапа на экране ровно одно — в PageHeader (спека 0032).
+  // Маленькая серая подпись из 0017 дублировала его и сдвигала левую
+  // колонку вниз относительно рельса; убрана спекой 0051.
+  it("показывает название этапа один раз, в шапке раздела", () => {
+    useStagesMock.mockReturnValue({
+      data: { stages: [groupStage], issues: [] },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<StagePageScreen nomination={nomination} stageId="s1" initialStages={[groupStage]} />);
+
+    expect(screen.getAllByText("Групповой этап")).toHaveLength(1);
+  });
 });
