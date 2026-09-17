@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   fighterStatusLabel,
+  importOutcomeLabel,
+  importRowErrorLabel,
   originLabel,
   participationLabel,
   withdrawalReasonLabel,
@@ -55,5 +57,40 @@ describe("originLabel", () => {
 
   it("returns заведён вручную for false", () => {
     expect(originLabel(false)).toBe("заведён вручную");
+  });
+});
+
+describe("importOutcomeLabel (spec 0049, FR-3)", () => {
+  it("names every outcome of an import row", () => {
+    expect(importOutcomeLabel("IMPORT_ROW_OUTCOME_CREATED")).toBe("новый боец");
+    expect(importOutcomeLabel("IMPORT_ROW_OUTCOME_UPDATED")).toBe("дополнение");
+    expect(importOutcomeLabel("IMPORT_ROW_OUTCOME_SKIPPED")).toBe("пропуск");
+    expect(importOutcomeLabel("IMPORT_ROW_OUTCOME_REJECTED")).toBe("ошибка");
+  });
+
+  it("returns a dash for an unknown outcome", () => {
+    expect(importOutcomeLabel("IMPORT_ROW_OUTCOME_UNSPECIFIED")).toBe("—");
+  });
+});
+
+describe("importRowErrorLabel (spec 0049, FR-5/FR-6/FR-8a)", () => {
+  it("names every rejection reason", () => {
+    expect(importRowErrorLabel("IMPORT_ROW_ERROR_EMPTY_NAME")).toBe("пустое имя");
+    expect(importRowErrorLabel("IMPORT_ROW_ERROR_FIGHTER_WITHDRAWN")).toBe(
+      "боец выведен с турнира",
+    );
+  });
+
+  it("appends the unrecognised nomination title itself (AC-3)", () => {
+    expect(importRowErrorLabel("IMPORT_ROW_ERROR_UNKNOWN_NOMINATION", "Копьё")).toBe(
+      "неизвестная номинация: Копьё",
+    );
+    expect(importRowErrorLabel("IMPORT_ROW_ERROR_UNKNOWN_NOMINATION")).toBe(
+      "неизвестная номинация",
+    );
+  });
+
+  it("returns null when the row was not rejected — nothing to show", () => {
+    expect(importRowErrorLabel("IMPORT_ROW_ERROR_UNSPECIFIED")).toBeNull();
   });
 });

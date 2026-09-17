@@ -5,6 +5,7 @@ import {
   createFighterRequest,
   editFighterRequest,
   findFighterByAccountRequest,
+  importFightersRequest,
   listRosterRequest,
   mergeFightersRequest,
   moveFighterRequest,
@@ -260,6 +261,72 @@ describe("features/fighter-management/api/requests", () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "already merged" }) });
       const result = await mergeFightersRequest("f1", "f2");
       expect(result).toEqual({ ok: false, error: "already merged" });
+    });
+  });
+
+  describe("importFightersRequest (spec 0049, FR-2/FR-5a)", () => {
+    const report = {
+      dryRun: true,
+      summary: { rowsRead: 1, created: 1, updated: 0, skipped: 0, rejected: 0 },
+      rows: [],
+    };
+
+    function csv(): File {
+      return new File(["имя;клуб;номинации\n"], "roster.csv", { type: "text/csv" });
+    }
+
+    function sentForm(): FormData {
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("/api/fighters/import");
+      expect(init.method).toBe("POST");
+      // Content-Type не задаём руками: boundary multipart проставляет сам
+      // браузер по FormData — заданный вручную заголовок его срезает.
+      expect(init.headers).toBeUndefined();
+      expect(init.body).toBeInstanceOf(FormData);
+      return init.body as FormData;
+    }
+
+    it("POSTs multipart with the file, dryRun and repeated nominationIds", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ report }) });
+      const file = csv();
+
+      const result = await importFightersRequest(file, {
+        dryRun: true,
+        nominationIds: ["n1", "n2"],
+      });
+
+      expect(result).toEqual({ ok: true, report });
+      const form = sentForm();
+      expect(form.get("file")).toBe(file);
+      expect(form.get("dryRun")).toBe("true");
+      expect(form.getAll("nominationIds")).toEqual(["n1", "n2"]);
+    });
+
+    it("sends dryRun='false' for the confirmed import (FR-2)", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ report: { ...report, dryRun: false } }) });
+
+      await importFightersRequest(csv(), { dryRun: false });
+
+      expect(sentForm().get("dryRun")).toBe("false");
+    });
+
+    it("sends no nominationIds field when no defaults are chosen", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ report }) });
+
+      await importFightersRequest(csv(), { dryRun: true });
+
+      expect(sentForm().getAll("nominationIds")).toEqual([]);
+    });
+
+    it("returns ok:false on non-ok response (file-level error, FR-9/AC-10)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: "слишком много строк" }),
+      });
+
+      const result = await importFightersRequest(csv(), { dryRun: true });
+
+      expect(result).toEqual({ ok: false, error: "слишком много строк" });
     });
   });
 });
