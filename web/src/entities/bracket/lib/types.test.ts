@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bracketFinalRounds, bracketRoundOneFilledCount } from "./types";
+import { bracketFinalRounds, bracketResultsSignature, bracketRoundOneFilledCount } from "./types";
 import type { Bracket, BracketPair, BracketRound, BracketSlot } from "./types";
+import type { BoardBout } from "@/entities/pool/lib/types";
 import type { Pool } from "@/entities/pool/lib/types";
 
 function slot(overrides: Partial<BracketSlot>): BracketSlot {
@@ -129,5 +130,56 @@ describe("entities/bracket/lib/types bracketFinalRounds", () => {
   it("returns nulls for a bracket with no rounds", () => {
     const b = bracketWithRounds([]);
     expect(bracketFinalRounds(b)).toEqual({ final: null, thirdPlace: null });
+  });
+});
+
+describe("bracketResultsSignature (спека 0051)", () => {
+  function boutOf(overrides: Partial<BoardBout> = {}): BoardBout {
+    const f = (id: string) => ({ fighterId: id, name: id, club: "" });
+    return {
+      id: "b1",
+      roundNumber: 1,
+      sequenceNumber: 1,
+      fighterA: f("f1"),
+      fighterB: f("f2"),
+      state: "BOUT_STATE_NOT_STARTED",
+      scoreA: 0,
+      scoreB: 0,
+      ...overrides,
+    };
+  }
+
+  function withBout(bout: BoardBout | null): Bracket {
+    const p = pair(slot({}), slot({}));
+    return bracket([{ ...p, bout }]);
+  }
+
+  it("меняется, когда меняется счёт", () => {
+    const before = bracketResultsSignature(withBout(boutOf({ scoreA: 1 })));
+    const after = bracketResultsSignature(withBout(boutOf({ scoreA: 2 })));
+    expect(after).not.toBe(before);
+  });
+
+  it("меняется, когда бой завершается", () => {
+    const before = bracketResultsSignature(withBout(boutOf({ state: "BOUT_STATE_IN_PROGRESS" })));
+    const after = bracketResultsSignature(withBout(boutOf({ state: "BOUT_STATE_FINISHED" })));
+    expect(after).not.toBe(before);
+  });
+
+  it("не меняется, когда результаты те же", () => {
+    const a = bracketResultsSignature(withBout(boutOf({ scoreA: 3, scoreB: 1 })));
+    const b = bracketResultsSignature(withBout(boutOf({ scoreA: 3, scoreB: 1 })));
+    expect(a).toBe(b);
+  });
+
+  // Посев меняют действия самого админа, и их инвалидация уже висит на
+  // мутациях — отпечаток результатов на него реагировать не должен, иначе
+  // каждое перетаскивание бойца вызывало бы лишнее перечитывание.
+  it("не реагирует на смену посева", () => {
+    const empty = pair(slot({}), slot({}));
+    const seeded = pair(slot({ fighter: { fighterId: "f9", name: "Новый", club: "" } }), slot({}));
+    expect(bracketResultsSignature(bracket([{ ...seeded, bout: null }]))).toBe(
+      bracketResultsSignature(bracket([{ ...empty, bout: null }])),
+    );
   });
 });

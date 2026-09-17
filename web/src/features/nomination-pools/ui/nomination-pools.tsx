@@ -29,10 +29,10 @@ import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
-import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import type { BoardBout, FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
 import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
-import type { Bout } from "@/entities/bout/lib/types";
-import { groupBoutsByPool } from "@/entities/bout/lib/types";
+import { BoutRow } from "@/entities/pool/ui/bout-row";
+import type { LivePoolDto } from "@/entities/nomination-live/lib/types";
 import { useLayout } from "../api/use-layout";
 import { useCreatePool } from "../api/use-create-pool";
 import { useDeletePool } from "../api/use-delete-pool";
@@ -41,7 +41,6 @@ import { useAssignFighter } from "../api/use-assign-fighter";
 import { useUnassignFighter } from "../api/use-unassign-fighter";
 import { useAutoDistribute } from "../api/use-auto-distribute";
 import { useUndo } from "../api/use-undo";
-import { useBouts } from "../api/use-bouts";
 
 const UNASSIGNED_ZONE = "zone:unassigned";
 const poolZoneId = (poolId: string) => `zone:pool:${poolId}`;
@@ -65,7 +64,20 @@ const fighterDragId = (fighterId: string) => `fighter:${fighterId}`;
  * ConfirmDialog (решение пользователя, spec «Решения по открытым
  * вопросам»). Постоянный баннер ошибки (`mutationError`) убран целиком.
  */
-export function NominationPools({ stageId }: { stageId: string }) {
+export function NominationPools({
+  stageId,
+  livePools,
+}: {
+  stageId: string;
+  /**
+   * Пулы живого снапшота номинации (спека 0051). Именно отсюда карточка
+   * группы берёт РЕЗУЛЬТАТ боя: `ListBoutsByNomination` по контракту несёт
+   * только раскладку (пара + порядок) и результата не знает. Владелец
+   * подписки — `StagePageScreen`: снапшот один на экран, чтобы группы и
+   * рельс прогресса не открыли по своему каналу.
+   */
+  livePools: LivePoolDto[];
+}) {
   const { data: layout, isLoading, error, refetch } = useLayout(stageId);
   const createPool = useCreatePool(stageId);
   const deletePool = useDeletePool(stageId);
@@ -74,7 +86,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
   const unassign = useUnassignFighter(stageId);
   const autoDistribute = useAutoDistribute(stageId);
   const undo = useUndo(stageId);
-  const { data: bouts } = useBouts(layout?.stage.nominationId ?? "", layout?.status);
 
   const [draggingFighter, setDraggingFighter] = useState<FighterRef | null>(null);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
@@ -105,7 +116,7 @@ export function NominationPools({ stageId }: { stageId: string }) {
   }
 
   const readOnly = layout.status === "POOL_LAYOUT_STATUS_READY";
-  const boutsByPool = groupBoutsByPool(bouts ?? []);
+  const liveByPoolId = new Map(livePools.map((lp) => [lp.pool.id, lp]));
 
   function onDragStart(event: DragStartEvent) {
     const fighter = event.active.data.current?.fighter as FighterRef | undefined;
@@ -220,9 +231,6 @@ export function NominationPools({ stageId }: { stageId: string }) {
         resetPending={resetLayout.isPending}
       />
 
-      {/* Подпись этапа над составом групп (спека 0017, FR-11, AC-3). */}
-      <h2 className="text-sm font-medium text-muted-foreground">{layout.stage.title}</h2>
-
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
           <UnassignedColumn
@@ -239,7 +247,9 @@ export function NominationPools({ stageId }: { stageId: string }) {
                 pool={pool}
                 pools={layout.pools}
                 readOnly={readOnly}
-                bouts={boutsByPool[pool.id] ?? []}
+                bouts={liveByPoolId.get(pool.id)?.bouts ?? []}
+                currentBoutId={liveByPoolId.get(pool.id)?.currentBoutId ?? ""}
+                standings={liveByPoolId.get(pool.id)?.pool.standings ?? pool.standings}
                 onDelete={() => handleDeletePool(pool)}
                 deletePending={deletePool.isPending}
                 onAssign={handleMenuAssign}
@@ -423,6 +433,8 @@ function PoolColumn({
   pools,
   readOnly,
   bouts,
+  currentBoutId,
+  standings,
   onDelete,
   deletePending,
   onAssign,
@@ -431,7 +443,17 @@ function PoolColumn({
   pool: Pool;
   pools: Pool[];
   readOnly: boolean;
-  bouts: Bout[];
+  bouts: BoardBout[];
+  currentBoutId: string;
+  /**
+   * Итоговая таблица — из ТОГО ЖЕ живого снапшота, что и бои (спека 0051).
+   * Раньше она бралась из раскладки (`useLayout`), и после того как бои
+   * стали живыми, на открытом экране получался разрыв: завершённый бой уже
+   * виден, а в таблице его ещё нет. Найдено ручной проверкой (T9) — ровно
+   * тот случай, который AC-6 запрещает. Фоллбэк на раскладку остаётся для
+   * черновика, где живого пула нет.
+   */
+  standings: Pool["standings"];
   onDelete: () => void;
   deletePending: boolean;
   onAssign: (fighter: FighterRef, pool: Pool) => void;
@@ -496,8 +518,8 @@ function PoolColumn({
           </div>
           {readOnly && (
             <>
-              <BoutList bouts={bouts} />
-              <PoolStandingsTable standings={pool.standings} />
+              <BoutList bouts={bouts} currentBoutId={currentBoutId} />
+              <PoolStandingsTable standings={standings} />
             </>
           )}
         </Col>
@@ -510,9 +532,15 @@ function PoolColumn({
  * BoutList — бои пула, сформированные round-robin при фиксации раскладки
  * (спека 0010, AC-5): показываются только в `ready` (readOnly), исчезают
  * при возврате в `draft`. Порядок — `sequenceNumber` (FR-3a/FR-3b),
- * гарантирован `groupBoutsByPool`.
+ * гарантирован сервером в живом снапшоте.
+ *
+ * Строку рисует общий `BoutRow` (`entities/pool/ui`, спека 0051) — тот же
+ * компонент, что и публичная страница номинации: счёт, состояние, исход и
+ * выделение текущего боя не должны называться в двух местах по-разному
+ * (FR-6). Раньше здесь был свой минимальный рендер «Бой N: A — B» без
+ * результата — админка видела, кто с кем, но не чем кончилось.
  */
-function BoutList({ bouts }: { bouts: Bout[] }) {
+function BoutList({ bouts, currentBoutId }: { bouts: BoardBout[]; currentBoutId: string }) {
   if (bouts.length === 0) return null;
 
   return (
@@ -520,9 +548,7 @@ function BoutList({ bouts }: { bouts: Bout[] }) {
       <span className="text-xs font-medium text-muted-foreground">Бои</span>
       <Col gap={1}>
         {bouts.map((bout) => (
-          <span key={bout.id} className="text-xs">
-            Бой {bout.sequenceNumber}: {bout.fighterA.name} — {bout.fighterB.name}
-          </span>
+          <BoutRow key={bout.id} bout={bout} isCurrent={bout.id === currentBoutId} />
         ))}
       </Col>
     </Col>

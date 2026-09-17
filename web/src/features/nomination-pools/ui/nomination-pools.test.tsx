@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NominationPools } from "./nomination-pools";
-import type { FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import type { BoardBout, FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
+import type { LivePoolDto } from "@/entities/nomination-live/lib/types";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 
 /**
@@ -73,6 +74,44 @@ const layoutWithPools: PoolLayout = {
   pools: [pool("pool-1", "Пул 1", [fighterA, fighterB]), pool("pool-2", "Пул 2", [])],
 };
 
+/**
+ * Живой пул (спека 0051): бои со счётом и состоянием, как их отдаёт
+ * `GetNominationLiveSnapshot`. Именно отсюда карточка группы берёт
+ * результаты — `ListBoutsByNomination` их по контракту не несёт.
+ */
+function boardBout(overrides: Partial<BoardBout> = {}): BoardBout {
+  return {
+    id: "b1",
+    roundNumber: 1,
+    sequenceNumber: 1,
+    fighterA,
+    fighterB,
+    state: "BOUT_STATE_NOT_STARTED",
+    scoreA: 0,
+    scoreB: 0,
+    ...overrides,
+  };
+}
+
+function livePool(
+  bouts: BoardBout[],
+  currentBoutId = "",
+  standings: Pool["standings"] = [],
+): LivePoolDto {
+  return {
+    pool: { ...pool("pool-1", "Пул 1", [fighterA, fighterB]), standings },
+    bouts,
+    currentBoutId,
+  };
+}
+
+/** Зафиксированная раскладка — только в ней вообще существуют бои. */
+const readyLayout: PoolLayout = {
+  ...layout,
+  status: "POOL_LAYOUT_STATUS_READY",
+  pools: [pool("pool-1", "Пул 1", [fighterA, fighterB])],
+};
+
 /** Раскладка с пустыми нераспределёнными и одним пустым пулом — различение пустых состояний, AC-13. */
 const layoutForEmptyStates: PoolLayout = {
   ...layout,
@@ -141,7 +180,6 @@ vi.mock("../api/use-auto-distribute", () => ({
 vi.mock("../api/use-undo", () => ({
   useUndo: () => ({ mutate: undoMutate, isPending: false, error: null }),
 }));
-vi.mock("../api/use-bouts", () => ({ useBouts: () => ({ data: [] }) }));
 vi.mock("@/shared/lib/toast", () => ({
   toastSuccess: (message: string) => toastSuccessMock(message),
   toastUndo: (message: string, options: { onUndo: () => void }) => toastUndoMock(message, options),
@@ -156,12 +194,6 @@ beforeEach(() => {
 describe("NominationPools", () => {
   // Спека 0017, FR-11/AC-3: на экране раскладки номинации состав по группам
   // подписан названием этапа, которому он принадлежит.
-  it("renders the stage title above the pool grid", () => {
-    const { container } = render(<NominationPools stageId="stage-1" />);
-
-    expect(container).toHaveTextContent("Групповой этап");
-  });
-
   // Спека 0032, FR-3: статус/сводка/фиксация ушли из тулбара в PageHeader —
   // на экране их больше нет ни в каком виде.
   it("no longer renders status, summary, or the fixation button in the toolbar", () => {
@@ -172,7 +204,7 @@ describe("NominationPools", () => {
       refetch: vi.fn(),
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     expect(screen.queryByText("черновик")).not.toBeInTheDocument();
     expect(screen.queryByText("готово")).not.toBeInTheDocument();
@@ -183,7 +215,7 @@ describe("NominationPools", () => {
 
   // Спека 0030, FR-2/AC-2: новые подписи кнопок, старых на экране нет.
   it("uses the new action button labels, not the old ones", () => {
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     expect(screen.getByRole("button", { name: "+ Пул" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Распределить автоматически" })).toBeInTheDocument();
@@ -202,7 +234,7 @@ describe("NominationPools", () => {
       refetch: vi.fn(),
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     expect(screen.queryByRole("button", { name: "+ Пул" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Распределить автоматически" })).not.toBeInTheDocument();
@@ -216,7 +248,7 @@ describe("NominationPools", () => {
       options?.onSuccess?.();
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "+ Пул" }));
 
     expect(createMutate).toHaveBeenCalledTimes(1);
@@ -228,7 +260,7 @@ describe("NominationPools", () => {
       options?.onError?.(new Error("Действие недоступно"));
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "+ Пул" }));
 
     expect(toastErrorMock).toHaveBeenCalledWith("Действие недоступно", undefined);
@@ -247,7 +279,7 @@ describe("NominationPools", () => {
       options?.onSuccess?.();
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Удалить Пул 1" }));
 
     expect(deleteMutate).toHaveBeenCalledWith(
@@ -274,7 +306,7 @@ describe("NominationPools", () => {
       options?.onError?.(new Error("Действие недоступно"));
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Удалить Пул 1" }));
 
     expect(toastErrorMock).toHaveBeenCalledWith("Действие недоступно", undefined);
@@ -288,7 +320,7 @@ describe("NominationPools", () => {
       options?.onSuccess?.();
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Распределить автоматически" }));
 
     expect(toastUndoMock).toHaveBeenCalledWith(
@@ -305,7 +337,7 @@ describe("NominationPools", () => {
       options?.onError?.(new Error("Действие недоступно"));
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Распределить автоматически" }));
 
     expect(toastErrorMock).toHaveBeenCalledWith("Действие недоступно", undefined);
@@ -323,7 +355,7 @@ describe("NominationPools", () => {
       options?.onSuccess?.();
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
 
     expect(toastSuccessMock).not.toHaveBeenCalled();
@@ -342,7 +374,7 @@ describe("NominationPools", () => {
       options?.onError?.(new Error("Отменить нечего"));
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
 
     expect(toastErrorMock).toHaveBeenCalledWith("Отменить нечего", undefined);
@@ -360,7 +392,7 @@ describe("NominationPools", () => {
       options?.onSuccess?.();
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     capturedOnDragEnd?.({
       active: { data: { current: { fighterId: "f3", fromPoolId: null } } },
       over: { data: { current: { poolId: "pool-1" } } },
@@ -386,7 +418,7 @@ describe("NominationPools", () => {
       options?.onError?.(new Error("Действие недоступно"));
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     capturedOnDragEnd?.({
       active: { data: { current: { fighterId: "f3", fromPoolId: null } } },
       over: { data: { current: { poolId: "pool-1" } } },
@@ -399,7 +431,7 @@ describe("NominationPools", () => {
   it("shows a skeleton (not 'Загрузка…') while the layout is loading", () => {
     useLayoutMock.mockReturnValue({ data: undefined, isLoading: true, error: null, refetch: vi.fn() });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     expect(screen.queryByText("Загрузка…")).not.toBeInTheDocument();
     expect(screen.getByTestId("nomination-pools-skeleton")).toBeInTheDocument();
@@ -410,7 +442,7 @@ describe("NominationPools", () => {
     const refetch = vi.fn();
     useLayoutMock.mockReturnValue({ data: undefined, isLoading: false, error: new Error("boom"), refetch });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
 
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -425,7 +457,7 @@ describe("NominationPools", () => {
       refetch: vi.fn(),
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     expect(screen.queryByRole("button", { name: "Повторить" })).not.toBeInTheDocument();
   });
@@ -439,7 +471,7 @@ describe("NominationPools", () => {
       refetch: vi.fn(),
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     expect(screen.getByText("Пусто")).toBeInTheDocument();
     expect(screen.getByText("Перетащите бойца сюда")).toBeInTheDocument();
@@ -448,7 +480,7 @@ describe("NominationPools", () => {
   // Спека 0023, FR-8/AC-7: сброс раскладки идёт через ConfirmDialog
   // дизайн-системы, а не системный window.confirm.
   it("opens ConfirmDialog instead of window.confirm on reset click", () => {
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Сбросить раскладку/ }));
 
@@ -459,7 +491,7 @@ describe("NominationPools", () => {
   });
 
   it("cancelling the dialog does not call resetLayout.mutate", () => {
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Сбросить раскладку/ }));
     fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
@@ -473,7 +505,7 @@ describe("NominationPools", () => {
       options.onSuccess?.();
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Сбросить раскладку/ }));
     fireEvent.click(screen.getByRole("button", { name: "Сбросить" }));
@@ -492,7 +524,7 @@ describe("NominationPools", () => {
       options.onError?.(new Error("сеть недоступна"));
     });
 
-    render(<NominationPools stageId="stage-1" />);
+    render(<NominationPools stageId="stage-1" livePools={[]} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Сбросить раскладку/ }));
     fireEvent.click(screen.getByRole("button", { name: "Сбросить" }));
@@ -521,7 +553,7 @@ describe("NominationPools", () => {
     });
 
     it("lists every other pool but not the fighter's current pool, plus «В нераспределённые» when assigned", () => {
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
 
       // fighterA живёт в pool-1 — меню предлагает pool-2 и снятие, но не pool-1.
       openMoveMenu("Ясь В.");
@@ -531,7 +563,7 @@ describe("NominationPools", () => {
     });
 
     it("does not offer «В нераспределённые» for a fighter already unassigned", () => {
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
 
       // fighterC (Берг И.) — нераспределён: обоим пулам можно, снимать неоткуда.
       openMoveMenu("Берг И.");
@@ -541,7 +573,7 @@ describe("NominationPools", () => {
     });
 
     it("selecting a pool from the menu calls assign with the same shape as drop, and shows a success toast", () => {
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
 
       openMoveMenu("Берг И.");
       fireEvent.click(screen.getByRole("menuitem", { name: "В Пул 1" }));
@@ -557,7 +589,7 @@ describe("NominationPools", () => {
         options?.onSuccess?.();
       });
 
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
       openMoveMenu("Берг И.");
       fireEvent.click(screen.getByRole("menuitem", { name: "В Пул 1" }));
 
@@ -569,7 +601,7 @@ describe("NominationPools", () => {
         options?.onSuccess?.();
       });
 
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
       openMoveMenu("Ясь В.");
       fireEvent.click(screen.getByRole("menuitem", { name: "В нераспределённые" }));
 
@@ -585,7 +617,7 @@ describe("NominationPools", () => {
         options?.onError?.(new Error("Действие недоступно"));
       });
 
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
       openMoveMenu("Берг И.");
       fireEvent.click(screen.getByRole("menuitem", { name: "В Пул 1" }));
 
@@ -601,9 +633,134 @@ describe("NominationPools", () => {
         refetch: vi.fn(),
       });
 
-      render(<NominationPools stageId="stage-1" />);
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
 
       expect(screen.queryByRole("button", { name: /Переместить/ })).not.toBeInTheDocument();
+    });
+  });
+
+  // Спека 0051 — результаты боёв в админской статистике этапа.
+  describe("результаты боёв группы (спека 0051)", () => {
+    beforeEach(() => {
+      useLayoutMock.mockReturnValue({
+        data: readyLayout,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+    });
+
+    // AC-1
+    it("показывает счёт, состояние и исход завершённого боя", () => {
+      render(
+        <NominationPools
+          stageId="stage-1"
+          livePools={[
+            livePool([
+              boardBout({ state: "BOUT_STATE_FINISHED", scoreA: 5, scoreB: 3 }),
+            ]),
+          ]}
+        />,
+      );
+
+      expect(screen.getByText("5:3")).toBeInTheDocument();
+      expect(screen.getByText("завершён")).toBeInTheDocument();
+      expect(screen.getByText(`Исход: ${fighterA.name}`)).toBeInTheDocument();
+    });
+
+    // AC-2
+    it("называет ничью ничьёй и никого не объявляет победителем", () => {
+      render(
+        <NominationPools
+          stageId="stage-1"
+          livePools={[
+            livePool([
+              boardBout({ state: "BOUT_STATE_FINISHED", scoreA: 3, scoreB: 3 }),
+            ]),
+          ]}
+        />,
+      );
+
+      expect(screen.getByText("Исход: ничья")).toBeInTheDocument();
+      expect(screen.queryByText(`Исход: ${fighterA.name}`)).not.toBeInTheDocument();
+      expect(screen.queryByText(`Исход: ${fighterB.name}`)).not.toBeInTheDocument();
+    });
+
+    // AC-3: отсутствие результата не должно выглядеть нулевым результатом.
+    it("не показывает 0:0 у не начатого боя", () => {
+      render(<NominationPools stageId="stage-1" livePools={[livePool([boardBout()])]} />);
+
+      expect(screen.queryByText("0:0")).not.toBeInTheDocument();
+      expect(screen.getByText("—:—")).toBeInTheDocument();
+      expect(screen.getByText("не начат")).toBeInTheDocument();
+    });
+
+    // AC-4
+    it("показывает промежуточный счёт идущего боя", () => {
+      render(
+        <NominationPools
+          stageId="stage-1"
+          livePools={[
+            livePool([boardBout({ state: "BOUT_STATE_IN_PROGRESS", scoreA: 2, scoreB: 1 })], "b1"),
+          ]}
+        />,
+      );
+
+      expect(screen.getByText("2:1")).toBeInTheDocument();
+      expect(screen.getByText("идёт")).toBeInTheDocument();
+    });
+
+    // Найдено ручной проверкой (T9): бои уже обновлялись живьём, а таблица
+    // бралась из `useLayout` и оставалась прежней — на открытом экране
+    // завершённый бой был виден, а в таблице его не было. Это ломало AC-6
+    // ровно в тот момент, ради которого фича и делалась.
+    it("берёт итоговую таблицу из того же живого снапшота, что и бои", () => {
+      render(
+        <NominationPools
+          stageId="stage-1"
+          livePools={[
+            livePool(
+              [boardBout({ state: "BOUT_STATE_FINISHED", scoreA: 8, scoreB: 5 })],
+              "",
+              [
+                {
+                  fighter: fighterA,
+                  wins: 1,
+                  draws: 0,
+                  losses: 0,
+                  pointsScored: 8,
+                  pointsConceded: 5,
+                  place: 1,
+                },
+              ],
+            ),
+          ]}
+        />,
+      );
+
+      // Раскладка (`readyLayout`) несёт пустые standings — если таблица
+      // появилась, она пришла из живого снапшота. Ассершены — строго внутри
+      // таблицы: имя бойца встречается ещё и в составе пула.
+      const table = screen.getByRole("table");
+      const row = within(table).getByText(fighterA.name).closest("tr");
+      expect(row).not.toBeNull();
+      expect(within(row!).getByText("8")).toBeInTheDocument();
+      expect(within(row!).getByText("5")).toBeInTheDocument();
+    });
+
+    // Регрессия: блок боёв существует только у зафиксированной раскладки —
+    // в черновике боёв ещё нет, и живой снапшот там пуст по контракту.
+    it("не рисует бои, пока раскладка в черновике", () => {
+      useLayoutMock.mockReturnValue({
+        data: layoutWithPools,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      render(<NominationPools stageId="stage-1" livePools={[]} />);
+
+      expect(screen.queryByText("Бои")).not.toBeInTheDocument();
     });
   });
 });

@@ -52,18 +52,21 @@ const FEATURE_NAMES = [
 ];
 
 /**
- * ALLOWLIST — ровно 5 файлов, которым разрешён прямой `fetch(...)`:
+ * ALLOWLIST — ровно 4 файла, которым разрешён прямой `fetch(...)`:
  * - `auth/api/requests.ts` (FR-19): 401 там значит «неверные учётные
  *   данные», а не «сессия истекла» — это не баг, а другая семантика.
- * - четыре публичных живых хука (FR-20): без сессии, `apiFetch`'ное
+ * - три публичных живых хука (FR-20): без сессии, `apiFetch`'ное
  *   поведение на 401 им не нужно и не подходит.
+ *
+ * Было пять: `nomination-live/api/use-live-snapshot.ts` удалён спекой 0051 —
+ * после перевода экрана этапа на живой канал у него не осталось ни одного
+ * потребителя.
  */
 const ALLOWLIST = new Set([
   "auth/api/requests.ts",
   "arena-live/api/use-arena-live.ts",
   "tournament-live/api/use-tournament-live.ts",
   "nomination-live/api/use-nomination-live.ts",
-  "nomination-live/api/use-live-snapshot.ts",
 ]);
 
 /** DIRECT_FETCH_RE — `fetch(` как отдельное слово: не матчит `apiFetch(`/`refetch(`. */
@@ -104,8 +107,8 @@ describe("features/*/api — no direct fetch(...) outside the allowlist (spec 00
     }
   }
 
-  it("the allowlist names exactly 5 files, all of which exist under features/*/api", () => {
-    expect(ALLOWLIST.size).toBe(5);
+  it("the allowlist names exactly 4 files, all of which exist under features/*/api", () => {
+    expect(ALLOWLIST.size).toBe(4);
     for (const relPath of ALLOWLIST) {
       const [feature, , file] = relPath.split("/");
       expect(listApiFiles(feature)).toContain(file);

@@ -112,6 +112,34 @@ export type Bracket = {
 };
 
 /**
+ * bracketResultsSignature — компактный отпечаток РЕЗУЛЬТАТОВ сетки (спека
+ * 0051): состояние и счёт каждой пары, в порядке кругов и половин. Нужен
+ * ровно для одного: понять, изменилось ли в сетке что-то, ради чего стоит
+ * перечитать её админский вид.
+ *
+ * Зачем отпечаток, а не «перечитывать на каждый живой кадр»: кадр номинации
+ * приходит на любое изменение — в том числе на чужой групповой бой и на
+ * каждое начисление очка, — и слепая инвалидация превратила бы живой канал в
+ * опрос сервера в цикле (NFR-1 прямо это запрещает).
+ *
+ * Посев и `unassigned` в отпечаток не входят намеренно: они меняются
+ * действиями самого админа, и их инвалидация уже висит на мутациях
+ * (`use-seed-slot`, `use-clear-slot`, …).
+ */
+export function bracketResultsSignature(bracket: Bracket): string {
+  const parts: string[] = [];
+  for (const round of bracket.rounds) {
+    for (const half of round.halves) {
+      for (const pair of half.pairs) {
+        const bout = pair.bout;
+        parts.push(bout ? `${bout.id}:${bout.state}:${bout.scoreA}:${bout.scoreB}` : "-");
+      }
+    }
+  }
+  return parts.join("|");
+}
+
+/**
  * bracketRoundOneFilledCount — число занятых слотов первого круга (спека
  * 0032, join): «Заполнено N / M» страницы этапа для сетки. Та же логика,
  * что `stageProgressFromSnapshot` (`entities/stage/lib/progress.ts`)

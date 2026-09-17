@@ -16,12 +16,19 @@ function outcomeLabel(bout: BoardBout): string {
 }
 
 /**
- * BoutRow — строка одного боя пула на публичной странице номинации (спека
- * 0035, FR-13/FR-14): номер по порядку, пара бойцов, счёт (`boutScoreLabel`
- * — прочерк у не начатого боя, AC-9), состояние боя и, для завершённого боя,
- * исход (AC-11). Текущий бой группы выделяется (AC-10). Извлечено из
- * инлайновой строки `widgets/nomination-pools-public/nomination-pools-public.tsx`
- * в самостоятельный переиспользуемый компонент.
+ * BoutRow — строка одного боя пула (спека 0035, FR-13/FR-14): номер по
+ * порядку, пара бойцов, счёт (`boutScoreLabel` — прочерк у не начатого боя,
+ * AC-9), состояние боя и, для завершённого боя, исход (AC-11). Текущий бой
+ * группы выделяется (AC-10). Извлечено из инлайновой строки
+ * `widgets/nomination-pools-public/nomination-pools-public.tsx` в
+ * самостоятельный переиспользуемый компонент.
+ *
+ * Живёт в `entities/pool/ui`, а не в `widgets/nomination-public` — ровно по
+ * той же причине, что и соседний `PoolStandingsTable`: компонент
+ * переиспользуется и public-виджетом, и admin-фичей
+ * (`features/nomination-pools`, спека 0051), а по FSD-границам `features` не
+ * импортит `widgets` — общий UI на этом уровне может жить только в
+ * `entities`/`shared`.
  */
 export function BoutRow({ bout, isCurrent }: { bout: BoardBout; isCurrent: boolean }) {
   const finished = bout.state === "BOUT_STATE_FINISHED";

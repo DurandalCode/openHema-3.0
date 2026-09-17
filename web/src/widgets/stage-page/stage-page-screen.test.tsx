@@ -6,6 +6,7 @@ import type { Nomination } from "@/entities/nomination/lib/types";
 import type { Stage } from "@/entities/stage/lib/types";
 import type { PoolLayout } from "@/entities/pool/lib/types";
 import type { Bracket } from "@/entities/bracket/lib/types";
+import { emptyNominationLiveSnapshot } from "@/entities/nomination-live/lib/types";
 
 function afterEachCleanup() {
   cleanup();
@@ -62,6 +63,9 @@ vi.mock("@/features/stage-management/api/use-stages", () => ({
 vi.mock("@/features/nomination-pools/api/use-layout", () => ({
   useLayout: (...args: unknown[]) => useLayoutMock(...args),
 }));
+vi.mock("@/features/bracket-seeding/api/use-bracket-live-sync", () => ({
+  useBracketLiveSync: () => {},
+}));
 vi.mock("@/features/bracket-seeding/api/use-bracket", () => ({
   useBracket: (...args: unknown[]) => useBracketMock(...args),
 }));
@@ -75,6 +79,14 @@ vi.mock("@/shared/lib/toast", () => ({
   toastSuccess: (message: string) => toastSuccessMock(message),
   toastError: (message: string, options?: { retry?: () => void }) => toastErrorMock(message, options),
 }));
+// Спека 0051: экран — единственный владелец живого снапшота номинации.
+const useNominationLiveMock = vi.fn((nominationId: string) =>
+  emptyNominationLiveSnapshot(nominationId),
+);
+vi.mock("@/features/nomination-live/api/use-nomination-live", () => ({
+  useNominationLive: (nominationId: string) => useNominationLiveMock(nominationId),
+}));
+
 vi.mock("@/features/nomination-pools/ui/nomination-pools", () => ({
   NominationPools: ({ stageId }: { stageId: string }) => (
     <div data-testid="nomination-pools-stub">NominationPools:{stageId}</div>
@@ -224,5 +236,21 @@ describe("StagePageScreen", () => {
     expect(screen.getByTestId("stage-summary-cards-stub")).toBeInTheDocument();
     expect(screen.getByTestId("stage-actions-stub")).toBeInTheDocument();
     expect(screen.getByTestId("stage-rail-stub")).toHaveTextContent("s1");
+  });
+
+  // Название этапа на экране ровно одно — в PageHeader (спека 0032).
+  // Маленькая серая подпись из 0017 дублировала его и сдвигала левую
+  // колонку вниз относительно рельса; убрана спекой 0051.
+  it("показывает название этапа один раз, в шапке раздела", () => {
+    useStagesMock.mockReturnValue({
+      data: { stages: [groupStage], issues: [] },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<StagePageScreen nomination={nomination} stageId="s1" initialStages={[groupStage]} />);
+
+    expect(screen.getAllByText("Групповой этап")).toHaveLength(1);
   });
 });
