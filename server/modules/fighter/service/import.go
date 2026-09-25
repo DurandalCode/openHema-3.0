@@ -29,6 +29,7 @@ const (
 // (вне скоупа спеки).
 var (
 	nameHeaders       = []string{"имя", "name"}
+	surnameHeaders    = []string{"фамилия", "surname", "last_name"}
 	clubHeaders       = []string{"клуб", "club"}
 	nominationHeaders = []string{"номинации", "nominations"}
 )
@@ -192,14 +193,19 @@ func parseRows(table tabular.Table) ([]domain.ImportRow, error) {
 	if nameCol < 0 {
 		return nil, domain.ErrMissingNameColumn
 	}
+	surnameCol := findColumn(table.Header, surnameHeaders)
 	clubCol := findColumn(table.Header, clubHeaders)
 	nomCol := findColumn(table.Header, nominationHeaders)
 
 	rows := make([]domain.ImportRow, 0, len(table.Rows))
 	for _, row := range table.Rows {
+		name := cell(row.Cells, nameCol)
+		if surname := cell(row.Cells, surnameCol); surname != "" && name != "" {
+			name = strings.TrimSpace(surname + " " + name)
+		}
 		rows = append(rows, domain.ImportRow{
 			Line:             row.Line,
-			Name:             cell(row.Cells, nameCol),
+			Name:             name,
 			Club:             cell(row.Cells, clubCol),
 			NominationTitles: splitTitles(cell(row.Cells, nomCol)),
 		})
