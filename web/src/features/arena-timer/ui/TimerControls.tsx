@@ -5,6 +5,7 @@ import { Col, Row } from "@/shared/ui/stack";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
 import type { TimerDisplay as TimerDisplayState, UseArenaTimerResult } from "@/features/arena-timer/api/use-arena-timer";
 import { useStartBout } from "@/features/bout-board/api/use-start-bout";
+import { toastError } from "@/shared/lib/toast";
 import { ADJUST_STEPS } from "../lib/steps";
 import { useSwapSides } from "../api/use-swap-sides";
 import { TimerDisplay } from "./TimerDisplay";
@@ -28,7 +29,7 @@ import { TimerSourceNote } from "./timer-source-note";
  *
  * «Старт» совмещает два независимых действия одной кнопкой (UX-решение,
  * не доменное): если текущий бой пула ещё не начат — сначала начинает его
- * (`useStartBout`, спека 0013, FR-4), затем в любом случае стартует таймер.
+ * (`useStartBout`, спека 0013, FR-4), и только после успеха запускает таймер.
  * Пока таймер идёт — «Старт» заблокирован.
  */
 export function TimerControls({
@@ -51,7 +52,11 @@ export function TimerControls({
 
   function handleStart() {
     if (poolId && currentBout?.state === "BOUT_STATE_NOT_STARTED") {
-      startBout.mutate(poolId);
+      startBout.mutate(poolId, {
+        onSuccess: () => controls.start(),
+        onError: (error) => toastError(error.message),
+      });
+      return;
     }
     controls.start();
   }
