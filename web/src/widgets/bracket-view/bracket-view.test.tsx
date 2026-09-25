@@ -286,7 +286,13 @@ describe("BracketView", () => {
   // растягивания страницы.
   it("wraps rounds in a horizontally scrollable container (NFR-2)", () => {
     const { container } = render(<BracketView bracket={bracket} />);
-    expect(container.querySelector(".overflow-x-auto")).not.toBeNull();
+    expect(container.querySelector(".overflow-auto")).not.toBeNull();
+  });
+
+  it("shows the graph path from a quarterfinal pair to the correct semifinal side", () => {
+    render(<BracketView bracket={bracket} />);
+    expect(screen.getByText(/Победитель пары 1, 1\/4 финала → полуфинал, сторона А/)).toBeInTheDocument();
+    expect(screen.getByText(/Проигравший пары 1, полуфинал → бой за 3-е место, сторона А/)).toBeInTheDocument();
   });
 
   // Спека 0035, FR-17/AC-12: пара текущего боя подписана площадкой половины

@@ -31,6 +31,9 @@ export type DateTimeFieldProps = {
   placeholder?: string;
   id?: string;
   className?: string;
+  /** Помечает кнопку выбора даты и связывает её с текстом ошибки. */
+  invalid?: boolean;
+  describedBy?: string;
 };
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -78,6 +81,8 @@ export function DateTimeField({
   placeholder = "Выбрать дату",
   id,
   className,
+  invalid = false,
+  describedBy,
 }: DateTimeFieldProps) {
   const selected = parseIsoToDate(value);
   const [open, setOpen] = React.useState(false);
@@ -131,6 +136,8 @@ export function DateTimeField({
           type="button"
           variant="outline"
           className={cn("justify-start font-normal", className)}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
         >
           <CalendarIcon className="mr-2 size-4" />
           {selected ? formatDisplay(selected, withTime) : placeholder}

@@ -74,6 +74,22 @@ describe("StageSection", () => {
     expect(screen.getByText("Плейофф на 8")).toBeInTheDocument();
   });
 
+  it("links a finished terminal bracket to the nomination results", () => {
+    const stage = makeStage({ ...emptyBracket.stage, executionStatus: "STAGE_STATUS_FINISHED" });
+    render(<StageSection stage={stage} stages={[stage]} pools={[]} bracket={emptyBracket} hasResults />);
+    expect(screen.getByRole("link", { name: "Итоговые места" })).toHaveAttribute("href", "/nominations/n1#results");
+  });
+
+  it("does not link an unfinished bracket or a finished non-terminal bracket without results", () => {
+    const unfinished = emptyBracket.stage;
+    const { rerender } = render(<StageSection stage={unfinished} stages={[unfinished]} pools={[]} bracket={emptyBracket} hasResults />);
+    expect(screen.queryByRole("link", { name: "Итоговые места" })).not.toBeInTheDocument();
+
+    const finished = makeStage({ ...emptyBracket.stage, executionStatus: "STAGE_STATUS_FINISHED" });
+    rerender(<StageSection stage={finished} stages={[finished]} pools={[]} bracket={emptyBracket} hasResults={false} />);
+    expect(screen.queryByRole("link", { name: "Итоговые места" })).not.toBeInTheDocument();
+  });
+
   it("этап-сетка без брекета: блок-обещание (AC-4)", () => {
     const stage = makeStage({
       id: "stage-2",

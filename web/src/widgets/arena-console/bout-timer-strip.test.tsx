@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BoutTimerStrip } from "./bout-timer-strip";
 
@@ -21,19 +22,30 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({}) })));
 });
 
 const controls = { start: vi.fn(), pause: vi.fn(), reset: vi.fn(), adjust: vi.fn() };
 
-function renderStrip(status: "STOPPED" | "RUNNING" | "PAUSED" | "EXPIRED" = "STOPPED", roundNumber: number | null = 2) {
+function renderStrip(
+  status: "STOPPED" | "RUNNING" | "PAUSED" | "EXPIRED" = "STOPPED",
+  roundNumber: number | null = 2,
+  boutState: "BOUT_STATE_NOT_STARTED" | "BOUT_STATE_IN_PROGRESS" = "BOUT_STATE_IN_PROGRESS",
+) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   return render(
-    <BoutTimerStrip
-      roundNumber={roundNumber}
-      display={{ status, remainingCs: 9000 }}
-      controls={controls}
-    >
-      <div>Содержимое листа действий</div>
-    </BoutTimerStrip>,
+    <QueryClientProvider client={qc}>
+      <BoutTimerStrip
+        arenaId="arena-1"
+        poolId="pool-1"
+        boutState={boutState}
+        roundNumber={roundNumber}
+        display={{ status, remainingCs: 9000 }}
+        controls={controls}
+      >
+        <div>Содержимое листа действий</div>
+      </BoutTimerStrip>
+    </QueryClientProvider>,
   );
 }
 
@@ -50,6 +62,37 @@ describe("BoutTimerStrip (спека 0045, T4/FR-4)", () => {
     fireEvent.click(button);
     expect(controls.start).toHaveBeenCalledTimes(1);
     expect(controls.pause).not.toHaveBeenCalled();
+  });
+
+  it("starts a not-started bout before starting the mobile timer", async () => {
+    let finishRequest!: (value: { ok: boolean; json: () => Promise<object> }) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => { finishRequest = resolve; })));
+    renderStrip("STOPPED", 2, "BOUT_STATE_NOT_STARTED");
+
+    fireEvent.click(screen.getByRole("button", { name: "Старт" }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
+      "/api/pools/pool-1/bout",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ action: "start" }) }),
+    ));
+    expect(controls.start).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Старт" })).toBeDisabled();
+
+    finishRequest({ ok: true, json: async () => ({}) });
+    await waitFor(() => expect(controls.start).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps the timer stopped when the bout start is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: "Бой нельзя начать" }),
+    })));
+    renderStrip("STOPPED", 2, "BOUT_STATE_NOT_STARTED");
+
+    fireEvent.click(screen.getByRole("button", { name: "Старт" }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Старт" })).toBeEnabled());
+    expect(controls.start).not.toHaveBeenCalled();
   });
 
   it("shows Пауза and calls controls.pause when running", () => {

@@ -12,6 +12,7 @@ import { SchemaChain } from "@/widgets/nomination-public/schema-chain";
 import { StageSection } from "@/widgets/nomination-public/stage-section";
 import { EmptyLayout } from "@/widgets/nomination-public/empty-layout";
 import { NominationResults } from "@/widgets/nomination-results/nomination-results";
+import { hasPlaces } from "@/entities/nomination-results/lib/types";
 
 /**
  * NominationPublicScreen — композиция публичной страницы номинации (спека
@@ -66,6 +67,7 @@ export function NominationPublicScreen({
               stages={stages}
               pools={pools.filter((p) => p.pool.stageId === stage.id)}
               bracket={brackets.find((b) => b.stage.id === stage.id) ?? null}
+              hasResults={results.sections.some((section) => section.stageId === stage.id && hasPlaces(section))}
             />
           ))}
         </Col>

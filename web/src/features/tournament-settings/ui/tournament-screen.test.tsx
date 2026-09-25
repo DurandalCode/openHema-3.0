@@ -195,6 +195,37 @@ describe("TournamentScreen (spec 0029)", () => {
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
+  it("shows a reversed date range as soon as a date changes and clears it when corrected", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Дата и время начала" }));
+    fireEvent.click(screen.getByRole("button", { name: "20" }));
+    expect(screen.getByText("Дата окончания не может быть раньше даты начала")).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "1" }));
+    expect(screen.queryByText("Дата окончания не может быть раньше даты начала")).not.toBeInTheDocument();
+  });
+
+  it("clears an immediate date error when the optional end is cleared or changes are reset", () => {
+    render(<TournamentScreen tournament={tournament()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Дата и время начала" }));
+    fireEvent.click(screen.getByRole("button", { name: "20" }));
+    expect(screen.getByText("Дата окончания не может быть раньше даты начала")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Дата и время окончания" }));
+    fireEvent.click(screen.getByRole("button", { name: "Очистить" }));
+    expect(screen.queryByText("Дата окончания не может быть раньше даты начала")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Дата и время окончания" }));
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    expect(screen.getByText("Дата окончания не может быть раньше даты начала")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Отменить правки" }));
+    expect(screen.queryByText("Дата окончания не может быть раньше даты начала")).not.toBeInTheDocument();
+  });
+
   it("a server rejection shows an error toast without retry and keeps entered values (AC-9)", () => {
     updateResult = { ok: false, error: "Проверьте название и даты" };
 

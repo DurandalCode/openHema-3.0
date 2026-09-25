@@ -145,6 +145,19 @@ describe("entities/tournament/lib/draft validateTournamentDraft (spec 0029, AC-7
     expect(validateTournamentDraft(draft).eventEndAt).toBeTruthy();
   });
 
+  it("accepts equal dates and clearing the optional end after an invalid range", () => {
+    const draft = draftFrom(tournament());
+    draft.eventStartAt = "2026-12-03T10:00:00.000Z";
+    draft.eventEndAt = "2026-12-01T10:00:00.000Z";
+    expect(validateTournamentDraft(draft).eventEndAt).toBeTruthy();
+
+    draft.eventEndAt = draft.eventStartAt;
+    expect(validateTournamentDraft(draft).eventEndAt).toBeUndefined();
+
+    draft.eventEndAt = null;
+    expect(validateTournamentDraft(draft).eventEndAt).toBeUndefined();
+  });
+
   it("rejects an end date without a start date", () => {
     const draft = draftFrom(tournament());
     draft.eventStartAt = null;
@@ -479,4 +492,3 @@ describe("entities/tournament/lib/draft notifications (spec 0042, FR-19)", () =>
     expect(tournamentDraftChanges(saved, draft)).toEqual([]);
   });
 });
-

@@ -64,6 +64,9 @@ describe("widgets/nomination-results NominationResults", () => {
     };
     render(<NominationResults results={results} />);
 
+    expect(document.querySelectorAll("#results")).toHaveLength(1);
+    expect(document.getElementById("results")).toHaveAttribute("tabindex", "-1");
+
     // Champion/Runner Up: карточка пьедестала + строка полного протокола.
     expect(screen.getAllByText("Champion Fighter")).toHaveLength(2);
     expect(screen.getAllByText("Runner Up")).toHaveLength(2);
@@ -75,6 +78,24 @@ describe("widgets/nomination-results NominationResults", () => {
     expect(screen.getByText("выбыл в 1/4 финала")).toBeInTheDocument();
   });
 
+  it("shows distinct third and fourth places when a bronze bout was fought", () => {
+    const withBronze = {
+      ...finishedBracket,
+      entries: [
+        ...finishedBracket.entries.slice(0, 2),
+        { ...finishedBracket.entries[2], placeFrom: 3, placeTo: 3 },
+        { ...finishedBracket.entries[3], placeFrom: 4, placeTo: 4 },
+      ],
+    };
+    render(<NominationResults results={{ nominationId: "n1", nominationFinished: true, sections: [withBronze] }} />);
+
+    expect(screen.getAllByText("1")).toHaveLength(2);
+    expect(screen.getAllByText("2")).toHaveLength(2);
+    expect(screen.getAllByText("3")).toHaveLength(2);
+    expect(screen.getAllByText("4")).toHaveLength(1);
+    expect(screen.queryByText("3–4")).not.toBeInTheDocument();
+  });
+
   it("hides an unfinished section when showUnfinished is not passed", () => {
     const results: NominationResultsDto = {
       nominationId: "n1",
@@ -83,6 +104,7 @@ describe("widgets/nomination-results NominationResults", () => {
     };
     const { container } = render(<NominationResults results={results} />);
     expect(container).toBeEmptyDOMElement();
+    expect(document.querySelector("#results")).toBeNull();
   });
 
   it("hides an unfinished section when showUnfinished is explicitly false", () => {
