@@ -61,12 +61,10 @@ jobs:
       - name: buf breaking (against main)
         # Проверка обратной совместимости против ветки main.
         # `.git` — в корне репо, поэтому `../.git` (working-directory = proto).
-        # `continue-on-error` временно, пока main пустой — убери после первого merge.
         # На push в main — пропускаем (нечего сравнивать с самим собой).
         if: github.event_name == 'pull_request'
         working-directory: proto
         run: buf breaking --against '../.git#branch=main,subdir=proto'
-        continue-on-error: true
 
   # ──────────────────────────────────────────────────────────────
   # codegen: единственное место, где выполняется генерация.

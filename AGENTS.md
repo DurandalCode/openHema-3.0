@@ -38,9 +38,10 @@
 `server/modules/*/repo/queries/`):
 
 ```bash
-# 1. Установить зависимости и сгенерировать код (нужны Go 1.26+ и Docker)
+# 1. Установить зависимости и сгенерировать код (нужны Go 1.26+, Docker, Node 22 и pnpm 11)
 make generate   # buf в контейнере кодгена: proto → Go (server/gen) + TS (web/src/gen)
 make sqlc       # sql: queries → server/modules/*/repo/sqlc
+make deps       # установить зависимости web (pnpm)
 
 # 2. Поднять БД и применить миграции
 cp .env.example .env   # задать JWT_* секреты!
@@ -60,7 +61,7 @@ make dev               # postgres в докере + migrate + server и web ло
 дублируются. См. `docs/adr/0023-local-codegen-plugins.md`.
 
 Если планируете реализовывать часть задач локальной моделью (opencode +
-LM Studio/Ollama, ADR 0021/0022) — скилл `setup-local-model` настраивает
+LM Studio/Ollama, ADR 0021/0022) — скилл Claude Code `setup-local-model` настраивает
 связку под вашу машину (провайдер в глобальном конфиге opencode,
 `OPENCODE_LOCAL_MODEL`); это персональная настройка, в репозиторий не
 попадает.
@@ -96,32 +97,30 @@ LM Studio/Ollama, ADR 0021/0022) — скилл `setup-local-model` настра
 2. **plan** — `plan.md`: КАК (proto, server-модули/слои, PG-схема, web-слои,
    тесты по пирамиде ADR 0003).
 3. **tasks** — `tasks.md`: упорядоченный TDD-чеклист.
-3.5. **карточки** (опционально, по требованию) — когда часть задач
-   `tasks.md` отдаётся локальной/слабой модели (не Claude), скилл
+3.5. **карточки** (опционально) — для передачи отдельных задач локальной модели
    `decompose-tasks` раскладывает их в самодостаточные файлы
-   `docs/specs/NNN-*/tasks/*.md` (ADR 0021). Для Claude ничего не меняется:
-   он реализует прямо от `tasks.md` через `tdd-cycle`, шаг не обязателен.
+   `docs/specs/NNN-*/tasks/*.md` (ADR 0021). Любой агент может реализовывать
+   задачи прямо из `tasks.md`; карточки не обязательны.
 4. **code** — реализация по циклу red → green → refactor (тест первым).
 
-Инструменты: скиллы `write-spec`, `add-module`, `add-feature-web`, `tdd-cycle`
-и команда `/spec`. Для OpenCode — `.opencode/skill/` + `opencode.json`. Для
-Claude Code — `.claude/skills/` + `.claude/commands/spec.md` (см. `CLAUDE.md`).
-Для отдачи задач локальной модели — `decompose-tasks` (только Claude) и
-`implement-task` (только OpenCode/локальный контур), см. ADR 0021. Для
-автозапуска opencode по уже готовым карточкам прямо из Claude Code —
-`run-local-tasks` (только Claude, изоляция per-карточка в `git worktree`,
-мерж только после проверки), см. ADR 0022.
+Повторяемые инструкции для агентов: `.agents/skills/` (Codex и совместимые
+клиенты), `.claude/skills/` (Claude Code), `.opencode/skill/` (OpenCode).
+Скиллы помогают с процессом, но `AGENTS.md`, ADR и спеки остаются источниками
+правил проекта. Если клиент не обнаруживает скилл, следуй процессу выше и
+шаблонам в `docs/specs/_templates/`. Команда `/spec` есть у Claude Code и
+OpenCode; в других клиентах достаточно попросить создать спеку.
+Карточки и локальный контур описаны в ADR 0021/0022; их инструменты
+используются только там, где доступны.
 
 Мелкие правки (рефактор, баг-фикс, косметика) спеки не требуют — только
 инкремент с тестами.
 
-Параллельные треки `tasks.md` выполняются в изолированных `git worktree`
-(см. `tdd-cycle`). После мержа трека в рабочую ветку — сразу `git worktree
-remove` и `git branch -d` за собой; не копить смерженные worktree/ветки
-(`.claude/worktrees/worktree-agent-*`).
+Если независимые треки `tasks.md` выполняются параллельно, изолируйте их в
+`git worktree` (см. `tdd-cycle`). После мержа удаляйте завершённые worktree
+и ветки; не копите временные копии.
 
-> Event-Driven Design (межмодульные события) появится отдельным ADR вместе с
-> первой событийной фичей. До этого секция «События» в `plan.md` — placeholder.
+Event sourcing для заявок описан в ADR 0011. Межмодульная шина событий пока
+не введена; при планировании такой интеграции зафиксируйте отдельное решение.
 
 ## Команды (см. Makefile)
 

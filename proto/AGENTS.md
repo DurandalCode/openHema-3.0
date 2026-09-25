@@ -26,8 +26,7 @@ proto/
   buf.gen.yaml      плагины генерации: Go (connect-go) + TS (connect-es);
                     ТОЛЬКО `local:` — см. правило 5 ниже
   hema/v1/
-    common.proto    общие сообщения (User, TokenPair)
-    auth.proto      AuthService (Register/Login/Refresh/Me)
+    *.proto         сообщения и сервисы доменных модулей
 ```
 
 ## Команды
