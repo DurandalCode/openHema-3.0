@@ -12,13 +12,19 @@ vi.mock("@/features/arena-timer/ui/TimerControls", () => ({
 
 vi.mock("./bout-timer-strip", () => ({
   BoutTimerStrip: ({
+    arenaId,
+    poolId,
+    boutState,
     roundNumber,
     children,
   }: {
+    arenaId: string;
+    poolId: string | null;
+    boutState: string;
     roundNumber: number | null;
     children: ReactNode;
   }) => (
-    <div data-testid="bout-timer-strip" data-round={roundNumber ?? ""}>
+    <div data-testid="bout-timer-strip" data-arena-id={arenaId} data-pool-id={poolId ?? ""} data-bout-state={boutState} data-round={roundNumber ?? ""}>
       {children}
     </div>
   ),
@@ -361,9 +367,13 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
       expect(within(strip).getByTestId("bout-actions-sheet-content")).toBeInTheDocument();
     });
 
-    it("passes the current bout's round number to BoutTimerStrip", () => {
+    it("passes arena, pool, and current bout state to the mobile timer strip", () => {
       renderPanel(seatedBoard());
-      expect(screen.getByTestId("bout-timer-strip")).toHaveAttribute("data-round", "1");
+      const strip = screen.getByTestId("bout-timer-strip");
+      expect(strip).toHaveAttribute("data-round", "1");
+      expect(strip).toHaveAttribute("data-arena-id", "a1");
+      expect(strip).toHaveAttribute("data-pool-id", "pool-1");
+      expect(strip).toHaveAttribute("data-bout-state", "BOUT_STATE_IN_PROGRESS");
     });
 
     it("passes the next-bout preview, reset/reopen eligibility and the undo label to BoutActionsSheetContent", () => {

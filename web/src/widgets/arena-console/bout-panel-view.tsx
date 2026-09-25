@@ -191,7 +191,14 @@ export function BoutPanelView({
           `children`.
         */}
         <div className="w-full flex-none md:hidden">
-          <BoutTimerStrip roundNumber={currentBout.roundNumber} display={display} controls={controls}>
+          <BoutTimerStrip
+            arenaId={arenaId}
+            poolId={pool?.id ?? null}
+            boutState={currentBout.state}
+            roundNumber={currentBout.roundNumber}
+            display={display}
+            controls={controls}
+          >
             <BoutActionsSheetContent
               arenaId={arenaId}
               upNext={upNext}
