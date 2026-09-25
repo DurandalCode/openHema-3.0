@@ -53,6 +53,7 @@
 cp .env.example .env   # задать JWT_*-секреты
 make generate           # proto → Go + TS
 make sqlc                # sql → sqlc-репозитории
+make deps                # зависимости web (pnpm)
 make dev                 # postgres в докере + миграции + server/web локально
 ```
 

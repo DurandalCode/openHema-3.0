@@ -38,8 +38,8 @@ description: Use when starting a new non-trivial feature in the HEMA tournament 
 3. **plan.md.** Когда spec без открытых вопросов — заполнить `_templates/plan.md`:
    изменения `proto/hema/v1/*`, server-модули и слои
    (`api/service/domain/repo/migrations`), PG-схема (при новом модуле), web-слои
-   (FSD + BFF), стратегия тестов (ADR 0003). Секция «События» — placeholder до
-   принятия EDD-ADR.
+   (FSD + BFF), стратегия тестов (ADR 0003). Для event sourcing заявок учитывать
+   ADR 0011; межмодульная шина событий пока не введена.
 4. **tasks.md.** Разложить plan на упорядоченный TDD-чеклист (`_templates/tasks.md`):
    контракты → server снизу вверх (domain → service → repo → api → wiring) →
    web → проверка. Каждая задача = слой/файл + пара «тест → код». Если в
