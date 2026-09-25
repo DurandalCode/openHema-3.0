@@ -44,9 +44,9 @@ export function BoutTimerStrip({
       align="center"
       justify="between"
       gap={1}
-      className="flex-none border-y border-border bg-card px-2 py-1.5"
+      className="flex-none border-y border-border bg-card px-2 py-1.5 max-[340px]:flex-wrap"
     >
-      <Row align="center" gap={1} className="min-w-0 shrink overflow-hidden">
+      <Row align="center" gap={1} className="min-w-0 shrink overflow-hidden max-[340px]:w-full max-[340px]:flex-wrap max-[340px]:overflow-visible">
         {roundNumber !== null && (
           <span className="flex-none text-xs font-bold tracking-wide whitespace-nowrap text-muted-foreground">
             Раунд {roundNumber}
@@ -58,7 +58,7 @@ export function BoutTimerStrip({
         <TimerDisplay status={display.status} remainingCs={display.remainingCs} size="strip" />
       </Row>
 
-      <Row align="center" gap={1} className="flex-none">
+      <Row align="center" gap={1} className="flex-none max-[340px]:ml-auto">
         <Button type="button" size="sm" onClick={running ? controls.pause : controls.start}>
           {running ? "Пауза" : "Старт"}
         </Button>

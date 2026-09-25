@@ -61,8 +61,11 @@ export function TimerControls({
   const setSides = useSwapSides(arenaId);
 
   return (
-    <Col gap={4}>
-      <TimerDisplay status={display.status} remainingCs={display.remainingCs} />
+    <Col gap={4} className="min-w-0 w-full">
+      {/* The panel font uses cqw so it follows this column, not the viewport. */}
+      <div className="min-w-0 w-full [container-type:inline-size]">
+        <TimerDisplay status={display.status} remainingCs={display.remainingCs} />
+      </div>
 
       <Row gap={2} className="flex-wrap">
         <Button
@@ -112,6 +115,7 @@ export function TimerControls({
           size="sm"
           variant="outline"
           disabled={setSides.isPending}
+          className="h-auto min-h-[var(--control-h-sm)] max-w-full whitespace-normal text-center"
           onClick={() => setSides.mutate(!sidesSwapped)}
         >
           {sidesSwapped ? "Вернуть стороны" : "Поменять стороны"}

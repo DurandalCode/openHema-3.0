@@ -44,11 +44,11 @@ export type TimerAlertKind = "endgame" | "expired";
  * недифференцированной пороговой арифметике (`remainingCs < 500`), где
  * «концовка» и «истекло» визуально **не различаются** (как было исторически).
  *
- * `size="strip"` (спека 0045, T4-fix) — узкая горизонтальная полоса
- * `BoutTimerStrip` на телефоне: `panel` (`text-6xl`/`sm:text-7xl`, рассчитан
- * на отдельную колонку `TimerControls`) переполнял строку по горизонтали на
- * 390px (найдено ручной проверкой, T16) — `strip` заметно компактнее и без
- * роста от `sm:`.
+ * `size="panel"` подстраивает шрифт под inline-size контейнера в
+ * `TimerControls`: восемь символов `60:00.00` должны вмещаться и в колонку
+ * 300 px, и в карточку управления при увеличенном масштабе браузера.
+ * `size="strip"` (спека 0045, T4-fix) — компактный размер для мобильной
+ * полосы `BoutTimerStrip`, без роста от `sm:`.
  */
 export function TimerDisplay({
   status,
@@ -92,7 +92,7 @@ export function TimerDisplay({
                 kind === null && "text-foreground",
               )
             : cn(
-                "text-6xl sm:text-7xl",
+                "max-w-full whitespace-nowrap text-[clamp(1rem,18cqw,3rem)] leading-none",
                 kind === "expired" && "motion-safe:animate-pulse text-destructive",
                 kind === "endgame" && "text-amber-500",
                 kind === null && "text-foreground",
