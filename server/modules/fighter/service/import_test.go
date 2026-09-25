@@ -94,6 +94,35 @@ func TestImportFightersDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+func TestImportFightersCombinesSurnameAndNameCaseInsensitively(t *testing.T) {
+	svc, d := newImportService()
+	res, err := svc.ImportFighters(context.Background(), service.ImportCommand{
+		TournamentID: testTournament,
+		FileName:     "roster.csv",
+		Content: csvFile(
+			" ФАМИЛИЯ ; ИМЯ ; КЛУБ ; НОМИНАЦИИ ",
+			"Иванов;Иван;Сталь;Лонгсворд",
+			";Петров Пётр;Сталь;Сабля",
+			"Сидоров;;Меч;Лонгсворд",
+		),
+	})
+	if err != nil {
+		t.Fatalf("ImportFighters: %v", err)
+	}
+	if res.Summary.Created != 2 {
+		t.Fatalf("created = %d, want 2", res.Summary.Created)
+	}
+	if res.Summary.Rejected != 1 || res.Rows[2].Error != domain.RowErrorEmptyName {
+		t.Errorf("surname without name: summary=%+v, row=%+v", res.Summary, res.Rows[2])
+	}
+	fighters := roster(t, d.repo)
+	for _, name := range []string{"Иванов Иван", "Петров Пётр"} {
+		if _, ok := findFighter(fighters, name); !ok {
+			t.Errorf("fighter %q not found", name)
+		}
+	}
+}
+
 func TestImportFightersWritesValidRows(t *testing.T) {
 	ctx := context.Background()
 	svc, d := newImportService()
