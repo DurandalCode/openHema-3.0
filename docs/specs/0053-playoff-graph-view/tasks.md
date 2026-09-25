@@ -1,38 +1,38 @@
 # Tasks: Граф боёв плейоффа
 
-- Статус: draft
+- Статус: in progress
 - Дата: 2026-09-25
 - План: `./plan.md`
 
 ## Порядок
 
-Начинать после согласования пакета. Один исполнитель в отдельном worktree;
+Реализация согласована и ведётся одним исполнителем в отдельном worktree;
 каждая задача — red → green → refactor. Новых proto/server шагов нет.
 
 ## Web
 
-- [ ] T1. `entities/bracket/lib/graph-layout.test.ts` → `graph-layout.ts`:
+- [x] T1. `entities/bracket/lib/graph-layout.test.ts` → `graph-layout.ts`:
   4/8/16/32, глобальные индексы через половины, стабильные ключи,
   winner/loser-связи, бронза выключена/включена, геометрия с разными
   размерами карточек. AC-1/2/4; спортивное разрешение не дублировать.
-- [ ] T2. `entities/bracket/ui/bracket-graph.test.tsx` → renderer:
+- [x] T2. `entities/bracket/ui/bracket-graph.test.tsx` → renderer:
   DOM-карточки/линии по модели T1, состояния слотов, имена/счёт/исходы,
   статусы/арены половин, чемпионы и доступные описания связей. AC-3/4.
-- [ ] T3. Там же тесты навигации, rerender и ResizeObserver → измерение,
+- [x] T3. Там же тесты навигации, rerender и ResizeObserver → измерение,
   прокрутка внутри контейнера и переход к кругу, сохранение позиции на
   изменениях результатов, сброс при смене этапа. AC-5/6.
-- [ ] T4. Регрессионные тесты `widgets/bracket-view/bracket-view.test.tsx`,
+- [x] T4. Регрессионные тесты `widgets/bracket-view/bracket-view.test.tsx`,
   `features/bracket-seeding/ui/bracket-seeding.test.tsx` → общий renderer
   и корректные FSD-импорты. Проверить draft/ready/live и read-only public;
   не менять поведение управляющих действий. AC-7.
 
 ## Проверка
 
-- [ ] T5. Регрессии `widgets/nomination-public/stage-section.test.tsx`,
+- [x] T5. Регрессии `widgets/nomination-public/stage-section.test.tsx`,
   `widgets/stage-page/stage-page-screen*.test.tsx`, `use-bracket-live-sync`;
   браузерная проверка AC-1..7 на 360/390/768/1280 px и масштабе 200%,
   темы, длинные имена, клавиатура. Записать результат/ограничения приёмки.
-- [ ] T6. `make test-all`, `cd web && pnpm exec tsc --noEmit`, `pnpm lint`,
+- [x] T6. `make test-all`, `cd web && pnpm exec tsc --noEmit`, `pnpm lint`,
   `pnpm build`; `cd server && go build ./...`. Не закрывать визуальные AC
   только по зелёному Vitest.
 - [ ] T7. Координатор после интеграции обновляет spec/plan/tasks и индекс
