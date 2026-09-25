@@ -81,7 +81,7 @@ export function BoutPanelView({
   // равнозначных путей назад (FR-3), не дублируется здесь.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
+      const target = e.target instanceof Element ? e.target : null;
       if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
 
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -90,6 +90,12 @@ export function BoutPanelView({
         return;
       }
       if (e.key === " " || e.code === "Space") {
+        // Space belongs to the focused control, or to an open modal dialog.
+        // Let the browser activate that control instead of starting the timer.
+        if (
+          document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"], dialog[open]') ||
+          target?.closest('button, select, summary, a[href], [tabindex]:not([tabindex="-1"]), [contenteditable]:not([contenteditable="false"])')
+        ) return;
         e.preventDefault();
         if (display.status === "RUNNING") controls.pause();
         else controls.start();

@@ -273,6 +273,41 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(timerControls.start).toHaveBeenCalledTimes(1);
   });
 
+  it("M17: Space on a focused action button keeps native activation and does not start the timer", () => {
+    renderPanel(seatedBoard());
+    const button = within(screen.getByTestId("desktop-bottom-actions")).getByRole("button", {
+      name: "Показать следующий",
+    });
+    button.focus();
+
+    const allowed = fireEvent.keyDown(button, { key: " ", code: "Space", cancelable: true });
+
+    expect(allowed).toBe(true);
+    expect(timerControls.start).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(revealMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("M17: Space in an open dialog does not control the background timer", () => {
+    renderPanel(seatedBoard());
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const action = document.createElement("button");
+    action.textContent = "Подтвердить";
+    dialog.appendChild(action);
+    document.body.appendChild(dialog);
+    action.focus();
+
+    const allowed = fireEvent.keyDown(action, { key: " ", code: "Space", cancelable: true });
+
+    expect(allowed).toBe(true);
+    expect(timerControls.start).not.toHaveBeenCalled();
+    fireEvent.keyDown(dialog, { key: " ", code: "Space" });
+    expect(timerControls.start).not.toHaveBeenCalled();
+    dialog.remove();
+  });
+
   it("AC-9/FR-21: auto-returns to management when every bout in the pool is finished", () => {
     const onAutoReturn = vi.fn();
     renderPanel(
