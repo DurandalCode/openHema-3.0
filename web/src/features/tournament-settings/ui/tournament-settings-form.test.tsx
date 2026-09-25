@@ -107,6 +107,17 @@ describe("TournamentSettingsForm (spec 0029, controlled form)", () => {
       screen.getByText("Дата окончания не может быть раньше начала"),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Название *")).toHaveAttribute("aria-invalid", "true");
+    for (const label of ["Дата и время начала", "Дата и время окончания"]) {
+      expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByRole("button", { name: label })).toHaveAttribute(
+        "aria-describedby",
+        "eventEndAt-error",
+      );
+    }
+    expect(screen.getByText("Дата окончания не может быть раньше начала")).toHaveAttribute(
+      "id",
+      "eventEndAt-error",
+    );
   });
 
   it("has no submit button — actions live in the page header", () => {

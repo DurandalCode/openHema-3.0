@@ -19,6 +19,25 @@ afterEach(() => {
 });
 
 describe("DateTimeField (AC-12)", () => {
+  it("exposes a field-level error on the trigger", () => {
+    render(
+      <DateTimeField
+        value={null}
+        onChange={vi.fn()}
+        invalid
+        describedBy="date-range-error"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Выбрать дату" })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Выбрать дату" })).toHaveAttribute(
+      "aria-describedby",
+      "date-range-error",
+    );
+  });
+
   it("displays the controlled value", () => {
     render(
       <DateTimeField value="2026-08-12T10:00:00.000Z" onChange={vi.fn()} />,

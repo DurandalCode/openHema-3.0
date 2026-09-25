@@ -108,6 +108,12 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
 
   const changes = tournamentDraftChanges(saved, draft);
   const previewTournament = draftToTournament(saved, draft);
+  // Диапазон дат проверяется по текущему черновику при каждом изменении.
+  // Остальные ошибки остаются проверкой при явном сохранении.
+  const formErrors = {
+    ...errors,
+    eventEndAt: validateTournamentDraft(draft).eventEndAt,
+  };
 
   // Guard несохранённых изменений (спека 0039, FR-13, FR-15): `changes`
   // уже пересчитывается в 0 и после «Отменить правки» (draft возвращается
@@ -177,7 +183,7 @@ export function TournamentScreen({ tournament }: { tournament: Tournament }) {
           <TournamentSettingsForm
             value={draft}
             onChange={setDraft}
-            errors={errors}
+            errors={formErrors}
             savedTournament={saved}
             onSavedTournamentChange={setSaved}
           />
