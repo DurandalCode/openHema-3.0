@@ -167,7 +167,7 @@ export function NominationResults({
   const exportAvailable = results.sections.some((s) => hasPlaces(s));
 
   return (
-    <Col gap={4}>
+    <Col id="results" tabIndex={-1} gap={4} className="scroll-mt-24">
       {canExport && (
         <Row justify="end">
           <ExportAction nominationId={results.nominationId} exportAvailable={exportAvailable} />
