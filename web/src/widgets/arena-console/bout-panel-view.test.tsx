@@ -51,6 +51,7 @@ const finishMutate = vi.fn();
 const revealMutate = vi.fn();
 const reopenMutate = vi.fn();
 const resetMutate = vi.fn();
+const startBoutMutate = vi.fn();
 
 vi.mock("@/features/bout-board/api/use-finish-bout", () => ({
   useFinishBout: () => ({ mutate: finishMutate }),
@@ -63,6 +64,9 @@ vi.mock("@/features/bout-board/api/use-reopen-bout", () => ({
 }));
 vi.mock("@/features/bout-board/api/use-reset-bout", () => ({
   useResetBout: () => ({ mutate: resetMutate }),
+}));
+vi.mock("@/features/bout-board/api/use-start-bout", () => ({
+  useStartBout: () => ({ mutate: startBoutMutate, isPending: false }),
 }));
 
 let scoreControlState = {
@@ -84,6 +88,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  timerDisplay = { status: "STOPPED", remainingCs: 9000 };
   scoreControlState = {
     scoreA: 4,
     scoreB: 6,
@@ -95,7 +100,7 @@ beforeEach(() => {
   };
 });
 
-const timerDisplay = { status: "STOPPED" as const, remainingCs: 9000 };
+let timerDisplay = { status: "STOPPED" as "STOPPED" | "RUNNING", remainingCs: 9000 };
 const timerControls = { start: vi.fn(), pause: vi.fn(), reset: vi.fn(), adjust: vi.fn() };
 
 function fighter(id: string, name: string) {
@@ -159,6 +164,16 @@ function seatedBoard(overrides: Partial<{ bouts: BoutBoard["bouts"]; currentBout
     },
     bouts: overrides.bouts ?? defaultBouts,
     currentBoutId: overrides.currentBoutId ?? "bout-1",
+  };
+}
+
+function notStartedBoard(): BoutBoard {
+  const board = seatedBoard();
+  return {
+    ...board,
+    bouts: board.bouts.map((bout) =>
+      bout.id === board.currentBoutId ? { ...bout, state: "BOUT_STATE_NOT_STARTED" } : bout,
+    ),
   };
 }
 
@@ -277,10 +292,61 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     renderPanel(seatedBoard());
     fireEvent.keyDown(window, { key: " " });
     expect(timerControls.start).toHaveBeenCalledTimes(1);
+    expect(startBoutMutate).not.toHaveBeenCalled();
+  });
+
+  it("Space starts a not-started bout before running the timer", () => {
+    renderPanel(notStartedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+
+    expect(startBoutMutate).toHaveBeenCalledWith("pool-1", expect.objectContaining({
+      onSuccess: expect.any(Function),
+      onError: expect.any(Function),
+    }));
+    expect(timerControls.start).not.toHaveBeenCalled();
+    const options = startBoutMutate.mock.calls[0][1] as { onSuccess: () => void };
+    options.onSuccess();
+    expect(timerControls.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("Space keeps the timer stopped when bout start is rejected", () => {
+    renderPanel(notStartedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+
+    expect(startBoutMutate).toHaveBeenCalledTimes(1);
+    const options = startBoutMutate.mock.calls[0][1] as { onError: (error: Error) => void };
+    options.onError(new Error("Бой нельзя начать"));
+    expect(timerControls.start).not.toHaveBeenCalled();
+  });
+
+  it("ignores repeated Space while the bout-start command is pending, then permits retry", () => {
+    renderPanel(notStartedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    expect(startBoutMutate).toHaveBeenCalledTimes(1);
+    expect(timerControls.start).not.toHaveBeenCalled();
+
+    const options = startBoutMutate.mock.calls[0][1] as { onError: (error: Error) => void };
+    options.onError(new Error("Повторить позже"));
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    expect(startBoutMutate).toHaveBeenCalledTimes(2);
+  });
+
+  it("Space pauses a running timer without another bout command", () => {
+    timerDisplay = { status: "RUNNING", remainingCs: 9000 };
+    renderPanel(seatedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+
+    expect(timerControls.pause).toHaveBeenCalledTimes(1);
+    expect(startBoutMutate).not.toHaveBeenCalled();
   });
 
   it("M17: Space on a focused action button keeps native activation and does not start the timer", () => {
-    renderPanel(seatedBoard());
+    renderPanel(notStartedBoard());
     const button = within(screen.getByTestId("desktop-bottom-actions")).getByRole("button", {
       name: "Показать следующий",
     });
@@ -290,12 +356,13 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
 
     expect(allowed).toBe(true);
     expect(timerControls.start).not.toHaveBeenCalled();
+    expect(startBoutMutate).not.toHaveBeenCalled();
     fireEvent.click(button);
     expect(revealMutate).toHaveBeenCalledTimes(1);
   });
 
   it("M17: Space in an open dialog does not control the background timer", () => {
-    renderPanel(seatedBoard());
+    renderPanel(notStartedBoard());
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
     dialog.setAttribute("aria-modal", "true");
@@ -311,6 +378,7 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     expect(timerControls.start).not.toHaveBeenCalled();
     fireEvent.keyDown(dialog, { key: " ", code: "Space" });
     expect(timerControls.start).not.toHaveBeenCalled();
+    expect(startBoutMutate).not.toHaveBeenCalled();
     dialog.remove();
   });
 

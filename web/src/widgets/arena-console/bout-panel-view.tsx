@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { cn } from "@/shared/lib/cn";
 import { boutNumber, nextBout, sideColorOfFighterA } from "@/entities/arena-live/lib/types";
 import type { FighterRef } from "@/entities/pool/lib/types";
@@ -11,6 +11,7 @@ import { useFinishBout } from "@/features/bout-board/api/use-finish-bout";
 import { useRevealBout } from "@/features/bout-board/api/use-reveal-bout";
 import { useReopenBout } from "@/features/bout-board/api/use-reopen-bout";
 import { useResetBout } from "@/features/bout-board/api/use-reset-bout";
+import { useStartBout } from "@/features/bout-board/api/use-start-bout";
 import { toastError } from "@/shared/lib/toast";
 import { BoutActionsSheetContent } from "./bout-actions-sheet";
 import { BoutTimerStrip } from "./bout-timer-strip";
@@ -61,6 +62,8 @@ export function BoutPanelView({
   const reveal = useRevealBout(arenaId);
   const reopen = useReopenBout(arenaId);
   const reset = useResetBout(arenaId);
+  const startBout = useStartBout(arenaId);
+  const startCommandPending = useRef(false);
 
   const pool = board?.pool ?? null;
   const currentBout = board ? (board.bouts.find((b) => b.id === board.currentBoutId) ?? null) : null;
@@ -76,7 +79,8 @@ export function BoutPanelView({
 
   const canFinish = !offline && currentBout?.state === "BOUT_STATE_IN_PROGRESS";
 
-  // FR-22: Ctrl+Enter — завершить бой; Пробел — пуск/пауза таймера. Esc
+  // FR-22: Ctrl+Enter — завершить бой; Пробел — начать бой при первом
+  // запуске таймера или переключить пуск/паузу уже начатого боя. Esc
   // (возврат в управление) обрабатывает `ArenaConsole` — общий для обоих
   // равнозначных путей назад (FR-3), не дублируется здесь.
   useEffect(() => {
@@ -98,12 +102,25 @@ export function BoutPanelView({
         ) return;
         e.preventDefault();
         if (display.status === "RUNNING") controls.pause();
-        else controls.start();
+        else if (pool && currentBout?.state === "BOUT_STATE_NOT_STARTED") {
+          if (startCommandPending.current) return;
+          startCommandPending.current = true;
+          startBout.mutate(pool.id, {
+            onSuccess: () => {
+              startCommandPending.current = false;
+              controls.start();
+            },
+            onError: (error) => {
+              startCommandPending.current = false;
+              toastError(error.message);
+            },
+          });
+        } else controls.start();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canFinish, pool, finish, display.status, controls]);
+  }, [canFinish, pool, currentBout?.state, finish, startBout, display.status, controls]);
 
   // FR-21/AC-9: завершение последнего непроведённого боя пула возвращает в
   // режим управления автоматически.
