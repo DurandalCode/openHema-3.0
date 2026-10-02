@@ -1,0 +1,8 @@
+# S-DATES / SF-04 — немедленная проверка дат
+
+- База: `675bf0b3426ddceff4257d571a21ffb8e53cb8bf`; ветка: `feedback/dates-only`.
+- Выполнено: SF-04 (M15a). Ошибка обратного интервала и окончания без начала теперь выводится при выборе даты из текущего черновика. Исправление пары, очистка необязательного окончания и «Отменить правки» убирают её сразу. Сохранение продолжает вызывать `validateTournamentDraft`, а серверная проверка не менялась.
+- Обе кнопки выбора даты получают `aria-invalid` и ссылку `aria-describedby` на единственную inline-ошибку пары. Для этого в общий `DateTimeField` добавлены два необязательных свойства; существующие формы, которые их не передают, сохраняют прежнее поведение. Модель дат не менялась; тест на равные даты и очистку закрепляет существующее правило.
+- Red: новые UI-тесты формы и экрана и тест `DateTimeField` падали на отсутствии ошибки/атрибутов. Green: `./node_modules/.bin/vitest run src/entities/tournament/lib/draft.test.ts src/features/tournament-settings/ui/tournament-screen.test.tsx src/features/tournament-settings/ui/tournament-settings-form.test.tsx src/shared/ui/datetime-field.test.tsx` — 87/87.
+- Общие проверки: `./node_modules/.bin/vitest run` — 395 файлов, 3159 тестов; `./node_modules/.bin/tsc --noEmit` — успешно; `./node_modules/.bin/eslint .` — 0 ошибок, 8 предупреждений в не затронутых файлах; `./node_modules/.bin/next build` — успешно; `git diff --check` — успешно. Для сборки был разрешён сетевой доступ к Google Fonts: первая попытка в sandbox остановилась на DNS, повторная production-сборка прошла.
+- Контракты, миграции и БД: изменений нет. SF-05 и 0060 не затронуты. Остатков по SF-04 нет.

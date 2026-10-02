@@ -1,4 +1,6 @@
-import { Col } from "@/shared/ui/stack";
+import Link from "next/link";
+import { Col, Row } from "@/shared/ui/stack";
+import { Button } from "@/shared/ui/button";
 import { stageConfigLabel } from "@/entities/stage/lib/labels";
 import { waitingHint } from "@/entities/stage/lib/schema-chain";
 import type { Stage } from "@/entities/stage/lib/types";
@@ -22,11 +24,13 @@ export function StageSection({
   stages,
   pools,
   bracket,
+  hasResults = false,
 }: {
   stage: Stage;
   stages: Stage[];
   pools: LivePoolDto[];
   bracket: Bracket | null;
+  hasResults?: boolean;
 }) {
   if (stage.type === "STAGE_TYPE_GROUPS" && pools.length === 0) {
     return (
@@ -50,7 +54,14 @@ export function StageSection({
 
   return (
     <Col gap={3}>
-      <h2 className="text-sm font-medium text-muted-foreground">{stage.title}</h2>
+      <Row align="center" justify="between" gap={2} wrap>
+        <h2 className="text-sm font-medium text-muted-foreground">{stage.title}</h2>
+        {stage.type === "STAGE_TYPE_BRACKET" && stage.executionStatus === "STAGE_STATUS_FINISHED" && hasResults && (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/nominations/${stage.nominationId}#results`}>Итоговые места</Link>
+          </Button>
+        )}
+      </Row>
       {stage.type === "STAGE_TYPE_GROUPS" && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pools.map((livePool) => (

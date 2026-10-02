@@ -130,7 +130,6 @@ describe("TimerControls", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Старт" }));
 
-    expect(controls.start).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/pools/pool-1/bout",
@@ -140,6 +139,22 @@ describe("TimerControls", () => {
         }),
       ),
     );
+    await waitFor(() => expect(controls.start).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not start the timer when starting the bout is rejected", async () => {
+    snapshot = { ...baseSnapshot, board: boardWithCurrentBout("BOUT_STATE_NOT_STARTED") };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: "Бой нельзя начать" }),
+    })));
+    renderControls();
+
+    fireEvent.click(screen.getByRole("button", { name: "Старт" }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Старт" })).toBeEnabled());
+    expect(controls.start).not.toHaveBeenCalled();
   });
 
   it("clicking Старт does not start the bout when it is already in progress", () => {

@@ -136,6 +136,39 @@ describe("NominationPublicScreen", () => {
     }
   });
 
+  it("offers a link from a finished bracket to its visible results section", () => {
+    const bracketStage: Stage = {
+      ...groupsStage,
+      id: "bracket-1",
+      title: "Плейофф",
+      type: "STAGE_TYPE_BRACKET",
+      bracket: { size: 4, thirdPlace: false },
+      groups: null,
+      executionStatus: "STAGE_STATUS_FINISHED",
+    };
+    const snapshot = makeSnapshot({
+      stages: [bracketStage],
+      brackets: [{ stage: bracketStage, rounds: [], unassigned: [], canUndo: false, champion: null, thirdPlaceWinner: null }],
+      results: {
+        nominationId: "n1",
+        nominationFinished: true,
+        sections: [{
+          stageId: bracketStage.id,
+          stageTitle: bracketStage.title,
+          stageType: bracketStage.type,
+          finished: true,
+          placesFromOverallOrder: false,
+          entries: [{ placeFrom: 1, placeTo: 1, fighter: { fighterId: "f1", name: "Winner", club: "" }, originLabel: "Финал" }],
+        }],
+      },
+    });
+
+    render(<NominationPublicScreen nominationId="n1" nomination={nomination} initialSnapshot={snapshot} isAuthenticated={false} />);
+
+    expect(screen.getByRole("link", { name: "Итоговые места" })).toHaveAttribute("href", "/nominations/n1#results");
+    expect(document.querySelectorAll("#results")).toHaveLength(1);
+  });
+
   it("черновая раскладка (AC-6): пустое состояние, шапка и схема остаются", () => {
     const snapshot = makeSnapshot({ stages: [groupsStage], pools: [], brackets: [] });
     render(

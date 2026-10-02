@@ -132,6 +132,8 @@ export function TournamentSettingsForm({
               onChange={(v) => set("eventStartAt", v)}
               withTime
               clearable
+              invalid={Boolean(errors.eventEndAt)}
+              describedBy={errors.eventEndAt ? "eventEndAt-error" : undefined}
             />
           </Col>
           <Col gap={2}>
@@ -142,9 +144,13 @@ export function TournamentSettingsForm({
               onChange={(v) => set("eventEndAt", v)}
               withTime
               clearable
+              invalid={Boolean(errors.eventEndAt)}
+              describedBy={errors.eventEndAt ? "eventEndAt-error" : undefined}
             />
             {errors.eventEndAt && (
-              <p className="text-xs text-destructive">{errors.eventEndAt}</p>
+              <p id="eventEndAt-error" className="text-xs text-destructive">
+                {errors.eventEndAt}
+              </p>
             )}
           </Col>
         </div>

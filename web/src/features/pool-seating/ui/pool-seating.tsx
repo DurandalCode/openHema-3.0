@@ -13,7 +13,7 @@ import { SkeletonCards } from "@/shared/ui/skeletons";
 import { Col, Row } from "@/shared/ui/stack";
 import { cn } from "@/shared/lib/cn";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
-import type { Pool } from "@/entities/pool/lib/types";
+import { poolStatusLabel, type Pool } from "@/entities/pool/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
 import { usePoolsForArena } from "../api/use-pools-for-arena";
 import { useSeatPool } from "../api/use-seat-pool";
@@ -141,13 +141,13 @@ function SeatedPoolCard({
 }
 
 /**
- * NominationChip — переключатель фильтра номинации, поверх стилей
+ * FilterChipButton — переключатель фильтра, поверх стилей
  * `FilterChip` (см. `features/admin/ui/users-filters.tsx` `RoleChip` — тот
  * же приём: `filterChipVariants` даёт тон, `aria-pressed` — настоящую
  * a11y-семантику переключателя, которой примитив `FilterChip` сам по себе
  * не отдаёт).
  */
-function NominationChip({
+function FilterChipButton({
   label,
   pressed,
   onClick,
@@ -192,14 +192,18 @@ function AvailablePools({
   seatPending: boolean;
 }) {
   const [selectedNominationId, setSelectedNominationId] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<"unfinished" | "all" | "finished">("unfinished");
 
   const nominations = useMemo(() => availableNominations(pools), [pools]);
   const visiblePools = useMemo(
     () =>
-      selectedNominationId === null
-        ? pools
-        : pools.filter((pool) => pool.nominationId === selectedNominationId),
-    [pools, selectedNominationId],
+      pools.filter((pool) => {
+        if (selectedNominationId !== null && pool.nominationId !== selectedNominationId) return false;
+        if (selectedStatus === "all") return true;
+        const finished = pool.status === "POOL_STATUS_FINISHED";
+        return selectedStatus === "finished" ? finished : !finished;
+      }),
+    [pools, selectedNominationId, selectedStatus],
   );
 
   if (pools.length === 0) {
@@ -221,13 +225,13 @@ function AvailablePools({
         Арена свободна. Выберите готовый пул, чтобы поставить его на эту площадку.
       </span>
       <div role="group" aria-label="Фильтр по номинации" className="flex flex-wrap gap-2">
-        <NominationChip
+        <FilterChipButton
           label="Все номинации"
           pressed={selectedNominationId === null}
           onClick={() => setSelectedNominationId(null)}
         />
         {nominations.map((n) => (
-          <NominationChip
+          <FilterChipButton
             key={n.id}
             label={n.name}
             pressed={selectedNominationId === n.id}
@@ -235,15 +239,38 @@ function AvailablePools({
           />
         ))}
       </div>
+      <div role="group" aria-label="Фильтр по статусу пула" className="flex flex-wrap gap-2">
+        <FilterChipButton
+          label="Незавершённые"
+          pressed={selectedStatus === "unfinished"}
+          onClick={() => setSelectedStatus("unfinished")}
+        />
+        <FilterChipButton
+          label="Все"
+          pressed={selectedStatus === "all"}
+          onClick={() => setSelectedStatus("all")}
+        />
+        <FilterChipButton
+          label="Завершённые"
+          pressed={selectedStatus === "finished"}
+          onClick={() => setSelectedStatus("finished")}
+        />
+      </div>
+      {visiblePools.length === 0 && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Нет пулов, подходящих под выбранные фильтры
+        </p>
+      )}
       {visiblePools.map((pool) => (
         <Card key={pool.id}>
           <CardContent className="pt-6">
             <Row align="center" justify="between" gap={3} className="flex-wrap">
-              <Row align="center" gap={2}>
-                <span className="font-medium">{pool.name}</span>
+              <Row align="center" gap={2} className="min-w-0 flex-wrap">
+                <span className="min-w-0 break-words font-medium">{pool.name}</span>
                 {pool.nominationName && (
                   <Badge variant="outline">{pool.nominationName}</Badge>
                 )}
+                <Badge variant="outline">{poolStatusLabel(pool.status)}</Badge>
                 <Badge variant="secondary">{pool.members.length}</Badge>
               </Row>
               <Button

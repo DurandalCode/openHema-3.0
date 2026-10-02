@@ -16,6 +16,10 @@ describe("formatTimerCs", () => {
     expect(formatTimerCs(7247)).toBe("1:12.47"); // 72.47s = 1:12.47
   });
 
+  it("keeps both hundredths at the largest configured arena duration", () => {
+    expect(formatTimerCs(360_000)).toBe("60:00.00");
+  });
+
   it("clamps negative input to 00.00", () => {
     expect(formatTimerCs(-50)).toBe("00.00");
   });

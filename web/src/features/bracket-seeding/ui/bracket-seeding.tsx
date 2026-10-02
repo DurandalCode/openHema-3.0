@@ -30,7 +30,7 @@ import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { FighterRef } from "@/entities/pool/lib/types";
 import type { BracketHalf, BracketPair, BracketSlot } from "@/entities/bracket/lib/types";
-import { BracketView } from "@/widgets/bracket-view/bracket-view";
+import { BracketGraph } from "@/entities/bracket/ui/bracket-graph";
 import { useBracket } from "../api/use-bracket";
 import { useSeedSlot } from "../api/use-seed-slot";
 import { useClearSlot } from "../api/use-clear-slot";
@@ -185,7 +185,7 @@ export function BracketSeeding({ stageId }: { stageId: string }) {
           </Button>
         </Row>
 
-        <BracketView bracket={bracket} />
+        <BracketGraph bracket={bracket} />
       </Col>
     );
   }

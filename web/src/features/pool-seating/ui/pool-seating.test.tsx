@@ -126,6 +126,79 @@ describe("PoolSeating — постановка пула (спека 0033, FR-12.
     expect(within(group).getByRole("button", { name: "Лонгсворд" })).toBeInTheDocument();
   });
 
+  it("SF-02: defaults to unfinished pools, keeps the full bracket-half name, and shows status", () => {
+    poolsState.data = {
+      seated: null,
+      available: [
+        pool({ id: "ready", name: "1/4 финала — нижняя половина", status: "POOL_STATUS_READY" }),
+        pool({ id: "active", name: "Пул в процессе", status: "POOL_STATUS_ACTIVE" }),
+        pool({ id: "finished", name: "Завершённый пул", status: "POOL_STATUS_FINISHED" }),
+      ],
+    };
+
+    render(<PoolSeating arenaId="a1" />);
+
+    const status = screen.getByRole("group", { name: "Фильтр по статусу пула" });
+    expect(within(status).getByRole("button", { name: "Незавершённые" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("1/4 финала — нижняя половина")).toBeInTheDocument();
+    expect(screen.getByText("Пул в процессе")).toBeInTheDocument();
+    expect(screen.queryByText("Завершённый пул")).not.toBeInTheDocument();
+    expect(screen.getByText("готов")).toBeInTheDocument();
+    expect(screen.getByText("идёт")).toBeInTheDocument();
+  });
+
+  it("SF-02: combines status and nomination filters, and completed pools remain selectable", () => {
+    poolsState.data = {
+      seated: null,
+      available: [
+        pool({ id: "l-ready", name: "Лонгсворд готов", status: "POOL_STATUS_READY" }),
+        pool({ id: "l-done", name: "Лонгсворд завершён", status: "POOL_STATUS_FINISHED" }),
+        pool({ id: "r-done", name: "Рапира завершена", nominationId: "n2", nominationName: "Рапира", status: "POOL_STATUS_FINISHED" }),
+      ],
+    };
+
+    render(<PoolSeating arenaId="a1" />);
+    const status = screen.getByRole("group", { name: "Фильтр по статусу пула" });
+    const nominations = screen.getByRole("group", { name: "Фильтр по номинации" });
+    fireEvent.click(within(nominations).getByRole("button", { name: "Лонгсворд" }));
+    fireEvent.click(within(status).getByRole("button", { name: "Завершённые" }));
+
+    expect(screen.queryByText("Лонгсворд готов")).not.toBeInTheDocument();
+    expect(screen.getByText("Лонгсворд завершён")).toBeInTheDocument();
+    expect(screen.queryByText("Рапира завершена")).not.toBeInTheDocument();
+    expect(screen.getByText("завершён")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Поставить на эту арену" }));
+    expect(seatMutate).toHaveBeenCalledWith("l-done");
+
+    fireEvent.click(within(status).getByRole("button", { name: /^Все$/ }));
+    expect(screen.getByText("Лонгсворд готов")).toBeInTheDocument();
+    expect(screen.getByText("Лонгсворд завершён")).toBeInTheDocument();
+    expect(screen.queryByText("Рапира завершена")).not.toBeInTheDocument();
+  });
+
+  it("SF-02: recomputes from refreshed statuses and explains an empty filtered result", () => {
+    const selected = pool({ id: "p1", name: "Мой пул", status: "POOL_STATUS_READY" });
+    poolsState.data = { seated: null, available: [selected] };
+    const { rerender } = render(<PoolSeating arenaId="a1" />);
+    const status = screen.getByRole("group", { name: "Фильтр по статусу пула" });
+    expect(screen.getByText("Мой пул")).toBeInTheDocument();
+
+    poolsState.data = { seated: null, available: [{ ...selected, status: "POOL_STATUS_FINISHED" }] };
+    rerender(<PoolSeating arenaId="a1" />);
+    expect(screen.queryByText("Мой пул")).not.toBeInTheDocument();
+    expect(screen.getByText("Нет пулов, подходящих под выбранные фильтры")).toBeInTheDocument();
+    expect(screen.queryByText("Нет готовых пулов для постановки")).not.toBeInTheDocument();
+    fireEvent.click(within(status).getByRole("button", { name: "Завершённые" }));
+    expect(screen.getByText("Мой пул")).toBeInTheDocument();
+
+    poolsState.data = { seated: null, available: [{ ...selected, status: "POOL_STATUS_READY" }] };
+    rerender(<PoolSeating arenaId="a1" />);
+    expect(screen.queryByText("Мой пул")).not.toBeInTheDocument();
+    expect(screen.getByText("Нет пулов, подходящих под выбранные фильтры")).toBeInTheDocument();
+    fireEvent.click(within(status).getByRole("button", { name: "Незавершённые" }));
+    expect(screen.getByText("Мой пул")).toBeInTheDocument();
+  });
+
   it("AC-7: explains where pools come from and links to seeding when there are no ready pools at all", () => {
     poolsState.data = { seated: null, available: [] };
 
@@ -160,6 +233,7 @@ describe("PoolSeating — постановка пула (спека 0033, FR-12.
     expect(screen.queryByText("Нет готовых пулов для постановки")).not.toBeInTheDocument();
     expect(screen.queryByText("Пул 1")).not.toBeInTheDocument();
     expect(screen.queryByText("Пул 2")).not.toBeInTheDocument();
+    expect(screen.getByText("Нет пулов, подходящих под выбранные фильтры")).toBeInTheDocument();
   });
 
   it("does not render its own error block when the session expired (spec 0039, FR-18/AC-12)", () => {

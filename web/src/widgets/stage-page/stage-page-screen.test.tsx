@@ -142,6 +142,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useLayoutMock.mockReturnValue({ data: emptyLayout(), isLoading: false });
   useBracketMock.mockReturnValue({ data: emptyBracket(), isLoading: false });
+  useNominationLiveMock.mockImplementation((nominationId: string) => emptyNominationLiveSnapshot(nominationId));
 });
 
 describe("StagePageScreen", () => {
@@ -179,6 +180,37 @@ describe("StagePageScreen", () => {
 
     expect(screen.getByTestId("bracket-seeding-stub")).toHaveTextContent("s2");
     expect(screen.queryByTestId("nomination-pools-stub")).not.toBeInTheDocument();
+  });
+
+  it("links a finished terminal bracket to its existing results", () => {
+    const finishedBracket = { ...bracketStage, executionStatus: "STAGE_STATUS_FINISHED" as const };
+    useStagesMock.mockReturnValue({ data: { stages: [groupStage, finishedBracket], issues: [] }, isLoading: false, error: null, refetch: vi.fn() });
+    useNominationLiveMock.mockImplementation((nominationId: string) => ({
+      ...emptyNominationLiveSnapshot(nominationId),
+      results: {
+        nominationId,
+        nominationFinished: true,
+        sections: [{
+          stageId: finishedBracket.id,
+          stageTitle: finishedBracket.title,
+          stageType: finishedBracket.type,
+          finished: true,
+          placesFromOverallOrder: false,
+          entries: [{ placeFrom: 1, placeTo: 1, fighter: { fighterId: "f1", name: "Winner", club: "" }, originLabel: "Финал" }],
+        }],
+      },
+    }));
+
+    render(<StagePageScreen nomination={nomination} stageId="s2" initialStages={[groupStage, finishedBracket]} />);
+
+    expect(screen.getByRole("link", { name: "Итоговые места" })).toHaveAttribute("href", "/nominations/n1#results");
+  });
+
+  it("does not link a finished non-terminal bracket to absent results", () => {
+    const finishedBracket = { ...bracketStage, executionStatus: "STAGE_STATUS_FINISHED" as const };
+    useStagesMock.mockReturnValue({ data: { stages: [groupStage, finishedBracket], issues: [] }, isLoading: false, error: null, refetch: vi.fn() });
+    render(<StagePageScreen nomination={nomination} stageId="s2" initialStages={[groupStage, finishedBracket]} />);
+    expect(screen.queryByRole("link", { name: "Итоговые места" })).not.toBeInTheDocument();
   });
 
   // Спека 0032, AC-15: скелетон в форме каркаса при загрузке.

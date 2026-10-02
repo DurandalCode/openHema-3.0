@@ -7,6 +7,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/sh
 import type { TimerStatus } from "@/features/arena-timer/model/timer-authority";
 import type { TimerDisplay as TimerDisplayState, UseArenaTimerResult } from "@/features/arena-timer/api/use-arena-timer";
 import { TimerDisplay } from "@/features/arena-timer/ui/TimerDisplay";
+import type { BoutState } from "@/entities/pool/lib/types";
+import { useStartBout } from "@/features/bout-board/api/use-start-bout";
+import { toastError } from "@/shared/lib/toast";
 
 /** STATUS_LABEL — короткая подпись статуса таймера в узкой полосе (FR-4). */
 const STATUS_LABEL: Record<TimerStatus, string> = {
@@ -27,26 +30,45 @@ const STATUS_LABEL: Record<TimerStatus, string> = {
  * рендерящиеся внутри `SheetContent` только когда лист открыт.
  */
 export function BoutTimerStrip({
+  arenaId,
+  poolId,
+  boutState,
   roundNumber,
   display,
   controls,
   children,
 }: {
+  arenaId: string;
+  poolId: string | null;
+  boutState: BoutState;
   roundNumber: number | null;
   display: TimerDisplayState;
   controls: UseArenaTimerResult["controls"];
   children: ReactNode;
 }) {
+  const startBout = useStartBout(arenaId);
   const running = display.status === "RUNNING";
+
+  function handleStart() {
+    if (boutState === "BOUT_STATE_NOT_STARTED") {
+      if (!poolId) return;
+      startBout.mutate(poolId, {
+        onSuccess: () => controls.start(),
+        onError: (error) => toastError(error.message),
+      });
+      return;
+    }
+    controls.start();
+  }
 
   return (
     <Row
       align="center"
       justify="between"
       gap={1}
-      className="flex-none border-y border-border bg-card px-2 py-1.5"
+      className="flex-none border-y border-border bg-card px-2 py-1.5 max-[340px]:flex-wrap"
     >
-      <Row align="center" gap={1} className="min-w-0 shrink overflow-hidden">
+      <Row align="center" gap={1} className="min-w-0 shrink overflow-hidden max-[340px]:w-full max-[340px]:flex-wrap max-[340px]:overflow-visible">
         {roundNumber !== null && (
           <span className="flex-none text-xs font-bold tracking-wide whitespace-nowrap text-muted-foreground">
             Раунд {roundNumber}
@@ -58,8 +80,13 @@ export function BoutTimerStrip({
         <TimerDisplay status={display.status} remainingCs={display.remainingCs} size="strip" />
       </Row>
 
-      <Row align="center" gap={1} className="flex-none">
-        <Button type="button" size="sm" onClick={running ? controls.pause : controls.start}>
+      <Row align="center" gap={1} className="flex-none max-[340px]:ml-auto">
+        <Button
+          type="button"
+          size="sm"
+          disabled={!running && startBout.isPending}
+          onClick={running ? controls.pause : handleStart}
+        >
           {running ? "Пауза" : "Старт"}
         </Button>
         <Sheet>

@@ -161,7 +161,7 @@ function SeatedManagement({
         />
       </Col>
 
-      <Col gap={4} className="flex-1">
+      <Col gap={4} className="min-w-0 flex-1">
         {currentBout ? (
           <CurrentBoutCard
             arenaId={arenaId}

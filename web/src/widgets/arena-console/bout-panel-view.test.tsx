@@ -12,13 +12,19 @@ vi.mock("@/features/arena-timer/ui/TimerControls", () => ({
 
 vi.mock("./bout-timer-strip", () => ({
   BoutTimerStrip: ({
+    arenaId,
+    poolId,
+    boutState,
     roundNumber,
     children,
   }: {
+    arenaId: string;
+    poolId: string | null;
+    boutState: string;
     roundNumber: number | null;
     children: ReactNode;
   }) => (
-    <div data-testid="bout-timer-strip" data-round={roundNumber ?? ""}>
+    <div data-testid="bout-timer-strip" data-arena-id={arenaId} data-pool-id={poolId ?? ""} data-bout-state={boutState} data-round={roundNumber ?? ""}>
       {children}
     </div>
   ),
@@ -45,6 +51,7 @@ const finishMutate = vi.fn();
 const revealMutate = vi.fn();
 const reopenMutate = vi.fn();
 const resetMutate = vi.fn();
+const startBoutMutate = vi.fn();
 
 vi.mock("@/features/bout-board/api/use-finish-bout", () => ({
   useFinishBout: () => ({ mutate: finishMutate }),
@@ -57,6 +64,9 @@ vi.mock("@/features/bout-board/api/use-reopen-bout", () => ({
 }));
 vi.mock("@/features/bout-board/api/use-reset-bout", () => ({
   useResetBout: () => ({ mutate: resetMutate }),
+}));
+vi.mock("@/features/bout-board/api/use-start-bout", () => ({
+  useStartBout: () => ({ mutate: startBoutMutate, isPending: false }),
 }));
 
 let scoreControlState = {
@@ -78,6 +88,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  timerDisplay = { status: "STOPPED", remainingCs: 9000 };
   scoreControlState = {
     scoreA: 4,
     scoreB: 6,
@@ -89,7 +100,7 @@ beforeEach(() => {
   };
 });
 
-const timerDisplay = { status: "STOPPED" as const, remainingCs: 9000 };
+let timerDisplay = { status: "STOPPED" as "STOPPED" | "RUNNING", remainingCs: 9000 };
 const timerControls = { start: vi.fn(), pause: vi.fn(), reset: vi.fn(), adjust: vi.fn() };
 
 function fighter(id: string, name: string) {
@@ -153,6 +164,16 @@ function seatedBoard(overrides: Partial<{ bouts: BoutBoard["bouts"]; currentBout
     },
     bouts: overrides.bouts ?? defaultBouts,
     currentBoutId: overrides.currentBoutId ?? "bout-1",
+  };
+}
+
+function notStartedBoard(): BoutBoard {
+  const board = seatedBoard();
+  return {
+    ...board,
+    bouts: board.bouts.map((bout) =>
+      bout.id === board.currentBoutId ? { ...bout, state: "BOUT_STATE_NOT_STARTED" } : bout,
+    ),
   };
 }
 
@@ -271,6 +292,94 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
     renderPanel(seatedBoard());
     fireEvent.keyDown(window, { key: " " });
     expect(timerControls.start).toHaveBeenCalledTimes(1);
+    expect(startBoutMutate).not.toHaveBeenCalled();
+  });
+
+  it("Space starts a not-started bout before running the timer", () => {
+    renderPanel(notStartedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+
+    expect(startBoutMutate).toHaveBeenCalledWith("pool-1", expect.objectContaining({
+      onSuccess: expect.any(Function),
+      onError: expect.any(Function),
+    }));
+    expect(timerControls.start).not.toHaveBeenCalled();
+    const options = startBoutMutate.mock.calls[0][1] as { onSuccess: () => void };
+    options.onSuccess();
+    expect(timerControls.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("Space keeps the timer stopped when bout start is rejected", () => {
+    renderPanel(notStartedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+
+    expect(startBoutMutate).toHaveBeenCalledTimes(1);
+    const options = startBoutMutate.mock.calls[0][1] as { onError: (error: Error) => void };
+    options.onError(new Error("Бой нельзя начать"));
+    expect(timerControls.start).not.toHaveBeenCalled();
+  });
+
+  it("ignores repeated Space while the bout-start command is pending, then permits retry", () => {
+    renderPanel(notStartedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    expect(startBoutMutate).toHaveBeenCalledTimes(1);
+    expect(timerControls.start).not.toHaveBeenCalled();
+
+    const options = startBoutMutate.mock.calls[0][1] as { onError: (error: Error) => void };
+    options.onError(new Error("Повторить позже"));
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    expect(startBoutMutate).toHaveBeenCalledTimes(2);
+  });
+
+  it("Space pauses a running timer without another bout command", () => {
+    timerDisplay = { status: "RUNNING", remainingCs: 9000 };
+    renderPanel(seatedBoard());
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+
+    expect(timerControls.pause).toHaveBeenCalledTimes(1);
+    expect(startBoutMutate).not.toHaveBeenCalled();
+  });
+
+  it("M17: Space on a focused action button keeps native activation and does not start the timer", () => {
+    renderPanel(notStartedBoard());
+    const button = within(screen.getByTestId("desktop-bottom-actions")).getByRole("button", {
+      name: "Показать следующий",
+    });
+    button.focus();
+
+    const allowed = fireEvent.keyDown(button, { key: " ", code: "Space", cancelable: true });
+
+    expect(allowed).toBe(true);
+    expect(timerControls.start).not.toHaveBeenCalled();
+    expect(startBoutMutate).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(revealMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("M17: Space in an open dialog does not control the background timer", () => {
+    renderPanel(notStartedBoard());
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const action = document.createElement("button");
+    action.textContent = "Подтвердить";
+    dialog.appendChild(action);
+    document.body.appendChild(dialog);
+    action.focus();
+
+    const allowed = fireEvent.keyDown(action, { key: " ", code: "Space", cancelable: true });
+
+    expect(allowed).toBe(true);
+    expect(timerControls.start).not.toHaveBeenCalled();
+    fireEvent.keyDown(dialog, { key: " ", code: "Space" });
+    expect(timerControls.start).not.toHaveBeenCalled();
+    expect(startBoutMutate).not.toHaveBeenCalled();
+    dialog.remove();
   });
 
   it("AC-9/FR-21: auto-returns to management when every bout in the pool is finished", () => {
@@ -326,9 +435,13 @@ describe("BoutPanelView (спека 0033, FR-15..FR-22)", () => {
       expect(within(strip).getByTestId("bout-actions-sheet-content")).toBeInTheDocument();
     });
 
-    it("passes the current bout's round number to BoutTimerStrip", () => {
+    it("passes arena, pool, and current bout state to the mobile timer strip", () => {
       renderPanel(seatedBoard());
-      expect(screen.getByTestId("bout-timer-strip")).toHaveAttribute("data-round", "1");
+      const strip = screen.getByTestId("bout-timer-strip");
+      expect(strip).toHaveAttribute("data-round", "1");
+      expect(strip).toHaveAttribute("data-arena-id", "a1");
+      expect(strip).toHaveAttribute("data-pool-id", "pool-1");
+      expect(strip).toHaveAttribute("data-bout-state", "BOUT_STATE_IN_PROGRESS");
     });
 
     it("passes the next-bout preview, reset/reopen eligibility and the undo label to BoutActionsSheetContent", () => {

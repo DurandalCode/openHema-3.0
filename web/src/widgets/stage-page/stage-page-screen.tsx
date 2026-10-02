@@ -17,6 +17,7 @@ import { useSetLayoutStatus } from "@/features/nomination-pools/api/use-set-layo
 import { NominationPools } from "@/features/nomination-pools/ui/nomination-pools";
 import { useNominationLive } from "@/features/nomination-live/api/use-nomination-live";
 import { emptyNominationLiveSnapshot } from "@/entities/nomination-live/lib/types";
+import { hasPlaces } from "@/entities/nomination-results/lib/types";
 import { useBracket } from "@/features/bracket-seeding/api/use-bracket";
 import { useBracketLiveSync } from "@/features/bracket-seeding/api/use-bracket-live-sync";
 import { useSetBracketStatus } from "@/features/bracket-seeding/api/use-set-bracket-status";
@@ -116,6 +117,8 @@ export function StagePageScreen({
       : "";
 
   const readOnly = stage.status === "POOL_LAYOUT_STATUS_READY";
+  const hasFinalPlaces = isBracket && stage.executionStatus === "STAGE_STATUS_FINISHED" &&
+    liveSnapshot.results.sections.some((section) => section.stageId === stage.id && hasPlaces(section));
 
   function handleToggleFixation() {
     const nextStatus = readOnly ? "draft" : "ready";
@@ -168,6 +171,14 @@ export function StagePageScreen({
         />
 
         <StageActions stage={stage} filled={filled} canUndo={canUndo} />
+
+        {hasFinalPlaces && (
+          <div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/nominations/${nomination.id}#results`}>Итоговые места</Link>
+            </Button>
+          </div>
+        )}
 
         {/*
           Подписи этапа над составом групп здесь намеренно нет. Спека 0017
