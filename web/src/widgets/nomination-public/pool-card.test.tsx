@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { PoolCard } from "./pool-card";
 import type { LivePoolDto } from "@/entities/nomination-live/lib/types";
@@ -86,7 +86,7 @@ describe("PoolCard", () => {
         livePool={livePool({}, [bout({ id: "b1", sequenceNumber: 1 }), bout({ id: "b2", sequenceNumber: 2 })], "b2")}
       />,
     );
-    expect(screen.getByText("Бои")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Бои/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/1\..*Иван Иванов.*Пётр Петров/)).toBeInTheDocument();
     expect(screen.getByText(/2\..*Иван Иванов.*Пётр Петров/)).toBeInTheDocument();
   });
@@ -100,6 +100,52 @@ describe("PoolCard", () => {
   it("renders the members section", () => {
     render(<PoolCard livePool={livePool()} />);
     expect(screen.getByText("Состав")).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+
+  // Спека 0061, FR-3b: с боями «Состав» уходит во вкладку «Рейтинг».
+  it("with bouts replaces the members section by tabs (0061)", () => {
+    render(<PoolCard livePool={livePool({}, [bout({})])} />);
+    expect(screen.queryByText("Состав")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+
+  // AC-3: до начала группы — «Рейтинг» со списком бойцов.
+  it("opens «Рейтинг» with the member list before the pool starts (0061, AC-3)", () => {
+    render(<PoolCard livePool={livePool({ status: "POOL_STATUS_READY" }, [bout({})])} />);
+    expect(screen.getByRole("tab", { name: "Рейтинг" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Итогов пока нет")).toBeInTheDocument();
+    expect(screen.getByText("Иван Иванов")).toBeInTheDocument();
+    expect(screen.getByText("(Клуб А)")).toBeInTheDocument();
+  });
+
+  // AC-5/AC-2: завершённая — «Рейтинг» с таблицей; «Бои» доступны.
+  it("opens «Рейтинг» with the table when finished and lets switch to bouts (0061, AC-5)", () => {
+    render(
+      <PoolCard
+        livePool={livePool(
+          {
+            status: "POOL_STATUS_FINISHED",
+            standings: [
+              {
+                fighter: { fighterId: "f1", name: "Иван Иванов", club: "" },
+                wins: 1,
+                draws: 0,
+                losses: 0,
+                pointsScored: 5,
+                pointsConceded: 2,
+                place: 1,
+              },
+            ],
+          },
+          [bout({ state: "BOUT_STATE_FINISHED", scoreA: 5, scoreB: 2 })],
+        )}
+      />,
+    );
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Бои/ }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText("5:2")).toBeInTheDocument();
   });
 
   it("renders the standings table section when standings are present", () => {

@@ -97,9 +97,10 @@ function livePool(
   bouts: BoardBout[],
   currentBoutId = "",
   standings: Pool["standings"] = [],
+  status: Pool["status"] = "POOL_STATUS_ACTIVE",
 ): LivePoolDto {
   return {
-    pool: { ...pool("pool-1", "Пул 1", [fighterA, fighterB]), standings },
+    pool: { ...pool("pool-1", "Пул 1", [fighterA, fighterB]), standings, status },
     bouts,
     currentBoutId,
   };
@@ -741,6 +742,7 @@ describe("NominationPools", () => {
       // Раскладка (`readyLayout`) несёт пустые standings — если таблица
       // появилась, она пришла из живого снапшота. Ассершены — строго внутри
       // таблицы: имя бойца встречается ещё и в составе пула.
+      fireEvent.mouseDown(screen.getByRole("tab", { name: "Рейтинг" }));
       const table = screen.getByRole("table");
       const row = within(table).getByText(fighterA.name).closest("tr");
       expect(row).not.toBeNull();
@@ -761,6 +763,38 @@ describe("NominationPools", () => {
       render(<NominationPools stageId="stage-1" livePools={[]} />);
 
       expect(screen.queryByText("Бои")).not.toBeInTheDocument();
+      expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    });
+
+    // Спека 0061, AC-1/FR-3b: вкладки вместо ленты «состав + бои + таблица».
+    it("0061: у идущей группы открыты «Бои», отдельного состава и таблицы нет", () => {
+      render(<NominationPools stageId="stage-1" livePools={[livePool([boardBout()])]} />);
+
+      expect(screen.getByRole("tab", { name: /Бои/ })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByText("—:—")).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(screen.queryByText("Перетащите бойца сюда")).not.toBeInTheDocument();
+    });
+
+    // AC-3: статус берётся из живого пула, а не из раскладки.
+    it("0061: пока группа не началась, открыт «Рейтинг» со списком бойцов", () => {
+      render(
+        <NominationPools
+          stageId="stage-1"
+          livePools={[livePool([boardBout()], "", [], "POOL_STATUS_READY")]}
+        />,
+      );
+
+      expect(screen.getByRole("tab", { name: "Рейтинг" })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByText("Итогов пока нет")).toBeInTheDocument();
+      expect(screen.getByText(fighterA.name)).toBeInTheDocument();
+    });
+
+    // FR-5: без живого пула (боёв нет) карточка выглядит как прежде.
+    it("0061: без боёв вкладок нет", () => {
+      render(<NominationPools stageId="stage-1" livePools={[livePool([])]} />);
+
+      expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     });
   });
 });
