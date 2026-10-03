@@ -125,4 +125,39 @@ describe("BoutTimerStrip (спека 0045, T4/FR-4)", () => {
     renderStrip("STOPPED", null);
     expect(screen.queryByText(/^Раунд/)).not.toBeInTheDocument();
   });
+
+  describe("область-кнопка (спека 0062)", () => {
+    it("starts the timer when the time readout is tapped (AC-1)", () => {
+      renderStrip("STOPPED");
+      fireEvent.click(document.querySelector("[data-timer-status]") as HTMLElement);
+      expect(controls.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("pauses the timer when the time readout is tapped while running (AC-2)", () => {
+      renderStrip("RUNNING");
+      fireEvent.click(document.querySelector("[data-timer-status]") as HTMLElement);
+      expect(controls.pause).toHaveBeenCalledTimes(1);
+      expect(controls.start).not.toHaveBeenCalled();
+    });
+
+    it("does not toggle the timer when ⋯ is tapped (AC-5)", () => {
+      renderStrip("STOPPED");
+      fireEvent.click(screen.getByRole("button", { name: "Дополнительные действия" }));
+      expect(controls.start).not.toHaveBeenCalled();
+      expect(controls.pause).not.toHaveBeenCalled();
+    });
+
+    it("is at least 80px tall (AC-6)", () => {
+      renderStrip("STOPPED");
+      expect(screen.getByRole("button", { name: "Старт" })).toHaveClass("min-h-20");
+    });
+
+    it("is named by the action only, not by the time text (FR-7)", () => {
+      renderStrip("STOPPED");
+      expect(screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+        "Старт",
+        "Дополнительные действия",
+      ]);
+    });
+  });
 });
