@@ -30,8 +30,7 @@ import { cn } from "@/shared/lib/cn";
 import { toastError, toastSuccess, toastUndo } from "@/shared/lib/toast";
 import { UnauthorizedError } from "@/shared/api/unauthorized";
 import type { BoardBout, FighterRef, Pool, PoolLayout } from "@/entities/pool/lib/types";
-import { PoolStandingsTable } from "@/entities/pool/ui/pool-standings-table";
-import { BoutRow } from "@/entities/pool/ui/bout-row";
+import { PoolResultsTabs } from "@/entities/pool/ui/pool-results-tabs";
 import type { LivePoolDto } from "@/entities/nomination-live/lib/types";
 import { useLayout } from "../api/use-layout";
 import { useCreatePool } from "../api/use-create-pool";
@@ -250,6 +249,7 @@ export function NominationPools({
                 bouts={liveByPoolId.get(pool.id)?.bouts ?? []}
                 currentBoutId={liveByPoolId.get(pool.id)?.currentBoutId ?? ""}
                 standings={liveByPoolId.get(pool.id)?.pool.standings ?? pool.standings}
+                status={liveByPoolId.get(pool.id)?.pool.status ?? pool.status}
                 onDelete={() => handleDeletePool(pool)}
                 deletePending={deletePool.isPending}
                 onAssign={handleMenuAssign}
@@ -435,6 +435,7 @@ function PoolColumn({
   bouts,
   currentBoutId,
   standings,
+  status,
   onDelete,
   deletePending,
   onAssign,
@@ -454,6 +455,8 @@ function PoolColumn({
    * черновика, где живого пула нет.
    */
   standings: Pool["standings"];
+  /** Статус группы из живого снапшота — по нему выбирается вкладка (спека 0061, FR-4). */
+  status: Pool["status"];
   onDelete: () => void;
   deletePending: boolean;
   onAssign: (fighter: FighterRef, pool: Pool) => void;
@@ -492,66 +495,45 @@ function PoolColumn({
               </Button>
             )}
           </Row>
-          <div
-            ref={setNodeRef}
-            className={cn(
-              "min-h-24 rounded-md border border-dashed p-2 transition-colors",
-              isOver && "border-primary bg-accent",
-            )}
-          >
-            <Col gap={2}>
-              {pool.members.map((f) => (
-                <FighterCard
-                  key={f.fighterId}
-                  fighter={f}
-                  fromPoolId={pool.id}
-                  pools={pools}
-                  readOnly={readOnly}
-                  onAssign={onAssign}
-                  onUnassign={onUnassign}
-                />
-              ))}
-              {pool.members.length === 0 && (
-                <p className="text-xs text-muted-foreground">Перетащите бойца сюда</p>
+          {readOnly && bouts.length > 0 ? (
+            // Спека 0061, FR-3b: у зафиксированной группы с боями состав виден
+            // во вкладке «Рейтинг», отдельная зона состава не нужна.
+            <PoolResultsTabs
+              status={status}
+              members={pool.members}
+              standings={standings}
+              bouts={bouts}
+              currentBoutId={currentBoutId}
+            />
+          ) : (
+            <div
+              ref={setNodeRef}
+              className={cn(
+                "min-h-24 rounded-md border border-dashed p-2 transition-colors",
+                isOver && "border-primary bg-accent",
               )}
-            </Col>
-          </div>
-          {readOnly && (
-            <>
-              <BoutList bouts={bouts} currentBoutId={currentBoutId} />
-              <PoolStandingsTable standings={standings} />
-            </>
+            >
+              <Col gap={2}>
+                {pool.members.map((f) => (
+                  <FighterCard
+                    key={f.fighterId}
+                    fighter={f}
+                    fromPoolId={pool.id}
+                    pools={pools}
+                    readOnly={readOnly}
+                    onAssign={onAssign}
+                    onUnassign={onUnassign}
+                  />
+                ))}
+                {pool.members.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Перетащите бойца сюда</p>
+                )}
+              </Col>
+            </div>
           )}
         </Col>
       </CardContent>
     </Card>
-  );
-}
-
-/**
- * BoutList — бои пула, сформированные round-robin при фиксации раскладки
- * (спека 0010, AC-5): показываются только в `ready` (readOnly), исчезают
- * при возврате в `draft`. Порядок — `sequenceNumber` (FR-3a/FR-3b),
- * гарантирован сервером в живом снапшоте.
- *
- * Строку рисует общий `BoutRow` (`entities/pool/ui`, спека 0051) — тот же
- * компонент, что и публичная страница номинации: счёт, состояние, исход и
- * выделение текущего боя не должны называться в двух местах по-разному
- * (FR-6). Раньше здесь был свой минимальный рендер «Бой N: A — B» без
- * результата — админка видела, кто с кем, но не чем кончилось.
- */
-function BoutList({ bouts, currentBoutId }: { bouts: BoardBout[]; currentBoutId: string }) {
-  if (bouts.length === 0) return null;
-
-  return (
-    <Col gap={1} className="border-t pt-2">
-      <span className="text-xs font-medium text-muted-foreground">Бои</span>
-      <Col gap={1}>
-        {bouts.map((bout) => (
-          <BoutRow key={bout.id} bout={bout} isCurrent={bout.id === currentBoutId} />
-        ))}
-      </Col>
-    </Col>
   );
 }
 
