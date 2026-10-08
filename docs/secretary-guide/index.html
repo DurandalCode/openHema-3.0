@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Памятка секретаря</title>
+<style>
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  :root {
+    --ink: #1a1a1a;
+    --muted: #5f5f5f;
+    --line: #dedbd4;
+    --accent: #d63a24;
+    --note-bg: #fff6e5;
+    --note-line: #e8b24a;
+    --warn-bg: #fdecea;
+    --warn-line: #d63a24;
+    --tip-bg: #eaf5ee;
+    --tip-line: #2f9a5c;
+    --mark: #e6007e;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0 auto;
+    max-width: 182mm;
+    padding: 0 16px;
+    background: #fff;
+    color: var(--ink);
+    font: 10.5pt/1.5 -apple-system, "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  h1 { font-size: 26pt; line-height: 1.15; margin: 0 0 6mm; }
+  h2 {
+    font-size: 17pt; margin: 0 0 4mm; padding-bottom: 2mm;
+    border-bottom: 2px solid var(--accent);
+    break-after: avoid;
+  }
+  h3 { font-size: 12.5pt; margin: 6mm 0 2mm; break-after: avoid; }
+  h3 .n {
+    display: inline-block; min-width: 7mm; margin-right: 1.5mm;
+    color: #fff; background: var(--accent); border-radius: 3px;
+    text-align: center; font-size: 10pt; padding: 0 1.5mm;
+  }
+  p { margin: 0 0 2.5mm; }
+  ol, ul { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  b.btn, .btn {
+    font-weight: 600; white-space: nowrap;
+    border: 1px solid #c9c5bc; border-radius: 4px; padding: 0 1.2mm;
+    background: #f7f5f0;
+  }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 9pt; background: #f2f0eb; padding: 0 1mm; border-radius: 3px; }
+  figure { margin: 3mm 0 4mm; break-inside: avoid; }
+  figure img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+  figcaption { font-size: 9pt; color: var(--muted); margin-top: 1.2mm; }
+  .row { display: grid; gap: 4mm; grid-template-columns: 1fr 1fr; align-items: start; }
+  .row3 { display: grid; gap: 4mm; grid-template-columns: 1fr 1fr 1fr; align-items: start; }
+  .box { border-left: 3px solid; padding: 2mm 3mm; margin: 3mm 0; border-radius: 0 4px 4px 0; break-inside: avoid; }
+  .box p:last-child, .box ul:last-child { margin-bottom: 0; }
+  .note { background: var(--note-bg); border-color: var(--note-line); }
+  .warn { background: var(--warn-bg); border-color: var(--warn-line); }
+  .tip  { background: var(--tip-bg);  border-color: var(--tip-line); }
+  .box strong:first-child { display: block; margin-bottom: 0.5mm; }
+  .page { break-before: page; }
+  .cover { min-height: 250mm; display: flex; flex-direction: column; }
+  .cover .kicker { color: var(--accent); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 9pt; margin: 18mm 0 3mm; }
+  .cover .lead { font-size: 13pt; color: #333; max-width: 150mm; }
+  .cover .meta { margin-top: auto; font-size: 9pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 3mm; }
+  .flow { display: flex; flex-wrap: wrap; gap: 1.5mm; align-items: center; margin: 3mm 0 5mm; font-size: 9.5pt; }
+  .flow span { background: #f7f5f0; border: 1px solid #c9c5bc; border-radius: 4px; padding: .8mm 2mm; font-weight: 600; }
+  .flow i { color: var(--accent); font-style: normal; font-weight: 700; }
+  .toc { margin: 8mm 0; font-size: 11pt; }
+  .toc li { margin-bottom: 2mm; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 2mm 0 4mm; break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 1.5mm 2mm; text-align: left; vertical-align: top; }
+  th { background: #f4f2ed; }
+  tr { break-inside: avoid; }
+
+  .shot { position: relative; }
+  .shot img { display: block; width: 100%; }
+  .mk {
+    position: absolute; pointer-events: none;
+    left: calc(var(--x) * 100% / var(--W)); top: calc(var(--y) * 100% / var(--H));
+    width: calc(var(--w) * 100% / var(--W)); height: calc(var(--h) * 100% / var(--H));
+    border: 2.5px solid var(--mark); border-radius: 5px;
+    box-shadow: 0 0 0 1.5px #fff, inset 0 0 0 1px #fff;
+  }
+  .mk b, .k {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 4.6mm; height: 4.6mm; border-radius: 50%;
+    background: var(--mark); color: #fff; font: 700 7.5pt/1 -apple-system, Arial, sans-serif;
+    box-shadow: 0 0 0 1.2px #fff;
+  }
+  .mk b { position: absolute; left: -5.6mm; top: 50%; transform: translateY(-50%); }
+  .mk.t b { left: 50%; top: -5.4mm; transform: translateX(-50%); }
+  .mk.r b { left: auto; right: -5.6mm; }
+  .k { vertical-align: -0.8mm; margin: 0 0.4mm; }
+  .mobile .shot { max-width: 58mm; margin: 0 auto; }
+  @media screen { body { padding: 24px 16px 64px; } .page { margin-top: 18mm; } }
+</style>
+</head>
+<body>
+
+<!-- ================= Обложка ================= -->
+<section class="cover">
+  <div class="kicker">openHEMA · инструкция</div>
+  <h1>Памятка секретаря турнира</h1>
+  <p class="lead">Как провести номинацию от схемы до итоговых мест и как вести бои на площадке: с панели на ноутбуке и с телефона.</p>
+
+  <ol class="toc">
+    <li><b>Часть 1. Номинация</b>: схема, формирование, посев, фиксация, плейофф, итоги</li>
+    <li><b>Часть 2. Бои на арене</b>: посадка пула, старт, счёт, завершение, табло, телефон</li>
+    <li><b>Шпаргалка</b>: какая кнопка что делает и что нельзя путать</li>
+  </ol>
+
+  <div class="box note">
+    <strong>Как войти</strong>
+    <p>Откройте сайт турнира, нажмите <b class="btn">Войти</b> и введите выданные вам логин и пароль. Секретарю нужна учётная запись с правами администратора: тогда в верхнем меню появятся разделы <b>Номинации</b>, <b>Площадки</b> и остальные.</p>
+  </div>
+
+  <div class="meta">
+    Скриншоты сняты на демо-данных (номинация «Лонгсорд — мужчины», 9 бойцов, пресет «Группы + плейофф (до 8)»).
+    Версия интерфейса: <code>e2ae4a0</code>, 8 октября 2026. Если на экране кнопка называется иначе, ориентируйтесь на смысл шага.
+  </div>
+</section>
+
+<!-- ================= Часть 1 ================= -->
+<section class="page">
+  <h2>Часть 1. Как вести номинацию</h2>
+
+  <div class="flow">
+    <span>Схема</span><i>→</i><span>Формат</span><i>→</i><span>Формирование</span><i>→</i><span>Посев</span><i>→</i><span>Зафиксировать</span><i>→</i><span>Бои на арене</span><i>→</i><span>Плейофф</span><i>→</i><span>Итоги</span>
+  </div>
+
+  <p>Перед началом убедитесь, что бойцы зарегистрированы в номинации (раздел <b>Бойцы</b> или <b>Заявки</b>). Если заявки больше не принимаются, закройте приём кнопкой <b class="btn">Закрыть приём</b> на странице схемы.</p>
+
+  <h3><span class="n">1</span>Открыть схему номинации</h3>
+  <p>Верхнее меню → <b>Номинации</b>. В строке нужной номинации нажмите <b class="btn">⋮</b> (столбец «Действия») → <b>Схема</b>.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/02-nom-actions.jpg" alt="Список номинаций с открытым меню действий"><i class="mk" style="--x:1366;--y:225;--w:34;--h:32"><b>1</b></i><i class="mk" style="--x:1273;--y:265;--w:125;--h:33"><b>2</b></i></div>
+      <figcaption>Список номинаций. <span class="k">1</span> меню «⋮» в строке номинации → <span class="k">2</span> «Схема».</figcaption>
+  </figure>
+
+  <h3><span class="n">2</span>Выбрать формат (пресет)</h3>
+  <ol>
+    <li>Над холстом — чипы готовых форматов: «Группы + плейофф (до 8)», «Олимпийка (до 16)» и т. д. Выберите подходящий по числу бойцов.</li>
+    <li>Первый клик превращает чип в <b class="btn">Заменить схему?</b>, второй клик по нему же применяет формат.</li>
+  </ol>
+  <div class="box warn">
+    <strong>Пресет заменяет всю схему</strong>
+    <p>Всё, что было на схеме этой номинации, удаляется. Применяйте пресет до формирования этапов.</p>
+  </div>
+  <div class="row">
+    <figure>
+      <div class="shot" style="--W:1440;--H:813"><img src="img/04-preset-confirm.jpg" alt="Чип пресета в режиме подтверждения"><i class="mk" style="--x:1119;--y:241;--w:136;--h:35"><b>1</b></i></div>
+      <figcaption><span class="k">1</span> После первого клика чип превращается в «Заменить схему?». Нажмите его ещё раз.</figcaption>
+    </figure>
+    <figure>
+      <div class="shot" style="--W:1440;--H:813"><img src="img/05-schema-preset.jpg" alt="Схема после применения пресета"><i class="mk" style="--x:1119;--y:241;--w:182;--h:35"><b>1</b></i><i class="mk" style="--x:254;--y:460;--w:116;--h:36"><b>2</b></i></div>
+      <figcaption>Готовая схема: «Групповой этап» → «Плейофф». <span class="k">1</span> применённый пресет, <span class="k">2</span> «Формирование» группового этапа (шаг 3).</figcaption>
+    </figure>
+  </div>
+  <p>Если ни один формат не подходит, этапы можно добавить кнопками <b class="btn">+ Группы</b> / <b class="btn">+ Плейофф</b> и настроить шестерёнкой на карточке этапа. Обычно хватает пресета.</p>
+</section>
+
+<section>
+  <h3><span class="n">3</span>Сформировать групповой этап</h3>
+  <p>На карточке «Групповой этап» нажмите <b class="btn">Формирование</b>. Откроется превью: кто попадает в этап и в какую группу. Проверьте, что в списке все бойцы номинации, и нажмите <b class="btn">Сформировать</b>.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/06-formation-preview.jpg" alt="Превью формирования группового этапа"><i class="mk" style="--x:404;--y:286;--w:632;--h:290"><b>1</b></i><i class="mk" style="--x:405;--y:588;--w:132;--h:44"><b>2</b></i></div>
+      <figcaption><span class="k">1</span> кто попадает в этап и в какую группу, <span class="k">2</span> «Сформировать» — подтвердить.</figcaption>
+  </figure>
+
+  <h3><span class="n">4</span>Проверить посев</h3>
+  <p>На карточке этапа нажмите <b>Посев →</b>. Здесь видно, кто в каком пуле.</p>
+  <ul>
+    <li>Чтобы перенести бойца, перетащите его карточку за «⠿» или нажмите <b class="btn">⋮</b> → <b>В Пул N</b>.</li>
+    <li><b class="btn">Распределить автоматически</b> раскладывает бойцов заново; <b class="btn">Отменить</b> отменяет последнее перемещение.</li>
+    <li><b class="btn">Сбросить раскладку</b> вынимает всех из пулов. <b class="btn">Сбросить этап</b> очищает состав этапа целиком. В обычной работе ни то ни другое не нужно.</li>
+  </ul>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/09-seed-move.jpg" alt="Посев группового этапа с меню переноса бойца"><i class="mk" style="--x:485;--y:600;--w:28;--h:30"><b>1</b></i><i class="mk" style="--x:352;--y:643;--w:163;--h:82"><b>2</b></i><i class="mk" style="--x:79;--y:323;--w:212;--h:34"><b>3</b></i><i class="mk" style="--x:1295;--y:26;--w:132;--h:40"><b>4</b></i></div>
+      <figcaption>Посев. <span class="k">1</span> меню бойца → <span class="k">2</span> перенос в другой пул; <span class="k">3</span> «Распределить автоматически»; <span class="k">4</span> «Зафиксировать», когда состав верный.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3><span class="n">5</span>Зафиксировать этап</h3>
+  <p>Когда состав пулов верный, нажмите <b class="btn">Зафиксировать</b> (красная кнопка справа вверху). Система создаёт бои, у каждого пула появляется вкладка <b>Бои</b> с порядком пар. Статус этапа меняется на <b>Готов</b>.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/11-stage-fixed.jpg" alt="Зафиксированный этап с боями пула"><i class="mk" style="--x:337;--y:422;--w:146;--h:38"><b>1</b></i><i class="mk" style="--x:1271;--y:58;--w:156;--h:42"><b>2</b></i></div>
+      <figcaption>Этап «Готов». <span class="k">1</span> вкладки «Бои» / «Рейтинг» пула; <span class="k">2</span> «Вернуть в черновик» — пока ни один бой не начат.</figcaption>
+  </figure>
+  <div class="box note">
+    <strong>Ошиблись с составом?</strong>
+    <p><b class="btn">Вернуть в черновик</b> снимает фиксацию, но только пока пул не стоит на площадке и ни один бой не начат. Если пул уже посажен, сначала снимите его с арены.</p>
+  </div>
+  <p>Дальше пулы проводятся на площадках, см. <b>Часть 2</b>. Когда все бои группового этапа завершены, возвращайтесь сюда.</p>
+
+  <h3><span class="n">6</span>Проверить рейтинг групп</h3>
+  <p>На странице этапа у каждого пула переключите вкладку на <b>Рейтинг</b>. Колонки: <b>П</b> — победы, <b>Н</b> — ничьи, <b>Пор</b> — поражения, <b>+О</b> / <b>−О</b> — нанесённые и пропущенные очки. Узкая карточка может обрезать правые колонки — тогда прокрутите таблицу вбок.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/27-stage-ratings.jpg" alt="Рейтинг пулов после завершения этапа"><i class="mk" style="--x:406;--y:422;--w:76;--h:38"><b>1</b></i><i class="mk" style="--x:333;--y:468;--w:205;--h:290"><b>2</b></i><i class="mk" style="--x:1103;--y:437;--w:322;--h:74"><b>3</b></i></div>
+      <figcaption>Этап «Завершён». <span class="k">1</span> вкладка «Рейтинг», <span class="k">2</span> таблица пула, <span class="k">3</span> карточка «Плейофф» — следующий шаг.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3><span class="n">7</span>Сформировать и зафиксировать плейофф</h3>
+  <ol>
+    <li>В правой колонке нажмите карточку <b>Плейофф</b> (или «Посев →» на схеме).</li>
+    <li>Нажмите <b class="btn">Сформировать</b>. В превью у каждого бойца указано, откуда он прошёл («Пул 1, место 1») и в какой слот сетки встаёт. Внизу перечислены не прошедшие.</li>
+    <li>Если система сообщает о <b>разделённом месте</b> на границе отбора, укажите порядок прохода и нажмите <b>Обновить превью с ответами</b>.</li>
+    <li>Подтвердите <b class="btn">Сформировать</b>.</li>
+  </ol>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/29-playoff-preview.jpg" alt="Превью формирования плейоффа"><i class="mk" style="--x:690;--y:350;--w:125;--h:128"><b>1</b></i><i class="mk t" style="--x:975;--y:350;--w:62;--h:128"><b>2</b></i><i class="mk" style="--x:405;--y:522;--w:132;--h:44"><b>3</b></i></div>
+      <figcaption>Превью плейоффа. <span class="k">1</span> откуда прошёл боец, <span class="k">2</span> слот в сетке, <span class="k">3</span> «Сформировать».</figcaption>
+  </figure>
+  <div class="box warn">
+    <strong>Проверьте пары перед фиксацией</strong>
+    <p>Посмотрите, кто с кем встречается в «Верхней» и «Нижней половине». Если пары не соответствуют регламенту (например, двое из одного пула сразу в полуфинале), поменяйте бойцов местами перетаскиванием, пока этап в черновике. Затем нажмите <b class="btn">Зафиксировать</b>.</p>
+  </div>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/30-playoff-seeded.jpg" alt="Посев плейоффа до фиксации"><i class="mk" style="--x:336;--y:496;--w:332;--h:134"><b>1</b></i><i class="mk" style="--x:728;--y:496;--w:332;--h:134"><b>2</b></i><i class="mk" style="--x:1295;--y:59;--w:132;--h:40"><b>3</b></i></div>
+      <figcaption>Посев сетки. <span class="k">1</span> пары верхней и <span class="k">2</span> нижней половины — проверьте; <span class="k">3</span> «Зафиксировать». «×» возвращает бойца в нераспределённые.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3><span class="n">8</span>Сетка плейоффа</h3>
+  <p>После фиксации показывается граф сетки: пары, линии прохода победителей, пунктир к бою за 3-е место. Кнопки <b>К кругу…</b> прокручивают к нужному кругу.</p>
+  <div class="box tip">
+    <strong>Каждый круг — это отдельный «пул» для площадки</strong>
+    <p>«Полуфинал, верхняя половина», «Полуфинал, нижняя половина», «Финал», «Бой за 3-е место» появляются в списке пулов на площадке. Сажаете и ведёте их так же, как групповые (Часть 2). Финал и бронза заполняются автоматически по итогам полуфиналов.</p>
+  </div>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/33-playoff-done.jpg" alt="Граф сетки плейоффа с результатами"><i class="mk" style="--x:13;--y:155;--w:406;--h:32"><b>1</b></i><i class="mk" style="--x:13;--y:195;--w:409;--h:35"><b>2</b></i><i class="mk" style="--x:16;--y:428;--w:263;--h:370"><b>3</b></i></div>
+      <figcaption>Доигранная сетка. <span class="k">1</span> чемпион и 3-е место, <span class="k">2</span> переход к нужному кругу, <span class="k">3</span> пара со счётом.</figcaption>
+  </figure>
+
+  <h3><span class="n">9</span>Итоги и протокол</h3>
+  <p>Итоговые места видны внизу страницы схемы номинации и на публичной странице номинации. Кнопка <b class="btn">Экспорт</b> выгружает итоговый протокол в CSV. Это итоговые места, а не список всех боёв.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/34-results.jpg" alt="Итоговые места номинации"><i class="mk" style="--x:1333;--y:305;--w:94;--h:36"><b>1</b></i><i class="mk" style="--x:38;--y:432;--w:510;--h:206"><b>2</b></i></div>
+      <figcaption><span class="k">1</span> «Экспорт» — CSV итогового протокола; <span class="k">2</span> итоговые места.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= Часть 2 ================= -->
+<section class="page">
+  <h2>Часть 2. Как вести бои на арене</h2>
+
+  <div class="flow">
+    <span>Площадка</span><i>→</i><span>Поставить пул</span><i>→</i><span>Открыть табло</span><i>→</i><span>Старт</span><i>→</i><span>Счёт</span><i>→</i><span>Завершить бой</span><i>→</i><span>Показать следующий</span><i>→ …</i><span>Снять пул</span>
+  </div>
+
+  <h3><span class="n">1</span>Открыть свою площадку</h3>
+  <p>Верхнее меню → <b>Площадки</b>. В строке площадки иконки справа: <b>↗</b> — открыть пульт площадки, <b>▭</b> — открыть табло, карандаш — правка, коробка — убрать в архив.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/12-arenas.jpg" alt="Список площадок"><i class="mk" style="--x:1260;--y:226;--w:30;--h:30"><b>1</b></i><i class="mk t" style="--x:1296;--y:226;--w:30;--h:30"><b>2</b></i></div>
+      <figcaption>Список площадок. <span class="k">1</span> открыть пульт площадки, <span class="k">2</span> открыть табло.</figcaption>
+  </figure>
+
+  <h3><span class="n">2</span>Поставить пул на площадку</h3>
+  <p>На свободной площадке показан список готовых пулов. Чипы сверху фильтруют по номинации и статусу (по умолчанию <b>Незавершённые</b>). Нажмите <b class="btn">Поставить на эту арену</b> у нужного пула.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/13-arena-free.jpg" alt="Свободная площадка со списком пулов"><i class="mk" style="--x:13;--y:240;--w:304;--h:80"><b>1</b></i><i class="mk" style="--x:1225;--y:374;--w:178;--h:37"><b>2</b></i></div>
+      <figcaption>Свободная площадка. <span class="k">1</span> фильтры по номинации и статусу, <span class="k">2</span> «Поставить на эту арену».</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3><span class="n">3</span>Режим «Управление ареной»</h3>
+  <p>Слева — пул, его состав и <b>Бои по порядку</b> (текущий выделен). Справа — карточка текущего боя со счётом и блок таймера.</p>
+  <ul>
+    <li><b class="btn">Открыть табло</b> (справа вверху) открывает табло в новой вкладке. Перетащите её на второй монитор или телевизор и разверните на весь экран.</li>
+    <li>Длительность боя по умолчанию (здесь 90 с) задаётся в настройках площадки.</li>
+  </ul>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/14-arena-seated.jpg" alt="Управление ареной до начала боя"><i class="mk" style="--x:1298;--y:94;--w:114;--h:35"><b>1</b></i><i class="mk" style="--x:441;--y:617;--w:66;--h:38"><b>2</b></i><i class="mk" style="--x:1253;--y:258;--w:150;--h:36"><b>3</b></i></div>
+      <figcaption>Пул посажен, бой №1 «не начат». <span class="k">1</span> «Открыть табло», <span class="k">2</span> «Старт» — начать бой, <span class="k">3</span> перейти к крупным кнопкам.</figcaption>
+  </figure>
+
+  <h3><span class="n">4</span>Начать бой и вести счёт</h3>
+  <ol>
+    <li>Нажмите <b class="btn">Старт</b> в блоке таймера: бой переходит в «идёт», запускается отсчёт.</li>
+    <li>Очки начисляйте кнопками <b>+1 / +2 / +3 / +5</b> под именем бойца, снимайте кнопками <b>−1…−5</b>.</li>
+    <li>Ошибочное нажатие отменяет кнопка <b>Отменить +1 …</b>, она появляется под счётом.</li>
+    <li><b class="btn">Пауза</b> останавливает таймер, <b class="btn">Старт</b> продолжает. <b>±1с…±5с</b> подправляют время.</li>
+  </ol>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/15-bout-running.jpg" alt="Бой идёт, счёт 4:1"><i class="mk" style="--x:441;--y:344;--w:360;--h:36"><b>1</b></i><i class="mk" style="--x:834;--y:432;--w:176;--h:28"><b>2</b></i><i class="mk t" style="--x:507;--y:663;--w:67;--h:38"><b>3</b></i><i class="mk" style="--x:441;--y:473;--w:132;--h:44"><b>4</b></i></div>
+      <figcaption>Бой идёт. <span class="k">1</span> кнопки счёта бойца, <span class="k">2</span> отмена последнего нажатия, <span class="k">3</span> «Пауза», <span class="k">4</span> «Завершить бой».</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3><span class="n">5</span>Режим «Ведение боя ⛶» — крупные кнопки</h3>
+  <p>Для быстрого ввода переключитесь на <b>Ведение боя ⛶</b> (переключатель справа вверху) или нажмите <b class="btn">Вести бой в панели ⛶</b>. Красная половина — красный боец, синяя — синий. <b class="btn">Старт</b> в центре сам начинает ещё не начатый бой.</p>
+  <ul>
+    <li>Горячие клавиши (ноутбук): <code>Пробел</code> — старт/пауза таймера, <code>Ctrl+Enter</code> — завершить бой. Не работают, пока курсор стоит в поле ввода.</li>
+    <li>Справа внизу — «Далее: …» — следующая пара.</li>
+    <li>Кнопка «← Ристалище · управление», <code>Esc</code> и «Назад» в браузере только переключают вид. Пул остаётся на площадке.</li>
+  </ul>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/16-bout-panel.jpg" alt="Режим ведения боя с крупными кнопками"><i class="mk" style="--x:583;--y:288;--w:66;--h:38"><b>1</b></i><i class="mk" style="--x:16;--y:388;--w:556;--h:150"><b>2</b></i><i class="mk r" style="--x:1284;--y:544;--w:134;--h:44"><b>3</b></i><i class="mk" style="--x:1114;--y:544;--w:168;--h:44"><b>4</b></i></div>
+      <figcaption>Режим «Ведение боя». <span class="k">1</span> «Старт» / «Пауза», <span class="k">2</span> очки красного (у синего — так же справа), <span class="k">3</span> «Завершить бой», <span class="k">4</span> «Показать следующий».</figcaption>
+  </figure>
+
+  <h3><span class="n">6</span>Табло для зрителей</h3>
+  <p>Табло показывает таймер, имена, клубы и счёт. Стороны на табло <b>зеркальны</b> пульту (синий слева): так табло видят зрители напротив судейского стола. Если стороны перепутаны физически, нажмите <b class="btn">Поменять стороны</b> у таймера.</p>
+  <figure>
+    <img src="img/17-scoreboard.jpg" alt="Табло во время боя">
+    <figcaption>Табло во время боя: «Идёт», 46 секунд, счёт 1:4.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h3><span class="n">7</span>Завершить бой, огласить результат, показать следующую пару</h3>
+  <ol>
+    <li>Сверьте счёт на пульте с судьями и нажмите <b class="btn">Завершить бой</b>. Только эта кнопка записывает результат.</li>
+    <li>Пульт сразу переходит к следующей паре, а <b>табло продолжает показывать результат завершённого боя</b>: огласите его.</li>
+    <li>Когда пора выводить новую пару, нажмите <b class="btn">Показать следующий</b>. На табло появятся новые имена и «Ожидание старта».</li>
+    <li>Нажмите <b class="btn">Старт</b> для следующего боя.</li>
+  </ol>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/18-bout-finished-panel.jpg" alt="Пульт после завершения боя"><i class="mk" style="--x:194;--y:162;--w:288;--h:30"><b>1</b></i><i class="mk" style="--x:583;--y:288;--w:66;--h:38"><b>2</b></i><i class="mk" style="--x:1114;--y:544;--w:168;--h:44"><b>3</b></i></div>
+      <figcaption>Пульт после «Завершить бой»: <span class="k">1</span> уже бой 2 из 10; <span class="k">2</span> «Старт» следующего боя; <span class="k">3</span> «Показать следующий» — вывести пару на табло.</figcaption>
+  </figure>
+  <div class="row">
+    <figure>
+      <div class="shot" style="--W:1440;--H:813"><img src="img/19-scoreboard-result.jpg" alt="Табло держит результат"><i class="mk" style="--x:40;--y:450;--w:1360;--h:360"><b>1</b></i></div>
+      <figcaption><span class="k">1</span> Табло держит результат боя 1 (4:1) для оглашения.</figcaption>
+    </figure>
+    <figure>
+      <div class="shot" style="--W:1440;--H:813"><img src="img/20-scoreboard-next.jpg" alt="Табло после Показать следующий"><i class="mk" style="--x:540;--y:150;--w:360;--h:40"><b>1</b></i></div>
+      <figcaption>После «Показать следующий»: новая пара, <span class="k">1</span> «Ожидание старта».</figcaption>
+    </figure>
+  </div>
+  <div class="box warn">
+    <strong>Нет связи или ошибка при сохранении</strong>
+    <p>Если появилась ошибка соединения, не продолжайте вслепую: обновите страницу и проверьте, какой счёт и статус боя сохранились. Цифра на экране без подтверждения сервера — ещё не результат.</p>
+  </div>
+</section>
+
+<section>
+  <h3><span class="n">8</span>Ведение боя с телефона</h3>
+  <p>На телефоне в режиме «Ведение боя» экран делится на красную и синюю половины, между ними полоса таймера.</p>
+  <ul>
+    <li><b>Вся полоса таймера — одна большая кнопка</b> «▶ Старт» / «❚❚ Пауза». Первый тап начинает бой.</li>
+    <li>Остальное — в меню <b class="btn">⋯</b> справа от таймера: подстройка времени, «Поменять стороны», «Отменить +1 …», «Сбросить бой», «Переоткрыть», «Открыть табло».</li>
+    <li>Внизу — <b class="btn">Показать следующий</b> и <b class="btn">Завершить бой</b>.</li>
+  </ul>
+  <div class="row3 mobile">
+    <figure>
+      <div class="shot" style="--W:780;--H:1688"><img src="img/22-mobile-panel.jpg" alt="Телефон: бой не начат"><i class="mk" style="--x:32;--y:796;--w:620;--h:160"><b>1</b></i><i class="mk t" style="--x:652;--y:796;--w:96;--h:160"><b>2</b></i></div>
+      <figcaption>Бой не начат. <span class="k">1</span> тап по полосе = «Старт», <span class="k">2</span> меню «⋯».</figcaption>
+    </figure>
+    <figure>
+      <div class="shot" style="--W:780;--H:1688"><img src="img/23-mobile-running.jpg" alt="Телефон: бой идёт"><i class="mk" style="--x:32;--y:796;--w:620;--h:160"><b>1</b></i><i class="mk" style="--x:46;--y:1530;--w:332;--h:80"><b>2</b></i><i class="mk r" style="--x:390;--y:1530;--w:344;--h:80"><b>3</b></i></div>
+      <figcaption>Бой идёт. <span class="k">1</span> «Пауза», <span class="k">2</span> «Показать следующий», <span class="k">3</span> «Завершить бой».</figcaption>
+    </figure>
+    <figure>
+      <div class="shot" style="--W:780;--H:1688"><img src="img/24-mobile-more.jpg" alt="Телефон: меню действий"><i class="mk" style="--x:30;--y:1400;--w:262;--h:62"><b>1</b></i><i class="mk" style="--x:30;--y:1488;--w:714;--h:68"><b>2</b></i><i class="mk" style="--x:30;--y:1582;--w:720;--h:76"><b>3</b></i></div>
+      <figcaption>Меню «⋯». <span class="k">1</span> «Поменять стороны», <span class="k">2</span> отмена / «Сбросить бой» / «Переоткрыть», <span class="k">3</span> «Открыть табло».</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h3><span class="n">9</span>Пул доигран: снять с площадки</h3>
+  <p>После последнего боя пула панель сама возвращается в «Управление ареной», все бои помечены «завершён», статус пула — <b>завершён</b>. Нажмите <b class="btn">Снять пул с арены</b>: площадка освободится, можно ставить следующий пул. Результаты при этом сохраняются.</p>
+  <figure>
+    <div class="shot" style="--W:1440;--H:813"><img src="img/25-pool-done.jpg" alt="Пул завершён"><i class="mk" style="--x:298;--y:262;--w:75;--h:25"><b>1</b></i><i class="mk" style="--x:39;--y:492;--w:335;--h:35"><b>2</b></i></div>
+      <figcaption><span class="k">1</span> пул «завершён»; <span class="k">2</span> «Снять пул с арены» освобождает площадку.</figcaption>
+  </figure>
+
+  <h3><span class="n">10</span>Исправить ошибку</h3>
+  <table>
+    <tr><th style="width:32%">Ситуация</th><th>Что делать</th></tr>
+    <tr><td>Нажали не ту кнопку счёта</td><td><b>Отменить +N …</b> под счётом или кнопкой с минусом у того же бойца.</td></tr>
+    <tr><td>Нужно обнулить идущий бой</td><td><b class="btn">Сбросить счёт</b> (управление) / <b class="btn">Сбросить бой</b> (ведение боя). Работает только для идущего боя.</td></tr>
+    <tr><td>Завершили бой с неверным счётом</td><td><b class="btn">Переоткрыть предыдущий</b> / <b class="btn">Переоткрыть</b>: бой снова «идёт», поправьте счёт и завершите заново. В плейоффе переоткрыть нельзя, если следующий бой сетки уже начался.</td></tr>
+    <tr><td>Посадили не тот пул</td><td><b class="btn">Снять пул с арены</b> и поставить нужный. Начатые бои сохраняются.</td></tr>
+    <tr><td>Ошибка в составе групп до начала боёв</td><td>Снять пул с арены → на странице этапа <b class="btn">Вернуть в черновик</b> → поправить → <b class="btn">Зафиксировать</b>.</td></tr>
+  </table>
+  <div class="box warn">
+    <strong>Никогда не исправляйте счёт через «Сбросить этап»</strong>
+    <p>Это действие стирает состав этапа. Если что-то пошло не так и неясно, как поправить, запишите площадку, бой, текст ошибки и позовите организатора.</p>
+  </div>
+</section>
+
+<!-- ================= Шпаргалка ================= -->
+<section class="page">
+  <h2>Шпаргалка</h2>
+
+  <h3>Номинация</h3>
+  <table>
+    <tr><th style="width:30%">Кнопка</th><th>Что делает</th></tr>
+    <tr><td>Чип пресета → «Заменить схему?»</td><td>Применяет готовый формат. Заменяет всю схему.</td></tr>
+    <tr><td>Формирование / Сформировать</td><td>Набирает бойцов в этап по правилу (ростер или места из предыдущего этапа). Сначала показывает превью.</td></tr>
+    <tr><td>Посев →</td><td>Страница этапа: раскладка по пулам/слотам.</td></tr>
+    <tr><td>Зафиксировать</td><td>Закрепляет состав и создаёт бои. После этого пулы можно сажать на площадки.</td></tr>
+    <tr><td>Вернуть в черновик</td><td>Снимает фиксацию, если ни один бой не начат и пул не на площадке.</td></tr>
+    <tr><td>Сбросить раскладку / Сбросить этап</td><td>Опасно: очищают пулы / весь состав этапа.</td></tr>
+    <tr><td>Экспорт</td><td>CSV с итоговыми местами номинации.</td></tr>
+  </table>
+
+  <h3>Площадка</h3>
+  <table>
+    <tr><th style="width:30%">Кнопка</th><th>Что делает</th></tr>
+    <tr><td>Поставить на эту арену</td><td>Сажает пул на площадку.</td></tr>
+    <tr><td>Открыть табло</td><td>Табло для зрителей в новой вкладке.</td></tr>
+    <tr><td>Старт</td><td>Начинает бой и запускает таймер (или продолжает после паузы).</td></tr>
+    <tr><td>Пауза / Сброс / ±Nс</td><td>Только таймер. «Сброс» возвращает время, счёт не трогает.</td></tr>
+    <tr><td>+1…+5 / −1…−5</td><td>Счёт бойца. Доступны, только пока бой идёт.</td></tr>
+    <tr><td><b>Завершить бой</b></td><td><b>Записывает результат.</b> Пульт переходит к следующей паре, табло держит результат.</td></tr>
+    <tr><td>Показать следующий</td><td>Выводит на табло следующую пару. Результат не записывает.</td></tr>
+    <tr><td>Переоткрыть</td><td>Возвращает последний завершённый бой в «идёт» для исправления.</td></tr>
+    <tr><td>Поменять стороны</td><td>Меняет красного и синего местами на табло.</td></tr>
+    <tr><td>Снять пул с арены</td><td>Освобождает площадку. Результаты остаются.</td></tr>
+  </table>
+
+  <div class="box tip">
+    <strong>Не путать</strong>
+    <ul>
+      <li><b>Показать следующий</b> ≠ <b>Завершить бой</b>. Результат пишет только «Завершить бой».</li>
+      <li><b>Сброс</b> (таймер) ≠ <b>Сбросить счёт / Сбросить бой</b> ≠ <b>Сбросить этап</b>.</li>
+      <li>Выход из режима «Ведение боя» (стрелка, <code>Esc</code>, «Назад») ≠ <b>Снять пул с арены</b>.</li>
+    </ul>
+  </div>
+</section>
+
+</body>
+</html>
