@@ -272,6 +272,40 @@ func TestDiagnoseSchema_TailUncovered_And_CoverageGap(t *testing.T) {
 	}
 }
 
+// TestDiagnoseSchema_TailUncovered_HumanMessage — текст info-строки
+// понятен секретарю: имя этапа-источника, с какого места выбывают, в
+// группах или в общем зачёте, и что это нормально, если так задумано.
+func TestDiagnoseSchema_TailUncovered_HumanMessage(t *testing.T) {
+	cases := []struct {
+		name   string
+		branch domain.Stage
+		want   string
+	}{
+		{
+			name:   "group_places",
+			branch: diagBracket("b", 1, 8, "a", 1, 4),
+			want:   "«Групповой этап a»: бойцы с 5-го места в каждой группе дальше не проходят (выбывают). Если так задумано, всё в порядке.",
+		},
+		{
+			name:   "overall_places",
+			branch: diagBracketOverall("b", 1, 8, "a", 1, 8),
+			want:   "«Групповой этап a»: бойцы с 9-го места в общем зачёте дальше не проходят (выбывают). Если так задумано, всё в порядке.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := domain.DiagnoseSchema([]domain.Stage{diagGroups("a", 0, 2), tc.branch})
+			tails := filterByCode(got, domain.SchemaIssueCodeTailUncovered)
+			if len(tails) != 1 {
+				t.Fatalf("expected exactly 1 tail-uncovered issue, got %+v", got)
+			}
+			if tails[0].Message != tc.want {
+				t.Fatalf("message:\n got %q\nwant %q", tails[0].Message, tc.want)
+			}
+		})
+	}
+}
+
 // TestDiagnoseSchema_OverlapUnknown — окна разных видов (места в группе
 // против сводного порядка) от одного источника: пересечение статически не
 // выводится.
