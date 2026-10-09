@@ -308,7 +308,7 @@ func branchWindowIssues(stages []Stage, byID map[string]Stage) []SchemaIssue {
 	}
 
 	var out []SchemaIssue
-	for _, branches := range bySource {
+	for sourceID, branches := range bySource {
 		sort.SliceStable(branches, func(i, j int) bool {
 			if branches[i].from != branches[j].from {
 				return branches[i].from < branches[j].from
@@ -317,7 +317,7 @@ func branchWindowIssues(stages []Stage, byID map[string]Stage) []SchemaIssue {
 		})
 
 		out = append(out, pairwiseOverlapIssues(branches)...)
-		out = append(out, gapAndTailIssues(branches)...)
+		out = append(out, gapAndTailIssues(byID[sourceID], branches)...)
 	}
 	return out
 }
@@ -377,7 +377,7 @@ func selectorOverlapIssue(a, b Stage) SchemaIssue {
 // координаты «мест» не определены): окна разных видов статически
 // несравнимы (OverlapUnknown уже это отразил), гэп/хвост для такой смеси не
 // выводится (недостоверная информация хуже отсутствующей, NFR-2).
-func gapAndTailIssues(branches []branchWindow) []SchemaIssue {
+func gapAndTailIssues(source Stage, branches []branchWindow) []SchemaIssue {
 	kind, homogeneous := clusterKind(branches)
 	if !homogeneous {
 		return nil
@@ -423,10 +423,20 @@ func gapAndTailIssues(branches []branchWindow) []SchemaIssue {
 			Severity: SchemaIssueSeverityInfo,
 			Code:     SchemaIssueCodeTailUncovered,
 			StageIDs: tail.stageIDs,
-			Message:  fmt.Sprintf("хвост состава источника (места с %d) не покрыт ни одной веткой (кластер %q)", tail.to+1, kind),
+			Message:  tailUncoveredMessage(source, kind, tail.to+1),
 		})
 	}
 	return out
+}
+
+// tailUncoveredMessage — текст для секретаря: непокрытый хвост — обычно
+// просто выбывшие бойцы, а не ошибка схемы.
+func tailUncoveredMessage(source Stage, kind SelectorKind, firstPlace int) string {
+	where := "в каждой группе"
+	if kind == SelectorKindOverallPlaces {
+		where = "в общем зачёте"
+	}
+	return fmt.Sprintf("«%s»: бойцы с %d-го места %s дальше не проходят (выбывают). Если так задумано, всё в порядке.", source.Title, firstPlace, where)
 }
 
 // clusterKind — все ветки кластера одного вида (не ALL) → (вид, true);
