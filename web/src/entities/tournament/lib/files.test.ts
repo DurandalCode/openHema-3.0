@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { emblemSrc, formatFileSize, regulationsHref, resolveFileOrLink } from "./files";
+import {
+  DEFAULT_FAVICON,
+  emblemSrc,
+  faviconHref,
+  formatFileSize,
+  regulationsHref,
+  resolveFileOrLink,
+} from "./files";
 import type { Tournament } from "./types";
 
 function tournament(overrides: Partial<Tournament> = {}): Tournament {
@@ -97,5 +104,25 @@ describe("entities/tournament/lib/files formatFileSize", () => {
 
   it("formats gigabytes with one decimal", () => {
     expect(formatFileSize(1.5 * 1024 * 1024 * 1024)).toBe("1,5 ГБ");
+  });
+});
+
+describe("entities/tournament/lib/files faviconHref", () => {
+  it("uses the uploaded emblem via the BFF proxy", () => {
+    expect(faviconHref(tournament({ emblemFile: { url: "/files/e1", name: "e.png", size: 1 } }))).toBe(
+      "/api/files/e1",
+    );
+  });
+
+  it("uses the emblem link when no file is uploaded", () => {
+    expect(faviconHref(tournament({ emblemUrl: "https://x.test/e.png" }))).toBe("https://x.test/e.png");
+  });
+
+  it("falls back to the default icon without an emblem", () => {
+    expect(faviconHref(tournament())).toBe(DEFAULT_FAVICON);
+  });
+
+  it("falls back to the default icon without an active tournament", () => {
+    expect(faviconHref(null)).toBe(DEFAULT_FAVICON);
   });
 });

@@ -10,6 +10,8 @@ import { UnsavedGuardDialog } from "@/widgets/unsaved-guard/unsaved-guard-dialog
 import { Navbar } from "@/widgets/navbar/navbar";
 import { NavbarVisibilityGate } from "@/widgets/navbar/navbar-visibility-gate";
 import { isRegistrationDisabled } from "@/shared/config/preprod";
+import { getActiveTournament } from "@/entities/tournament/model/get-active-tournament";
+import { faviconHref } from "@/entities/tournament/lib/files";
 import { Col } from "@/shared/ui/stack";
 import { Toaster } from "@/shared/ui/sonner";
 import "./globals.css";
@@ -28,13 +30,20 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: siteConfig.name,
-    template: `%s · ${siteConfig.name}`,
-  },
-  description: siteConfig.description,
-};
+// generateMetadata, а не статичный metadata: иконка вкладки — эмблема
+// активного турнира (faviconHref), её знает только сервер в момент запроса.
+// getActiveTournament обёрнут в cache() — с Navbar это один gRPC-вызов.
+export async function generateMetadata(): Promise<Metadata> {
+  const tournament = await getActiveTournament();
+  return {
+    title: {
+      default: siteConfig.name,
+      template: `%s · ${siteConfig.name}`,
+    },
+    description: siteConfig.description,
+    icons: { icon: faviconHref(tournament) },
+  };
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const registrationDisabled = isRegistrationDisabled();

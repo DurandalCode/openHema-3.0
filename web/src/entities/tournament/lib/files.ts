@@ -34,6 +34,18 @@ export function emblemSrc(t: Tournament): string {
   return resolveFileOrLink(t.emblemFile, t.emblemUrl);
 }
 
+/** DEFAULT_FAVICON — иконка вкладки, пока у турнира нет эмблемы (`public/icon.svg`). */
+export const DEFAULT_FAVICON = "/icon.svg";
+
+/**
+ * faviconHref — иконка вкладки браузера: эмблема активного турнира, если
+ * она задана (файлом или ссылкой, тем же правилом FR-34), иначе
+ * DEFAULT_FAVICON. Используется `generateMetadata` корневого layout.
+ */
+export function faviconHref(t: Tournament | null): string {
+  return (t && emblemSrc(t)) || DEFAULT_FAVICON;
+}
+
 const SIZE_UNITS = ["Б", "КБ", "МБ", "ГБ"] as const;
 
 /**
