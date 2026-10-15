@@ -2,9 +2,15 @@ import type { Pool } from "@/entities/pool/lib/types";
 import type { Bout } from "@/entities/bout/lib/types";
 import { apiFetch } from "@/shared/api/api-fetch";
 
-export type PoolsForArenaResult =
-  | { ok: true; seated: Pool | null; available: Pool[] }
-  | { ok: false; error: string };
+/**
+ * ArenaPoolsState — состояние страницы арены (спека 0011, FR-9; спека
+ * 0063): стоящий пул, доступные для постановки и очередь арены по порядку.
+ * Его же возвращают мутации очереди — клиент кладёт ответ в кэш без второго
+ * запроса.
+ */
+export type ArenaPoolsState = { seated: Pool | null; available: Pool[]; queued: Pool[] };
+
+export type PoolsForArenaResult = ({ ok: true } & ArenaPoolsState) | { ok: false; error: string };
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -16,12 +22,53 @@ export type BoutsResult = { ok: true; bouts: Bout[] } | { ok: false; error: stri
  * постановке пулы.
  */
 export async function getPoolsForArenaRequest(arenaId: string): Promise<PoolsForArenaResult> {
-  const res = await apiFetch<{ seated?: Pool | null; available?: Pool[] }>(
+  const res = await apiFetch<Partial<ArenaPoolsState>>(
     `/api/arenas/${encodeURIComponent(arenaId)}/pools`,
     { method: "GET" },
   );
   if (!res.ok) return { ok: false, error: res.error };
-  return { ok: true, seated: res.data.seated ?? null, available: res.data.available ?? [] };
+  return { ok: true, ...toArenaPoolsState(res.data) };
+}
+
+function toArenaPoolsState(data: Partial<ArenaPoolsState>): ArenaPoolsState {
+  return { seated: data.seated ?? null, available: data.available ?? [], queued: data.queued ?? [] };
+}
+
+/**
+ * enqueuePoolRequest — POST /api/pools/[poolId]/enqueue (только admin, спека
+ * 0063, FR-3..FR-5): добавляет пул в конец очереди арены (пул из очереди
+ * другой арены переносится). Возвращает состояние страницы арены.
+ */
+export async function enqueuePoolRequest(poolId: string, arenaId: string): Promise<PoolsForArenaResult> {
+  return sendStateAction(`/api/pools/${encodeURIComponent(poolId)}/enqueue`, "POST", { arenaId });
+}
+
+/**
+ * dequeuePoolRequest — POST /api/pools/[poolId]/dequeue (только admin, спека
+ * 0063, FR-6): убирает пул из очереди арены.
+ */
+export async function dequeuePoolRequest(poolId: string): Promise<PoolsForArenaResult> {
+  return sendStateAction(`/api/pools/${encodeURIComponent(poolId)}/dequeue`, "POST");
+}
+
+/**
+ * reorderArenaQueueRequest — PUT /api/arenas/[id]/queue (только admin, спека
+ * 0063, FR-6): задаёт порядок очереди целиком (полный упорядоченный список
+ * id; устаревший набор сервер отклоняет).
+ */
+export async function reorderArenaQueueRequest(
+  arenaId: string,
+  poolIds: string[],
+): Promise<PoolsForArenaResult> {
+  return sendStateAction(`/api/arenas/${encodeURIComponent(arenaId)}/queue`, "PUT", { poolIds });
+}
+
+/**
+ * seatNextPoolRequest — POST /api/arenas/[id]/seat-next (только admin, спека
+ * 0063, FR-9): ставит первый пул очереди на свободную арену.
+ */
+export async function seatNextPoolRequest(arenaId: string): Promise<PoolsForArenaResult> {
+  return sendStateAction(`/api/arenas/${encodeURIComponent(arenaId)}/seat-next`, "POST");
 }
 
 /**
@@ -69,4 +116,19 @@ async function sendAction(
   });
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true };
+}
+
+async function sendStateAction(
+  url: string,
+  method: "POST" | "PUT",
+  body?: unknown,
+): Promise<PoolsForArenaResult> {
+  const res = await apiFetch<Partial<ArenaPoolsState>>(url, {
+    method,
+    ...(body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, ...toArenaPoolsState(res.data) };
 }
