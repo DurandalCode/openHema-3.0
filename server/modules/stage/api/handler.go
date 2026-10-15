@@ -443,11 +443,69 @@ func (h *AdminHandler) GetPoolsForArena(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	resp := &hemav1.GetPoolsForArenaResponse{Available: toProtoPools(pools.Available)}
+	return connect.NewResponse(toProtoArenaPools(pools)), nil
+}
+
+// toProtoArenaPools маппит пулы страницы арены: стоящий, очередь (спека
+// 0063) и доступные для постановки.
+func toProtoArenaPools(pools domain.ArenaPools) *hemav1.GetPoolsForArenaResponse {
+	resp := &hemav1.GetPoolsForArenaResponse{
+		Available: toProtoPools(pools.Available),
+		Queued:    toProtoPools(pools.Queued),
+	}
 	if pools.Seated != nil {
 		resp.Seated = toProtoPool(*pools.Seated)
 	}
-	return connect.NewResponse(resp), nil
+	return resp
+}
+
+// EnqueuePool добавляет доступный для постановки пул в конец очереди арены
+// (спека 0063, FR-3..FR-5).
+func (h *AdminHandler) EnqueuePool(
+	ctx context.Context,
+	req *connect.Request[hemav1.EnqueuePoolRequest],
+) (*connect.Response[hemav1.EnqueuePoolResponse], error) {
+	pools, err := h.svc.EnqueuePool(ctx, req.Msg.PoolId, req.Msg.ArenaId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.EnqueuePoolResponse{Pools: toProtoArenaPools(pools)}), nil
+}
+
+// DequeuePool убирает пул из очереди арены (спека 0063, FR-6).
+func (h *AdminHandler) DequeuePool(
+	ctx context.Context,
+	req *connect.Request[hemav1.DequeuePoolRequest],
+) (*connect.Response[hemav1.DequeuePoolResponse], error) {
+	pools, err := h.svc.DequeuePool(ctx, req.Msg.PoolId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.DequeuePoolResponse{Pools: toProtoArenaPools(pools)}), nil
+}
+
+// ReorderArenaQueue задаёт порядок очереди арены целиком (спека 0063, FR-6).
+func (h *AdminHandler) ReorderArenaQueue(
+	ctx context.Context,
+	req *connect.Request[hemav1.ReorderArenaQueueRequest],
+) (*connect.Response[hemav1.ReorderArenaQueueResponse], error) {
+	pools, err := h.svc.ReorderArenaQueue(ctx, req.Msg.ArenaId, req.Msg.PoolIds)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.ReorderArenaQueueResponse{Pools: toProtoArenaPools(pools)}), nil
+}
+
+// SeatNextPool ставит первый пул очереди на арену (спека 0063, FR-9).
+func (h *AdminHandler) SeatNextPool(
+	ctx context.Context,
+	req *connect.Request[hemav1.SeatNextPoolRequest],
+) (*connect.Response[hemav1.SeatNextPoolResponse], error) {
+	pools, err := h.svc.SeatNextPool(ctx, req.Msg.ArenaId)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return connect.NewResponse(&hemav1.SeatNextPoolResponse{Pools: toProtoArenaPools(pools)}), nil
 }
 
 // ---------------------------------------------------------------------
@@ -932,7 +990,8 @@ func (h *PublicHandler) GetNominationResults(
 // FailedPrecondition (план «api/handler.go»).
 func mapError(err error) error {
 	switch {
-	case errors.Is(err, domain.ErrNotFound):
+	case errors.Is(err, domain.ErrNotFound),
+		errors.Is(err, domain.ErrNotQueued):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, domain.ErrInvalidInput):
 		return connect.NewError(connect.CodeInvalidArgument, err)
@@ -945,6 +1004,9 @@ func mapError(err error) error {
 		errors.Is(err, domain.ErrArenaBusy),
 		errors.Is(err, domain.ErrAlreadySeated),
 		errors.Is(err, domain.ErrPoolSeated),
+		errors.Is(err, domain.ErrPoolQueued),
+		errors.Is(err, domain.ErrQueueEmpty),
+		errors.Is(err, domain.ErrQueueMismatch),
 		errors.Is(err, domain.ErrArenaNotAvailable),
 		errors.Is(err, domain.ErrPoolNotSeated),
 		errors.Is(err, domain.ErrNoCurrentBout),
@@ -1417,6 +1479,10 @@ func toProtoPool(p domain.Pool) *hemav1.Pool {
 		NominationName: p.NominationName,
 		Standings:      toProtoStandings(p.Standings),
 		StageId:        p.StageID,
+		StageTitle:     p.StageTitle,
+		QueueArenaId:   p.QueueArenaID,
+		QueueArenaName: p.QueueArenaName,
+		QueuePosition:  int32(p.QueuePosition),
 	}
 }
 
@@ -1920,6 +1986,9 @@ func toProtoLiveArena(a domain.LiveArenaView) *hemav1.LiveArena {
 		PoolBoutTotal:    int32(a.PoolBoutTotal),
 		PoolBoutFinished: int32(a.PoolBoutFinished),
 		NextBoutForecast: toProtoBoutForecast(a.NextBoutForecast),
+
+		NextPoolName:           a.NextPoolName,
+		NextPoolNominationName: a.NextPoolNominationName,
 	}
 	if a.CurrentBout != nil {
 		out.CurrentBout = toProtoFeedBout(*a.CurrentBout)
@@ -1947,6 +2016,8 @@ func toProtoFeedBout(b domain.FeedBout) *hemav1.LiveFeedBout {
 		ScoreA:         int32(b.ScoreA),
 		ScoreB:         int32(b.ScoreB),
 		Forecast:       toProtoBoutForecast(b.Forecast),
+		QueueArenaName: b.QueueArenaName,
+		QueuePosition:  int32(b.QueuePosition),
 	}
 	if b.StartedAt != nil {
 		out.StartedAt = timestamppb.New(*b.StartedAt)
@@ -2057,6 +2128,10 @@ func toProtoConsoleArena(a domain.ConsoleArena) *hemav1.ConsoleArena {
 	if a.PoolExpectedFinishAtOK {
 		out.PoolExpectedFinishAt = timestamppb.New(a.PoolExpectedFinishAt)
 	}
+	out.QueueLength = int32(a.QueueLength)
+	for _, q := range a.Queue {
+		out.Queue = append(out.Queue, toProtoConsoleQueueItem(q))
+	}
 	return out
 }
 
@@ -2084,7 +2159,7 @@ func toProtoConsoleNomination(n domain.ConsoleNomination) *hemav1.ConsoleNominat
 // toProtoConsoleQueueItem маппит готовый к постановке пул в очереди пульта
 // (FR-13).
 func toProtoConsoleQueueItem(q domain.ConsoleQueueItem) *hemav1.ConsoleQueueItem {
-	return &hemav1.ConsoleQueueItem{
+	out := &hemav1.ConsoleQueueItem{
 		PoolId:           q.PoolID,
 		NominationId:     q.NominationID,
 		NominationName:   q.NominationName,
@@ -2092,7 +2167,12 @@ func toProtoConsoleQueueItem(q domain.ConsoleQueueItem) *hemav1.ConsoleQueueItem
 		PoolName:         q.PoolName,
 		BoutCount:        int32(q.BoutCount),
 		EstimatedSeconds: int32(q.EstimatedSeconds),
+		QueuePosition:    int32(q.QueuePosition),
 	}
+	if q.ExpectedStartAt != nil {
+		out.ExpectedStartAt = timestamppb.New(*q.ExpectedStartAt)
+	}
+	return out
 }
 
 // toProtoConsoleAlert маппит одну запись ленты «требует внимания»
