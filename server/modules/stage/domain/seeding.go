@@ -565,8 +565,8 @@ func Overlap(a, b []SelectedFighter) []FighterRef {
 // ---------------------------------------------------------------------
 
 // BracketSeedOrder — классический порядок посева «1×N» (FR-4): посевной 1
-// встречает посевного 2 не раньше финала, посевной i — слот order[i-1]
-// (1-based позиция посевного). Рекурсивно: order(2) = [1,2]; order(2n) —
+// встречает посевного 2 не раньше финала; order[k-1] — номер посевного в
+// слоте k (пары первого круга: 1–N, N/2–N/2+1, ...). Рекурсивно: order(2) = [1,2]; order(2n) —
 // чередование order(n) и его зеркала (2n+1-x для каждого x из order(n)).
 // Валидные size — степень двойки (как BracketConfig.Size, 4..32).
 func BracketSeedOrder(size int) []int {
@@ -583,18 +583,22 @@ func BracketSeedOrder(size int) []int {
 
 // PlanBracketSeeds раскладывает отобранных (уже упорядоченных по
 // OverallPlace) в слоты сетки по классическому посеву (FR-4): посевной i
-// (1-based позиция в selected) получает слот BracketSeedOrder(cfg.Size)[i-1].
-// len(selected) > cfg.Size — вместимости не хватает (FR-19) →
-// ErrCapacityExceeded. Недобор — законен: часть слотов просто отсутствует в
-// результате (0018, FR-9 — баи).
+// (1-based позиция в selected) получает слот k, где
+// BracketSeedOrder(cfg.Size)[k-1] == i. len(selected) > cfg.Size —
+// вместимости не хватает (FR-19) → ErrCapacityExceeded. Недобор — законен:
+// пустыми остаются слоты посевных N+1..size, стоящие напротив сильнейших, —
+// баи достаются им (0018, FR-9).
 func PlanBracketSeeds(selected []SelectedFighter, cfg BracketConfig) ([]SeedPlan, error) {
 	if len(selected) > cfg.Size {
 		return nil, ErrCapacityExceeded
 	}
-	order := BracketSeedOrder(cfg.Size)
+	slotOfSeed := make([]int, cfg.Size+1)
+	for i, seed := range BracketSeedOrder(cfg.Size) {
+		slotOfSeed[seed] = i + 1
+	}
 	plans := make([]SeedPlan, len(selected))
 	for i, sf := range selected {
-		plans[i] = SeedPlan{Slot: order[i], FighterID: sf.Fighter.ID}
+		plans[i] = SeedPlan{Slot: slotOfSeed[i+1], FighterID: sf.Fighter.ID}
 	}
 	return plans, nil
 }

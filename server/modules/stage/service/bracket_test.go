@@ -760,3 +760,82 @@ func TestContainerName_T16_GroupVsBracket(t *testing.T) {
 		t.Fatalf("unexpected half2 container name: %q", round1.Halves[1].Container.Name)
 	}
 }
+
+// Регресс (турнир 2026-10-11, «Сабля Женская»): бай в первой паре половины
+// оставляет дыру в sequence_number контейнера (бой пары 2 лежит с seq=2, боя
+// с seq=1 нет). Координаты пары обязаны браться из sequence_number боя, а не
+// из его позиции среди боёв контейнера: иначе бой пары 2 читается как бой
+// пары-бая 1, пара 2 так и не разрешается, а syncBracket пытается заново
+// создать её бой — завершение боя падает, половина не закрывается.
+func TestFinishCurrentBout_ByeInFirstPairOfHalf_ResolvesPairAndAdvances(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, fighters, bouts, arenas, _ := newServiceWithArenas()
+	fighters.Set("n1",
+		domain.FighterRef{ID: "f1"}, domain.FighterRef{ID: "f3"}, domain.FighterRef{ID: "f4"},
+		domain.FighterRef{ID: "f5"}, domain.FighterRef{ID: "f6"}, domain.FighterRef{ID: "f8"},
+	)
+	stage := createBracket(t, ctx, svc, "n1", domain.BracketConfig{Size: 8, ThirdPlace: true})
+	// Слоты 2 и 7 пусты: пара 1 (верх) и пара 4 (низ) — баи.
+	for slot, fid := range map[int]string{1: "f1", 3: "f3", 4: "f4", 5: "f5", 6: "f6", 8: "f8"} {
+		if _, err := svc.SeedBracketSlot(ctx, stage.ID, slot, fid); err != nil {
+			t.Fatalf("seed slot %d: %v", slot, err)
+		}
+	}
+	if _, err := svc.SetStatus(ctx, stage.ID, domain.LayoutReady); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	if len(bouts.ScheduleCalls) != 2 {
+		t.Fatalf("expected 2 bouts at lock (pairs 2 and 3), got %+v", bouts.ScheduleCalls)
+	}
+
+	pools, err := repo.PoolsByStage(ctx, stage.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	poolByNumber := map[int]string{}
+	for _, p := range pools {
+		poolByNumber[p.Number] = p.ID
+	}
+
+	arenas.Set(domain.ArenaRef{ID: "a1", Name: "Arena 1", Active: true})
+	arenas.Set(domain.ArenaRef{ID: "a2", Name: "Arena 2", Active: true})
+	play := func(poolID, arenaID string, a, b int) {
+		t.Helper()
+		if _, err := svc.SeatPoolOnArena(ctx, poolID, arenaID); err != nil {
+			t.Fatalf("seat: %v", err)
+		}
+		if _, err := svc.StartCurrentBout(ctx, poolID, "secretary"); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		if _, err := svc.ScoreCurrentBout(ctx, poolID, "secretary", a, b); err != nil {
+			t.Fatalf("score: %v", err)
+		}
+		if _, err := svc.FinishCurrentBout(ctx, poolID, "secretary"); err != nil {
+			t.Fatalf("finish: %v", err)
+		}
+	}
+	play(poolByNumber[1], "a1", 3, 4) // f4 побеждает в паре 2
+	play(poolByNumber[2], "a2", 0, 5) // f6 побеждает в паре 3
+
+	b, err := svc.GetBracket(ctx, stage.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pair2 := pairAt(b, 1, 1, 2)
+	if !pair2.Resolved || pair2.Bout == nil {
+		t.Fatalf("expected pair 2 resolved by its finished bout, got %+v", pair2)
+	}
+	if b.Rounds[0].Halves[0].Container.Status != domain.PoolStatusFinished {
+		t.Fatalf("expected upper half of round 1 finished, got %s", b.Rounds[0].Halves[0].Container.Status)
+	}
+	semi1, semi2 := pairAt(b, 2, 1, 1), pairAt(b, 2, 2, 1)
+	if semi1.A.Fighter.ID != "f1" || semi1.B.Fighter.ID != "f4" || semi1.Bout == nil {
+		t.Fatalf("expected semifinal 1 f1 vs f4 with a bout, got %+v", semi1)
+	}
+	if semi2.A.Fighter.ID != "f6" || semi2.B.Fighter.ID != "f8" || semi2.Bout == nil {
+		t.Fatalf("expected semifinal 2 f6 vs f8 with a bout, got %+v", semi2)
+	}
+	if len(bouts.ScheduleCalls) != 4 {
+		t.Fatalf("expected exactly 4 scheduled bouts (2 first-round + 2 semis), got %+v", bouts.ScheduleCalls)
+	}
+}
