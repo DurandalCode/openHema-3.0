@@ -42,6 +42,7 @@ import {
   ArenaBoardEntrySchema,
   type PoolLayout,
   type Pool,
+  type GetPoolsForArenaResponse,
   type BoutBoard,
   type ArenaBoardEntry as ArenaBoardEntryProto,
   type BoutJournalEntry,
@@ -864,6 +865,24 @@ export function poolToJson(pool: Pool | undefined): PoolDto | null {
 export function poolsToJson(pools: Pool[] | undefined): PoolDto[] {
   if (!pools) return [];
   return pools.map((p) => poolToJson(p)).filter((p): p is PoolDto => p !== null);
+}
+
+/**
+ * poolsForArenaToJson превращает GetPoolsForArenaResponse в DTO страницы
+ * арены (спека 0011, FR-9; спека 0063): стоящий пул (`null`, если арена
+ * свободна), доступные для постановки и очередь арены по порядку. Общий
+ * для GET пулов арены и четырёх мутаций очереди — они возвращают то же.
+ */
+export function poolsForArenaToJson(res: GetPoolsForArenaResponse | undefined): {
+  seated: PoolDto | null;
+  available: PoolDto[];
+  queued: PoolDto[];
+} {
+  return {
+    seated: poolToJson(res?.seated),
+    available: poolsToJson(res?.available),
+    queued: poolsToJson(res?.queued),
+  };
 }
 
 function boutFighterRefToJson(raw: Partial<BoutFighterRefDto> | undefined): BoutFighterRefDto {

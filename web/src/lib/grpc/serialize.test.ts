@@ -14,6 +14,7 @@ import {
   NominationLiveSnapshotSchema,
   ArenaLiveSnapshotSchema,
   PoolSchema,
+  GetPoolsForArenaResponseSchema,
   PoolLayoutSchema,
   StageSchema,
   BracketSchema,
@@ -43,6 +44,7 @@ import {
   nominationResultsToJson,
   poolLayoutToJson,
   poolToJson,
+  poolsForArenaToJson,
   ruleDtoToProto,
   schemaIssuesToJson,
   schemaIssueToJson,
@@ -739,6 +741,55 @@ describe("poolToJson", () => {
 
   it("returns null for undefined", () => {
     expect(poolToJson(undefined)).toBeNull();
+  });
+
+  // Спека 0063: название этапа и очередь арены; proto3-omitted → "" / 0.
+  it("passes through stageTitle and queue fields (спека 0063)", () => {
+    const pool = fromJson(PoolSchema, {
+      id: "p1",
+      nominationId: "n1",
+      name: "1/4 финала, верхняя половина",
+      stageTitle: "Основная сетка",
+      queueArenaId: "a2",
+      queueArenaName: "Арена 2",
+      queuePosition: 2,
+    });
+
+    const json = poolToJson(pool);
+
+    expect(json?.stageTitle).toBe("Основная сетка");
+    expect(json?.queueArenaId).toBe("a2");
+    expect(json?.queueArenaName).toBe("Арена 2");
+    expect(json?.queuePosition).toBe(2);
+  });
+
+  it("normalizes omitted stageTitle and queue fields", () => {
+    const json = poolToJson(fromJson(PoolSchema, { id: "p1", nominationId: "n1", name: "Пул 1" }));
+
+    expect(json?.stageTitle).toBe("");
+    expect(json?.queueArenaId).toBe("");
+    expect(json?.queueArenaName).toBe("");
+    expect(json?.queuePosition).toBe(0);
+  });
+});
+
+describe("poolsForArenaToJson (спека 0063)", () => {
+  it("maps seated/available/queued; omitted parts become null/[]", () => {
+    const res = fromJson(GetPoolsForArenaResponseSchema, {
+      available: [{ id: "p1", nominationId: "n1", name: "Пул 1" }],
+      queued: [{ id: "p2", nominationId: "n1", name: "Пул 2", queuePosition: 1 }],
+    });
+
+    const json = poolsForArenaToJson(res);
+
+    expect(json.seated).toBeNull();
+    expect(json.available.map((p) => p.id)).toEqual(["p1"]);
+    expect(json.queued.map((p) => p.id)).toEqual(["p2"]);
+    expect(json.queued[0].queuePosition).toBe(1);
+  });
+
+  it("returns empty collections for an undefined response", () => {
+    expect(poolsForArenaToJson(undefined)).toEqual({ seated: null, available: [], queued: [] });
   });
 });
 
