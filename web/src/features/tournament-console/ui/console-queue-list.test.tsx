@@ -11,7 +11,7 @@ describe("ConsoleQueueList (спека 0043, FR-13)", () => {
 
   it("показывает заглушку для пустой очереди", () => {
     render(<ConsoleQueueList items={[]} />);
-    expect(screen.getByText("Очередь пуста.")).toBeInTheDocument();
+    expect(screen.getByText("Все готовые пулы распределены.")).toBeInTheDocument();
   });
 
   it("показывает пулы очереди с числом боёв и оценкой времени", () => {
@@ -24,6 +24,8 @@ describe("ConsoleQueueList (спека 0043, FR-13)", () => {
         poolName: "Пул B",
         boutCount: 6,
         estimatedSeconds: 420,
+        expectedStartAt: null,
+        queuePosition: 0,
       },
     ];
     render(<ConsoleQueueList items={items} />);

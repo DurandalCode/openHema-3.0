@@ -479,3 +479,69 @@ WHERE fighter_id = sqlc.arg(source_id)::uuid
     SELECT 1 FROM stage.withdrawn_seeds w2
     WHERE w2.nomination_id = stage.withdrawn_seeds.nomination_id AND w2.fighter_id = sqlc.arg(target_id)::uuid
   );
+
+-- Спека 0063: очередь пулов на арену (stage.arena_queue).
+
+-- name: LockArenaQueues :exec
+-- Транзакционная advisory-блокировка всех очередей: изменения очередей редки
+-- и коротки, один общий ключ проще и надёжнее, чем порядок блокировок по
+-- аренам при переносе между очередями (NFR-3).
+SELECT pg_advisory_xact_lock(hashtextextended('stage.arena_queue', 0));
+
+-- name: ListArenaQueue :many
+-- Пулы очереди арены по порядку (позиция — 1-индекс).
+SELECT p.id, p.stage_id, p.nomination_id, p.number, p.arena_id, p.current_bout_id, q.position
+FROM stage.arena_queue q
+JOIN stage.pools p ON p.id = q.pool_id
+WHERE q.arena_id = $1
+ORDER BY q.position;
+
+-- name: ListQueueEntriesByArenas :many
+-- Очереди нескольких арен одним запросом (NFR-2).
+SELECT pool_id, arena_id, position
+FROM stage.arena_queue
+WHERE arena_id = ANY(sqlc.arg(arena_ids)::uuid[])
+ORDER BY arena_id, position;
+
+-- name: ListQueueEntriesByPools :many
+-- Записи очереди для набора пулов (обогащение Pool.queue_*).
+SELECT pool_id, arena_id, position
+FROM stage.arena_queue
+WHERE pool_id = ANY(sqlc.arg(pool_ids)::uuid[]);
+
+-- name: GetQueueEntry :one
+SELECT pool_id, arena_id, position FROM stage.arena_queue WHERE pool_id = $1;
+
+-- name: DeleteQueueEntry :exec
+DELETE FROM stage.arena_queue WHERE pool_id = $1;
+
+-- name: CompactArenaQueue :exec
+-- Уплотняет позиции очереди арены до 1..N без пропусков. Промежуточные
+-- дубликаты допустимы (uq_arena_queue_position — DEFERRABLE).
+UPDATE stage.arena_queue q
+SET position = r.rn
+FROM (
+    SELECT pool_id, row_number() OVER (ORDER BY position)::int AS rn
+    FROM stage.arena_queue
+    WHERE arena_id = $1
+) r
+WHERE q.pool_id = r.pool_id AND q.arena_id = $1 AND q.position <> r.rn;
+
+-- name: MaxQueuePosition :one
+SELECT COALESCE(MAX(position), 0)::int AS max_position
+FROM stage.arena_queue
+WHERE arena_id = $1;
+
+-- name: InsertQueueEntry :exec
+INSERT INTO stage.arena_queue (pool_id, arena_id, position) VALUES ($1, $2, $3);
+
+-- name: SetQueuePosition :exec
+UPDATE stage.arena_queue SET position = $2 WHERE pool_id = $1;
+
+-- name: FindQueuedInStage :one
+-- Любая арена, в очереди которой стоит пул этапа (гейт FR-12 спеки 0063).
+SELECT q.arena_id
+FROM stage.arena_queue q
+JOIN stage.pools p ON p.id = q.pool_id
+WHERE p.stage_id = $1
+LIMIT 1;

@@ -9,8 +9,11 @@ vi.mock("@/lib/grpc/client", () => ({
   stageAdminClient: { getPoolsForArena: vi.fn() },
 }));
 vi.mock("@/lib/grpc/serialize", () => ({
-  poolToJson: vi.fn((p) => p ?? null),
-  poolsToJson: vi.fn((p) => p ?? []),
+  poolsForArenaToJson: vi.fn((r) => ({
+    seated: r?.seated ?? null,
+    available: r?.available ?? [],
+    queued: r?.queued ?? [],
+  })),
 }));
 
 import { stageAdminClient } from "@/lib/grpc/client";
@@ -43,7 +46,7 @@ describe("app/api/arenas/[id]/pools route", () => {
     const res = await GET(getReq(), { params: Promise.resolve({ id: "a1" }) });
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({ seated: null, available: [{ id: "p1" }, { id: "p2" }] });
+    expect(data).toEqual({ seated: null, available: [{ id: "p1" }, { id: "p2" }], queued: [] });
     expect(stageAdminClient.getPoolsForArena).toHaveBeenCalledWith(
       { arenaId: "a1" },
       { headers: { Authorization: "Bearer token" } },
@@ -62,6 +65,18 @@ describe("app/api/arenas/[id]/pools route", () => {
     const data = await res.json();
     expect(data.seated).toEqual({ id: "p1", status: "POOL_STATUS_PREPARING" });
     expect(data.available).toEqual([]);
+  });
+
+  it("returns the arena queue in order (спека 0063)", async () => {
+    vi.mocked(getAccessToken).mockResolvedValue("token");
+    vi.mocked(stageAdminClient.getPoolsForArena).mockResolvedValue({
+      available: [],
+      queued: [{ id: "p2" }, { id: "p3" }],
+    } as never);
+
+    const res = await GET(getReq(), { params: Promise.resolve({ id: "a1" }) });
+    const data = await res.json();
+    expect(data.queued).toEqual([{ id: "p2" }, { id: "p3" }]);
   });
 
   it("maps ConnectError NotFound → 404", async () => {

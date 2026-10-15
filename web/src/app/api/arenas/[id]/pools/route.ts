@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { stageAdminClient } from "@/lib/grpc/client";
 import { errorResponse } from "@/lib/grpc/errors";
-import { poolToJson, poolsToJson } from "@/lib/grpc/serialize";
+import { poolsForArenaToJson } from "@/lib/grpc/serialize";
 import { getAccessToken } from "@/lib/session/cookies";
 
 export const runtime = "nodejs";
@@ -11,8 +11,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * GET /api/arenas/[id]/pools — для страницы конкретной арены (спека 0011,
  * FR-9): пул, который сейчас на ней стоит (`seated`, `null` если арена
- * свободна), и список готовых пулов, доступных для постановки
- * (`available`). Только admin.
+ * свободна), список готовых пулов, доступных для постановки (`available`),
+ * и очередь арены по порядку (`queued`, спека 0063). Только admin.
  */
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   const accessToken = await getAccessToken();
@@ -26,10 +26,7 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
       { arenaId: id },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    return NextResponse.json({
-      seated: poolToJson(res.seated),
-      available: poolsToJson(res.available),
-    });
+    return NextResponse.json(poolsForArenaToJson(res));
   } catch (err) {
     return errorResponse(err);
   }

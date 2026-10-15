@@ -50,15 +50,11 @@ func (s *Service) GetArenaBoards(ctx context.Context, tournamentID string) ([]do
 	if tournamentID == "" {
 		return nil, domain.ErrInvalidInput
 	}
-	arenas, err := s.arenas.ActiveArenas(ctx, tournamentID)
-	if err != nil {
-		return nil, err
-	}
-
 	gathered, err := s.gatherTournament(ctx, tournamentID)
 	if err != nil {
 		return nil, err
 	}
+	arenas := gathered.arenas
 
 	entries := make([]domain.ArenaBoardEntry, 0, len(arenas))
 	for _, arena := range arenas {

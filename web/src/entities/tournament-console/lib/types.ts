@@ -75,6 +75,13 @@ export type ConsoleArena = {
   boutFinished: number;
   pace: PaceEstimateDto | null;
   poolExpectedFinishAt: string | null;
+  /**
+   * queueLength/queue — очередь пулов арены по порядку (спека 0063, FR-17).
+   * `queue` несёт `expectedStartAt`/`queuePosition`; пуста у арены без
+   * очереди (в том числе у свободной — очередь не зависит от занятости).
+   */
+  queueLength: number;
+  queue: ConsoleQueueItem[];
 };
 
 /**
@@ -97,8 +104,12 @@ export type ConsoleNomination = {
 };
 
 /**
- * ConsoleQueueItem — готовый к постановке пул в очереди пульта (FR-13):
- * тот же набор, что предлагает постановка пула на площадку.
+ * ConsoleQueueItem — пул в списке пульта. В `TournamentConsoleSnapshotDto.queue`
+ * — готовый, но нераспределённый пул («Не распределены», спека 0063, FR-24;
+ * без `expectedStartAt`/`queuePosition`); в `ConsoleArena.queue` — пул
+ * очереди арены (FR-16/FR-21). `expectedStartAt` — ориентировочное начало
+ * первого боя, `null`, если оценки нет; `queuePosition` — 1-индекс, 0 вне
+ * очереди арены.
  */
 export type ConsoleQueueItem = {
   poolId: string;
@@ -108,6 +119,8 @@ export type ConsoleQueueItem = {
   poolName: string;
   boutCount: number;
   estimatedSeconds: number;
+  expectedStartAt: string | null;
+  queuePosition: number;
 };
 
 /**

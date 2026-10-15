@@ -9,14 +9,14 @@ function queueEstimateLabel(seconds: number): string {
 }
 
 /**
- * ConsoleQueueList — очередь готовых к постановке пулов (спека 0043,
- * FR-13): пулы READY, ни на одной площадке. Ссылка ведёт на список
- * площадок — саму постановку выполняет оператор там (пульт read-only,
- * FR-17).
+ * ConsoleQueueList — «Не распределены» (спека 0043, FR-13; переименовано
+ * спекой 0063, FR-24): готовые пулы, которые не стоят ни на площадке, ни в
+ * очереди какой-либо площадки. Ссылка ведёт на список площадок — саму
+ * постановку и очередь выполняет оператор там (пульт read-only, FR-17).
  */
 export function ConsoleQueueList({ items }: { items: ConsoleQueueItem[] }) {
   if (items.length === 0) {
-    return <p className="text-sm text-caption-foreground">Очередь пуста.</p>;
+    return <p className="text-sm text-caption-foreground">Все готовые пулы распределены.</p>;
   }
   return (
     <ul className="flex flex-col gap-1">

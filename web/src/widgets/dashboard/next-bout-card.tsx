@@ -21,7 +21,9 @@ function myScoreLine(bout: LiveFeedBoutDto, fighterId: string): string {
  * не начатый — с очередью боёв до него (`boutsUntil`, не тронуто) плюс
  * ориентировочное время и обратный отсчёт, когда пул уже поставлен на
  * площадку (`bout.forecast`, AC-6); если пул ещё не поставлен —
- * объяснение вместо времени (AC-5, горизонт оценки — FR-9). `null`, если у
+ * объяснение вместо времени (AC-5, горизонт оценки — FR-9). Спека 0063,
+ * FR-20: пул в очереди арены — «Арена 2 · в очереди, №2» вместо этого
+ * объяснения (время показывается, когда оценка есть). `null`, если у
  * бойца нет боёв в снапшоте вовсе (FR-37/FR-32 решают вызывающая сторона и
  * `my-nominations`, этот компонент просто ничего не рендерит).
  */
@@ -62,12 +64,19 @@ export function NextBoutCard({
               <span className="text-sm text-muted-foreground">
                 {until === 0 ? "вы следующие" : `через ${until} ${boutsWord(until)}`}
               </span>
+              {bout.queueArenaName && (
+                <span className="text-sm">
+                  {bout.queueArenaName} · в очереди, №{bout.queuePosition ?? 0}
+                </span>
+              )}
               {bout.forecast?.expectedStartAt ? (
                 <ForecastTime forecast={bout.forecast} className="text-sm" />
               ) : (
-                <span className="text-xs text-muted-foreground">
-                  пул ещё не поставлен на площадку
-                </span>
+                !bout.queueArenaName && (
+                  <span className="text-xs text-muted-foreground">
+                    пул ещё не поставлен на площадку
+                  </span>
+                )
               )}
             </Col>
           )}

@@ -54,6 +54,13 @@ export type LiveFeedBoutDto = {
    * — существующие фикстуры не обязаны его знать.
    */
   forecast?: ForecastDto;
+  /**
+   * queueArenaName/queuePosition — арена и номер пула боя в очереди (спека
+   * 0063, FR-18/FR-20); пусто/0, если пул не в очереди. Опциональны по тому
+   * же приёму, что `forecast`: существующие фикстуры их не знают.
+   */
+  queueArenaName?: string;
+  queuePosition?: number;
 };
 
 /**
@@ -82,6 +89,13 @@ export type LiveArenaDto = {
    * осталось не начатых боёв.
    */
   nextBoutForecast?: ForecastDto;
+  /**
+   * nextPoolName/nextPoolNominationName — следующий пул очереди арены
+   * (спека 0063, FR-19); пусто, если очередь пуста. Публично очередь
+   * неархивной арены видна так же, как текущая постановка.
+   */
+  nextPoolName?: string;
+  nextPoolNominationName?: string;
 };
 
 /** LiveNominationDto — строка сайдбара «Номинации» (FR-20). */

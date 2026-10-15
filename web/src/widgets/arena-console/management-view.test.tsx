@@ -7,6 +7,9 @@ import { ManagementView } from "./management-view";
 
 vi.mock("@/features/pool-seating/ui/pool-seating", () => ({
   PoolSeating: ({ arenaId }: { arenaId: string }) => <div data-testid="pool-seating">{arenaId}</div>,
+  ArenaQueueSection: ({ arenaId }: { arenaId: string }) => (
+    <div data-testid="arena-queue-section">{arenaId}</div>
+  ),
 }));
 vi.mock("@/features/arena-timer/ui/TimerControls", () => ({
   TimerControls: () => <div data-testid="timer-controls" />,
@@ -145,6 +148,22 @@ describe("ManagementView (спека 0033, FR-6..FR-14)", () => {
       />,
     );
     expect(screen.getByTestId("pool-seating")).toBeInTheDocument();
+    expect(screen.queryByTestId("arena-queue-section")).not.toBeInTheDocument();
+  });
+
+  it("спека 0063, FR-7: shows the arena queue section under a seated pool (queue planning on a busy arena)", () => {
+    render(
+      <ManagementView
+        arenaId="a1"
+        live={makeLive(seatedBoard())}
+        display={timerDisplay}
+        controls={timerControls}
+        offline={false}
+        onEnterBoutPanel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("arena-queue-section")).toHaveTextContent("a1");
+    expect(screen.queryByTestId("pool-seating")).not.toBeInTheDocument();
   });
 
   it("FR-7: renders only ±1/2/3/5 step buttons, no manual input or Задать button", () => {

@@ -42,6 +42,7 @@ import {
   ArenaBoardEntrySchema,
   type PoolLayout,
   type Pool,
+  type GetPoolsForArenaResponse,
   type BoutBoard,
   type ArenaBoardEntry as ArenaBoardEntryProto,
   type BoutJournalEntry,
@@ -521,6 +522,11 @@ function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
     arenaName: raw?.arenaName ?? "",
     standings: Array.isArray(raw?.standings) ? raw.standings.map(poolStandingToJson) : [],
     stageId: raw?.stageId ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    queueArenaId: raw?.queueArenaId ?? "",
+    queueArenaName: raw?.queueArenaName ?? "",
+    queuePosition: raw?.queuePosition ?? 0,
+    expectedStartAt: raw?.expectedStartAt ?? null,
   };
 }
 
@@ -860,6 +866,24 @@ export function poolToJson(pool: Pool | undefined): PoolDto | null {
 export function poolsToJson(pools: Pool[] | undefined): PoolDto[] {
   if (!pools) return [];
   return pools.map((p) => poolToJson(p)).filter((p): p is PoolDto => p !== null);
+}
+
+/**
+ * poolsForArenaToJson превращает GetPoolsForArenaResponse в DTO страницы
+ * арены (спека 0011, FR-9; спека 0063): стоящий пул (`null`, если арена
+ * свободна), доступные для постановки и очередь арены по порядку. Общий
+ * для GET пулов арены и четырёх мутаций очереди — они возвращают то же.
+ */
+export function poolsForArenaToJson(res: GetPoolsForArenaResponse | undefined): {
+  seated: PoolDto | null;
+  available: PoolDto[];
+  queued: PoolDto[];
+} {
+  return {
+    seated: poolToJson(res?.seated),
+    available: poolsToJson(res?.available),
+    queued: poolsToJson(res?.queued),
+  };
 }
 
 function boutFighterRefToJson(raw: Partial<BoutFighterRefDto> | undefined): BoutFighterRefDto {
@@ -1285,6 +1309,8 @@ function liveFeedBoutRawToDto(
     startedAt: raw?.startedAt ?? null,
     finishedAt: raw?.finishedAt ?? null,
     forecast: boutForecastRawToDto(raw?.forecast),
+    queueArenaName: raw?.queueArenaName ?? "",
+    queuePosition: raw?.queuePosition ?? 0,
   };
 }
 
@@ -1314,6 +1340,8 @@ function liveArenaRawToDto(
     poolBoutTotal: raw?.poolBoutTotal ?? 0,
     poolBoutFinished: raw?.poolBoutFinished ?? 0,
     nextBoutForecast: boutForecastRawToDto(raw?.nextBoutForecast),
+    nextPoolName: raw?.nextPoolName ?? "",
+    nextPoolNominationName: raw?.nextPoolNominationName ?? "",
   };
 }
 
@@ -1426,6 +1454,8 @@ function consoleArenaRawToDto(
     boutFinished: raw?.boutFinished ?? 0,
     pace: raw?.pace ? paceEstimateRawToDto(raw.pace) : null,
     poolExpectedFinishAt: raw?.poolExpectedFinishAt ?? null,
+    queueLength: raw?.queueLength ?? 0,
+    queue: Array.isArray(raw?.queue) ? raw.queue.map((q) => consoleQueueItemRawToDto(q)) : [],
   };
 }
 
@@ -1455,6 +1485,8 @@ function consoleQueueItemRawToDto(raw: Partial<ConsoleQueueItemDto> | undefined)
     poolName: raw?.poolName ?? "",
     boutCount: raw?.boutCount ?? 0,
     estimatedSeconds: raw?.estimatedSeconds ?? 0,
+    expectedStartAt: raw?.expectedStartAt ?? null,
+    queuePosition: raw?.queuePosition ?? 0,
   };
 }
 

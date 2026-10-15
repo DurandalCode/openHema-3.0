@@ -46,6 +46,21 @@ func TestDetectAlerts_ArenaIdle(t *testing.T) {
 		}
 	})
 
+	t.Run("queue head is named in the alert (spec 0063, FR-25)", func(t *testing.T) {
+		freeSince := now.Add(-ArenaIdleAlertThreshold - time.Second)
+		arenas := []ConsoleAlertArenaInput{
+			{ArenaID: "a1", ArenaName: "Ристалище 1", FreeSince: &freeSince, NextPoolID: "p2", NextPoolName: "Пул 2"},
+		}
+		got := DetectAlerts(arenas, nil, ConsoleAlertQueueInput{HasReadyPools: true}, now)
+		a, ok := hasAlert(got, ConsoleAlertArenaIdle)
+		if !ok {
+			t.Fatalf("expected ARENA_IDLE alert")
+		}
+		if a.PoolID != "p2" || a.PoolName != "Пул 2" {
+			t.Errorf("PoolID/PoolName = %q/%q, want p2/Пул 2", a.PoolID, a.PoolName)
+		}
+	})
+
 	t.Run("condition lifted: occupied -> no alert", func(t *testing.T) {
 		freeSince := now.Add(-ArenaIdleAlertThreshold - time.Hour)
 		arenas := []ConsoleAlertArenaInput{

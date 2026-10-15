@@ -56,12 +56,12 @@ function NominationsCard({ nominations }: { nominations: ConsoleNomination[] }) 
   );
 }
 
-/** QueueCard — карточка «Очередь на постановку» (спека 0043, FR-13), общая для мобильной вкладки и десктопной раскладки. */
+/** QueueCard — карточка «Не распределены» (спека 0043, FR-13; спека 0063, FR-24), общая для мобильной вкладки и десктопной раскладки. */
 function QueueCard({ items }: { items: ConsoleQueueItem[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Очередь на постановку</CardTitle>
+        <CardTitle>Не распределены</CardTitle>
       </CardHeader>
       <CardContent>
         <ConsoleQueueList items={items} />
@@ -120,7 +120,7 @@ export function ConsoleScreen({
           <TabsList>
             <TabsTrigger value="arenas">Площадки · {snapshot.arenas.length}</TabsTrigger>
             <TabsTrigger value="nominations">Номинации · {snapshot.nominations.length}</TabsTrigger>
-            <TabsTrigger value="queue">Очередь · {snapshot.queue.length}</TabsTrigger>
+            <TabsTrigger value="queue">Не распределены · {snapshot.queue.length}</TabsTrigger>
           </TabsList>
           <TabsContent value="arenas" className="pt-3">
             <ArenasGrid arenas={snapshot.arenas} columnsClassName="" />

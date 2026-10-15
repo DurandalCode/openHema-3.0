@@ -6,6 +6,24 @@ import { boutScoreLabel } from "@/entities/pool/lib/types";
 import { idleLabel, type ConsoleArena } from "@/entities/tournament-console/lib/types";
 
 /**
+ * QueueSummary — очередь арены в карточке (спека 0063, FR-17): длина и
+ * следующий пул. Ничего не рисует, если очередь пуста.
+ */
+function QueueSummary({ arena }: { arena: ConsoleArena }) {
+  const next = arena.queue[0];
+  if (arena.queueLength === 0 || !next) return null;
+  return (
+    <div className="flex flex-col gap-0.5 text-sm">
+      <span className="text-muted-foreground">В очереди: {arena.queueLength}</span>
+      <span className="min-w-0 break-words">
+        Далее: {next.nominationName} · {next.poolName}
+        {next.stageTitle && ` · ${next.stageTitle}`}
+      </span>
+    </div>
+  );
+}
+
+/**
  * ConsoleArenaCard — карточка площадки пульта (спека 0043, FR-11): что на
  * ней стоит, идущий/следующий бой, темп и прогноз завершения пула, простой.
  * Ссылка ведёт на страницу площадки (`/admin/arenas/[id]`) — пульт сам
@@ -28,6 +46,11 @@ export function ConsoleArenaCard({ arena, now = new Date() }: { arena: ConsoleAr
           )}
         </CardTitle>
       </CardHeader>
+      {!occupied && arena.queueLength > 0 && (
+        <CardContent>
+          <QueueSummary arena={arena} />
+        </CardContent>
+      )}
       {occupied && (
         <CardContent className="flex flex-col gap-2 text-sm">
           <div className="text-muted-foreground">
@@ -59,6 +82,7 @@ export function ConsoleArenaCard({ arena, now = new Date() }: { arena: ConsoleAr
               />
             </div>
           )}
+          <QueueSummary arena={arena} />
         </CardContent>
       )}
     </Card>

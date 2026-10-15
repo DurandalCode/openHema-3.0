@@ -81,7 +81,33 @@ export type Pool = {
   arenaName: string;
   standings: PoolStanding[];
   stageId?: string;
+  /**
+   * stageTitle — текущее название этапа-владельца (спека 0063, FR-14/FR-15):
+   * различает одноимённые контейнеры двух сеток одной номинации.
+   * `queueArenaId`/`queueArenaName`/`queuePosition` — очередь арены (спека
+   * 0063): пул стоит в очереди этой арены под номером `queuePosition`
+   * (1-индекс); пусто/0 — не в очереди. Все четыре аддитивны и опциональны
+   * по тому же приёму, что `stageId`.
+   */
+  stageTitle?: string;
+  queueArenaId?: string;
+  queueArenaName?: string;
+  queuePosition?: number;
+  /**
+   * expectedStartAt — ориентировочное начало первого боя пула очереди (спека
+   * 0063, FR-16), ISO-строка; `null`/нет — вне очереди или оценки нет.
+   * Заполняется только ответом «пулы арены». Оценка всегда предварительная.
+   */
+  expectedStartAt?: string | null;
 };
+
+/**
+ * poolTitle — имя пула с названием этапа (спека 0063, FR-14): «1/4 финала,
+ * верхняя половина · Основная сетка». Без названия этапа — просто имя пула.
+ */
+export function poolTitle(pool: Pick<Pool, "name" | "stageTitle">): string {
+  return pool.stageTitle ? `${pool.name} · ${pool.stageTitle}` : pool.name;
+}
 
 /**
  * PoolLayout — раскладка номинации по пулам (спека 0009) + этап, которому

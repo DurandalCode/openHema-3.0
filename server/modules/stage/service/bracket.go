@@ -478,6 +478,16 @@ func (s *Service) buildBracket(ctx context.Context, stage domain.Stage, includeU
 	if err != nil {
 		return domain.Bracket{}, err
 	}
+	// Спека 0063: очередь арены у контейнеров сетки; публичный путь
+	// (includeUnassigned=false) не показывает очередь архивной арены (FR-13).
+	if err := s.applyQueue(ctx, pools); err != nil {
+		return domain.Bracket{}, err
+	}
+	if !includeUnassigned {
+		if err := s.hideArchivedQueues(ctx, pools); err != nil {
+			return domain.Bracket{}, err
+		}
+	}
 	bracketBouts, boutByPair, err := s.bracketBoutRows(ctx, cfg, pools)
 	if err != nil {
 		return domain.Bracket{}, err
@@ -507,6 +517,8 @@ func (s *Service) buildBracket(ctx context.Context, stage domain.Stage, includeU
 				ID: rawContainer.ID, StageID: rawContainer.StageID, NominationID: rawContainer.NominationID,
 				Number: rawContainer.Number, Name: domain.ContainerTitle(cfg, h.ContainerNumber),
 				ArenaID: rawContainer.ArenaID, Status: statusByContainer[h.ContainerNumber],
+				StageTitle: stage.Title, QueueArenaID: rawContainer.QueueArenaID,
+				QueueArenaName: rawContainer.QueueArenaName, QueuePosition: rawContainer.QueuePosition,
 			}
 			if rawContainer.ArenaID != "" {
 				container.ArenaName = arenaNames[rawContainer.ArenaID].Name

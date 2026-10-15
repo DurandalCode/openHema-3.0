@@ -80,6 +80,33 @@ describe("PoolCard", () => {
     expect(screen.getByText("готов")).toBeInTheDocument();
   });
 
+  // Спека 0063, FR-18, AC-13: пул в очереди арены — арена и номер в очереди
+  // вместо «площадка не назначена».
+  it("shows the arena and queue position when the pool is queued on an arena (спека 0063, FR-18)", () => {
+    render(
+      <PoolCard
+        livePool={livePool({
+          arenaId: "",
+          arenaName: "",
+          status: "POOL_STATUS_READY",
+          queueArenaId: "arena-2",
+          queueArenaName: "Арена 2",
+          queuePosition: 2,
+        })}
+      />,
+    );
+    expect(screen.getByText("Арена 2 · в очереди, №2")).toBeInTheDocument();
+    expect(screen.queryByText("площадка не назначена")).not.toBeInTheDocument();
+  });
+
+  it("prefers the seated arena over a stale queue mark", () => {
+    render(
+      <PoolCard livePool={livePool({ queueArenaId: "arena-2", queueArenaName: "Арена 2", queuePosition: 1 })} />,
+    );
+    expect(screen.getByText("Арена 3")).toBeInTheDocument();
+    expect(screen.queryByText(/в очереди/)).not.toBeInTheDocument();
+  });
+
   it("renders bout rows via BoutRow when the pool has bouts", () => {
     render(
       <PoolCard

@@ -6,8 +6,9 @@ import { poolSeatingKeys } from "./keys";
 
 /**
  * useSeatPool — мутация постановки готового пула на арену (спека 0011,
- * FR-7). При успехе инвалидирует `for-arena`-ключ этой арены (пул стал
- * `seated`, список `available` сузился).
+ * FR-7). При успехе инвалидирует кэши всех арен: пул стал `seated`, список
+ * `available` сузился, а пул мог стоять в очереди (этой или другой арены) и
+ * по спеке 0063 (FR-10) из неё убирается.
  */
 export function useSeatPool(arenaId: string) {
   const qc = useQueryClient();
@@ -17,7 +18,7 @@ export function useSeatPool(arenaId: string) {
       if (!res.ok) throw new Error(res.error);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: poolSeatingKeys.forArena(arenaId) });
+      qc.invalidateQueries({ queryKey: poolSeatingKeys.allForArenas });
     },
   });
 }

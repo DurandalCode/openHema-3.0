@@ -14,7 +14,7 @@ import {
   type BoutBoard,
 } from "@/entities/pool/lib/types";
 import type { UseArenaLiveResult } from "@/features/arena-live/api/use-arena-live";
-import { PoolSeating } from "@/features/pool-seating/ui/pool-seating";
+import { ArenaQueueSection, PoolSeating } from "@/features/pool-seating/ui/pool-seating";
 import { useSeatPool } from "@/features/pool-seating/api/use-seat-pool";
 import { useUnseatPool } from "@/features/pool-seating/api/use-unseat-pool";
 import { useSetCurrentBout } from "@/features/bout-board/api/use-set-current-bout";
@@ -31,7 +31,8 @@ import { useBoutScoreControl } from "./use-bout-score-control";
  * площадка свободна → `PoolSeating` (постановка, FR-12..FR-14, уже несёт
  * фильтр по номинации и объясняющее пустое состояние — 0033 T22); пул стоит
  * → двухколоночный экран (слева пул/состав/бои по порядку, справа текущий
- * бой/таймер/действия, FR-6..FR-11).
+ * бой/таймер/действия, FR-6..FR-11). Спека 0063, FR-7: под боями стоящего
+ * пула — очередь арены и «В очередь» у доступных пулов (`ArenaQueueSection`).
  */
 export function ManagementView({
   arenaId,
@@ -119,6 +120,7 @@ function SeatedManagement({
               <Row align="center" justify="between" gap={2} className="flex-wrap">
                 <Row align="center" gap={2}>
                   <span className="text-lg font-semibold">{pool.name}</span>
+                  {pool.stageTitle && <Badge variant="outline">{pool.stageTitle}</Badge>}
                   <Badge variant="outline">{pool.nominationName}</Badge>
                 </Row>
                 <Badge>{poolStatusLabel(pool.status)}</Badge>
@@ -159,6 +161,8 @@ function SeatedManagement({
             )
           }
         />
+
+        <ArenaQueueSection arenaId={arenaId} />
       </Col>
 
       <Col gap={4} className="min-w-0 flex-1">

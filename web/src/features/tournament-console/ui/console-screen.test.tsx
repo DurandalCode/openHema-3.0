@@ -27,6 +27,8 @@ const ARENA_1 = {
   boutFinished: 0,
   pace: null,
   poolExpectedFinishAt: null,
+  queueLength: 0,
+  queue: [],
 };
 
 const NOMINATION_1 = {
@@ -61,7 +63,7 @@ describe("ConsoleScreen (спека 0043)", () => {
     expect(screen.getAllByText("В турнире нет активных площадок.")).toHaveLength(2);
     // Вкладка «Очередь» на телефоне не активна по умолчанию — не смонтирована
     // (Radix Tabs), поэтому в десктопной раскладке текст один.
-    expect(screen.getByText("Очередь пуста.")).toBeInTheDocument();
+    expect(screen.getByText("Все готовые пулы распределены.")).toBeInTheDocument();
   });
 
   it("рендерит площадки, номинации и очередь из снапшота", () => {
@@ -121,6 +123,8 @@ describe("ConsoleScreen — мобильные вкладки и расклад�
           stageTitle: "",
           boutCount: 3,
           estimatedSeconds: 600,
+          expectedStartAt: null,
+          queuePosition: 0,
         },
       ],
       alerts: [],
@@ -133,7 +137,7 @@ describe("ConsoleScreen — мобильные вкладки и расклад�
 
     expect(mobile.getByRole("tab", { name: "Площадки · 2" })).toBeInTheDocument();
     expect(mobile.getByRole("tab", { name: "Номинации · 1" })).toBeInTheDocument();
-    expect(mobile.getByRole("tab", { name: "Очередь · 1" })).toBeInTheDocument();
+    expect(mobile.getByRole("tab", { name: "Не распределены · 1" })).toBeInTheDocument();
   });
 
   it("T10: переключение вкладки меняет видимый TabsContent", () => {
@@ -151,7 +155,7 @@ describe("ConsoleScreen — мобильные вкладки и расклад�
     expect(mobile.getByText("Длинный меч")).toBeInTheDocument();
     expect(mobile.queryByText("Ристалище 1")).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(mobile.getByRole("tab", { name: "Очередь · 1" }));
+    fireEvent.mouseDown(mobile.getByRole("tab", { name: "Не распределены · 1" }));
 
     expect(mobile.getByText("Пул Финал", { exact: false })).toBeInTheDocument();
   });
