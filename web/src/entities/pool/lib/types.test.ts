@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boutScoreLabel, outcomeOf, poolCountWord, poolLayoutCounts } from "./types";
+import { boutScoreLabel, outcomeOf, poolCountWord, poolLayoutCounts, poolTitle } from "./types";
 import type { BoardBout, FighterRef, Pool, PoolLayout } from "./types";
 
 function fighter(id: string): FighterRef {
@@ -143,5 +143,16 @@ describe("entities/pool/lib/types boutScoreLabel", () => {
     expect(
       boutScoreLabel(boutStub({ state: "BOUT_STATE_FINISHED", scoreA: 0, scoreB: 0 })),
     ).toBe("0:0");
+  });
+});
+
+describe("poolTitle (спека 0063, FR-14)", () => {
+  it("добавляет название этапа к имени пула", () => {
+    const p = { ...pool("p1", []), name: "1/4 финала, верхняя половина", stageTitle: "Основная сетка" };
+    expect(poolTitle(p)).toBe("1/4 финала, верхняя половина · Основная сетка");
+  });
+
+  it("без названия этапа возвращает только имя пула", () => {
+    expect(poolTitle(pool("p1", []))).toBe("Пул p1");
   });
 });

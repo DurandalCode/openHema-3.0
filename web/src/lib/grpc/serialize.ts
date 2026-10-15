@@ -521,6 +521,10 @@ function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
     arenaName: raw?.arenaName ?? "",
     standings: Array.isArray(raw?.standings) ? raw.standings.map(poolStandingToJson) : [],
     stageId: raw?.stageId ?? "",
+    stageTitle: raw?.stageTitle ?? "",
+    queueArenaId: raw?.queueArenaId ?? "",
+    queueArenaName: raw?.queueArenaName ?? "",
+    queuePosition: raw?.queuePosition ?? 0,
   };
 }
 
