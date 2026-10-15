@@ -1449,6 +1449,8 @@ function consoleArenaRawToDto(
     boutFinished: raw?.boutFinished ?? 0,
     pace: raw?.pace ? paceEstimateRawToDto(raw.pace) : null,
     poolExpectedFinishAt: raw?.poolExpectedFinishAt ?? null,
+    queueLength: raw?.queueLength ?? 0,
+    queue: Array.isArray(raw?.queue) ? raw.queue.map((q) => consoleQueueItemRawToDto(q)) : [],
   };
 }
 
@@ -1478,6 +1480,8 @@ function consoleQueueItemRawToDto(raw: Partial<ConsoleQueueItemDto> | undefined)
     poolName: raw?.poolName ?? "",
     boutCount: raw?.boutCount ?? 0,
     estimatedSeconds: raw?.estimatedSeconds ?? 0,
+    expectedStartAt: raw?.expectedStartAt ?? null,
+    queuePosition: raw?.queuePosition ?? 0,
   };
 }
 

@@ -15,6 +15,7 @@ import {
   ArenaLiveSnapshotSchema,
   PoolSchema,
   GetPoolsForArenaResponseSchema,
+  TournamentConsoleSnapshotSchema,
   PoolLayoutSchema,
   StageSchema,
   BracketSchema,
@@ -45,6 +46,7 @@ import {
   poolLayoutToJson,
   poolToJson,
   poolsForArenaToJson,
+  consoleSnapshotToJson,
   ruleDtoToProto,
   schemaIssuesToJson,
   schemaIssueToJson,
@@ -1885,3 +1887,59 @@ describe("formatPresetToJson / formatPresetsToJson", () => {
     expect(formatPresetsToJson(undefined)).toEqual([]);
   });
 });
+
+describe("consoleSnapshotToJson — очередь арены (спека 0063, FR-17)", () => {
+  it("maps the arena queue with expectedStartAt/queuePosition and queueLength", () => {
+    const snapshot = fromJson(TournamentConsoleSnapshotSchema, {
+      tournamentId: "t1",
+      arenas: [
+        {
+          arenaId: "a1",
+          arenaName: "Арена 1",
+          queueLength: 2,
+          queue: [
+            {
+              poolId: "p2",
+              nominationName: "Лонгсворд",
+              stageTitle: "Основная сетка",
+              poolName: "Пул 2",
+              boutCount: 6,
+              estimatedSeconds: 1500,
+              expectedStartAt: "2026-10-15T11:05:00Z",
+              queuePosition: 1,
+            },
+            { poolId: "p3", queuePosition: 2 },
+          ],
+        },
+      ],
+      queue: [{ poolId: "p9", nominationName: "Рапира" }],
+    });
+
+    const json = consoleSnapshotToJson(snapshot);
+
+    expect(json?.arenas[0].queueLength).toBe(2);
+    expect(json?.arenas[0].queue[0]).toMatchObject({
+      poolId: "p2",
+      expectedStartAt: "2026-10-15T11:05:00Z",
+      queuePosition: 1,
+      stageTitle: "Основная сетка",
+    });
+    // proto3-omitted → null/0, не undefined.
+    expect(json?.arenas[0].queue[1]).toMatchObject({ expectedStartAt: null, boutCount: 0 });
+    // «Не распределены» не несут времени и позиции.
+    expect(json?.queue[0]).toMatchObject({ poolId: "p9", expectedStartAt: null, queuePosition: 0 });
+  });
+
+  it("normalizes an arena without queue to queueLength 0 and an empty queue", () => {
+    const snapshot = fromJson(TournamentConsoleSnapshotSchema, {
+      tournamentId: "t1",
+      arenas: [{ arenaId: "a1", arenaName: "Арена 1" }],
+    });
+
+    const json = consoleSnapshotToJson(snapshot);
+
+    expect(json?.arenas[0].queueLength).toBe(0);
+    expect(json?.arenas[0].queue).toEqual([]);
+  });
+});
+

@@ -21,6 +21,8 @@ function baseArena(overrides: Partial<ConsoleArena> = {}): ConsoleArena {
     boutFinished: 0,
     pace: null,
     poolExpectedFinishAt: null,
+    queueLength: 0,
+    queue: [],
     ...overrides,
   };
 }
@@ -88,5 +90,51 @@ describe("ConsoleArenaCard (спека 0043)", () => {
       />,
     );
     expect(screen.getByText("ориентировочно 11:20 · через ~20 минут")).toBeInTheDocument();
+  });
+
+  it("спека 0063, FR-17: показывает длину очереди и следующий пул", () => {
+    render(
+      <ConsoleArenaCard
+        arena={baseArena({
+          idleState: "free",
+          freeSince: new Date().toISOString(),
+          queueLength: 2,
+          queue: [
+            {
+              poolId: "p2",
+              nominationId: "n1",
+              nominationName: "Лонгсворд",
+              stageTitle: "Основная сетка",
+              poolName: "1/4 финала, верхняя половина",
+              boutCount: 6,
+              estimatedSeconds: 1500,
+              expectedStartAt: null,
+              queuePosition: 1,
+            },
+            {
+              poolId: "p3",
+              nominationId: "n1",
+              nominationName: "Лонгсворд",
+              stageTitle: "Основная сетка",
+              poolName: "1/4 финала, нижняя половина",
+              boutCount: 6,
+              estimatedSeconds: 1500,
+              expectedStartAt: null,
+              queuePosition: 2,
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("В очереди: 2")).toBeInTheDocument();
+    expect(screen.getByText("Далее: Лонгсворд · 1/4 финала, верхняя половина · Основная сетка")).toBeInTheDocument();
+  });
+
+  it("спека 0063: у арены без очереди строки очереди нет", () => {
+    render(<ConsoleArenaCard arena={baseArena({ idleState: "free", freeSince: new Date().toISOString() })} />);
+
+    expect(screen.queryByText(/В очереди:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Далее:/)).not.toBeInTheDocument();
   });
 });
