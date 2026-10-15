@@ -432,6 +432,19 @@ func (s *Service) SetStatus(ctx context.Context, stageID string, status domain.L
 		if seated {
 			return domain.Layout{}, domain.ErrPoolSeated
 		}
+		// Спека 0063, FR-12: пул этапа в очереди арены блокирует откат так же,
+		// как пул на арене; сообщение называет арену очереди.
+		queuedArenaID, queued, err := s.repo.QueuedInStage(ctx, stage.ID)
+		if err != nil {
+			return domain.Layout{}, err
+		}
+		if queued {
+			qe := &domain.PoolQueuedError{ArenaID: queuedArenaID}
+			if a, aerr := s.arenas.ArenaByID(ctx, queuedArenaID); aerr == nil {
+				qe.ArenaName = a.Name
+			}
+			return domain.Layout{}, qe
+		}
 		if stage.Type == domain.StageTypeBracket {
 			if err := s.unlockBracket(ctx, stage, current.Pools); err != nil {
 				return domain.Layout{}, err
@@ -995,12 +1008,29 @@ func (s *Service) GetPoolsForArena(ctx context.Context, arenaID string) (domain.
 	if err != nil {
 		return domain.ArenaPools{}, err
 	}
+	// Спека 0063: очередь этой арены — отдельным списком; пулы чужих очередей
+	// остаются в available (их можно перенести, FR-3/FR-5).
+	queued, err := s.repo.ArenaQueue(ctx, arenaID)
+	if err != nil {
+		return domain.ArenaPools{}, err
+	}
+	inQueue := make(map[string]bool, len(queued))
+	for _, q := range queued {
+		inQueue[q.ID] = true
+	}
+	notQueued := make([]domain.Pool, 0, len(available))
+	for _, p := range available {
+		if !inQueue[p.ID] {
+			notQueued = append(notQueued, p)
+		}
+	}
 
-	all := make([]domain.Pool, 0, len(available)+1)
+	all := make([]domain.Pool, 0, len(notQueued)+len(queued)+1)
 	if found {
 		all = append(all, seated)
 	}
-	all = append(all, available...)
+	all = append(all, queued...)
+	all = append(all, notQueued...)
 	enriched, err := s.enrichPools(ctx, all)
 	if err != nil {
 		return domain.ArenaPools{}, err
@@ -1012,9 +1042,13 @@ func (s *Service) GetPoolsForArena(ctx context.Context, arenaID string) (domain.
 		result.Seated = &enriched[0]
 		offset = 1
 	}
-	result.Available = enriched[offset:]
+	result.Queued = enriched[offset : offset+len(queued)]
+	result.Available = enriched[offset+len(queued):]
 	if result.Available == nil {
 		result.Available = []domain.Pool{}
+	}
+	if result.Queued == nil {
+		result.Queued = []domain.Pool{}
 	}
 	return result, nil
 }
@@ -1047,6 +1081,9 @@ func (s *Service) ListPublicPools(ctx context.Context, nominationID string) ([]d
 			return nil, err
 		}
 		out = append(out, layout.Pools...)
+	}
+	if err := s.hideArchivedQueues(ctx, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -1113,6 +1150,10 @@ func (s *Service) groupLivePools(ctx context.Context, stage domain.Stage) ([]dom
 	}
 	enriched, err := s.enrichPools(ctx, rawPools)
 	if err != nil {
+		return nil, err
+	}
+	// Публичный путь (NominationLive): очередь архивной арены не видна (0063, FR-13).
+	if err := s.hideArchivedQueues(ctx, enriched); err != nil {
 		return nil, err
 	}
 	out := make([]domain.LivePool, 0, len(enriched))
@@ -1439,6 +1480,10 @@ func (s *Service) applyArenaAndStatus(ctx context.Context, pools []domain.Pool, 
 			pools[i].ArenaName = arenaNames[pools[i].ArenaID].Name
 		}
 		pools[i].NominationName = nomNames[pools[i].NominationID].Title
+		pools[i].StageTitle = stage.Title
+	}
+	if err := s.applyQueue(ctx, pools); err != nil {
+		return nil, err
 	}
 	return pools, nil
 }
@@ -1539,6 +1584,10 @@ func (s *Service) enrichPools(ctx context.Context, rawPools []domain.Pool) ([]do
 			out[i].ArenaName = arenaNames[out[i].ArenaID].Name
 		}
 		out[i].NominationName = nomNames[out[i].NominationID].Title
+		out[i].StageTitle = stageByID[out[i].StageID].Title
+	}
+	if err := s.applyQueue(ctx, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

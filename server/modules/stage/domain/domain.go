@@ -400,6 +400,17 @@ type ArenaPools struct {
 	// Available — пулы в статусе «готов», ещё не поставленные ни на одну
 	// арену (кандидаты для постановки).
 	Available []Pool
+	// Queued — очередь этой арены по порядку (спека 0063). Available не
+	// содержит пулы этой очереди, но содержит пулы очередей других арен.
+	Queued []Pool
+}
+
+// QueueEntry — запись очереди арены (спека 0063): пул, арена и позиция
+// (1-индекс, без пропусков).
+type QueueEntry struct {
+	PoolID   string
+	ArenaID  string
+	Position int
 }
 
 // Repository — порт доступа к хранилищу раскладки (PG-схема stage). Пулы
@@ -625,7 +636,32 @@ type Repository interface {
 	// спека 0011, FR-7). Атомарно: полагается на partial unique index
 	// uq_pools_arena при гонке параллельной постановки на ту же арену —
 	// конфликт мапится в ErrArenaBusy (FR-6, NFR-4).
+	// В той же транзакции убирает пул из очереди, в которой он стоял, и
+	// уплотняет её позиции (спека 0063, FR-10).
 	SeatPool(ctx context.Context, poolID, arenaID string) error
+	// ArenaQueue возвращает пулы очереди арены по порядку (спека 0063);
+	// пусто, если очередь пуста.
+	ArenaQueue(ctx context.Context, arenaID string) ([]Pool, error)
+	// QueuesForArenas возвращает id пулов очередей указанных арен по
+	// порядку одним запросом (NFR-2); арены без очереди в карте отсутствуют.
+	QueuesForArenas(ctx context.Context, arenaIDs []string) (map[string][]string, error)
+	// QueueEntries возвращает записи очереди для указанных пулов (ключ — id
+	// пула); пулы вне очередей в карте отсутствуют.
+	QueueEntries(ctx context.Context, poolIDs []string) (map[string]QueueEntry, error)
+	// EnqueuePool атомарно добавляет пул в конец очереди арены; если пул
+	// стоял в очереди другой арены — переносит его, уплотняя старую очередь
+	// (FR-4/FR-5). Пул не найден → ErrNotFound.
+	EnqueuePool(ctx context.Context, poolID, arenaID string) error
+	// DequeuePool убирает пул из его очереди и уплотняет её (FR-6).
+	// Идемпотентно: пул вне очереди не даёт ошибку.
+	DequeuePool(ctx context.Context, poolID string) error
+	// ReorderArenaQueue задаёт порядок очереди арены целиком. Набор id
+	// сверяется с текущей очередью внутри той же транзакции; расхождение →
+	// ErrQueueMismatch (NFR-3).
+	ReorderArenaQueue(ctx context.Context, arenaID string, poolIDs []string) error
+	// QueuedInStage — стоит ли хотя бы один пул этапа в очереди арены; arenaID
+	// — любая такая арена (гейт FR-12 спеки 0063).
+	QueuedInStage(ctx context.Context, stageID string) (arenaID string, found bool, err error)
 	// UnseatPool снимает пул с площадки (готовится к запуску → готов,
 	// FR-8). Идемпотентно: пул, не стоящий ни на одной арене, не даёт
 	// ошибку.

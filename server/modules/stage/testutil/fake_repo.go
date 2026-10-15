@@ -78,7 +78,11 @@ type FakeRepo struct {
 	stages         map[string]*stageRow // stage id -> stage (все этапы, включая вручную посеянные)
 	canonicalStage map[string]string    // nomination id -> id канонического (auto-managed) этапа
 	pools          map[string]*poolRow
-	presets        map[string]*presetRow // preset id -> пресет формата (спека 0020, FR-11)
+	// queues — очереди пулов арен (спека 0063): arena id -> id пулов по
+	// порядку. Удалённые пулы отфильтровываются на чтении (эмуляция
+	// ON DELETE CASCADE таблицы stage.arena_queue), см. liveQueueLocked.
+	queues  map[string][]string
+	presets map[string]*presetRow // preset id -> пресет формата (спека 0020, FR-11)
 	// withdrawnSeeds — «память» о членстве в пуле бойца, выведенного с
 	// турнира (спека 0040, FR-4): ключ — fighterID+"|"+nominationID, как и
 	// PK (fighter_id, nomination_id) таблицы stage.withdrawn_seeds.
@@ -122,6 +126,7 @@ func NewFakeRepo() *FakeRepo {
 		stages:         make(map[string]*stageRow),
 		canonicalStage: make(map[string]string),
 		pools:          make(map[string]*poolRow),
+		queues:         make(map[string][]string),
 		presets:        make(map[string]*presetRow),
 		withdrawnSeeds: make(map[string]*withdrawnSeedRow),
 		seededKeys:     make(map[string]string),
@@ -1212,6 +1217,7 @@ func (r *FakeRepo) SeatPool(_ context.Context, poolID, arenaID string) error {
 			return domain.ErrArenaBusy
 		}
 	}
+	r.removeFromQueuesLocked(poolID)
 	p.arenaID = arenaID
 	return nil
 }
@@ -1506,4 +1512,124 @@ func resetMembersOf(members []memberRow) []domain.ResetMember {
 		out[i] = domain.ResetMember{FighterID: m.fighterID, Slot: m.slot}
 	}
 	return out
+}
+
+// liveQueueLocked — очередь арены без удалённых пулов (каскад).
+func (r *FakeRepo) liveQueueLocked(arenaID string) []string {
+	out := make([]string, 0, len(r.queues[arenaID]))
+	for _, id := range r.queues[arenaID] {
+		if _, ok := r.pools[id]; ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// removeFromQueuesLocked убирает пул из любой очереди (порядок остальных
+// сохраняется — аналог уплотнения позиций).
+func (r *FakeRepo) removeFromQueuesLocked(poolID string) {
+	for arenaID := range r.queues {
+		r.queues[arenaID] = domain.RemoveFromOrder(r.liveQueueLocked(arenaID), poolID)
+	}
+}
+
+// ArenaQueue возвращает пулы очереди арены по порядку (спека 0063).
+func (r *FakeRepo) ArenaQueue(_ context.Context, arenaID string) ([]domain.Pool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	ids := r.liveQueueLocked(arenaID)
+	out := make([]domain.Pool, 0, len(ids))
+	for i, id := range ids {
+		p := toDomainPool(r.pools[id])
+		p.QueueArenaID = arenaID
+		p.QueuePosition = i + 1
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// QueuesForArenas возвращает id пулов очередей указанных арен (спека 0063).
+func (r *FakeRepo) QueuesForArenas(_ context.Context, arenaIDs []string) (map[string][]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make(map[string][]string)
+	for _, a := range arenaIDs {
+		if ids := r.liveQueueLocked(a); len(ids) > 0 {
+			out[a] = ids
+		}
+	}
+	return out, nil
+}
+
+// QueueEntries возвращает записи очереди для указанных пулов (спека 0063).
+func (r *FakeRepo) QueueEntries(_ context.Context, poolIDs []string) (map[string]domain.QueueEntry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	want := make(map[string]struct{}, len(poolIDs))
+	for _, id := range poolIDs {
+		want[id] = struct{}{}
+	}
+	out := make(map[string]domain.QueueEntry)
+	for arenaID := range r.queues {
+		for i, id := range r.liveQueueLocked(arenaID) {
+			if _, ok := want[id]; ok {
+				out[id] = domain.QueueEntry{PoolID: id, ArenaID: arenaID, Position: i + 1}
+			}
+		}
+	}
+	return out, nil
+}
+
+// EnqueuePool добавляет пул в конец очереди арены, перенося из другой очереди
+// (спека 0063, FR-4/FR-5).
+func (r *FakeRepo) EnqueuePool(_ context.Context, poolID, arenaID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.pools[poolID]; !ok {
+		return domain.ErrNotFound
+	}
+	r.removeFromQueuesLocked(poolID)
+	r.queues[arenaID] = domain.EnqueueOrder(r.liveQueueLocked(arenaID), poolID)
+	return nil
+}
+
+// DequeuePool убирает пул из очереди (идемпотентно, спека 0063, FR-6).
+func (r *FakeRepo) DequeuePool(_ context.Context, poolID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.removeFromQueuesLocked(poolID)
+	return nil
+}
+
+// ReorderArenaQueue задаёт порядок очереди арены; расхождение набора —
+// ErrQueueMismatch (спека 0063, NFR-3).
+func (r *FakeRepo) ReorderArenaQueue(_ context.Context, arenaID string, poolIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := domain.ValidateReorder(r.liveQueueLocked(arenaID), poolIDs); err != nil {
+		return err
+	}
+	r.queues[arenaID] = append([]string(nil), poolIDs...)
+	return nil
+}
+
+// QueuedInStage — стоит ли пул этапа в очереди какой-либо арены (FR-12).
+func (r *FakeRepo) QueuedInStage(_ context.Context, stageID string) (string, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for arenaID := range r.queues {
+		for _, id := range r.liveQueueLocked(arenaID) {
+			if r.pools[id].stageID == stageID {
+				return arenaID, true, nil
+			}
+		}
+	}
+	return "", false, nil
 }
