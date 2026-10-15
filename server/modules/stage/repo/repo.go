@@ -1373,7 +1373,20 @@ func (r *Repo) SeatPool(ctx context.Context, poolID, arenaID string) error {
 	if err != nil {
 		return fmt.Errorf("parse arena id: %w", err)
 	}
-	if _, err := r.q.SeatPool(ctx, sqlc.SeatPoolParams{
+
+	// Постановка и уход из очереди — одна транзакция (спека 0063, FR-10):
+	// пул не может оказаться разом на арене и в очереди.
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.LockArenaQueues(ctx); err != nil {
+		return fmt.Errorf("lock arena queues: %w", err)
+	}
+	if _, err := q.SeatPool(ctx, sqlc.SeatPoolParams{
 		ID: pid, ArenaID: pgtype.UUID{Bytes: [16]byte(aid), Valid: true},
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1383,6 +1396,32 @@ func (r *Repo) SeatPool(ctx context.Context, poolID, arenaID string) error {
 			return domain.ErrArenaBusy
 		}
 		return fmt.Errorf("seat pool: %w", err)
+	}
+	if err := removeFromQueue(ctx, q, pid); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// removeFromQueue убирает пул из очереди (если он там) и уплотняет позиции
+// очереди, из которой он ушёл (спека 0063, FR-6). Вызывается внутри
+// транзакции под LockArenaQueues. Пул вне очереди — no-op.
+func removeFromQueue(ctx context.Context, q *sqlc.Queries, poolID uuid.UUID) error {
+	entry, err := q.GetQueueEntry(ctx, poolID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("get queue entry: %w", err)
+	}
+	if err := q.DeleteQueueEntry(ctx, poolID); err != nil {
+		return fmt.Errorf("delete queue entry: %w", err)
+	}
+	if err := q.CompactArenaQueue(ctx, entry.ArenaID); err != nil {
+		return fmt.Errorf("compact arena queue: %w", err)
 	}
 	return nil
 }
@@ -1452,6 +1491,225 @@ func (r *Repo) ReadyUnseatedPools(ctx context.Context) ([]domain.Pool, error) {
 		})
 	}
 	return out, nil
+}
+
+// ArenaQueue возвращает пулы очереди арены по порядку (спека 0063).
+func (r *Repo) ArenaQueue(ctx context.Context, arenaID string) ([]domain.Pool, error) {
+	aid, err := uuid.Parse(arenaID)
+	if err != nil {
+		return nil, fmt.Errorf("parse arena id: %w", err)
+	}
+	rows, err := r.q.ListArenaQueue(ctx, aid)
+	if err != nil {
+		return nil, fmt.Errorf("list arena queue: %w", err)
+	}
+	out := make([]domain.Pool, 0, len(rows))
+	for _, p := range rows {
+		memberIDs, err := r.q.ListMembersByPool(ctx, p.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list members by pool: %w", err)
+		}
+		members := make([]domain.FighterRef, len(memberIDs))
+		for i, id := range memberIDs {
+			members[i] = domain.FighterRef{ID: id.String()}
+		}
+		out = append(out, domain.Pool{
+			ID: p.ID.String(), StageID: p.StageID.String(), NominationID: p.NominationID.String(),
+			Number: int(p.Number), Members: members,
+			ArenaID: fromNullableUUID(p.ArenaID), CurrentBoutID: fromNullableUUID(p.CurrentBoutID),
+			QueueArenaID: aid.String(), QueuePosition: int(p.Position),
+		})
+	}
+	return out, nil
+}
+
+// QueuesForArenas возвращает id пулов очередей указанных арен по порядку
+// одним запросом (спека 0063, NFR-2).
+func (r *Repo) QueuesForArenas(ctx context.Context, arenaIDs []string) (map[string][]string, error) {
+	ids := make([]uuid.UUID, 0, len(arenaIDs))
+	for _, a := range arenaIDs {
+		id, err := uuid.Parse(a)
+		if err != nil {
+			return nil, fmt.Errorf("parse arena id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	out := make(map[string][]string)
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListQueueEntriesByArenas(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list queue entries by arenas: %w", err)
+	}
+	for _, row := range rows {
+		a := row.ArenaID.String()
+		out[a] = append(out[a], row.PoolID.String())
+	}
+	return out, nil
+}
+
+// QueueEntries возвращает записи очереди для указанных пулов (спека 0063).
+func (r *Repo) QueueEntries(ctx context.Context, poolIDs []string) (map[string]domain.QueueEntry, error) {
+	ids := make([]uuid.UUID, 0, len(poolIDs))
+	for _, p := range poolIDs {
+		id, err := uuid.Parse(p)
+		if err != nil {
+			continue // нераспознанный id не может быть в очереди
+		}
+		ids = append(ids, id)
+	}
+	out := make(map[string]domain.QueueEntry)
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListQueueEntriesByPools(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list queue entries by pools: %w", err)
+	}
+	for _, row := range rows {
+		out[row.PoolID.String()] = domain.QueueEntry{
+			PoolID: row.PoolID.String(), ArenaID: row.ArenaID.String(), Position: int(row.Position),
+		}
+	}
+	return out, nil
+}
+
+// EnqueuePool атомарно добавляет пул в конец очереди арены, перенося его из
+// другой очереди (спека 0063, FR-4/FR-5).
+func (r *Repo) EnqueuePool(ctx context.Context, poolID, arenaID string) error {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	aid, err := uuid.Parse(arenaID)
+	if err != nil {
+		return fmt.Errorf("parse arena id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.LockArenaQueues(ctx); err != nil {
+		return fmt.Errorf("lock arena queues: %w", err)
+	}
+	if _, err := q.GetPoolByID(ctx, pid); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return fmt.Errorf("get pool: %w", err)
+	}
+	if err := removeFromQueue(ctx, q, pid); err != nil {
+		return err
+	}
+	maxPos, err := q.MaxQueuePosition(ctx, aid)
+	if err != nil {
+		return fmt.Errorf("max queue position: %w", err)
+	}
+	if err := q.InsertQueueEntry(ctx, sqlc.InsertQueueEntryParams{PoolID: pid, ArenaID: aid, Position: maxPos + 1}); err != nil {
+		return fmt.Errorf("insert queue entry: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// DequeuePool убирает пул из очереди и уплотняет её (спека 0063, FR-6).
+// Идемпотентно.
+func (r *Repo) DequeuePool(ctx context.Context, poolID string) error {
+	pid, err := uuid.Parse(poolID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.LockArenaQueues(ctx); err != nil {
+		return fmt.Errorf("lock arena queues: %w", err)
+	}
+	if err := removeFromQueue(ctx, q, pid); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// ReorderArenaQueue задаёт порядок очереди арены целиком; набор id сверяется
+// с текущей очередью в той же транзакции (спека 0063, NFR-3).
+func (r *Repo) ReorderArenaQueue(ctx context.Context, arenaID string, poolIDs []string) error {
+	aid, err := uuid.Parse(arenaID)
+	if err != nil {
+		return fmt.Errorf("parse arena id: %w", err)
+	}
+	next := make([]uuid.UUID, 0, len(poolIDs))
+	for _, p := range poolIDs {
+		id, err := uuid.Parse(p)
+		if err != nil {
+			return domain.ErrQueueMismatch
+		}
+		next = append(next, id)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := r.q.WithTx(tx)
+
+	if err := q.LockArenaQueues(ctx); err != nil {
+		return fmt.Errorf("lock arena queues: %w", err)
+	}
+	rows, err := q.ListArenaQueue(ctx, aid)
+	if err != nil {
+		return fmt.Errorf("list arena queue: %w", err)
+	}
+	cur := make([]string, len(rows))
+	for i, row := range rows {
+		cur[i] = row.ID.String()
+	}
+	if err := domain.ValidateReorder(cur, poolIDs); err != nil {
+		return err
+	}
+	// Промежуточные дубликаты позиций допустимы: uq_arena_queue_position —
+	// DEFERRABLE INITIALLY DEFERRED, проверяется на COMMIT.
+	for i, id := range next {
+		if err := q.SetQueuePosition(ctx, sqlc.SetQueuePositionParams{PoolID: id, Position: int32(i + 1)}); err != nil {
+			return fmt.Errorf("set queue position: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// QueuedInStage — стоит ли хотя бы один пул этапа в очереди какой-либо арены
+// (спека 0063, FR-12); arenaID — любая такая арена.
+func (r *Repo) QueuedInStage(ctx context.Context, stageID string) (string, bool, error) {
+	sid, err := uuid.Parse(stageID)
+	if err != nil {
+		return "", false, fmt.Errorf("parse stage id: %w", err)
+	}
+	aid, err := r.q.FindQueuedInStage(ctx, sid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("find queued in stage: %w", err)
+	}
+	return aid.String(), true, nil
 }
 
 // SetCurrentBout записывает указатель текущего боя пула (спека 0013,

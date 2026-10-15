@@ -62,6 +62,16 @@ type Pool struct {
 	// ни одного завершённого боя (FR-7) либо на пути чтения, где таблица
 	// осознанно не заполняется (арена/табло, см. service).
 	Standings []Standing
+	// StageTitle — текущее название этапа-владельца (спека 0063, FR-14/FR-15):
+	// резолвится службой на чтении (enrichPools), не хранится в пуле.
+	StageTitle string
+	// QueueArenaID/QueueArenaName/QueuePosition — очередь пулов арены (спека
+	// 0063): пул стоит в очереди этой арены под номером QueuePosition
+	// (1-индекс). Пусто/0 — пул не в очереди. Заполняет служба в enrichPools
+	// по Repository.QueueEntries; имя арены — через ArenaProvider.
+	QueueArenaID   string
+	QueueArenaName string
+	QueuePosition  int
 }
 
 // Assignment — результат автораспределения: бойца — в пул.

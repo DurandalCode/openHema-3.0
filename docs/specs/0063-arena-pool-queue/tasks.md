@@ -40,39 +40,39 @@ web работает на мок-транспорте/моках fetch и не �
 
 ## Server (трек A, `modules/stage`)
 
-- [ ] T3. **domain/queue** — `domain/queue_test.go` → `domain/queue.go`:
+- [x] T3. **domain/queue** — `domain/queue_test.go` → `domain/queue.go`:
       `EnqueueOrder` (в конец, перенос), `RemoveFromOrder` (уплотнение),
       `ValidateReorder` (тот же набор, без повторов → `ErrQueueMismatch`);
       ошибки `ErrPoolQueued`, `ErrQueueEmpty`, `ErrQueueMismatch`.
-- [ ] T4. **domain/pace** — `pace_test.go` → `ForecastQueue`,
+- [x] T4. **domain/pace** — `pace_test.go` → `ForecastQueue`,
       `QueueChangeoverPause` (AC-10, AC-11: 11:05/11:25, 10:05; всегда
       provisional).
-- [ ] T5. **domain/порт + fake** — `Pool.StageTitle/QueueArenaID/QueuePosition`,
+- [x] T5. **domain/порт + fake** — `Pool.StageTitle/QueueArenaID/QueuePosition`,
       `ArenaPools.Queued`; методы `Repository` по плану; fake-репо в
       `testutil/` (включая удаление из очереди в `SeatPool`).
-- [ ] T6. **service/queue** — `service/queue_test.go` (fake) → `service/queue.go`:
+- [x] T6. **service/queue** — `service/queue_test.go` (fake) → `service/queue.go`:
       `EnqueuePool` (AC-1, AC-2, AC-3), `DequeuePool`/`ReorderArenaQueue`
       (AC-4, mismatch), `SeatNextPool` (AC-5, AC-6, FR-11 недоступная
       голова), уведомление живого канала на каждое изменение.
-- [ ] T7. **service/seat + layout** — тесты → `SeatPoolOnArena` убирает из
+- [x] T7. **service/seat + layout** — тесты → `SeatPoolOnArena` убирает из
       очереди (AC-7); `SetLayoutStatus` ready→draft → `ErrPoolQueued` с
       ареной (AC-8); `GetPoolsForArena` — `Queued` и фильтр `Available`
       (AC-1, AC-14 пометка чужой/архивной очереди).
-- [ ] T8. **service/enrichPools** — тест → `StageTitle`, `QueueArenaName`
+- [x] T8. **service/enrichPools** — тест → `StageTitle`, `QueueArenaName`
       (AC-9).
-- [ ] T9. **service/forecast + console + live** — тесты → прогноз очереди
+- [x] T9. **service/forecast + console + live** — тесты → прогноз очереди
       неархивных арен в `buildForecasts`; `ConsoleArena.Queue`,
       `ConsoleNomination` (FR-23), снапшот «Не распределены» (FR-24), алерт
       простоя с головой очереди (FR-25), `LiveArena.NextPool*`,
       `LiveFeedBout.Queue*`; архивная арена без прогноза (AC-10..AC-14).
-- [ ] T10. **migrations + repo** — `migrations/00007_arena_queue.sql`;
+- [x] T10. **migrations + repo** — `migrations/00007_arena_queue.sql`;
       запросы в `repo/queries/stage.sql`; `make sqlc`; реализация порта в
       `repo/repo.go` (транзакции enqueue/dequeue/reorder; `SeatPool`
       удаляет запись очереди и уплотняет).
-- [ ] T11. **api** — `api/handler_test.go` (httptest + Connect, fake) → 4
+- [x] T11. **api** — `api/handler_test.go` (httptest + Connect, fake) → 4
       хендлера + маппинг полей `Pool`/`ConsoleArena`/`LiveArena`, ошибки →
       `FailedPrecondition`/`InvalidArgument`/`NotFound`.
-- [ ] T12. **integration** — `integration/*_integration_test.go`: миграция
+- [x] T12. **integration** — `integration/*_integration_test.go`: миграция
       00007, перенос между очередями, reorder с DEFERRABLE UNIQUE,
       `SeatPool` чистит очередь, откат раскладки отклонён.
 
