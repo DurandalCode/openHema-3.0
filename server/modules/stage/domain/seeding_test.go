@@ -764,10 +764,11 @@ func TestPlanBracketSeeds_FullSet(t *testing.T) {
 	if len(plans) != 4 {
 		t.Fatalf("expected 4 plans, got %d: %+v", len(plans), plans)
 	}
-	order := domain.BracketSeedOrder(cfg.Size)
-	for i, p := range plans {
-		if p.Slot != order[i] {
-			t.Fatalf("plan %d: expected slot %d, got %d", i, order[i], p.Slot)
+	// Пары первого круга: 1–4 и 2–3 (слоты 1/2 и 3/4).
+	want := map[string]int{"s1": 1, "s4": 2, "s2": 3, "s3": 4}
+	for _, p := range plans {
+		if p.Slot != want[p.FighterID] {
+			t.Fatalf("%s: expected slot %d, got %d (plans=%+v)", p.FighterID, want[p.FighterID], p.Slot, plans)
 		}
 	}
 }
@@ -783,9 +784,52 @@ func TestPlanBracketSeeds_Undersupply(t *testing.T) {
 	if len(plans) != 2 {
 		t.Fatalf("expected 2 plans (undersupply is legal), got %d: %+v", len(plans), plans)
 	}
-	order := domain.BracketSeedOrder(cfg.Size)
-	if plans[0].Slot != order[0] || plans[1].Slot != order[1] {
-		t.Fatalf("unexpected slots: %+v (order=%v)", plans, order)
+	// Посевные 1 и 2 — в разных половинах (встреча только в финале).
+	if plans[0].Slot != 1 || plans[1].Slot != 5 {
+		t.Fatalf("unexpected slots: %+v", plans)
+	}
+}
+
+// Регресс (турнир 2026-10-11): при недоборе баи (пары с пустым слотом)
+// достаются сильнейшим посевным — пустые слоты встают напротив них, а не
+// напротив середины таблицы.
+func TestPlanBracketSeeds_ByesGoToTopSeeds(t *testing.T) {
+	cases := []struct {
+		size, seeded int
+	}{{8, 6}, {8, 5}, {16, 15}, {16, 10}, {32, 20}}
+	for _, tc := range cases {
+		t.Run(strconv.Itoa(tc.seeded)+"_of_"+strconv.Itoa(tc.size), func(t *testing.T) {
+			selected := make([]domain.SelectedFighter, tc.seeded)
+			for i := range selected {
+				selected[i] = domain.SelectedFighter{Fighter: fighter(strconv.Itoa(i + 1))}
+			}
+			plans, err := domain.PlanBracketSeeds(selected, domain.BracketConfig{Size: tc.size})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			seedBySlot := make(map[int]int, len(plans))
+			for _, p := range plans {
+				n, _ := strconv.Atoi(p.FighterID)
+				seedBySlot[p.Slot] = n
+			}
+			byes := tc.size - tc.seeded
+			for slot := 1; slot <= tc.size; slot += 2 {
+				a, b := seedBySlot[slot], seedBySlot[slot+1]
+				if a == 0 && b == 0 {
+					t.Fatalf("pair %d is empty", (slot+1)/2)
+				}
+				if a == 0 || b == 0 {
+					got := a + b
+					if got > byes {
+						t.Fatalf("seed %d got a bye, expected only seeds 1..%d to (seedBySlot=%v)", got, byes, seedBySlot)
+					}
+					continue
+				}
+				if a+b != tc.size+1 {
+					t.Fatalf("pair %d: seeds %d vs %d, expected sum %d", (slot+1)/2, a, b, tc.size+1)
+				}
+			}
+		})
 	}
 }
 

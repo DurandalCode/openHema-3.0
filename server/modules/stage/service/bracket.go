@@ -385,7 +385,7 @@ type bracketPairKey struct{ round, pair int }
 
 // bracketBoutRows читает бои всех контейнеров этапа-сетки и восстанавливает
 // координаты каждой пары (круг + глобальный номер) из координат контейнера
-// (ContainerCoords) и порядкового номера боя внутри контейнера
+// (ContainerCoords) и sequence_number боя внутри контейнера
 // (PairOfBout) — вход domain.ResolveBracket и индекс для сверки
 // наличия/состава пары при синхронизации (FR-14/FR-16).
 func (s *Service) bracketBoutRows(ctx context.Context, cfg domain.BracketConfig, pools []domain.Pool) ([]domain.BracketBout, map[bracketPairKey]domain.BoutRef, error) {
@@ -400,9 +400,12 @@ func (s *Service) bracketBoutRows(ctx context.Context, cfg domain.BracketConfig,
 		if err != nil {
 			return nil, nil, err
 		}
-		sorted := sortedBySequence(bouts)
-		for i, b := range sorted {
-			pair := domain.PairOfBout(cfg, round, half, i+1)
+		for _, b := range bouts {
+			// Пара — по sequence_number боя (syncBracket кладёт туда позицию
+			// пары в половине), а не по позиции среди боёв контейнера: у
+			// пары-бая боя нет, и позиционный счёт сдвинул бы все следующие
+			// пары половины.
+			pair := domain.PairOfBout(cfg, round, half, b.SequenceNumber)
 			rows = append(rows, domain.BracketBout{
 				Round: round, Pair: pair, ID: b.ID,
 				A: b.FighterA, B: b.FighterB, State: b.State,
@@ -775,11 +778,10 @@ func (s *Service) gateDownstream(ctx context.Context, stage domain.Stage, pool d
 	if err != nil {
 		return err
 	}
-	sorted := sortedBySequence(bouts)
 	sequence := 0
-	for i, b := range sorted {
+	for _, b := range bouts {
 		if b.ID == currentID {
-			sequence = i + 1
+			sequence = b.SequenceNumber
 			break
 		}
 	}
