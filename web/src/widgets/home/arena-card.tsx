@@ -25,6 +25,8 @@ function badgeToneFor(state: LiveArenaState): "live" | "warn" | "neutral" {
  * - `preparing`: та же пара (первая непроведённая), без счёта (AC-8);
  * - `free`: без пары/счёта — `arenaSubtitle` уже возвращает "" для free
  *   (AC-9).
+ * Спека 0063, FR-19: при непустой очереди арены — строка «Далее: Пул 3 ·
+ * Лонгсворд» в любом из состояний.
  */
 export function ArenaCard({ arena }: { arena: LiveArenaDto }) {
   const subtitle = arenaSubtitle(arena);
@@ -38,6 +40,12 @@ export function ArenaCard({ arena }: { arena: LiveArenaDto }) {
           <Badge tone={badgeToneFor(arena.state)}>{arenaStateLabel(arena.state)}</Badge>
         </Row>
         {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+        {arena.nextPoolName && (
+          <p className="text-xs text-muted-foreground">
+            Далее: {arena.nextPoolName}
+            {arena.nextPoolNominationName && ` · ${arena.nextPoolNominationName}`}
+          </p>
+        )}
       </CardHeader>
       {bout && (
         <CardContent>

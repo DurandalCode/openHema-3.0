@@ -1308,6 +1308,8 @@ function liveFeedBoutRawToDto(
     startedAt: raw?.startedAt ?? null,
     finishedAt: raw?.finishedAt ?? null,
     forecast: boutForecastRawToDto(raw?.forecast),
+    queueArenaName: raw?.queueArenaName ?? "",
+    queuePosition: raw?.queuePosition ?? 0,
   };
 }
 
@@ -1337,6 +1339,8 @@ function liveArenaRawToDto(
     poolBoutTotal: raw?.poolBoutTotal ?? 0,
     poolBoutFinished: raw?.poolBoutFinished ?? 0,
     nextBoutForecast: boutForecastRawToDto(raw?.nextBoutForecast),
+    nextPoolName: raw?.nextPoolName ?? "",
+    nextPoolNominationName: raw?.nextPoolNominationName ?? "",
   };
 }
 

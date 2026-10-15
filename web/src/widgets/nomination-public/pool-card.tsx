@@ -26,7 +26,8 @@ function poolStatusTone(status: PoolStatus): "neutral" | "info" | "warn" | "live
 /**
  * PoolCard — карточка группы на публичной странице номинации (спека 0035,
  * FR-10/FR-11/FR-12): название, число бойцов, площадка (или явная подпись
- * «площадка не назначена», AC-8, когда группе она не назначена — FR-11) и
+ * «площадка не назначена», AC-8, когда группе она не назначена — FR-11;
+ * пул в очереди арены — «Арена 2 · в очереди, №2», спека 0063, FR-18) и
  * исполнительный статус с живым маркером (AC-7). Пока боёв нет — раздел
  * «Состав» (и таблица, если есть итоги), без пустых заголовков (FR-12). Когда
  * бои сформированы — вкладки «Бои / Рейтинг» (`PoolResultsTabs`, спека 0061):
@@ -51,6 +52,11 @@ export function PoolCard({ livePool }: { livePool: LivePoolDto }) {
               <Badge variant="outline" className="gap-1">
                 <MapPin className="size-3" />
                 {pool.arenaName || "—"}
+              </Badge>
+            ) : pool.queueArenaName ? (
+              <Badge variant="outline" className="gap-1">
+                <MapPin className="size-3" />
+                {pool.queueArenaName} · в очереди, №{pool.queuePosition ?? 0}
               </Badge>
             ) : (
               <span className="text-xs text-muted-foreground">площадка не назначена</span>

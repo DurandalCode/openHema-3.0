@@ -78,24 +78,24 @@ web работает на мок-транспорте/моках fetch и не �
 
 ## Web (трек B)
 
-- [ ] T13. **entities/pool** — `types.ts`: новые поля + `poolTitle()`; тест
+- [x] T13. **entities/pool** — `types.ts`: новые поля + `poolTitle()`; тест
       хелпера.
-- [ ] T14. **BFF** — `route.test.ts` → `pools/[poolId]/enqueue`,
+- [x] T14. **BFF** — `route.test.ts` → `pools/[poolId]/enqueue`,
       `pools/[poolId]/dequeue`, `arenas/[arenaId]/queue` (PUT),
       `arenas/[arenaId]/seat-next`; `*.e2e.test.ts` с реальным `toJson`
       (`queued`, `queue_position`, `stage_title`).
-- [ ] T15. **features/pool-seating/api** — `requests.test.ts` → 4 fetchers;
+- [x] T15. **features/pool-seating/api** — `requests.test.ts` → 4 fetchers;
       хуки мутаций с `setQueryData` в кэш `usePoolsForArena`.
-- [ ] T16. **features/pool-seating/ui** — `pool-seating.test.tsx` → этап в
+- [x] T16. **features/pool-seating/ui** — `pool-seating.test.tsx` → этап в
       списке и у стоящего пула (AC-9), «В очередь» у занятой арены (FR-7),
       пометка «в очереди: Арена N»; `arena-queue.test.tsx` →
       `ui/arena-queue.tsx` (порядок, вверх/вниз, убрать, «Поставить
       следующий», прогноз).
-- [ ] T17. **widgets/arena-console** — `management-view.test.tsx` → очередь и
+- [x] T17. **widgets/arena-console** — `management-view.test.tsx` → очередь и
       «только в очередь» под стоящим пулом.
-- [ ] T18. **features/tournament-console** — тесты → длина очереди и
+- [x] T18. **features/tournament-console** — тесты → длина очереди и
       следующий пул в карточке арены, раздел «Не распределены».
-- [ ] T19. **публичное** — тесты → `nomination-public/pool-card.tsx`
+- [x] T19. **публичное** — тесты → `nomination-public/pool-card.tsx`
       (FR-18), `home/arena-card.tsx` (FR-19), `dashboard/next-bout-card.tsx`
       (FR-20).
 

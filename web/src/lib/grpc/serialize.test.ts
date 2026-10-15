@@ -16,6 +16,7 @@ import {
   PoolSchema,
   GetPoolsForArenaResponseSchema,
   TournamentConsoleSnapshotSchema,
+  TournamentLiveSnapshotSchema,
   PoolLayoutSchema,
   StageSchema,
   BracketSchema,
@@ -47,6 +48,7 @@ import {
   poolToJson,
   poolsForArenaToJson,
   consoleSnapshotToJson,
+  tournamentLiveToJson,
   ruleDtoToProto,
   schemaIssuesToJson,
   schemaIssueToJson,
@@ -1940,6 +1942,38 @@ describe("consoleSnapshotToJson — очередь арены (спека 0063, 
 
     expect(json?.arenas[0].queueLength).toBe(0);
     expect(json?.arenas[0].queue).toEqual([]);
+  });
+});
+
+describe("tournamentLiveToJson — очередь арены (спека 0063, FR-19/FR-20)", () => {
+  it("maps nextPool* on arenas and queueArenaName/queuePosition on feed bouts", () => {
+    const snapshot = fromJson(TournamentLiveSnapshotSchema, {
+      tournamentId: "t1",
+      arenas: [{ arenaId: "a1", arenaName: "Арена 1", nextPoolName: "Пул 3", nextPoolNominationName: "Лонгсворд" }],
+      bouts: [{ boutId: "b1", queueArenaName: "Арена 2", queuePosition: 2 }],
+    });
+
+    const json = tournamentLiveToJson(snapshot);
+
+    expect(json?.arenas[0].nextPoolName).toBe("Пул 3");
+    expect(json?.arenas[0].nextPoolNominationName).toBe("Лонгсворд");
+    expect(json?.bouts[0].queueArenaName).toBe("Арена 2");
+    expect(json?.bouts[0].queuePosition).toBe(2);
+  });
+
+  it("normalizes omitted queue fields to empty string / 0", () => {
+    const snapshot = fromJson(TournamentLiveSnapshotSchema, {
+      tournamentId: "t1",
+      arenas: [{ arenaId: "a1" }],
+      bouts: [{ boutId: "b1" }],
+    });
+
+    const json = tournamentLiveToJson(snapshot);
+
+    expect(json?.arenas[0].nextPoolName).toBe("");
+    expect(json?.arenas[0].nextPoolNominationName).toBe("");
+    expect(json?.bouts[0].queueArenaName).toBe("");
+    expect(json?.bouts[0].queuePosition).toBe(0);
   });
 });
 

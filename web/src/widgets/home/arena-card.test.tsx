@@ -43,6 +43,34 @@ const bout: NonNullable<LiveArenaDto["currentBout"]> = {
 describe("widgets/home ArenaCard (spec 0034, FR-14, AC-7..AC-9)", () => {
   afterEach(cleanup);
 
+  it("спека 0063, FR-19: показывает следующий пул очереди на свободной арене", () => {
+    render(<ArenaCard arena={arena({ nextPoolName: "Пул 3", nextPoolNominationName: "Лонгсворд" })} />);
+
+    expect(screen.getByText("Далее: Пул 3 · Лонгсворд")).toBeInTheDocument();
+  });
+
+  it("спека 0063, FR-19: показывает следующий пул и у занятой арены", () => {
+    render(
+      <ArenaCard
+        arena={arena({
+          state: "bout_in_progress",
+          nominationName: "Длинный меч",
+          currentBout: bout,
+          nextPoolName: "Пул 4",
+          nextPoolNominationName: "Рапира",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Далее: Пул 4 · Рапира")).toBeInTheDocument();
+  });
+
+  it("спека 0063, FR-19: без очереди строки «Далее» нет", () => {
+    render(<ArenaCard arena={arena()} />);
+
+    expect(screen.queryByText(/Далее:/)).not.toBeInTheDocument();
+  });
+
   it("shows both fighters, clubs, score, nomination+stage+pool for bout_in_progress (AC-7)", () => {
     render(
       <ArenaCard

@@ -70,6 +70,34 @@ describe("widgets/dashboard NextBoutCard (спека 0038 FR-33/FR-34; спек�
     expect(screen.queryByText("пул ещё не поставлен на площадку")).not.toBeInTheDocument();
   });
 
+  it("спека 0063, FR-20: пул бойца в очереди арены — арена и номер в очереди вместо «пул ещё не поставлен»", () => {
+    const mine = bout({
+      arenaId: "",
+      arenaName: "",
+      queueArenaName: "Арена 2",
+      queuePosition: 2,
+      forecast: {
+        expectedStartAt: "2026-08-22T11:20:00.000Z",
+        boutsAhead: 4,
+        provisional: true,
+        imminent: false,
+      },
+    });
+    render(<NextBoutCard bouts={[mine]} fighterId={myFighterId} />);
+
+    expect(screen.getByText("Арена 2 · в очереди, №2")).toBeInTheDocument();
+    expect(screen.queryByText("пул ещё не поставлен на площадку")).not.toBeInTheDocument();
+    expect(screen.getByText(/ориентировочно/)).toBeInTheDocument();
+  });
+
+  it("спека 0063, FR-20: пул в очереди без оценки времени — только арена и номер, без объяснения про непоставленный пул", () => {
+    const mine = bout({ arenaId: "", arenaName: "", queueArenaName: "Арена 2", queuePosition: 1 });
+    render(<NextBoutCard bouts={[mine]} fighterId={myFighterId} />);
+
+    expect(screen.getByText("Арена 2 · в очереди, №1")).toBeInTheDocument();
+    expect(screen.queryByText("пул ещё не поставлен на площадку")).not.toBeInTheDocument();
+  });
+
   it("AC-7: первый в очереди — «вы следующие», без объяснения про непоставленный пул", () => {
     const mine = bout({ sequenceNumber: 1 });
     render(<NextBoutCard bouts={[mine]} fighterId={myFighterId} />);
