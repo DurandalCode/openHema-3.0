@@ -38,6 +38,10 @@ COPY --from=build /src/modules/arena/migrations        /app/modules/arena/migrat
 COPY --from=build /src/modules/stage/migrations        /app/modules/stage/migrations
 COPY --from=build /src/modules/bout/migrations         /app/modules/bout/migrations
 
+# Каталог файлов создаётся заранее с владельцем app: свежий named volume
+# наследует владельца из образа, иначе он root-овый и загрузка падает.
+RUN mkdir -p /app/data/files && chown -R app:app /app/data
+
 USER app
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]
