@@ -159,6 +159,12 @@ type tournamentGathered struct {
 	forecasts      map[string]containerForecast
 	tournamentPace domain.PaceEstimate
 	now            time.Time
+	// arenas — неархивные площадки турнира (ActiveArenas), прочитанные один
+	// раз на снапшот (спека 0063: нужны и прогнозу очереди, и сборке пульта).
+	arenas []domain.ArenaRef
+	// queues — очереди неархивных площадок: arena id -> id пулов по порядку
+	// (спека 0063). Очередь архивной площадки сюда не попадает (FR-13).
+	queues map[string][]string
 }
 
 // gatherTournament выполняет единственный проход по турниру: номинации →
@@ -202,7 +208,17 @@ func (s *Service) gatherTournament(ctx context.Context, tournamentID string) (to
 	if err != nil {
 		return tournamentGathered{}, err
 	}
+	arenas, err := s.arenas.ActiveArenas(ctx, tournamentID)
+	if err != nil {
+		return tournamentGathered{}, err
+	}
+	queues, err := s.forecastQueues(ctx, arenas, containers, forecasts, tournamentPace, now)
+	if err != nil {
+		return tournamentGathered{}, err
+	}
 	return tournamentGathered{
+		arenas:         arenas,
+		queues:         queues,
 		groups:         groups,
 		containers:     containers,
 		times:          times,
@@ -243,4 +259,95 @@ func boutForecastFor(forecasts map[string]containerForecast, poolID, boutID stri
 		return &f
 	}
 	return nil
+}
+
+// forecastQueues продлевает горизонт оценки на очереди неархивных площадок
+// (спека 0063, FR-21/FR-22; ADR 0024): пулы очереди получают запись в
+// forecasts под своим pool.ID — так boutForecastFor и все потребители ленты,
+// страницы номинации и кабинета видят время без правок своих сборщиков.
+// Старт первого пула очереди — конец стоящего пула по оценке (иначе now) плюс
+// пауза смены; каждый следующий — после предыдущего пула плюс пауза. Темп —
+// темп площадки стоящего пула, у свободной площадки — каскад резервов
+// (темп турнира → дефолт площадки). Оценка всегда предварительная.
+// Возвращает очереди неархивных площадок (arena id -> id пулов по порядку).
+func (s *Service) forecastQueues(ctx context.Context, arenas []domain.ArenaRef, containers []tournamentContainer, forecasts map[string]containerForecast, tournamentPace domain.PaceEstimate, now time.Time) (map[string][]string, error) {
+	arenaIDs := make([]string, 0, len(arenas))
+	for _, a := range arenas {
+		arenaIDs = append(arenaIDs, a.ID)
+	}
+	queues, err := s.repo.QueuesForArenas(ctx, arenaIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(queues) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	byPool := make(map[string]tournamentContainer, len(containers))
+	seatedByArena := make(map[string]tournamentContainer)
+	for _, c := range containers {
+		if c.pool.ID != "" {
+			byPool[c.pool.ID] = c
+		}
+		if c.pool.ArenaID != "" {
+			seatedByArena[c.pool.ArenaID] = c
+		}
+	}
+
+	for _, arena := range arenas {
+		queue := queues[arena.ID]
+		if len(queue) == 0 {
+			continue
+		}
+		start := now
+		var pace domain.PaceEstimate
+		havePace := false
+		if c, ok := seatedByArena[arena.ID]; ok {
+			if cf, ok := forecasts[c.pool.ID]; ok {
+				pace, havePace = cf.pace, true
+				if cf.finishAtOK && cf.finishAt.After(now) {
+					start = cf.finishAt
+				}
+			}
+		}
+		if !havePace {
+			seconds, err := s.arenas.DefaultDurationSeconds(ctx, arena.ID)
+			if err != nil {
+				return nil, err
+			}
+			pace = domain.ComputePace(nil, tournamentPace, time.Duration(seconds)*time.Second)
+		}
+		pace.Provisional = true
+
+		lists := make([][]domain.BoutRef, 0, len(queue))
+		pools := make([]tournamentContainer, 0, len(queue))
+		for _, id := range queue {
+			c, ok := byPool[id]
+			if !ok {
+				continue
+			}
+			pools = append(pools, c)
+			lists = append(lists, sortedBySequence(c.bouts))
+		}
+		byBout, _ := domain.ForecastQueue(lists, pace, now, start)
+		for i, c := range pools {
+			cf := containerForecast{pace: pace, byBout: make(map[string]domain.BoutForecast)}
+			for _, b := range lists[i] {
+				f, ok := byBout[b.ID]
+				if !ok {
+					continue
+				}
+				cf.byBout[b.ID] = f
+				if !cf.finishAtOK || f.ExpectedStartAt.After(cf.finishAt) {
+					cf.finishAt = f.ExpectedStartAt
+					cf.finishAtOK = true
+				}
+			}
+			if cf.finishAtOK {
+				cf.finishAt = cf.finishAt.Add(pace.Tick)
+			}
+			forecasts[c.pool.ID] = cf
+		}
+	}
+	return queues, nil
 }

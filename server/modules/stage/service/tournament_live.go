@@ -90,7 +90,15 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 		return domain.TournamentSnapshot{}, err
 	}
 	now := time.Now()
-	forecasts, _, err := s.buildForecasts(ctx, containers, startedAt, times, now)
+	forecasts, tournamentPace, err := s.buildForecasts(ctx, containers, startedAt, times, now)
+	if err != nil {
+		return domain.TournamentSnapshot{}, err
+	}
+	arenas, err := s.arenas.ActiveArenas(ctx, tournamentID)
+	if err != nil {
+		return domain.TournamentSnapshot{}, err
+	}
+	queues, err := s.forecastQueues(ctx, arenas, containers, forecasts, tournamentPace, now)
 	if err != nil {
 		return domain.TournamentSnapshot{}, err
 	}
@@ -102,19 +110,26 @@ func (s *Service) TournamentLive(ctx context.Context, tournamentID string) (doma
 		}
 	}
 
-	arenas, err := s.arenas.ActiveArenas(ctx, tournamentID)
-	if err != nil {
-		return domain.TournamentSnapshot{}, err
-	}
 	containerByArena := make(map[string]tournamentContainer, len(containers))
+	containerByPool := make(map[string]tournamentContainer, len(containers))
 	for _, c := range containers {
 		if c.pool.ArenaID != "" {
 			containerByArena[c.pool.ArenaID] = c
 		}
+		if c.pool.ID != "" {
+			containerByPool[c.pool.ID] = c
+		}
 	}
 	liveArenas := make([]domain.LiveArenaView, 0, len(arenas))
 	for _, arena := range arenas {
-		liveArenas = append(liveArenas, toLiveArenaView(arena, containerByArena[arena.ID], times, forecasts))
+		view := toLiveArenaView(arena, containerByArena[arena.ID], times, forecasts)
+		if queue := queues[arena.ID]; len(queue) > 0 {
+			if head, ok := containerByPool[queue[0]]; ok {
+				view.NextPoolName = head.pool.Name
+				view.NextPoolNominationName = head.nominationName
+			}
+		}
+		liveArenas = append(liveArenas, view)
 	}
 
 	return domain.TournamentSnapshot{
@@ -311,6 +326,8 @@ func toFeedBout(c tournamentContainer, b domain.BoutRef, t domain.BoutTimes, for
 		PoolName:       c.pool.Name,
 		ArenaID:        c.pool.ArenaID,
 		ArenaName:      c.pool.ArenaName,
+		QueueArenaName: c.pool.QueueArenaName,
+		QueuePosition:  c.pool.QueuePosition,
 		SequenceNumber: b.SequenceNumber,
 		PoolBoutTotal:  len(c.bouts),
 		FighterA:       b.FighterA,

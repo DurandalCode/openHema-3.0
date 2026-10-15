@@ -64,6 +64,10 @@ type ConsoleAlertArenaInput struct {
 	// PoolID/PoolName — пул, стоящий на площадке (пусто при !Occupied).
 	PoolID   string
 	PoolName string
+	// NextPoolID/NextPoolName — первый пул очереди площадки (спека 0063,
+	// FR-25): ARENA_IDLE называет его, если очередь не пуста.
+	NextPoolID   string
+	NextPoolName string
 	// PoolSeatedSince — момент постановки этого пула на площадку
 	// (приближение; чем именно его получает вызывающий — не забота этой
 	// функции).
@@ -119,6 +123,8 @@ func DetectAlerts(
 				Since:     *a.FreeSince,
 				ArenaID:   a.ArenaID,
 				ArenaName: a.ArenaName,
+				PoolID:    a.NextPoolID,
+				PoolName:  a.NextPoolName,
 			})
 		}
 		if a.Occupied && a.BoutInProgress && now.Sub(a.BoutInProgressSince) >= BoutStuckAlertThreshold {

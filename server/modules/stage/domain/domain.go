@@ -1277,6 +1277,11 @@ type FeedBout struct {
 	// комментарий у BoutRef.Forecast: nil, если бой не подходит под
 	// прогноз (не not_started либо пул не поставлен на площадку).
 	Forecast *BoutForecast
+	// QueueArenaName/QueuePosition — арена и номер пула боя в очереди (спека
+	// 0063, FR-18/FR-20): пусто/0, если пул не в очереди (или очередь
+	// архивной арены, FR-13).
+	QueueArenaName string
+	QueuePosition  int
 }
 
 // LiveArenaView — карточка площадки публичной сводки турнира (спека 0034,
@@ -1304,6 +1309,10 @@ type LiveArenaView struct {
 	// (CurrentBout в этом состоянии сам прогноза не несёт — он уже идёт).
 	// nil у LiveArenaFree и когда в контейнере не осталось не начатых боёв.
 	NextBoutForecast *BoutForecast
+	// NextPoolName/NextPoolNominationName — следующий пул очереди площадки
+	// (спека 0063, FR-19); пусто, если очередь пуста.
+	NextPoolName           string
+	NextPoolNominationName string
 }
 
 // LiveNominationView — строка сайдбара «Номинации» публичной сводки турнира
@@ -1427,6 +1436,9 @@ type ConsoleArena struct {
 	Pace                   PaceEstimate
 	PoolExpectedFinishAt   time.Time
 	PoolExpectedFinishAtOK bool
+	// QueueLength/Queue — очередь площадки по порядку (спека 0063, FR-17).
+	QueueLength int
+	Queue       []ConsoleQueueItem
 }
 
 // ConsoleNomination — строка номинации на пульте (FR-12). ExpectedFinishAt
@@ -1462,6 +1474,10 @@ type ConsoleQueueItem struct {
 	PoolName         string
 	BoutCount        int
 	EstimatedSeconds int
+	// ExpectedStartAt/QueuePosition — только у пулов очереди площадки (спека
+	// 0063, FR-16/FR-21); у «Не распределены» нулевые.
+	ExpectedStartAt *time.Time
+	QueuePosition   int
 }
 
 // ConsoleSnapshot — пульт турнира целиком (FR-8/FR-9/FR-19): общий payload

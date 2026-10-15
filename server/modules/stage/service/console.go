@@ -44,14 +44,23 @@ func (s *Service) GetTournamentConsole(ctx context.Context, tournamentID string)
 		return domain.ConsoleSnapshot{}, err
 	}
 
-	arenas, err := s.arenas.ActiveArenas(ctx, tournamentID)
-	if err != nil {
-		return domain.ConsoleSnapshot{}, err
-	}
+	arenas := gathered.arenas
 	containerByArena := make(map[string]tournamentContainer, len(gathered.containers))
+	containerByPool := make(map[string]tournamentContainer, len(gathered.containers))
 	for _, c := range gathered.containers {
 		if c.pool.ArenaID != "" {
 			containerByArena[c.pool.ArenaID] = c
+		}
+		if c.pool.ID != "" {
+			containerByPool[c.pool.ID] = c
+		}
+	}
+	// Пулы очередей неархивных площадок (спека 0063): они не «нераспределены»
+	// (FR-24), а их бои учитываются в оценке номинации (FR-23).
+	queuedPoolIDs := make(map[string]bool)
+	for _, ids := range gathered.queues {
+		for _, id := range ids {
+			queuedPoolIDs[id] = true
 		}
 	}
 
@@ -60,6 +69,7 @@ func (s *Service) GetTournamentConsole(ctx context.Context, tournamentID string)
 	for _, arena := range arenas {
 		c := containerByArena[arena.ID]
 		ca, alertIn := buildConsoleArena(arena, c, gathered.forecasts, gathered.times)
+		fillConsoleArenaQueue(&ca, &alertIn, gathered.queues[arena.ID], containerByPool, gathered.forecasts)
 		consoleArenas = append(consoleArenas, ca)
 		alertArenaInputs = append(alertArenaInputs, alertIn)
 	}
@@ -69,14 +79,19 @@ func (s *Service) GetTournamentConsole(ctx context.Context, tournamentID string)
 	queue := make([]domain.ConsoleQueueItem, 0)
 	hasReadyQueue := false
 	for _, g := range gathered.groups {
-		consoleNominations = append(consoleNominations, buildConsoleNomination(g, gathered.forecasts))
+		consoleNominations = append(consoleNominations, buildConsoleNomination(g, gathered.forecasts, queuedPoolIDs))
 		alertNominationInputs = append(alertNominationInputs, buildConsoleNominationAlertInput(g))
 
 		for _, c := range g.containers {
 			if c.pool.ID == "" || c.pool.ArenaID != "" {
 				continue
 			}
+			// Пул в очереди — всё ещё готов к постановке (ARENA_IDLE не
+			// гаснет, FR-25), но в «Не распределены» не показывается (FR-24).
 			hasReadyQueue = true
+			if queuedPoolIDs[c.pool.ID] {
+				continue
+			}
 			queue = append(queue, domain.ConsoleQueueItem{
 				PoolID:           c.pool.ID,
 				NominationID:     c.nominationID,
@@ -104,6 +119,46 @@ func (s *Service) GetTournamentConsole(ctx context.Context, tournamentID string)
 		Alerts:          alerts,
 		ServerNowUnixMS: gathered.now.UnixMilli(),
 	}, nil
+}
+
+// fillConsoleArenaQueue дописывает очередь площадки в её карточку (спека 0063,
+// FR-17/FR-21) и первый пул очереди во вход ленты внимания (FR-25). Пул
+// очереди без контейнера в снапшоте (быть не должно: в очередь идут только
+// пулы готовых этапов) пропускается.
+func fillConsoleArenaQueue(ca *domain.ConsoleArena, alertIn *domain.ConsoleAlertArenaInput, queue []string, byPool map[string]tournamentContainer, forecasts map[string]containerForecast) {
+	for i, id := range queue {
+		c, ok := byPool[id]
+		if !ok {
+			continue
+		}
+		item := domain.ConsoleQueueItem{
+			PoolID:         c.pool.ID,
+			NominationID:   c.nominationID,
+			NominationName: c.nominationName,
+			StageTitle:     c.stageTitle,
+			PoolName:       c.pool.Name,
+			BoutCount:      len(c.bouts),
+			QueuePosition:  i + 1,
+		}
+		if cf, ok := forecasts[id]; ok {
+			var first time.Time
+			for _, f := range cf.byBout {
+				if f.BoutsAhead == 0 {
+					first = f.ExpectedStartAt
+				}
+			}
+			if !first.IsZero() {
+				item.ExpectedStartAt = &first
+			}
+			item.EstimatedSeconds = int((cf.pace.Tick * time.Duration(len(c.bouts))).Seconds())
+		}
+		ca.Queue = append(ca.Queue, item)
+	}
+	ca.QueueLength = len(ca.Queue)
+	if len(ca.Queue) > 0 {
+		alertIn.NextPoolID = ca.Queue[0].PoolID
+		alertIn.NextPoolName = ca.Queue[0].PoolName
+	}
 }
 
 // buildConsoleArena собирает карточку площадки пульта (FR-11) и вход
@@ -187,7 +242,7 @@ func buildConsoleArena(arena domain.ArenaRef, c tournamentContainer, forecasts m
 // может быть несколько (несколько групп поставлены одновременно).
 // BoutRemainingUnseated считает остаток непоставленных контейнеров числом,
 // без времени (горизонт оценки, FR-9).
-func buildConsoleNomination(g nominationContainers, forecasts map[string]containerForecast) domain.ConsoleNomination {
+func buildConsoleNomination(g nominationContainers, forecasts map[string]containerForecast, queuedPoolIDs map[string]bool) domain.ConsoleNomination {
 	realStages := make([]domain.Stage, 0, len(g.stages))
 	for _, st := range g.stages {
 		if st.ID != "" {
@@ -213,7 +268,10 @@ func buildConsoleNomination(g nominationContainers, forecasts map[string]contain
 		boutTotal += len(c.bouts)
 		boutFinished += finishedHere
 
-		if c.pool.ID == "" || c.pool.ArenaID == "" {
+		// Спека 0063, FR-23: пул в очереди неархивной площадки — не
+		// «непоставленный»: его бои идут в оценку (forecasts несёт запись
+		// очереди под pool.ID).
+		if c.pool.ID == "" || (c.pool.ArenaID == "" && !queuedPoolIDs[c.pool.ID]) {
 			boutRemainingUnseated += len(c.bouts) - finishedHere
 			continue
 		}
