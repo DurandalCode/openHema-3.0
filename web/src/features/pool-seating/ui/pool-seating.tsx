@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { MapPin, Swords } from "lucide-react";
+import { ListPlus, MapPin, Swords } from "lucide-react";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -18,7 +18,12 @@ import { groupBoutsByPool } from "@/entities/bout/lib/types";
 import { usePoolsForArena } from "../api/use-pools-for-arena";
 import { useSeatPool } from "../api/use-seat-pool";
 import { useUnseatPool } from "../api/use-unseat-pool";
+import { useEnqueuePool } from "../api/use-enqueue-pool";
+import { useDequeuePool } from "../api/use-dequeue-pool";
+import { useReorderArenaQueue } from "../api/use-reorder-arena-queue";
+import { useSeatNextPool } from "../api/use-seat-next-pool";
 import { useBoutsForNomination } from "../api/use-bouts-for-nomination";
+import { ArenaQueue } from "./arena-queue";
 
 const NOMINATIONS_HREF = "/admin/nominations";
 
@@ -26,18 +31,19 @@ const NOMINATIONS_HREF = "/admin/nominations";
  * PoolSeating — секция постановки/снятия пула на странице конкретной арены
  * (спека 0011, FR-9): если пул сейчас на арене — его состав и бои по
  * порядку + кнопка «Снять»; если арена свободна — список готовых к
- * постановке пулов с кнопкой «Поставить» у каждого.
+ * постановке пулов с кнопкой «Поставить» у каждого. Спека 0063: под этим —
+ * очередь арены и «В очередь» у каждого доступного пула (на свободной арене
+ * ещё и «Поставить следующий» у головы очереди).
  */
 export function PoolSeating({ arenaId }: { arenaId: string }) {
   const { data, isLoading, error } = usePoolsForArena(arenaId);
-  const seat = useSeatPool(arenaId);
   const unseat = useUnseatPool(arenaId);
 
   if (isLoading) {
     return <SkeletonCards count={2} />;
   }
   if (error instanceof UnauthorizedError) {
-    // Спека 0039, FR-18/AC-12: сессия истекла — за происходящее отвечает
+    // Спека 0039, FR-17/AC-12: сессия истекла — за происходящее отвечает
     // глобальный диалог «Сессия истекла», свой блок ошибки не рисуем.
     return null;
   }
@@ -49,8 +55,90 @@ export function PoolSeating({ arenaId }: { arenaId: string }) {
     );
   }
 
-  const mutationError = seat.error?.message ?? unseat.error?.message ?? null;
   const seatedPool = data.seated;
+
+  return (
+    <Col gap={4}>
+      {unseat.error && (
+        <Alert variant="destructive">
+          <AlertDescription>{unseat.error.message}</AlertDescription>
+        </Alert>
+      )}
+      {seatedPool && (
+        <SeatedPoolCard
+          pool={seatedPool}
+          onUnseat={() => unseat.mutate(seatedPool.id)}
+          unseatPending={unseat.isPending}
+        />
+      )}
+      <QueuePlanning
+        arenaId={arenaId}
+        available={data.available}
+        queued={data.queued ?? []}
+        arenaFree={!seatedPool}
+      />
+    </Col>
+  );
+}
+
+/**
+ * ArenaQueueSection — очередь и добавление в очередь для арены, на которой
+ * уже стоит пул (спека 0063, FR-7). Стоящий пул и его бои рисует сам экран
+ * ведения, поэтому здесь только планирование: очередь, список доступных
+ * пулов с «В очередь» и никакой постановки на занятую арену.
+ */
+export function ArenaQueueSection({ arenaId }: { arenaId: string }) {
+  const { data, isLoading, error } = usePoolsForArena(arenaId);
+
+  if (isLoading) {
+    return <SkeletonCards count={1} />;
+  }
+  if (error instanceof UnauthorizedError) {
+    return null;
+  }
+  if (error || !data) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{error?.message ?? "Не удалось загрузить данные"}</AlertDescription>
+      </Alert>
+    );
+  }
+
+  return (
+    <QueuePlanning arenaId={arenaId} available={data.available} queued={data.queued ?? []} arenaFree={false} />
+  );
+}
+
+/**
+ * QueuePlanning — очередь арены + список доступных пулов (спека 0063).
+ * `arenaFree` включает «Поставить» у пулов и «Поставить следующий» у головы
+ * очереди; на занятой арене остаётся только «В очередь» (FR-7).
+ */
+function QueuePlanning({
+  arenaId,
+  available,
+  queued,
+  arenaFree,
+}: {
+  arenaId: string;
+  available: Pool[];
+  queued: Pool[];
+  arenaFree: boolean;
+}) {
+  const seat = useSeatPool(arenaId);
+  const enqueue = useEnqueuePool(arenaId);
+  const dequeue = useDequeuePool(arenaId);
+  const reorder = useReorderArenaQueue(arenaId);
+  const seatNext = useSeatNextPool(arenaId);
+
+  const mutationError =
+    seat.error?.message ??
+    enqueue.error?.message ??
+    dequeue.error?.message ??
+    reorder.error?.message ??
+    seatNext.error?.message ??
+    null;
+  const queuePending = dequeue.isPending || reorder.isPending || seatNext.isPending;
 
   return (
     <Col gap={4}>
@@ -59,19 +147,23 @@ export function PoolSeating({ arenaId }: { arenaId: string }) {
           <AlertDescription>{mutationError}</AlertDescription>
         </Alert>
       )}
-      {seatedPool ? (
-        <SeatedPoolCard
-          pool={seatedPool}
-          onUnseat={() => unseat.mutate(seatedPool.id)}
-          unseatPending={unseat.isPending}
-        />
-      ) : (
-        <AvailablePools
-          pools={data.available}
-          onSeat={(poolId) => seat.mutate(poolId)}
-          seatPending={seat.isPending}
-        />
-      )}
+      <ArenaQueue
+        queued={queued}
+        canSeatNext={arenaFree}
+        onSeatNext={() => seatNext.mutate()}
+        onReorder={(poolIds) => reorder.mutate(poolIds)}
+        onRemove={(poolId) => dequeue.mutate(poolId)}
+        pending={queuePending}
+      />
+      <AvailablePools
+        pools={available}
+        canSeat={arenaFree}
+        hasQueue={queued.length > 0}
+        onSeat={(poolId) => seat.mutate(poolId)}
+        seatPending={seat.isPending}
+        onEnqueue={(poolId) => enqueue.mutate(poolId)}
+        enqueuePending={enqueue.isPending}
+      />
     </Col>
   );
 }
@@ -96,6 +188,7 @@ function SeatedPoolCard({
           <Row align="center" justify="between" gap={3} className="flex-wrap">
             <Row align="center" gap={2}>
               <span className="font-medium">{pool.name}</span>
+              {pool.stageTitle && <Badge variant="outline">{pool.stageTitle}</Badge>}
               {pool.nominationName && (
                 <Badge variant="outline">{pool.nominationName}</Badge>
               )}
@@ -184,12 +277,22 @@ function availableNominations(pools: Pool[]): { id: string; name: string }[] {
 
 function AvailablePools({
   pools,
+  canSeat,
+  hasQueue,
   onSeat,
   seatPending,
+  onEnqueue,
+  enqueuePending,
 }: {
   pools: Pool[];
+  /** canSeat — арена свободна: можно ставить сразу; иначе только в очередь. */
+  canSeat: boolean;
+  /** hasQueue — у арены уже есть очередь: пустой список доступных пулов не тупик. */
+  hasQueue: boolean;
   onSeat: (poolId: string) => void;
   seatPending: boolean;
+  onEnqueue: (poolId: string) => void;
+  enqueuePending: boolean;
 }) {
   const [selectedNominationId, setSelectedNominationId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<"unfinished" | "all" | "finished">("unfinished");
@@ -207,6 +310,7 @@ function AvailablePools({
   );
 
   if (pools.length === 0) {
+    if (hasQueue) return null;
     return (
       <EmptyState
         title="Нет готовых пулов для постановки"
@@ -222,7 +326,9 @@ function AvailablePools({
   return (
     <Col gap={3}>
       <span className="text-sm text-muted-foreground">
-        Арена свободна. Выберите готовый пул, чтобы поставить его на эту площадку.
+        {canSeat
+          ? "Арена свободна. Выберите готовый пул, чтобы поставить его на эту площадку или в её очередь."
+          : "Арена занята. Добавьте пулы в очередь — они встанут после текущего."}
       </span>
       <div role="group" aria-label="Фильтр по номинации" className="flex flex-wrap gap-2">
         <FilterChipButton
@@ -267,20 +373,37 @@ function AvailablePools({
             <Row align="center" justify="between" gap={3} className="flex-wrap">
               <Row align="center" gap={2} className="min-w-0 flex-wrap">
                 <span className="min-w-0 break-words font-medium">{pool.name}</span>
+                {pool.stageTitle && <Badge variant="outline">{pool.stageTitle}</Badge>}
                 {pool.nominationName && (
                   <Badge variant="outline">{pool.nominationName}</Badge>
                 )}
                 <Badge variant="outline">{poolStatusLabel(pool.status)}</Badge>
                 <Badge variant="secondary">{pool.members.length}</Badge>
+                {pool.queueArenaName && (
+                  <Badge variant="secondary">в очереди: {pool.queueArenaName}</Badge>
+                )}
               </Row>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => onSeat(pool.id)}
-                loading={seatPending}
-              >
-                <MapPin /> Поставить на эту арену
-              </Button>
+              <Row align="center" gap={2}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEnqueue(pool.id)}
+                  loading={enqueuePending}
+                >
+                  <ListPlus /> В очередь
+                </Button>
+                {canSeat && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => onSeat(pool.id)}
+                    loading={seatPending}
+                  >
+                    <MapPin /> Поставить на эту арену
+                  </Button>
+                )}
+              </Row>
             </Row>
           </CardContent>
         </Card>
