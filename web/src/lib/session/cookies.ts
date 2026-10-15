@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/shared/config/session-cookies";
 
 export { ACCESS_COOKIE, REFRESH_COOKIE };
@@ -15,9 +15,13 @@ export async function setSessionCookies(
   refreshToken: string,
 ): Promise<void> {
   const store = await cookies();
+  // Secure — только если запрос пришёл по https (туннель/Caddy шлют
+  // X-Forwarded-Proto: https; Next сам ставит "http" без прокси). Иначе
+  // браузер молча выбросит cookie при входе по LAN-адресу http://<ip>:3000.
+  const proto = (await headers()).get("x-forwarded-proto")?.split(",")[0]?.trim();
   const base = {
     httpOnly: true,
-    secure: isProd,
+    secure: proto ? proto === "https" : isProd,
     sameSite: "lax" as const,
     path: "/",
   };
