@@ -72,10 +72,11 @@ func (p *StageArenaProvider) DefaultDurationSeconds(ctx context.Context, arenaID
 
 func toPoolArenaRef(a arenadomain.Arena) stagedomain.ArenaRef {
 	return stagedomain.ArenaRef{
-		ID:          a.ID,
-		Name:        a.Name,
-		Active:      a.Status == arenadomain.StatusActive,
-		LastFreedAt: a.LastFreedAt,
+		ID:           a.ID,
+		Name:         a.Name,
+		TournamentID: a.TournamentID,
+		Active:       a.Status == arenadomain.StatusActive,
+		LastFreedAt:  a.LastFreedAt,
 	}
 }
 

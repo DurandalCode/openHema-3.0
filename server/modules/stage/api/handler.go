@@ -1467,7 +1467,7 @@ func toProtoPools(pools []domain.Pool) []*hemav1.Pool {
 }
 
 func toProtoPool(p domain.Pool) *hemav1.Pool {
-	return &hemav1.Pool{
+	out := &hemav1.Pool{
 		Id:             p.ID,
 		NominationId:   p.NominationID,
 		Number:         int32(p.Number),
@@ -1484,6 +1484,10 @@ func toProtoPool(p domain.Pool) *hemav1.Pool {
 		QueueArenaName: p.QueueArenaName,
 		QueuePosition:  int32(p.QueuePosition),
 	}
+	if p.ExpectedStartAt != nil {
+		out.ExpectedStartAt = timestamppb.New(*p.ExpectedStartAt)
+	}
+	return out
 }
 
 func toProtoFighterRefs(refs []domain.FighterRef) []*hemav1.FighterRef {

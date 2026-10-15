@@ -17,6 +17,7 @@ import (
 type queueTournament struct {
 	svcConsole func() (domain.ConsoleSnapshot, error)
 	svcLive    func() (domain.TournamentSnapshot, error)
+	poolsFor   func(arenaID string) (domain.ArenaPools, error)
 	repo       *testutil.FakeRepo
 	arenas     *testutil.FakeArenaProvider
 	p1, p2, p3 string
@@ -46,7 +47,7 @@ func newQueueTournament(t *testing.T) *queueTournament {
 	seed(p2, "b2b", 2)
 	seed(p3, "b3", 1)
 
-	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
+	arenas.Set(domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1, TournamentID: "t1"})
 	arenas.SeedActiveArenas("t1", domain.ArenaRef{ID: "arena-1", Name: "R1", Active: true, Position: 1})
 
 	if err := repo.SeatPool(ctx, p1, "arena-1"); err != nil {
@@ -58,6 +59,7 @@ func newQueueTournament(t *testing.T) *queueTournament {
 	return &queueTournament{
 		svcConsole: func() (domain.ConsoleSnapshot, error) { return svc.GetTournamentConsole(ctx, "t1") },
 		svcLive:    func() (domain.TournamentSnapshot, error) { return svc.TournamentLive(ctx, "t1") },
+		poolsFor:   func(a string) (domain.ArenaPools, error) { return svc.GetPoolsForArena(ctx, a) },
 		repo:       repo, arenas: arenas, p1: p1, p2: p2, p3: p3,
 	}
 }
@@ -233,6 +235,40 @@ func TestTournamentLive_ArchivedQueueHidden(t *testing.T) {
 	for _, b := range snap.Bouts {
 		if b.QueueArenaName != "" || b.QueuePosition != 0 || (b.BoutID == "b2a" && b.Forecast != nil) {
 			t.Fatalf("archived queue must be hidden publicly, got %+v", b)
+		}
+	}
+}
+
+// FR-16: у пула очереди на странице арены (GetPoolsForArena) заполнено
+// ориентировочное начало первого боя — то же, что на пульте; у стоящего и
+// нераспределённых пулов его нет.
+func TestGetPoolsForArena_QueuedExpectedStart(t *testing.T) {
+	f := newQueueTournament(t)
+	snap, err := f.svcConsole()
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.poolsFor("arena-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Queued) != 1 || res.Queued[0].ID != f.p2 {
+		t.Fatalf("Queued = %+v", res.Queued)
+	}
+	got := res.Queued[0].ExpectedStartAt
+	if got == nil {
+		t.Fatal("queued pool ExpectedStartAt is nil")
+	}
+	want := snap.Arenas[0].Queue[0].ExpectedStartAt
+	if want == nil || got.Sub(*want) < -2*time.Second || got.Sub(*want) > 2*time.Second {
+		t.Fatalf("ExpectedStartAt = %v, want ≈ console %v", got, want)
+	}
+	if res.Seated == nil || res.Seated.ExpectedStartAt != nil {
+		t.Fatalf("seated pool must have no ExpectedStartAt: %+v", res.Seated)
+	}
+	for _, p := range res.Available {
+		if p.ExpectedStartAt != nil {
+			t.Fatalf("available pool %s must have no ExpectedStartAt", p.ID)
 		}
 	}
 }

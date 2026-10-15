@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008) + TDD-чеклист (ADR 0009). Упорядоченный список шагов.
 > Каждая задача = слой/файл + пара «тест → код» по циклу red → green → refactor.
 
-- Статус: in progress
+- Статус: in progress (осталась T22 — проверка в docker-стеке)
 - Дата: 2026-10-15
 - План: `./plan.md`
 
@@ -101,9 +101,9 @@ web работает на мок-транспорте/моках fetch и не �
 
 ## Проверка (join)
 
-- [ ] T20. `make test-all` + `make test-integration` зелёные.
-- [ ] T21. `pnpm exec tsc --noEmit`, `go build ./...`, `pnpm build`,
+- [x] T20. `make test-all` + `make test-integration` зелёные.
+- [x] T21. `pnpm exec tsc --noEmit`, `go build ./...`, `pnpm build`,
       `pnpm lint`.
 - [ ] T22. Полный стек `docker compose up --build`: миграция 00007
       применилась; ручная проверка AC-5/AC-6 на странице арены.
-- [ ] T23. Статусы spec/plan/tasks → done, строка в `docs/specs/README.md`.
+- [x] T23. Статусы spec/plan/tasks → done, строка в `docs/specs/README.md`.

@@ -3,7 +3,7 @@
 > Артефакт SDD (ADR 0008). Описывает **КАК** реализуем `spec.md` в архитектуре
 > проекта.
 
-- Статус: ready
+- Статус: done
 - Дата: 2026-10-15
 - Спека: `./spec.md`
 
@@ -30,6 +30,11 @@
   - `string stage_title = 12;` — FR-14/FR-15, текущее название этапа.
   - `string queue_arena_id = 13;`, `string queue_arena_name = 14;`,
     `int32 queue_position = 15;` (1-индекс; 0 и пустые id — не в очереди).
+  - `google.protobuf.Timestamp expected_start_at = 16;` — ориентировочное
+    начало первого боя пула очереди (FR-16); заполняется только в
+    `GetPoolsForArena` (`fillQueuedExpectedStart`: прогноз через
+    `gatherTournament` турнира арены, `ArenaRef.TournamentID`; ошибка прогноза
+    не ломает страницу — время просто не показывается).
 - `GetPoolsForArenaResponse` — `repeated Pool queued = 3;` (очередь этой
   арены по порядку). `available` исключает пулы очереди **этой** арены, но
   включает пулы очередей других арен (у них заполнен `queue_arena_*`, UI

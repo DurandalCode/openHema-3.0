@@ -93,6 +93,12 @@ export type Pool = {
   queueArenaId?: string;
   queueArenaName?: string;
   queuePosition?: number;
+  /**
+   * expectedStartAt — ориентировочное начало первого боя пула очереди (спека
+   * 0063, FR-16), ISO-строка; `null`/нет — вне очереди или оценки нет.
+   * Заполняется только ответом «пулы арены». Оценка всегда предварительная.
+   */
+  expectedStartAt?: string | null;
 };
 
 /**

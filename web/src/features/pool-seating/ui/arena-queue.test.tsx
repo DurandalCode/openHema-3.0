@@ -65,6 +65,16 @@ describe("ArenaQueue — очередь арены (спека 0063, FR-16)", ()
     expect(screen.queryByRole("button", { name: "Поставить следующий" })).not.toBeInTheDocument();
   });
 
+  it("FR-16: shows the approximate start of a queued pool, marked as preliminary", () => {
+    const soon = new Date(Date.now() + 40 * 60_000).toISOString();
+    renderQueue([pool("p1", { expectedStartAt: soon }), pool("p2")]);
+
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[0]).getByText(/ориентировочно/)).toBeInTheDocument();
+    expect(within(items[0]).getByText("предварительно")).toBeInTheDocument();
+    expect(within(items[1]).queryByText(/ориентировочно/)).not.toBeInTheDocument();
+  });
+
   it("lists pools in order with number, pool, stage, nomination and bout count", () => {
     renderQueue([pool("p1"), pool("p2", { stageTitle: "Утешительная сетка" })]);
 

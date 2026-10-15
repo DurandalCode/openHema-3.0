@@ -5,6 +5,7 @@ package domain
 import (
 	"sort"
 	"strings"
+	"time"
 )
 
 // FighterRef — проекция бойца для раскладки: id + клуб (для алгоритма) и имя
@@ -49,11 +50,11 @@ type Pool struct {
 	// чтении. Раньше собиралась в api (`poolName(number)`); переехала сюда,
 	// потому что подпись сетки зависит от конфига этапа, которого у
 	// мапперов api нет.
-	Name    string
-	Members []FighterRef
-	ArenaID        string
-	ArenaName      string
-	Status         PoolStatus
+	Name      string
+	Members   []FighterRef
+	ArenaID   string
+	ArenaName string
+	Status    PoolStatus
 	// CurrentBoutID — указатель текущего боя пула (спека 0013, FR-7/FR-8):
 	// пусто, если пул без боёв или указатель не задан (эффективный текущий
 	// бой резолвится службой — см. service.effectiveCurrentBoutID).
@@ -72,6 +73,10 @@ type Pool struct {
 	QueueArenaID   string
 	QueueArenaName string
 	QueuePosition  int
+	// ExpectedStartAt — ориентировочное начало первого боя пула очереди
+	// (спека 0063, FR-16); nil вне очереди или если оценки нет. Заполняется
+	// только в GetPoolsForArena.
+	ExpectedStartAt *time.Time
 }
 
 // Assignment — результат автораспределения: бойца — в пул.

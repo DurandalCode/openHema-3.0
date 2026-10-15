@@ -1050,7 +1050,40 @@ func (s *Service) GetPoolsForArena(ctx context.Context, arenaID string) (domain.
 	if result.Queued == nil {
 		result.Queued = []domain.Pool{}
 	}
+	s.fillQueuedExpectedStart(ctx, arenaID, result.Queued)
 	return result, nil
+}
+
+// fillQueuedExpectedStart проставляет пулам очереди арены ориентировочное
+// начало первого боя (спека 0063, FR-16) — тот же прогноз, что на пульте
+// (общий gatherTournament). Прогноз — справочная информация: если турнир
+// арены не определён или сбор прогноза не удался, время просто не
+// показывается, страница арены от этого не ломается.
+func (s *Service) fillQueuedExpectedStart(ctx context.Context, arenaID string, queued []domain.Pool) {
+	if len(queued) == 0 {
+		return
+	}
+	arena, err := s.arenas.ArenaByID(ctx, arenaID)
+	if err != nil || arena.TournamentID == "" {
+		return
+	}
+	gathered, err := s.gatherTournament(ctx, arena.TournamentID)
+	if err != nil {
+		return
+	}
+	for i := range queued {
+		cf, ok := gathered.forecasts[queued[i].ID]
+		if !ok {
+			continue
+		}
+		for _, f := range cf.byBout {
+			if f.BoutsAhead == 0 {
+				t := f.ExpectedStartAt
+				queued[i].ExpectedStartAt = &t
+				break
+			}
+		}
+	}
 }
 
 // ListPublicPools возвращает контейнеры только ГРУППОВЫХ этапов номинации

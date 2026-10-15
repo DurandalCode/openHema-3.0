@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { Col, Row } from "@/shared/ui/stack";
 import { poolTitle, type Pool } from "@/entities/pool/lib/types";
 import { groupBoutsByPool } from "@/entities/bout/lib/types";
+import { ForecastTime } from "@/shared/ui/forecast-time";
 import { useBoutsForNomination } from "../api/use-bouts-for-nomination";
 
 /** boutCountLabel — «1 бой», «2 боя», «5 боёв». */
@@ -125,6 +126,17 @@ function QueueItem({
               {pool.nominationName && <Badge variant="outline">{pool.nominationName}</Badge>}
               {boutCount > 0 && (
                 <span className="text-xs text-muted-foreground">{boutCountLabel(boutCount)}</span>
+              )}
+              {pool.expectedStartAt && (
+                <ForecastTime
+                  className="text-xs"
+                  forecast={{
+                    expectedStartAt: pool.expectedStartAt,
+                    boutsAhead: 0,
+                    provisional: true,
+                    imminent: false,
+                  }}
+                />
               )}
             </Row>
             <Row align="center" gap={1}>

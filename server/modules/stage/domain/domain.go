@@ -1008,10 +1008,14 @@ type NominationSnapshot struct {
 // FR-14): заполняется только у результата ActiveArenas — остальные пути
 // (ArenaByID/ArenasByIDs) её не резолвят и оставляют нулевой.
 type ArenaRef struct {
-	ID       string
-	Name     string
-	Active   bool
-	Position int
+	ID   string
+	Name string
+	// TournamentID — турнир площадки (спека 0063, FR-16): нужен, чтобы
+	// посчитать прогноз очереди на странице арены. Заполняет адаптер
+	// ArenaByID/ArenasByIDs; ActiveArenas его не гарантирует.
+	TournamentID string
+	Active       bool
+	Position     int
 	// LastFreedAt — момент последнего освобождения площадки (спека 0043,
 	// FR-26/FR-28): nil, если площадку никогда не освобождали («ждёт
 	// первый пул»). Заполняется только у результата ActiveArenas — как и

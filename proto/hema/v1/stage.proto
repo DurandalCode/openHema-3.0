@@ -575,6 +575,10 @@ message Pool {
   string queue_arena_id = 13;
   string queue_arena_name = 14;
   int32 queue_position = 15;
+  // expected_start_at — ориентировочное начало первого боя пула очереди
+  // (спека 0063, FR-16); не заполнено вне очереди и там, где оценки нет.
+  // Заполняется только в GetPoolsForArena.
+  google.protobuf.Timestamp expected_start_at = 16;
 }
 
 // ---------------------------------------------------------------------

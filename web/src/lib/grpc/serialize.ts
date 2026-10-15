@@ -526,6 +526,7 @@ function poolRawToDto(raw: Partial<PoolDto> | undefined): PoolDto {
     queueArenaId: raw?.queueArenaId ?? "",
     queueArenaName: raw?.queueArenaName ?? "",
     queuePosition: raw?.queuePosition ?? 0,
+    expectedStartAt: raw?.expectedStartAt ?? null,
   };
 }
 
